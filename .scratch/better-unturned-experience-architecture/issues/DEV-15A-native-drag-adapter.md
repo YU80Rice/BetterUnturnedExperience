@@ -48,6 +48,6 @@ Specification: `../spec-DEV-15-better-item-interaction.md`
 - 非法普通网格：仅 `StopDrag`；
 - 当前代际特殊页：`PassThrough`；陈旧代际（含特殊页）：零原生动作并返回 `Cancelled`；
 - Release solution：0 errors / 0 warnings；7/7 测试 PASS；
-- GPT 独立审计 R3：PASS，报告 `audit/2026-08-25/GPT-DEV-15A-Independent-Audit-R3.md`；
+- GPT 独立审计 R4：PASS，报告 `audit/2026-08-25/GPT-DEV-15A-Independent-Audit-R4.md`，绑定当前提交 `069c095`；
 - 当前 ClientUi DLL SHA-256：`473F4ABB1A924B6B78DD9ABAEFABEBF670EB0D73A3CC5CA09139404C1D355B46`；
 - 运行证据：无；真实 Unity/Unturned Hook、SP/P2P/U3DS 仍属于后续门禁。
