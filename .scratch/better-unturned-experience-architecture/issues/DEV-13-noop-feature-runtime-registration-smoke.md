@@ -64,3 +64,10 @@ Depends on: DEV-10、DEV-11、DEV-12、SCR-GPT18-001、GPT-18
 - No-op DLL SHA-256 未变：`CD177FE68CED6EAE4986062D74D9BC07555EB12B7D4E70B756FFC2AAED42FA02`。
 - 已重新 Release 构建并完成 7/7 测试；需重新执行人工双 DLL 冒烟并采集 `RuntimeReady` 日志后才可关闭工单。
 - GPT 独立审计 R2：`audit/2026-08-25/GPT-DEV-13-Independent-Audit-R2.md`，判定 `PASS（静态修复审计）`；真实运行门禁仍未闭环。
+
+## 人工双 DLL 冒烟 R2（2026-08-25 19:56）
+
+- 诊断包：`UMM-诊断包_20260825_195629`。
+- 修订版 BUE 与 No-op 哈希均匹配；BUE/No-op 加载与 No-op 注册成功。
+- 仍缺少 `BUE-BOOTSTRAP-003 status=RuntimeReady`，故本轮判定 `PENDING`，工单继续保持 `ready-for-human`。
+- 复核报告：`audit/2026-08-25/GPT-DEV-13-Clean-Install-195629.md`。
