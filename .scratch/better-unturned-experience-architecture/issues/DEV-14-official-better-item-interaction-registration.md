@@ -1,7 +1,7 @@
 # DEV-14：官方 Better Item Interaction 公开注册与准入 tracer bullet
 
 Type: task
-Status: ready-for-human
+Status: resolved
 Owner: GPT（后端运行时与官方功能装配）
 Required reviewer: Gemini（前端消费与官方/第三方平权）
 Baseline: BUE-V1-RT01-20260824
@@ -44,6 +44,9 @@ Depends on: DEV-13 (`resolved`), SCR-GPT18-001（已接受提案）
 - TDD Green：新增 `OfficialFeatureRegistration.cs`，官方功能通过 `BueRuntimeHost.Register()` 登记；Host `Awake` 在 `RegistrationOpen` 阶段调用同一入口。
 - Release solution：0 errors / 0 warnings。
 - 完整 7 个测试套件：全部 PASS；目标输出 `DEV-14 official registration parity tests: PASS`。
-- GPT 独立审计：PASS，无阻断项；等待 Gemini 前端消费复核与人工运行批准。
+- GPT 独立审计：PASS，无阻断项。
+- Gemini 前端消费复核：ACCEPT（`Gemini-DEV-14-Official-Registration-Review.md`）。
 - 实施报告：`audit/2026-08-25/Implementation-DEV14-Official-Registration-2043.md`。
-- 后续真实运行必须绑定本次变更后的新 BUE DLL 哈希；不得继承 DEV-13 旧运行证据。
+- 正式客户端双 DLL 冒烟：PASS；诊断包：`UMM-诊断包_20260825_205630`。
+- 实际部署哈希与 staging 哈希一致；日志出现 `BootstrapReady`、官方注册成功、No-op 注册成功及 `RuntimeReady`。
+- 最终运行审计：`audit/2026-08-25/GPT-DEV-14-Clean-Install-205630.md`。
