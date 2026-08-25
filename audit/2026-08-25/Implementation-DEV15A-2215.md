@@ -46,7 +46,7 @@ dotnet build BetterUnturnedExperience.sln -c Release --no-restore
 
 1. Red：测试捕获合法候选先 `StopDrag`、陈旧特殊页 pass-through、同格非法候选 pass-through 三类边界错误；
 2. Green：修正为代际先守卫、合法 `SendDragItem → StopDrag`、非法状态先于同格判断；
-3. GPT 独立审计 R3：PASS，`GPT-DEV-15A-Independent-Audit-R3.md`；
+3. GPT 独立审计 R4：PASS，`GPT-DEV-15A-Independent-Audit-R4.md`（绑定当前提交 `0a44114380941aa758f8e339746f8071a9110b10`）；
 4. Standards 轴复核：PASS，未发现硬性标准违规；
 5. Spec 轴复核：前两轮发现的上述边界项已修复，最终代码与 DEV-15A 规格一致。
 
