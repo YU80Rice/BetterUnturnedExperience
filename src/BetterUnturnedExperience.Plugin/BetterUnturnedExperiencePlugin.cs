@@ -2,6 +2,7 @@ using BepInEx;
 using BetterUnturnedExperience.Contracts;
 using BetterUnturnedExperience.Core.Registration;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 
 namespace BetterUnturnedExperience.Plugin
 {
@@ -21,6 +22,7 @@ namespace BetterUnturnedExperience.Plugin
                 var runtime = new FeatureRegistrationRuntime();
                 BueRuntimeHost.Bind(runtime);
                 runtime.OpenRegistration();
+                SceneManager.sceneLoaded += OnSceneLoaded;
                 Logger.LogInfo("Better Unturned Experience featureId=" + FeatureId + " status=BootstrapReady decision=" + decision + " diagnosticId=" + DiagnosticId);
             }
             catch (System.Exception error)
@@ -43,6 +45,11 @@ namespace BetterUnturnedExperience.Plugin
             TryCompleteRuntime();
         }
 
+        private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
+        {
+            TryCompleteRuntime();
+        }
+
         private void TryCompleteRuntime()
         {
             if (runtimeReadyLogged) return;
@@ -50,6 +57,7 @@ namespace BetterUnturnedExperience.Plugin
             if (runtime == null || runtime.Phase != FeatureRegistrationPhase.RegistrationOpen) return;
             if (!runtime.CompleteRuntime()) return;
             runtimeReadyLogged = true;
+            SceneManager.sceneLoaded -= OnSceneLoaded;
             Logger.LogInfo("Better Unturned Experience featureId=" + FeatureId + " status=RuntimeReady diagnosticId=BUE-BOOTSTRAP-003");
         }
     }

@@ -65,6 +65,23 @@ Depends on: DEV-10、DEV-11、DEV-12、SCR-GPT18-001、GPT-18
 - 已重新 Release 构建并完成 7/7 测试；需重新执行人工双 DLL 冒烟并采集 `RuntimeReady` 日志后才可关闭工单。
 - GPT 独立审计 R2：`audit/2026-08-25/GPT-DEV-13-Independent-Audit-R2.md`，判定 `PASS（静态修复审计）`；真实运行门禁仍未闭环。
 
+## R2 诊断修复（2026-08-25）
+
+- 20:09:06 诊断包确认：`Awake` 与 `RegistrationOpen` 执行，但没有 `Start`、`Update` 或 `TryCompleteRuntime` 日志；故障点为 Unity 消息回调未调度，而非 barrier 内部拒绝。
+- 增加 `SceneManager.sceneLoaded` Host-owned fallback；场景加载时调用同一 `TryCompleteRuntime()`，成功后退订；`Start/Update` 仍保留为兼容路径。
+- 重新构建：0 errors / 0 warnings；7/7 测试 PASS。
+- 新诊断版 BUE DLL：`artifacts/DEV-13-noop-registration-20260825-debug2/BetterUnturnedExperience.dll`，SHA-256 `F799EA4F429B90CC4231BC6F6798D5A9842B9352F53BB1EA082B1F9F248AC422`。
+
+## 调试版人工双 DLL 冒烟（2026-08-25 20:13）
+
+- 诊断包：`UMM-诊断包_20260825_201336`。
+- `sceneLoaded` fallback 已执行，日志出现 `status=RuntimeReady diagnosticId=BUE-BOOTSTRAP-003`。
+- 两枚 DLL 哈希匹配修订版，No-op 注册成功，UMM `Normal`/退出码 `0`。
+- 临时 `[DEBUG-DEV13]` instrumentation 已移除；清理后正式 DLL 哈希已变化，旧运行证据不得继承。
+- 清理后 Release 构建 0 errors / 0 warnings，7/7 测试 PASS。
+- 正式 DLL：`artifacts/DEV-13-noop-registration-20260825-final/BetterUnturnedExperience.dll`，SHA-256 `166B6C488F609BA933A02BB62432FD6079352B05CBD9F0FD40B6ABADF1DC8B32`。
+- 待对正式 DLL 重新采集 `RuntimeReady` 运行证据后，才可标记 `resolved`。
+
 ## 人工双 DLL 冒烟 R2（2026-08-25 19:56）
 
 - 诊断包：`UMM-诊断包_20260825_195629`。
