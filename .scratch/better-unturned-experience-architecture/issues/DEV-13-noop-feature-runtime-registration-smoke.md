@@ -48,6 +48,19 @@ Depends on: DEV-10、DEV-11、DEV-12、SCR-GPT18-001、GPT-18
 - Release：0 errors / 0 warnings；7 项测试全部 PASS。
 - staging 产物：`artifacts/DEV-13-noop-registration-20260825/`。
 - 实施报告：`audit/2026-08-25/Implementation-DEV13-RegistrationBarrier-1925.md`。
-- Gemini 复核交接：`handoffs/GPT-to-Gemini-DEV13-NoOp-Registration-Barrier.md`。
-- 独立审计 R1：`audit/2026-08-25/GPT-DEV-13-Independent-Audit-R1.md`，判定 `PASS`。
-- 当前状态为 `ready-for-human`，等待 Gemini 复核及真实 BUE + No-op 双 DLL 客户端冒烟。
+- Gemini 前端消费复核：ACCEPT（`Gemini-DEV-13-Registration-Barrier-Review.md`）；同意工单维持 `ready-for-human`，待真实 BUE + No-op 双 DLL 客户端冒烟验证。
+
+## 人工双 DLL 冒烟 R1（2026-08-25 19:37）
+
+- 诊断包：`UMM-诊断包_20260825_193703`。
+- 两个 DLL 均被 BepInEx 加载；No-op 输出 `accepted=True reason=None diagnosticId=BUE-REG-ACCEPT`。
+- UMM 摘要：`Normal`，退出码 `0`；目标异常扫描无命中。
+- 阻断：日志未出现 `BUE-BOOTSTRAP-003 status=RuntimeReady`，因此不能把 R1 视为 barrier 运行通过。
+
+## R1 修复
+
+- `BetterUnturnedExperiencePlugin` 增加 Host-owned 一次性 `Update()` fallback，若 Unity/BepInEx 未派发可见 `Start()`，下一帧仍由 BUE 自己调用同一 `CompleteRuntime()`；外部功能不能推进阶段。
+- 修订后 BUE DLL SHA-256：`A76202EB3087549695C623C4B008F70E35E424252B79D6CE4C24919290065A64`。
+- No-op DLL SHA-256 未变：`CD177FE68CED6EAE4986062D74D9BC07555EB12B7D4E70B756FFC2AAED42FA02`。
+- 已重新 Release 构建并完成 7/7 测试；需重新执行人工双 DLL 冒烟并采集 `RuntimeReady` 日志后才可关闭工单。
+- GPT 独立审计 R2：`audit/2026-08-25/GPT-DEV-13-Independent-Audit-R2.md`，判定 `PASS（静态修复审计）`；真实运行门禁仍未闭环。

@@ -59,3 +59,9 @@ GPT 独立审计 R1：`audit/2026-08-25/GPT-DEV-13-Independent-Audit-R1.md`，�
 ## 七、边界与未宣称事项
 
 本票不证明 U3DS、单人、SteamP2PFriends Host/Client、ClientUi Satellite、Better Item Interaction 或三环境发布资格；不修改 LMN、BepInEx、U3DS 或 Unturned 原版内容。
+
+## 八、人工双 DLL 冒烟 R1 与修复
+
+`UMM-诊断包_20260825_193703` 证明 BUE 与 No-op 均被加载且 No-op 注册成功，但没有 `BUE-BOOTSTRAP-003 status=RuntimeReady`。该证据不足以关闭 barrier 运行门禁。
+
+修复：BUE Plugin 保留 `Start()` 首选路径，并增加一次性 `Update()` fallback，仍只由 BUE Host 调用 `CompleteRuntime()`。修订后 Release 构建和 7/7 测试通过；新 BUE DLL SHA-256 为 `A76202EB3087549695C623C4B008F70E35E424252B79D6CE4C24919290065A64`。等待重新人工冒烟。

@@ -1,4 +1,5 @@
 using BepInEx;
+using BetterUnturnedExperience.Contracts;
 using BetterUnturnedExperience.Core.Registration;
 using UnityEngine;
 
@@ -9,6 +10,7 @@ namespace BetterUnturnedExperience.Plugin
     {
         private const string FeatureId = "io.github.yu80rice.betterunturnedexperience";
         private const string DiagnosticId = "BUE-BOOTSTRAP-001";
+        private bool runtimeReadyLogged;
 
         private void Awake()
         {
@@ -29,13 +31,25 @@ namespace BetterUnturnedExperience.Plugin
 
         private void Start()
         {
-            var runtime = BueRuntimeHost.CurrentRuntime;
-            if (runtime == null || !runtime.CompleteRuntime())
-            {
-                Logger.LogError("Better Unturned Experience featureId=" + FeatureId + " status=BootstrapFailed diagnosticId=BUE-BOOTSTRAP-002 errorType=RuntimeBarrierRejected");
-                return;
-            }
+            TryCompleteRuntime();
+        }
 
+        private void Update()
+        {
+            // Some BepInEx/Unity hosts do not dispatch a plugin Start message
+            // before the first frame. Keep the same host-owned barrier as a
+            // one-shot next-frame fallback; external features still cannot
+            // advance the registration phase.
+            TryCompleteRuntime();
+        }
+
+        private void TryCompleteRuntime()
+        {
+            if (runtimeReadyLogged) return;
+            var runtime = BueRuntimeHost.CurrentRuntime;
+            if (runtime == null || runtime.Phase != FeatureRegistrationPhase.RegistrationOpen) return;
+            if (!runtime.CompleteRuntime()) return;
+            runtimeReadyLogged = true;
             Logger.LogInfo("Better Unturned Experience featureId=" + FeatureId + " status=RuntimeReady diagnosticId=BUE-BOOTSTRAP-003");
         }
     }

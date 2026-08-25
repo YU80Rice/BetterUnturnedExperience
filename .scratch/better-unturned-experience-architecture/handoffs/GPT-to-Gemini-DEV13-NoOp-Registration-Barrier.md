@@ -32,3 +32,9 @@
 ## 证据边界
 
 当前仅有静态、单元和 staging 证据；尚未进行真实 BepInEx BUE + No-op 双 DLL 客户端冒烟，也不宣称 U3DS/SP/P2P、ClientUi 或 Better Item Interaction 通过。
+
+## R1 运行缺口与修订
+
+人工诊断包 `UMM-诊断包_20260825_193703` 证明 No-op 注册成功，但缺少 `BUE-BOOTSTRAP-003 RuntimeReady`。BUE Host 已增加一次性 `Update()` fallback，修订后 BUE DLL SHA-256 为 `A76202EB3087549695C623C4B008F70E35E424252B79D6CE4C24919290065A64`；No-op DLL 保持 `CD177FE68CED6EAE4986062D74D9BC07555EB12B7D4E70B756FFC2AAED42FA02`。
+
+GPT 独立审计 R2：`audit/2026-08-25/GPT-DEV-13-Independent-Audit-R2.md`，静态修复 PASS；请在重新人工部署后复核新的 `RuntimeReady` 日志。
