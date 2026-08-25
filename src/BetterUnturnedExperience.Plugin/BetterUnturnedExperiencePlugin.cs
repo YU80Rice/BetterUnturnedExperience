@@ -22,8 +22,10 @@ namespace BetterUnturnedExperience.Plugin
                 var runtime = new FeatureRegistrationRuntime();
                 BueRuntimeHost.Bind(runtime);
                 runtime.OpenRegistration();
+                var officialRegistration = BetterItemInteractionFeatureRegistration.Register();
                 SceneManager.sceneLoaded += OnSceneLoaded;
                 Logger.LogInfo("Better Unturned Experience featureId=" + FeatureId + " status=BootstrapReady decision=" + decision + " diagnosticId=" + DiagnosticId);
+                Logger.LogInfo("Better Item Interaction featureId=" + officialRegistration.Feature.Value + " accepted=" + officialRegistration.Accepted + " reason=" + officialRegistration.Reason + " diagnosticId=" + officialRegistration.DiagnosticId);
             }
             catch (System.Exception error)
             {

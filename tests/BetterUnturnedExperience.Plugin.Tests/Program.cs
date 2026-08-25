@@ -24,15 +24,18 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 var runtime = new FeatureRegistrationRuntime();
                 BueRuntimeHost.Bind(runtime);
                 runtime.OpenRegistration();
+                var official = BetterItemInteractionFeatureRegistration.Register();
+                Assert(official.Accepted && official.Feature.Value == "io.github.yu80rice.bue.better-item-interaction", "official feature registers through the same public host bridge");
                 var accepted = new NoOpFeatureBootstrap().Awake();
                 Assert(accepted.Accepted && accepted.Feature.Value == "io.github.yu80rice.bue.noop", "independent fixture registers through public host bridge");
-                Assert(runtime.CompleteRuntime() && runtime.Catalog.Entries.Count == 1, "fixture reaches runtime ready through host barrier");
+                Assert(runtime.CompleteRuntime() && runtime.Catalog.Entries.Count == 2, "official and fixture reach runtime ready through host barrier");
                 Assert(runtime.Phase == FeatureRegistrationPhase.RuntimeReady, "runtime barrier enters RuntimeReady");
+                Assert(runtime.Catalog.Entries[0].Definition.Feature.Value == "io.github.yu80rice.bue.better-item-interaction", "catalog order is deterministic by feature identity");
                 var late = NoOpFeatureRegistration.Register();
                 Assert(late.Reason == FeatureRegistrationReason.PhaseClosed, "fixture late registration is rejected");
-                Console.WriteLine("DEV-13 external registration barrier tests: PASS"); return 0;
+                Console.WriteLine("DEV-14 official registration parity tests: PASS"); return 0;
             }
-            catch (Exception error) { Console.WriteLine("DEV-13 external registration barrier tests: FAIL"); Console.WriteLine(error.GetType().FullName); Console.WriteLine(error.Message); return 1; }
+            catch (Exception error) { Console.WriteLine("DEV-14 official registration parity tests: FAIL"); Console.WriteLine(error.GetType().FullName); Console.WriteLine(error.Message); return 1; }
         }
         private static void AssertSingleDllAssemblyClosure()
         {
