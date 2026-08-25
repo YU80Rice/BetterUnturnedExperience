@@ -85,6 +85,8 @@ namespace BetterUnturnedExperience.ClientUi.Internal
         private readonly List<ComponentSlot> activeComponents = new List<ComponentSlot>();
         private readonly List<FeatureId> isolatedFeatureIds = new List<FeatureId>();
         private ClientUiCompositionState state;
+        private bool safeMode;
+        private int safeModeDiagnosticCount;
 
         public ClientUiCompositionRoot(GeneratedClientUiRegistry registry)
         {
@@ -94,11 +96,13 @@ namespace BetterUnturnedExperience.ClientUi.Internal
 
         internal ClientUiCompositionState State { get { return state; } }
         internal IReadOnlyList<FeatureId> IsolatedFeatureIds { get { return isolatedFeatureIds.AsReadOnly(); } }
+        internal bool IsSafeMode { get { return safeMode; } }
+        internal int SafeModeDiagnosticCount { get { return safeModeDiagnosticCount; } }
 
         internal bool Initialize(ClientUiEnvironment environment, IClientUiRoot root)
         {
             if (state == ClientUiCompositionState.Ready) return true;
-            if (state == ClientUiCompositionState.Destroyed) return false;
+            if (state == ClientUiCompositionState.Destroyed || safeMode) return false;
             if (!environment.CanCompose || root == null)
             {
                 state = ClientUiCompositionState.Unavailable;
@@ -160,6 +164,27 @@ namespace BetterUnturnedExperience.ClientUi.Internal
                 catch (Exception) { isolatedFeatureIds.Add(slot.Feature); }
             }
             state = ClientUiCompositionState.Destroyed;
+        }
+
+        internal void EnterSafeMode(Action<string> diagnostic)
+        {
+            if (safeMode) return;
+            safeMode = true;
+            safeModeDiagnosticCount++;
+            if (diagnostic != null)
+            {
+                try { diagnostic("BUE-CLIENTUI-SAFEMODE"); }
+                catch (Exception) { }
+            }
+            while (activeComponents.Count > 0)
+            {
+                var index = activeComponents.Count - 1;
+                var slot = activeComponents[index];
+                activeComponents.RemoveAt(index);
+                try { slot.Component.OnUiDestroyed(); }
+                catch (Exception) { isolatedFeatureIds.Add(slot.Feature); }
+            }
+            state = ClientUiCompositionState.Unavailable;
         }
 
         private void IsolateAt(int index)

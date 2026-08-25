@@ -35,6 +35,7 @@
     <Compile Include="InventoryProjectionRelay.cs" />
     <Compile Include="ItemInteractionUiComponent.cs" />
     <Compile Include="SettingsSnapshotPresenter.cs" />
+    <Compile Include="BetterItemInteractionLifecycle.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>

@@ -150,11 +150,16 @@ namespace BetterUnturnedExperience.ClientUi.Internal
     {
         private readonly InventoryPreviewPresenter previewPresenter;
         private readonly NativeInventoryInteractionAdapter nativeAdapter;
+        private readonly BetterItemInteractionSettingsState settingsState;
+        private readonly BetterItemInteractionLifecycle lifecycle;
+        private readonly BetterItemInteractionRuntime runtime;
         private IInventorySurfaceContext currentSurface;
         private ContainerReference currentContainer;
         private uint currentSessionGeneration;
         private InventoryPreviewVisualSink previewSink;
         private bool isInventoryOpen;
+        private bool satelliteAvailable = true;
+        private bool headless;
 
         internal BetterItemInteractionUiComponent(
             InventoryPreviewPresenter previewPresenter,
@@ -162,6 +167,10 @@ namespace BetterUnturnedExperience.ClientUi.Internal
         {
             this.previewPresenter = previewPresenter ?? throw new ArgumentNullException(nameof(previewPresenter));
             this.nativeAdapter = nativeAdapter ?? throw new ArgumentNullException(nameof(nativeAdapter));
+            settingsState = new BetterItemInteractionSettingsState();
+            lifecycle = new BetterItemInteractionLifecycle();
+            runtime = new BetterItemInteractionRuntime(settingsState, lifecycle);
+            runtime.RegisterCleanup(CleanupUiAndDrag);
         }
 
         internal bool IsInventoryOpen { get { return isInventoryOpen; } }
@@ -169,14 +178,55 @@ namespace BetterUnturnedExperience.ClientUi.Internal
         internal uint CurrentSessionGeneration { get { return currentSessionGeneration; } }
         internal IInventorySurfaceContext CurrentSurface { get { return currentSurface; } }
         internal InventoryPreviewVisualSink PreviewSink { get { return previewSink; } }
+        internal BetterItemInteractionLifecycle Lifecycle { get { return lifecycle; } }
+        internal BetterItemInteractionSettingsState SettingsState { get { return settingsState; } }
+        internal bool EnhancedDragActive { get { return runtime.EnhancedDragActive; } }
+
+        internal void ApplySettingsSnapshot(FeatureSettingsSnapshot snapshot)
+        {
+            if (!settingsState.ApplySnapshot(snapshot)) return;
+            if (!runtime.EnhancedDragActive && !settingsState.Enabled)
+            {
+                lifecycle.Disable();
+                CleanupUiAndDrag();
+            }
+        }
+
+        internal void SetClientUiSatelliteAvailable(bool available, bool headless)
+        {
+            satelliteAvailable = available;
+            this.headless = headless;
+            lifecycle.SetPresentationAvailable(available, headless);
+            if (!available || headless) runtime.Isolate();
+        }
+
+        internal void EnterSafeMode()
+        {
+            runtime.EnterSafeMode();
+        }
 
         public void OnUiInitialized(IClientUiRoot root)
         {
-            // UI initialized, root registered
+            OnUiInitialized(root, true, false);
+        }
+
+        internal void OnUiInitialized(IClientUiRoot root, bool satelliteAvailable, bool headless)
+        {
+            this.satelliteAvailable = satelliteAvailable;
+            this.headless = headless;
+            runtime.Start(true, satelliteAvailable);
+            lifecycle.SetPresentationAvailable(satelliteAvailable, headless);
         }
 
         public void OnInventoryOpened(IClientUiInventorySurface inventory)
         {
+            if (lifecycle.State == FeatureState.Discovered) runtime.Start(true, satelliteAvailable);
+            CleanupUiAndDrag();
+            if (lifecycle.SafeMode || !lifecycle.CanRun || !satelliteAvailable || headless)
+            {
+                isInventoryOpen = false;
+                return;
+            }
             isInventoryOpen = true;
             if (inventory is IInventorySurfaceContext surfaceContext)
             {
@@ -184,6 +234,10 @@ namespace BetterUnturnedExperience.ClientUi.Internal
                 currentContainer = surfaceContext.CurrentContainer;
                 currentSessionGeneration = surfaceContext.CurrentContainer.SessionGeneration;
                 BindVisualSink(surfaceContext.TopLevelContainer, surfaceContext.GridPanelContainer);
+            }
+            else
+            {
+                OnInventoryClosed();
             }
         }
 
@@ -198,11 +252,13 @@ namespace BetterUnturnedExperience.ClientUi.Internal
                 previewSink.Unmount();
                 previewSink = null;
             }
+            runtime.EndDrag();
             previewPresenter.EndDrag();
         }
 
         public void OnUiDestroyed()
         {
+            runtime.Stop();
             OnInventoryClosed();
         }
 
@@ -218,12 +274,23 @@ namespace BetterUnturnedExperience.ClientUi.Internal
 
         internal void OnDragStarted(uint dragGeneration)
         {
-            previewPresenter.BeginDrag(dragGeneration);
+            runtime.BeginDrag(dragGeneration);
+            if (runtime.EnhancedDragActive && previewSink == null && currentSurface != null && satelliteAvailable && !headless)
+            {
+                BindVisualSink(currentSurface.TopLevelContainer, currentSurface.GridPanelContainer);
+                isInventoryOpen = true;
+            }
+            if (runtime.EnhancedDragActive) previewPresenter.BeginDrag(dragGeneration);
+            else previewPresenter.EndDrag();
         }
 
         internal void OnDragUpdated(InventoryPreviewInput input)
         {
-            if (!isInventoryOpen || previewSink == null) return;
+            if (!isInventoryOpen || previewSink == null || !runtime.EnhancedDragActive || !lifecycle.CanRun)
+            {
+                if (previewSink != null) previewSink.Hide();
+                return;
+            }
 
             // Fail-closed guard: Reject updates directed to a stale container or session generation
             if (currentSessionGeneration != 0 &&
@@ -235,7 +302,15 @@ namespace BetterUnturnedExperience.ClientUi.Internal
                 return;
             }
 
-            previewPresenter.Update(input, previewSink);
+            try
+            {
+                previewPresenter.Update(input, previewSink);
+            }
+            catch (Exception)
+            {
+                runtime.Isolate();
+                if (previewSink != null) previewSink.Hide();
+            }
         }
 
         internal NativeDragAdapterOutcome OnDragReleased(NativeDragAdapterInput input, INativeInventoryDragActions nativeActions)
@@ -244,8 +319,24 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             {
                 previewSink.Hide();
             }
+            if (!runtime.EnhancedDragActive)
+            {
+                runtime.EndDrag();
+                previewPresenter.EndDrag();
+                return NativeDragAdapterOutcome.PassThrough;
+            }
             previewPresenter.EndDrag();
-            return nativeAdapter.HandleRelease(input, nativeActions);
+            try
+            {
+                var outcome = nativeAdapter.HandleRelease(input, nativeActions);
+                runtime.EndDrag();
+                return outcome;
+            }
+            catch (Exception)
+            {
+                runtime.Isolate();
+                return NativeDragAdapterOutcome.PassThrough;
+            }
         }
 
         internal void OnDragCancelled()
@@ -254,6 +345,21 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             {
                 previewSink.Hide();
             }
+            runtime.EndDrag();
+            previewPresenter.EndDrag();
+        }
+
+        private void CleanupUiAndDrag()
+        {
+            if (previewSink != null)
+            {
+                previewSink.Unmount();
+                previewSink = null;
+            }
+            isInventoryOpen = false;
+            currentSurface = null;
+            currentContainer = default(ContainerReference);
+            currentSessionGeneration = 0;
             previewPresenter.EndDrag();
         }
 
@@ -267,7 +373,8 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             input = new InventoryPreviewInput(dragGeneration, source, currentContainer, pointerScreenX, pointerScreenY,
                 currentSurface.Viewport, currentSurface.CellPixelSize, currentSurface.UiScale,
                 currentSurface.ScrollPixelsX, currentSurface.ScrollPixelsY, itemWidth, itemHeight, currentRotation,
-                allowAutomaticRotation, grabOffsetX, grabOffsetY, itemAsset, currentSurface.Occupancy);
+                runtime.EnhancedDragActive && runtime.ActivePolicy.AutoRotate && allowAutomaticRotation,
+                grabOffsetX, grabOffsetY, itemAsset, currentSurface.Occupancy);
             return true;
         }
     }
