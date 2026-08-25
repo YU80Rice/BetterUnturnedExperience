@@ -12,12 +12,13 @@ namespace BetterUnturnedExperience.ClientUi.Tests
             try
             {
                 Run();
-                Console.WriteLine("DEV-05/DEV-15A ClientUi tests: PASS");
+                Dev15BTests.Run();
+                Console.WriteLine("DEV-05/DEV-15A/DEV-15B ClientUi tests: PASS");
                 return 0;
             }
             catch (Exception error)
             {
-                Console.WriteLine("DEV-05/DEV-15A ClientUi tests: FAIL");
+                Console.WriteLine("DEV-05/DEV-15A/DEV-15B ClientUi tests: FAIL");
                 Console.WriteLine(error.GetType().FullName);
                 Console.WriteLine(error.Message);
                 return 1;

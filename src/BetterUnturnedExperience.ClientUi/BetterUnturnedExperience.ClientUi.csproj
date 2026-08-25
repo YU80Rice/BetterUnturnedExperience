@@ -31,6 +31,7 @@
     <Compile Include="ClientUiTypes.cs" />
     <Compile Include="InventoryDragPresenter.cs" />
     <Compile Include="NativeInventoryInteractionAdapter.cs" />
+    <Compile Include="InventoryPreviewWiring.cs" />
     <Compile Include="SettingsSnapshotPresenter.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
