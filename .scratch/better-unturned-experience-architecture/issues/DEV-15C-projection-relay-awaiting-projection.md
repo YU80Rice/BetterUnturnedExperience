@@ -1,7 +1,7 @@
 # DEV-15C：Projection Relay + AwaitingProjection
 
 Type: task
-Status: claimed
+Status: resolved
 Owner: GPT（原生投影中继与等待态 Seam）
 Required reviewer: Gemini（前端消费与视觉状态复核）
 Parent: DEV-15
@@ -17,10 +17,10 @@ Dependency: DEV-15B（resolved）
 ## 本票范围
 
 - 原生观察回调只入队，不在 callback 栈内完成 UI 收敛；
-- 绑定 `DragGeneration`、`SessionGeneration` 与物品指纹，旧代际/旧容器/旧指纹静默丢弃；
+- 绑定 `DragGeneration`、`SessionGeneration` 与物品指纹；旧代际/旧容器静默丢弃，指纹失配不得作为 ACK，但允许交给 latest-fact 观察路径；
 - 只读快照按序消费，异常与队列溢出 fail-closed；
 - 2 秒仅作为视觉预算，到期清除等待遮罩，不推断服务端拒绝、不伪造回滚；
-- 迟到但匹配的投影静默刷新原生事实；歧义投影只刷新最新原生事实，不生成拒绝结论；
+- 迟到但匹配的投影静默刷新原生事实；同代际指纹歧义只刷新最新原生事实，不生成拒绝结论；
 - 不新增库存 RPC，不复制库存权威，不修改 Contracts/LMN/Unturned。
 
 ## 明确不做
@@ -41,13 +41,21 @@ Dependency: DEV-15B（resolved）
 
 - [ ] TDD Red → Green：回调只入队，外部 Handler 不在 callback 栈执行；
 - [ ] 同 Drag/Session/Fingerprint 的投影可收敛；
-- [ ] 任一代际、容器或指纹失配均静默丢弃；
+- [ ] 任一代际或容器失配均静默丢弃；指纹失配不完成 ACK，只能走 latest-fact 观察；
 - [ ] 预算到期只移除等待视觉状态，不生成拒绝/回滚；
 - [ ] 迟到匹配投影可收敛，歧义投影不产生拒绝结论；
-- [ ] 队列容量固定、溢出 fail-closed，Pump 不产生未界定异常；
+- [ ] 队列容量固定、溢出 fail-closed，Pump 串行化且 consumer 异常后立即失效绑定；
 - [ ] Release 0 errors / 0 warnings；ClientUi/Contracts/Core token 扫描通过；
 - [ ] 独立 GPT 审计 PASS；
-- [ ] Gemini 前端消费复核 ACCEPT 后正式关闭本票。
+- [ ] Gemini 前端消费复核 ACCEPT（`Gemini-DEV-15C-Projection-Relay-Review.md`），正式关闭本票。
+
+## GPT R1 审计阻断与修复（2026-08-25）
+
+- 修复 Pump 与 Bind/Invalidate 的 TOCTOU：绑定变更与 Pump 串行化。
+- 修复并发 Pump 乱序：单一 `pumpSync` 串行消费。
+- 修复 consumer 异常继续消费：异常立即 Invalidate 并清空队列。
+- 增加 `NativeRevision` 单调过滤，增加 `INativeInventoryProjectionSource` seam。
+- 澄清指纹语义：指纹失配不能完成 ACK，但可作为 latest-fact 观察，不解释为拒绝。
 
 ## 证据边界
 

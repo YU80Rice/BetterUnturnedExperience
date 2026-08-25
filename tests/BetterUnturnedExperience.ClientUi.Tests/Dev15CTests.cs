@@ -11,6 +11,8 @@ namespace BetterUnturnedExperience.ClientUi.Tests
             CallbackOnlyEnqueuesUntilPump();
             FixedCapacityOverflowFailsClosed();
             StaleGenerationAndSessionAreDropped();
+            ConsumerFailureInvalidatesBindingAndQueuedSnapshots();
+            OlderNativeRevisionIsDropped();
             MatchingFingerprintConvergesWithoutRejection();
             AmbiguousFingerprintObservesLatestFactWithoutRejection();
             VisualBudgetOnlyClearsAwaitingState();
@@ -91,6 +93,31 @@ namespace BetterUnturnedExperience.ClientUi.Tests
             relay.TryEnqueue(Snapshot(binding, 1));
             var report = relay.Pump(new ThrowingConsumer());
             Assert(report.ConsumerFailures == 1 && report.Applied == 0, "consumer failure is contained by relay pump");
+        }
+
+        private static void ConsumerFailureInvalidatesBindingAndQueuedSnapshots()
+        {
+            var relay = new NativeInventoryProjectionRelay(4);
+            var binding = Binding(12, 34, 11);
+            relay.Bind(binding);
+            relay.TryEnqueue(Snapshot(binding, 1));
+            relay.TryEnqueue(Snapshot(binding, 2));
+            var report = relay.Pump(new ThrowingConsumer());
+            Assert(report.ConsumerFailures == 1 && relay.Count == 0, "consumer failure invalidates binding and clears queued snapshots");
+            var healthy = new RecordingConsumer();
+            Assert(relay.Pump(healthy).Applied == 0 && healthy.Count == 0, "invalidated relay does not continue consuming stale work");
+        }
+
+        private static void OlderNativeRevisionIsDropped()
+        {
+            var relay = new NativeInventoryProjectionRelay(4);
+            var binding = Binding(13, 35, 12);
+            relay.Bind(binding);
+            relay.TryEnqueue(Snapshot(binding, 3));
+            relay.TryEnqueue(Snapshot(binding, 2));
+            var consumer = new RecordingConsumer();
+            var report = relay.Pump(consumer);
+            Assert(report.Applied == 1 && report.Dropped == 1 && consumer.Count == 1, "older native revision is dropped without rewinding projection");
         }
 
         private static ProjectionBinding Binding(uint drag, uint session, ushort itemId)

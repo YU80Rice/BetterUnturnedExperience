@@ -51,6 +51,8 @@ namespace BetterUnturnedExperience.ClientUi.Internal
 
         internal ProjectionBinding(uint dragGeneration, ContainerReference container, InventoryItemFingerprint fingerprint)
         {
+            if (dragGeneration == 0) throw new ArgumentOutOfRangeException(nameof(dragGeneration));
+            if (container.SessionGeneration == 0) throw new ArgumentOutOfRangeException(nameof(container));
             DragGeneration = dragGeneration;
             Container = container;
             Fingerprint = fingerprint;
@@ -98,6 +100,11 @@ namespace BetterUnturnedExperience.ClientUi.Internal
         }
     }
 
+    internal interface INativeInventoryProjectionSource
+    {
+        bool TryCapture(NativeInventorySnapshot snapshot);
+    }
+
     internal interface INativeInventoryProjectionConsumer
     {
         void Apply(NativeInventorySnapshot snapshot);
@@ -125,14 +132,17 @@ namespace BetterUnturnedExperience.ClientUi.Internal
         }
     }
 
-    internal sealed class NativeInventoryProjectionRelay
+    internal sealed class NativeInventoryProjectionRelay : INativeInventoryProjectionSource
     {
         private readonly object sync = new object();
+        private readonly object pumpSync = new object();
         private readonly NativeInventorySnapshot[] queue;
         private int head;
         private int count;
         private bool hasBinding;
         private ProjectionBinding binding;
+        private uint lastNativeRevision;
+        private bool hasNativeRevision;
 
         internal NativeInventoryProjectionRelay(int capacity)
         {
@@ -145,24 +155,27 @@ namespace BetterUnturnedExperience.ClientUi.Internal
 
         internal void Bind(ProjectionBinding nextBinding)
         {
-            lock (sync)
+            lock (pumpSync)
             {
-                binding = nextBinding;
-                hasBinding = true;
-                head = 0;
-                count = 0;
+                lock (sync)
+                {
+                    BindStateLocked(nextBinding);
+                }
             }
         }
 
         internal void Invalidate()
         {
-            lock (sync)
+            lock (pumpSync)
             {
-                hasBinding = false;
-                head = 0;
-                count = 0;
+                lock (sync)
+                {
+                    InvalidateStateLocked();
+                }
             }
         }
+
+        public bool TryCapture(NativeInventorySnapshot snapshot) { return TryEnqueue(snapshot); }
 
         internal bool TryEnqueue(NativeInventorySnapshot snapshot)
         {
@@ -179,38 +192,53 @@ namespace BetterUnturnedExperience.ClientUi.Internal
         internal ProjectionPumpReport Pump(INativeInventoryProjectionConsumer consumer)
         {
             if (consumer == null) throw new ArgumentNullException(nameof(consumer));
-            var applied = 0;
-            var dropped = 0;
-            var failures = 0;
-            NativeInventorySnapshot snapshot;
-            while (TryDequeue(out snapshot))
+            lock (pumpSync)
             {
-                ProjectionBinding current;
-                bool bound;
-                lock (sync)
+                var applied = 0;
+                var dropped = 0;
+                var failures = 0;
+                NativeInventorySnapshot snapshot;
+                while (TryDequeue(out snapshot))
                 {
-                    bound = hasBinding;
-                    current = binding;
+                    ProjectionBinding current;
+                    bool bound;
+                    bool staleRevision;
+                    lock (sync)
+                    {
+                        bound = hasBinding;
+                        current = binding;
+                        staleRevision = hasNativeRevision && snapshot.NativeRevision < lastNativeRevision;
+                        if (!staleRevision && bound && snapshot.MatchesGenerationAndContainer(current))
+                        {
+                            if (!hasNativeRevision || snapshot.NativeRevision > lastNativeRevision)
+                            {
+                                lastNativeRevision = snapshot.NativeRevision;
+                                hasNativeRevision = true;
+                            }
+                        }
+                    }
+
+                    if (!bound || staleRevision || !snapshot.MatchesGenerationAndContainer(current))
+                    {
+                        dropped++;
+                        continue;
+                    }
+
+                    try
+                    {
+                        consumer.Apply(snapshot);
+                        applied++;
+                    }
+                    catch (Exception)
+                    {
+                        failures++;
+                        lock (sync) InvalidateStateLocked();
+                        break;
+                    }
                 }
 
-                if (!bound || !snapshot.MatchesGenerationAndContainer(current))
-                {
-                    dropped++;
-                    continue;
-                }
-
-                try
-                {
-                    consumer.Apply(snapshot);
-                    applied++;
-                }
-                catch (Exception)
-                {
-                    failures++;
-                }
+                return new ProjectionPumpReport(applied, dropped, failures);
             }
-
-            return new ProjectionPumpReport(applied, dropped, failures);
         }
 
         private bool TryDequeue(out NativeInventorySnapshot snapshot)
@@ -229,6 +257,25 @@ namespace BetterUnturnedExperience.ClientUi.Internal
                 count--;
                 return true;
             }
+        }
+
+        private void BindStateLocked(ProjectionBinding nextBinding)
+        {
+            binding = nextBinding;
+            hasBinding = true;
+            head = 0;
+            count = 0;
+            lastNativeRevision = 0;
+            hasNativeRevision = false;
+        }
+
+        private void InvalidateStateLocked()
+        {
+            hasBinding = false;
+            head = 0;
+            count = 0;
+            lastNativeRevision = 0;
+            hasNativeRevision = false;
         }
     }
 
