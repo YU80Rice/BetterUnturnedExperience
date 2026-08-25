@@ -33,6 +33,54 @@ namespace BetterUnturnedExperience.ClientUi.Internal
         }
     }
 
+    internal readonly struct ItemAssetIdentity : IEquatable<ItemAssetIdentity>
+    {
+        public ushort ItemId { get; }
+        public Guid AssetGuid { get; }
+        public string ResourcePath { get; }
+
+        public ItemAssetIdentity(ushort itemId, Guid assetGuid, string resourcePath)
+        {
+            ItemId = itemId;
+            AssetGuid = assetGuid;
+            ResourcePath = resourcePath ?? string.Empty;
+        }
+
+        public static ItemAssetIdentity FromItemId(ushort itemId)
+        {
+            return new ItemAssetIdentity(itemId, Guid.Empty, string.Empty);
+        }
+
+        public static ItemAssetIdentity FromAsset(ushort itemId, Guid assetGuid, string resourcePath)
+        {
+            return new ItemAssetIdentity(itemId, assetGuid, resourcePath);
+        }
+
+        public bool Equals(ItemAssetIdentity other)
+        {
+            return ItemId == other.ItemId && AssetGuid.Equals(other.AssetGuid) && string.Equals(ResourcePath, other.ResourcePath, StringComparison.Ordinal);
+        }
+
+        public override bool Equals(object obj)
+        {
+            return obj is ItemAssetIdentity other && Equals(other);
+        }
+
+        public override int GetHashCode()
+        {
+            unchecked
+            {
+                var hashCode = ItemId.GetHashCode();
+                hashCode = (hashCode * 397) ^ AssetGuid.GetHashCode();
+                hashCode = (hashCode * 397) ^ (ResourcePath != null ? ResourcePath.GetHashCode() : 0);
+                return hashCode;
+            }
+        }
+
+        public static bool operator ==(ItemAssetIdentity left, ItemAssetIdentity right) => left.Equals(right);
+        public static bool operator !=(ItemAssetIdentity left, ItemAssetIdentity right) => !left.Equals(right);
+    }
+
     internal readonly struct InventoryPreviewInput
     {
         public uint DragGeneration { get; }
@@ -51,12 +99,24 @@ namespace BetterUnturnedExperience.ClientUi.Internal
         public bool AllowAutomaticRotation { get; }
         public float GrabOffsetX { get; }
         public float GrabOffsetY { get; }
+        public ItemAssetIdentity ItemAsset { get; }
         public IGridOccupancyView Occupancy { get; }
 
         internal InventoryPreviewInput(uint dragGeneration, ItemGridPosition source, ContainerReference targetContainer,
             float pointerScreenX, float pointerScreenY, InventoryGridViewport viewport, float cellPixelSize, float uiScale,
             float scrollPixelsX, float scrollPixelsY, byte itemWidth, byte itemHeight, byte currentRotation,
             bool allowAutomaticRotation, float grabOffsetX, float grabOffsetY, IGridOccupancyView occupancy)
+            : this(dragGeneration, source, targetContainer, pointerScreenX, pointerScreenY, viewport, cellPixelSize, uiScale,
+                scrollPixelsX, scrollPixelsY, itemWidth, itemHeight, currentRotation, allowAutomaticRotation,
+                grabOffsetX, grabOffsetY, default(ItemAssetIdentity), occupancy)
+        {
+        }
+
+        internal InventoryPreviewInput(uint dragGeneration, ItemGridPosition source, ContainerReference targetContainer,
+            float pointerScreenX, float pointerScreenY, InventoryGridViewport viewport, float cellPixelSize, float uiScale,
+            float scrollPixelsX, float scrollPixelsY, byte itemWidth, byte itemHeight, byte currentRotation,
+            bool allowAutomaticRotation, float grabOffsetX, float grabOffsetY, ItemAssetIdentity itemAsset,
+            IGridOccupancyView occupancy)
         {
             DragGeneration = dragGeneration;
             Source = source;
@@ -74,6 +134,7 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             AllowAutomaticRotation = allowAutomaticRotation;
             GrabOffsetX = grabOffsetX;
             GrabOffsetY = grabOffsetY;
+            ItemAsset = itemAsset;
             Occupancy = occupancy;
         }
     }
@@ -197,14 +258,17 @@ namespace BetterUnturnedExperience.ClientUi.Internal
         public byte Rotation { get { return Candidate.Rotation; } }
         public byte Width { get; }
         public byte Height { get; }
+        public float CellPixelSize { get; }
         public PlacementReason Reason { get; }
 
-        internal PreviewFrame(PreviewFrameKind kind, ItemGridPosition candidate, byte width, byte height, PlacementReason reason)
+        internal PreviewFrame(PreviewFrameKind kind, ItemGridPosition candidate, byte width, byte height,
+            float cellPixelSize, PlacementReason reason)
         {
             Kind = kind;
             Candidate = candidate;
             Width = width;
             Height = height;
+            CellPixelSize = cellPixelSize;
             Reason = reason;
         }
     }
@@ -214,12 +278,19 @@ namespace BetterUnturnedExperience.ClientUi.Internal
         public float ScreenX { get; }
         public float ScreenY { get; }
         public byte Rotation { get; }
+        public ItemAssetIdentity Asset { get; }
 
-        internal PreviewIcon(float screenX, float screenY, byte rotation)
+        internal PreviewIcon(float screenX, float screenY, byte rotation, ItemAssetIdentity asset)
         {
             ScreenX = screenX;
             ScreenY = screenY;
             Rotation = rotation;
+            Asset = asset;
+        }
+
+        internal PreviewIcon(float screenX, float screenY, byte rotation)
+            : this(screenX, screenY, rotation, default(ItemAssetIdentity))
+        {
         }
     }
 
@@ -262,14 +333,22 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             }
 
             var frameKind = preview.State == PlacementPreviewState.Candidate ? PreviewFrameKind.ValidGreen : PreviewFrameKind.InvalidRed;
-            sink.ShowFrame(new PreviewFrame(frameKind, preview.Candidate, preview.Width, preview.Height, preview.Reason));
+            var cellPixelSize = input.CellPixelSize * input.UiScale;
+            if (!IsFinite(cellPixelSize) || cellPixelSize <= 0f)
+            {
+                sink.Hide();
+                return;
+            }
+
+            sink.ShowFrame(new PreviewFrame(frameKind, preview.Candidate, preview.Width, preview.Height,
+                cellPixelSize, preview.Reason));
             if (preview.State == PlacementPreviewState.Candidate)
             {
                 float iconX;
                 float iconY;
                 if (InventoryGridCoordinateAdapter.TryGetIconScreenPosition(input, preview.Candidate.Rotation, out iconX, out iconY))
                 {
-                    sink.ShowIcon(new PreviewIcon(iconX, iconY, preview.Candidate.Rotation));
+                    sink.ShowIcon(new PreviewIcon(iconX, iconY, preview.Candidate.Rotation, input.ItemAsset));
                 }
                 else
                 {
@@ -280,6 +359,11 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             {
                 sink.HideIcon();
             }
+        }
+
+        private static bool IsFinite(float value)
+        {
+            return !float.IsNaN(value) && !float.IsInfinity(value);
         }
     }
 }

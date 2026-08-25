@@ -20,6 +20,14 @@ namespace BetterUnturnedExperience.ClientUi.Tests
             PreviewHotPathAllocatesZeroBytes();
             AppliesForwardGrabOffsetRotation();
             AnchorsIconUsingRotatedGrabOffset();
+            SleekPreviewSinkShowsGreenFrameAndFloatingIcon();
+            SleekPreviewSinkShowsRedFrameAndHidesIconOnInvalid();
+            SleekPreviewSinkBindsItemAssetIdentityToVisualIcon();
+            BetterItemInteractionUiComponentLifecycleAndDragFlow();
+            BetterItemInteractionUiComponentBindsSurfaceContextAndCreatesInput();
+            BetterItemInteractionUiComponentRejectsStaleSessionGenerationAndSwitchedContainer();
+            BetterItemInteractionUiComponentDestructionAndSafeModeCleansUpVisuals();
+            SleekSinkHotPathZeroAllocationTest();
         }
 
         private static void ConvertsScaledScrolledPointerUsingGrabOffset()
@@ -186,10 +194,243 @@ namespace BetterUnturnedExperience.ClientUi.Tests
                 "floating icon anchor consumes the rotated grab offset");
         }
 
-        private static InventoryPreviewInput Input(TestGrid occupancy, float pointerX, float pointerY, float originX, float originY,
-            float cellSize, float uiScale, float scrollX, float scrollY, byte width, byte height, float grabX, float grabY, byte rotation = 0)
+        private static void SleekPreviewSinkShowsGreenFrameAndFloatingIcon()
         {
-            return new InventoryPreviewInput(7, new ItemGridPosition(0, 0, 0, 0),
+            var topLevel = new MockVisualContainer();
+            var gridPanel = new MockVisualContainer();
+            var sink = new InventoryPreviewVisualSink(topLevel, gridPanel);
+            sink.Mount();
+
+            var asset = ItemAssetIdentity.FromItemId(363);
+            sink.ShowFrame(new PreviewFrame(PreviewFrameKind.ValidGreen, new ItemGridPosition(2, 3, 4, 1), 2, 3, 50f, PlacementReason.None));
+            sink.ShowIcon(new PreviewIcon(150f, 250f, 1, asset));
+
+            Assert(sink.IsFrameVisible, "frame is visible when shown");
+            Assert(sink.IsIconVisible, "icon is visible when shown");
+            Assert(sink.CurrentFrameColor == PreviewFrameColor.ValidGreen, "frame color is valid green");
+            Assert(Approximately(sink.FrameX, 150f) && Approximately(sink.FrameY, 200f), "frame position mapped from grid coordinate");
+            Assert(Approximately(sink.FrameWidth, 100f) && Approximately(sink.FrameHeight, 150f), "frame size mapped from item dimensions");
+            Assert(Approximately(sink.IconX, 150f) && Approximately(sink.IconY, 250f), "icon position mapped from screen anchor");
+            Assert(sink.IconRotation == 1, "icon rotation is preserved");
+            Assert(sink.BoundIconAsset == asset, "icon asset identity is bound to visual element");
+
+            sink.Hide();
+            Assert(!sink.IsFrameVisible, "hide sets frame visibility to false");
+            Assert(!sink.IsIconVisible, "hide sets icon visibility to false");
+            Assert(sink.BoundIconAsset == default(ItemAssetIdentity), "hide clears bound icon asset");
+            sink.Unmount();
+        }
+
+        private static void SleekPreviewSinkShowsRedFrameAndHidesIconOnInvalid()
+        {
+            var topLevel = new MockVisualContainer();
+            var gridPanel = new MockVisualContainer();
+            var sink = new InventoryPreviewVisualSink(topLevel, gridPanel);
+            sink.Mount();
+
+            sink.ShowFrame(new PreviewFrame(PreviewFrameKind.InvalidRed, new ItemGridPosition(2, 1, 1, 0), 1, 2, 20f, PlacementReason.Occupied));
+            sink.HideIcon();
+
+            Assert(sink.IsFrameVisible, "invalid frame is visible");
+            Assert(!sink.IsIconVisible, "icon is hidden on invalid placement");
+            Assert(sink.CurrentFrameColor == PreviewFrameColor.InvalidRed, "frame color is invalid red");
+            Assert(sink.BoundIconAsset == default(ItemAssetIdentity), "hidden icon clears asset");
+            sink.Unmount();
+        }
+
+        private static void SleekPreviewSinkBindsItemAssetIdentityToVisualIcon()
+        {
+            var topLevel = new MockVisualContainer();
+            var gridPanel = new MockVisualContainer();
+            var sink = new InventoryPreviewVisualSink(topLevel, gridPanel);
+            sink.Mount();
+
+            var guid = Guid.NewGuid();
+            var asset = ItemAssetIdentity.FromAsset(101, guid, "Items/Weapons/Maplestrike");
+            sink.ShowIcon(new PreviewIcon(100f, 200f, 2, asset));
+
+            Assert(sink.IsIconVisible, "icon is visible");
+            Assert(sink.BoundIconAsset.ItemId == 101, "item id matches bound asset");
+            Assert(sink.BoundIconAsset.AssetGuid == guid, "asset guid matches bound asset");
+            Assert(sink.BoundIconAsset.ResourcePath == "Items/Weapons/Maplestrike", "resource path matches bound asset");
+            sink.Unmount();
+        }
+
+        private static void BetterItemInteractionUiComponentLifecycleAndDragFlow()
+        {
+            var evaluator = new FixedEvaluator(new ItemPlacementPreview(10, PlacementPreviewState.Candidate,
+                new ItemGridPosition(3, 1, 2, 0), 2, 2, PlacementReason.None));
+            var presenter = new InventoryPreviewPresenter(new InventoryDragPresenter(evaluator));
+            var adapter = new NativeInventoryInteractionAdapter(2, 8);
+            var component = new BetterItemInteractionUiComponent(presenter, adapter);
+
+            component.OnUiInitialized(new Program.TestRoot());
+            Assert(!component.IsInventoryOpen, "inventory not open initially");
+
+            var surface = new MockInventorySurfaceContext(
+                new ContainerReference(ContainerKind.PlayerInventory, 3, 100),
+                new MockVisualContainer(), new MockVisualContainer(),
+                new InventoryGridViewport(0f, 0f, 8, 6, 0f, 0f, 800f, 600f),
+                50f, 1f, 0f, 0f, new TestGrid(8, 6));
+
+            component.OnInventoryOpened(surface);
+            Assert(component.IsInventoryOpen, "inventory marked open");
+            Assert(component.CurrentSessionGeneration == 100, "session generation bound from surface");
+            Assert(component.PreviewSink != null, "visual sink bound from surface");
+
+            component.OnDragStarted(10);
+            var asset = ItemAssetIdentity.FromItemId(363);
+            InventoryPreviewInput input;
+            var created = component.TryCreatePreviewInput(10, new ItemGridPosition(8, 0, 0, 0), 100f, 100f, 2, 2, 0, true, 0.5f, 0.5f, asset, out input);
+            Assert(created, "TryCreatePreviewInput constructs input from active surface context");
+            Assert(input.ItemAsset == asset, "input carries item asset identity");
+            Assert(input.TargetContainer.SessionGeneration == 100, "input target container carries surface session generation");
+
+            component.OnDragUpdated(input);
+            Assert(component.PreviewSink.IsFrameVisible, "frame visible after drag update");
+            Assert(component.PreviewSink.IsIconVisible, "icon visible after drag update");
+            Assert(component.PreviewSink.BoundIconAsset == asset, "bound asset visible on icon element");
+
+            var nativeActions = new Program.RecordingNativeDragActions();
+            var releaseInput = new NativeDragAdapterInput(true, 10, new ItemGridPosition(8, 0, 0, 0),
+                new ItemPlacementPreview(10, PlacementPreviewState.Candidate, new ItemGridPosition(3, 1, 2, 0), 2, 2, PlacementReason.None));
+            var outcome = component.OnDragReleased(releaseInput, nativeActions);
+            Assert(outcome == NativeDragAdapterOutcome.Submitted, "ordinary candidate submitted on release");
+            Assert(!component.PreviewSink.IsFrameVisible, "visuals hidden after release");
+
+            component.OnInventoryClosed();
+            Assert(!component.IsInventoryOpen, "inventory closed");
+            Assert(component.PreviewSink == null, "visual sink unmounted on inventory close");
+            Assert(component.CurrentSessionGeneration == 0, "session generation reset on close");
+        }
+
+        private static void BetterItemInteractionUiComponentBindsSurfaceContextAndCreatesInput()
+        {
+            var evaluator = new FixedEvaluator(new ItemPlacementPreview(15, PlacementPreviewState.Candidate,
+                new ItemGridPosition(3, 2, 3, 0), 1, 1, PlacementReason.None));
+            var presenter = new InventoryPreviewPresenter(new InventoryDragPresenter(evaluator));
+            var adapter = new NativeInventoryInteractionAdapter(2, 8);
+            var component = new BetterItemInteractionUiComponent(presenter, adapter);
+
+            var surface = new MockInventorySurfaceContext(
+                new ContainerReference(ContainerKind.Storage, 5, 202),
+                new MockVisualContainer(), new MockVisualContainer(),
+                new InventoryGridViewport(50f, 100f, 10, 8, 50f, 100f, 500f, 400f),
+                40f, 1.25f, 10f, 20f, new TestGrid(10, 8));
+
+            component.OnInventoryOpened(surface);
+            Assert(component.CurrentContainer.Kind == ContainerKind.Storage, "container kind bound");
+            Assert(component.CurrentContainer.Page == 5, "container page bound");
+            Assert(component.CurrentContainer.SessionGeneration == 202, "container session generation bound");
+
+            var asset = ItemAssetIdentity.FromAsset(519, Guid.NewGuid(), "Items/Bags/Alicepack");
+            InventoryPreviewInput input;
+            var ok = component.TryCreatePreviewInput(15, new ItemGridPosition(0, 0, 0, 0), 200f, 300f, 1, 1, 0, false, 0.5f, 0.5f, asset, out input);
+            Assert(ok, "TryCreatePreviewInput succeeded with surface context");
+            Assert(input.CellPixelSize == 40f, "cell pixel size mapped from surface");
+            Assert(input.UiScale == 1.25f, "ui scale mapped from surface");
+            Assert(input.ScrollPixelsX == 10f && input.ScrollPixelsY == 20f, "scroll pixels mapped from surface");
+            Assert(input.ItemAsset == asset, "asset identity carried to input");
+
+            component.OnInventoryClosed();
+        }
+
+        private static void BetterItemInteractionUiComponentRejectsStaleSessionGenerationAndSwitchedContainer()
+        {
+            var evaluator = new FixedEvaluator(new ItemPlacementPreview(20, PlacementPreviewState.Candidate,
+                new ItemGridPosition(3, 1, 1, 0), 2, 2, PlacementReason.None));
+            var presenter = new InventoryPreviewPresenter(new InventoryDragPresenter(evaluator));
+            var adapter = new NativeInventoryInteractionAdapter(2, 8);
+            var component = new BetterItemInteractionUiComponent(presenter, adapter);
+
+            var surfaceA = new MockInventorySurfaceContext(
+                new ContainerReference(ContainerKind.Storage, 3, 301),
+                new MockVisualContainer(), new MockVisualContainer(),
+                new InventoryGridViewport(0f, 0f, 8, 6, 0f, 0f, 800f, 600f),
+                50f, 1f, 0f, 0f, new TestGrid(8, 6));
+
+            component.OnInventoryOpened(surfaceA);
+            component.OnDragStarted(20);
+
+            // Stale session generation update should hide visual sink:
+            var staleInput = new InventoryPreviewInput(20, new ItemGridPosition(0, 0, 0, 0),
+                new ContainerReference(ContainerKind.Storage, 3, 300), // Stale session generation (300 != 301)
+                100f, 100f, surfaceA.Viewport, 50f, 1f, 0f, 0f, 2, 2, 0, true, 0.5f, 0.5f, surfaceA.Occupancy);
+
+            component.OnDragUpdated(staleInput);
+            Assert(!component.PreviewSink.IsFrameVisible, "stale session generation update is rejected and hidden");
+
+            // Container switch: open surfaceB (new container / new session)
+            var surfaceB = new MockInventorySurfaceContext(
+                new ContainerReference(ContainerKind.Storage, 4, 302),
+                new MockVisualContainer(), new MockVisualContainer(),
+                new InventoryGridViewport(0f, 0f, 8, 6, 0f, 0f, 800f, 600f),
+                50f, 1f, 0f, 0f, new TestGrid(8, 6));
+
+            component.OnInventoryOpened(surfaceB);
+            Assert(component.CurrentSessionGeneration == 302, "session generation updated to new container");
+            Assert(component.CurrentContainer.Page == 4, "container page updated to new container");
+
+            component.OnInventoryClosed();
+        }
+
+        private static void BetterItemInteractionUiComponentDestructionAndSafeModeCleansUpVisuals()
+        {
+            var evaluator = new FixedEvaluator(new ItemPlacementPreview(25, PlacementPreviewState.Candidate,
+                new ItemGridPosition(3, 1, 1, 0), 2, 2, PlacementReason.None));
+            var presenter = new InventoryPreviewPresenter(new InventoryDragPresenter(evaluator));
+            var adapter = new NativeInventoryInteractionAdapter(2, 8);
+            var component = new BetterItemInteractionUiComponent(presenter, adapter);
+
+            var surface = new MockInventorySurfaceContext(
+                new ContainerReference(ContainerKind.PlayerInventory, 2, 401),
+                new MockVisualContainer(), new MockVisualContainer(),
+                new InventoryGridViewport(0f, 0f, 8, 6, 0f, 0f, 800f, 600f),
+                50f, 1f, 0f, 0f, new TestGrid(8, 6));
+
+            component.OnInventoryOpened(surface);
+            Assert(component.PreviewSink != null, "sink active");
+
+            component.OnUiDestroyed();
+            Assert(!component.IsInventoryOpen, "inventory marked closed on UI destruction");
+            Assert(component.PreviewSink == null, "sink unmounted and destroyed");
+            Assert(component.CurrentSurface == null, "surface context detached");
+        }
+
+        private static void SleekSinkHotPathZeroAllocationTest()
+        {
+            var topLevel = new MockVisualContainer();
+            var gridPanel = new MockVisualContainer();
+            var sink = new InventoryPreviewVisualSink(topLevel, gridPanel);
+            sink.Mount();
+            var asset = ItemAssetIdentity.FromItemId(363);
+            var frame = new PreviewFrame(PreviewFrameKind.ValidGreen, new ItemGridPosition(2, 3, 4, 1), 2, 3, 50f, PlacementReason.None);
+            var icon = new PreviewIcon(150f, 250f, 1, asset);
+
+            for (var warmup = 0; warmup < 100; warmup++)
+            {
+                sink.ShowFrame(frame);
+                sink.ShowIcon(icon);
+            }
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+            AppDomain.MonitoringIsEnabled = true;
+            var before = AppDomain.CurrentDomain.MonitoringTotalAllocatedMemorySize;
+            for (var sample = 0; sample < 10000; sample++)
+            {
+                sink.ShowFrame(frame);
+                sink.ShowIcon(icon);
+            }
+            var allocated = AppDomain.CurrentDomain.MonitoringTotalAllocatedMemorySize - before;
+            Assert(allocated == 0, "visual sink hot path allocates zero bytes; actual=" + allocated);
+            sink.Unmount();
+        }
+
+        private static InventoryPreviewInput Input(TestGrid occupancy, float pointerX, float pointerY, float originX, float originY,
+            float cellSize, float uiScale, float scrollX, float scrollY, byte width, byte height, float grabX, float grabY, byte rotation = 0, uint generation = 7)
+        {
+            return new InventoryPreviewInput(generation, new ItemGridPosition(0, 0, 0, 0),
                 new ContainerReference(ContainerKind.PlayerInventory, 3, 9), pointerX, pointerY,
                 new InventoryGridViewport(originX, originY, 8, 6, 0, 0, 100, 100),
                 cellSize, uiScale, scrollX, scrollY, width, height, rotation, true, grabX, grabY, occupancy);
@@ -225,6 +466,54 @@ namespace BetterUnturnedExperience.ClientUi.Tests
             public void ShowIcon(PreviewIcon icon) { LastIcon = icon; IconCount++; }
             public void HideIcon() { }
             public void Hide() { HideCount++; }
+        }
+
+        private sealed class MockVisualElement : IVisualElement
+        {
+            public float PositionOffsetX { get; set; }
+            public float PositionOffsetY { get; set; }
+            public float SizeOffsetX { get; set; }
+            public float SizeOffsetY { get; set; }
+            public byte RotationAngle { get; set; }
+            public bool IsVisible { get; set; }
+            public PreviewFrameColor Color { get; set; }
+            public ItemAssetIdentity BoundAsset { get; set; }
+        }
+
+        private sealed class MockVisualContainer : IVisualContainer
+        {
+            public IVisualElement CreateBox() { return new MockVisualElement(); }
+            public IVisualElement CreateImage() { return new MockVisualElement(); }
+            public void AddChild(IVisualElement child) { }
+            public void RemoveChild(IVisualElement child) { }
+        }
+
+        private sealed class MockInventorySurfaceContext : IInventorySurfaceContext
+        {
+            public ContainerReference CurrentContainer { get; }
+            public IVisualContainer TopLevelContainer { get; }
+            public IVisualContainer GridPanelContainer { get; }
+            public InventoryGridViewport Viewport { get; }
+            public float CellPixelSize { get; }
+            public float UiScale { get; }
+            public float ScrollPixelsX { get; }
+            public float ScrollPixelsY { get; }
+            public IGridOccupancyView Occupancy { get; }
+
+            public MockInventorySurfaceContext(ContainerReference currentContainer, IVisualContainer topLevelContainer,
+                IVisualContainer gridPanelContainer, InventoryGridViewport viewport, float cellPixelSize, float uiScale,
+                float scrollPixelsX, float scrollPixelsY, IGridOccupancyView occupancy)
+            {
+                CurrentContainer = currentContainer;
+                TopLevelContainer = topLevelContainer;
+                GridPanelContainer = gridPanelContainer;
+                Viewport = viewport;
+                CellPixelSize = cellPixelSize;
+                UiScale = uiScale;
+                ScrollPixelsX = scrollPixelsX;
+                ScrollPixelsY = scrollPixelsY;
+                Occupancy = occupancy;
+            }
         }
     }
 }

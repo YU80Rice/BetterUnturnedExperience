@@ -13,12 +13,13 @@ namespace BetterUnturnedExperience.ClientUi.Tests
             {
                 Run();
                 Dev15BTests.Run();
-                Console.WriteLine("DEV-05/DEV-15A/DEV-15B ClientUi tests: PASS");
+                Dev15CTests.Run();
+                Console.WriteLine("DEV-05/DEV-15A/DEV-15B/DEV-15C ClientUi tests: PASS");
                 return 0;
             }
             catch (Exception error)
             {
-                Console.WriteLine("DEV-05/DEV-15A/DEV-15B ClientUi tests: FAIL");
+                Console.WriteLine("DEV-05/DEV-15A/DEV-15B/DEV-15C ClientUi tests: FAIL");
                 Console.WriteLine(error.GetType().FullName);
                 Console.WriteLine(error.Message);
                 return 1;
@@ -144,10 +145,10 @@ namespace BetterUnturnedExperience.ClientUi.Tests
 
         private static void Assert(bool condition, string message) { if (!condition) throw new InvalidOperationException(message); }
 
-        private sealed class TestRoot : IClientUiRoot { }
-        private sealed class TestInventorySurface : IClientUiInventorySurface { }
+        internal sealed class TestRoot : IClientUiRoot { }
+        internal sealed class TestInventorySurface : IClientUiInventorySurface { }
 
-        private sealed class RecordingComponent : IClientUiFeatureComponent
+        internal sealed class RecordingComponent : IClientUiFeatureComponent
         {
             private readonly string name;
             public RecordingComponent(string name) { this.name = name; }
@@ -165,7 +166,7 @@ namespace BetterUnturnedExperience.ClientUi.Tests
             public void OnUiDestroyed() { DestroyedCount++; if (ThrowOnDestroyed) throw new InvalidOperationException(name); }
         }
 
-        private sealed class EmptyGrid : IGridOccupancyView
+        internal sealed class EmptyGrid : IGridOccupancyView
         {
             public EmptyGrid(byte width, byte height) { Width = width; Height = height; }
             public byte Width { get; }
@@ -173,7 +174,7 @@ namespace BetterUnturnedExperience.ClientUi.Tests
             public bool IsOccupied(byte x, byte y) { return false; }
         }
 
-        private sealed class RecordingNativeDragActions : INativeInventoryDragActions
+        internal sealed class RecordingNativeDragActions : INativeInventoryDragActions
         {
             public int StopCount { get; private set; }
             public int SendCount { get; private set; }

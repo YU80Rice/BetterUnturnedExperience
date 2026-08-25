@@ -2,10 +2,10 @@
   <PropertyGroup>
     <Configuration Condition=" '$(Configuration)' == '' ">Release</Configuration>
     <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
-    <ProjectGuid>{4E2A7B6C-4AA2-4F84-B7C0-050000000001}</ProjectGuid>
-    <OutputType>Library</OutputType>
-    <RootNamespace>BetterUnturnedExperience.ClientUi</RootNamespace>
-    <AssemblyName>BetterUnturnedExperience.ClientUi</AssemblyName>
+    <ProjectGuid>{4E2A7B6C-4AA2-4F84-B7C0-060000000001}</ProjectGuid>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>BetterUnturnedExperience.ClientUi.Tests</RootNamespace>
+    <AssemblyName>BetterUnturnedExperience.ClientUi.Tests</AssemblyName>
     <TargetFrameworkVersion>v4.7.2</TargetFrameworkVersion>
     <LangVersion>10.0</LangVersion>
     <Deterministic>true</Deterministic>
@@ -23,18 +23,17 @@
     <Reference Include="System.Core" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\BetterUnturnedExperience.Plugin\BetterUnturnedExperience.Plugin.csproj">
+    <ProjectReference Include="..\..\src\BetterUnturnedExperience.Plugin\BetterUnturnedExperience.Plugin.csproj">
       <Project>{D2A52D07-B5A5-4F1F-8D80-5F48FBD4D5D7}</Project>
       <Name>BetterUnturnedExperience.Plugin</Name>
     </ProjectReference>
-    <Compile Include="Properties\AssemblyInfo.cs" />
-    <Compile Include="ClientUiTypes.cs" />
-    <Compile Include="InventoryDragPresenter.cs" />
-    <Compile Include="NativeInventoryInteractionAdapter.cs" />
-    <Compile Include="InventoryPreviewWiring.cs" />
-    <Compile Include="InventoryProjectionRelay.cs" />
-    <Compile Include="ItemInteractionUiComponent.cs" />
-    <Compile Include="SettingsSnapshotPresenter.cs" />
+    <ProjectReference Include="..\..\src\BetterUnturnedExperience.ClientUi\BetterUnturnedExperience.ClientUi.csproj">
+      <Project>{4E2A7B6C-4AA2-4F84-B7C0-050000000001}</Project>
+      <Name>BetterUnturnedExperience.ClientUi</Name>
+    </ProjectReference>
+    <Compile Include="Program.cs" />
+    <Compile Include="Dev15BTests.cs" />
+    <Compile Include="Dev15CTests.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>
