@@ -51,19 +51,13 @@ namespace BetterUnturnedExperience.ClientUi.Internal
                 return NativeDragAdapterOutcome.PassThrough;
             }
 
-            var target = input.Preview.Candidate;
-            if (!IsOrdinaryGrid(target.Page))
-            {
-                return NativeDragAdapterOutcome.PassThrough;
-            }
-
             if (input.Preview.DragGeneration != input.DragGeneration)
             {
-                native.StopDrag();
                 return NativeDragAdapterOutcome.Cancelled;
             }
 
-            if (IsSamePlacement(input.Source, target))
+            var target = input.Preview.Candidate;
+            if (!IsOrdinaryGrid(target.Page))
             {
                 return NativeDragAdapterOutcome.PassThrough;
             }
@@ -74,8 +68,13 @@ namespace BetterUnturnedExperience.ClientUi.Internal
                 return NativeDragAdapterOutcome.Cancelled;
             }
 
-            native.StopDrag();
+            if (IsSamePlacement(input.Source, target))
+            {
+                return NativeDragAdapterOutcome.PassThrough;
+            }
+
             native.SendDragItem(input.Source, target);
+            native.StopDrag();
             return NativeDragAdapterOutcome.Submitted;
         }
 

@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using BetterUnturnedExperience.ClientUi.Internal;
 using BetterUnturnedExperience.Contracts;
 using BetterUnturnedExperience.Core.Placement;
@@ -13,12 +12,12 @@ namespace BetterUnturnedExperience.ClientUi.Tests
             try
             {
                 Run();
-                Console.WriteLine("DEV-05 ClientUi tests: PASS");
+                Console.WriteLine("DEV-05/DEV-15A ClientUi tests: PASS");
                 return 0;
             }
             catch (Exception error)
             {
-                Console.WriteLine("DEV-05 ClientUi tests: FAIL");
+                Console.WriteLine("DEV-05/DEV-15A ClientUi tests: FAIL");
                 Console.WriteLine(error.GetType().FullName);
                 Console.WriteLine(error.Message);
                 return 1;
@@ -92,7 +91,8 @@ namespace BetterUnturnedExperience.ClientUi.Tests
             var input = new NativeDragAdapterInput(true, 12, source, candidate);
 
             Assert(adapter.HandleRelease(input, native) == NativeDragAdapterOutcome.Submitted, "ordinary grid candidate submits through native port");
-            Assert(native.StopCount == 1 && native.SendCount == 1, "ordinary candidate stops drag then sends one native request");
+            Assert(native.StopCount == 1 && native.SendCount == 1, "ordinary candidate submits and then clears the native drag");
+            Assert(native.OperationOrder == "send>stop", "ordinary candidate sends before stopping the native drag");
             Assert(native.LastSource.Page == 8 && native.LastTarget.Page == 7 && native.LastTarget.Rotation == 1, "native submission preserves source and candidate coordinates");
 
             native.Reset();
@@ -112,6 +112,11 @@ namespace BetterUnturnedExperience.ClientUi.Tests
             Assert(native.StopCount == 0 && native.SendCount == 0, "area target never invokes enhanced native port");
 
             native.Reset();
+            var staleSpecialTarget = new ItemPlacementPreview(20, PlacementPreviewState.Candidate, new ItemGridPosition(1, 0, 0, 0), 1, 1, PlacementReason.None);
+            Assert(adapter.HandleRelease(new NativeDragAdapterInput(true, 21, source, staleSpecialTarget), native) == NativeDragAdapterOutcome.Cancelled, "stale special target fails closed");
+            Assert(native.StopCount == 0 && native.SendCount == 0, "stale special target never reaches native pass-through");
+
+            native.Reset();
             var invalid = new ItemPlacementPreview(16, PlacementPreviewState.LocallyInvalid, new ItemGridPosition(7, 3, 4, 1), 2, 3, PlacementReason.Occupied);
             Assert(adapter.HandleRelease(new NativeDragAdapterInput(true, 16, source, invalid), native) == NativeDragAdapterOutcome.Cancelled, "invalid ordinary candidate cancels enhanced drag");
             Assert(native.StopCount == 1 && native.SendCount == 0, "invalid ordinary candidate stops without native submission");
@@ -122,12 +127,18 @@ namespace BetterUnturnedExperience.ClientUi.Tests
 
             native.Reset();
             Assert(adapter.HandleRelease(new NativeDragAdapterInput(true, 19, source, candidate), native) == NativeDragAdapterOutcome.Cancelled, "stale ordinary candidate fails closed");
-            Assert(native.StopCount == 1 && native.SendCount == 0, "stale ordinary candidate never reaches native submission");
+            Assert(native.StopCount == 0 && native.SendCount == 0, "stale ordinary candidate is dropped without native action");
 
             native.Reset();
             var same = new ItemPlacementPreview(18, PlacementPreviewState.Candidate, source, 1, 1, PlacementReason.None);
             Assert(adapter.HandleRelease(new NativeDragAdapterInput(true, 18, source, same), native) == NativeDragAdapterOutcome.PassThrough, "same placement is native cancellation path");
             Assert(native.StopCount == 0 && native.SendCount == 0, "same placement does not submit a duplicate native request");
+
+            native.Reset();
+            var ordinarySource = new ItemGridPosition(7, 3, 4, 0);
+            var sameInvalid = new ItemPlacementPreview(22, PlacementPreviewState.LocallyInvalid, new ItemGridPosition(7, 3, 4, 0), 1, 1, PlacementReason.Occupied);
+            Assert(adapter.HandleRelease(new NativeDragAdapterInput(true, 22, ordinarySource, sameInvalid), native) == NativeDragAdapterOutcome.Cancelled, "same placement with invalid preview cancels enhanced drag");
+            Assert(native.StopCount == 1 && native.SendCount == 0, "same placement invalid preview stops without submission");
         }
 
         private static void Assert(bool condition, string message) { if (!condition) throw new InvalidOperationException(message); }
@@ -167,14 +178,16 @@ namespace BetterUnturnedExperience.ClientUi.Tests
             public int SendCount { get; private set; }
             public ItemGridPosition LastSource { get; private set; }
             public ItemGridPosition LastTarget { get; private set; }
+            public string OperationOrder { get; private set; }
 
-            public void StopDrag() { StopCount++; }
+            public void StopDrag() { StopCount++; OperationOrder += "stop"; if (SendCount > 0) OperationOrder = "send>stop"; }
 
             public void SendDragItem(ItemGridPosition source, ItemGridPosition target)
             {
                 SendCount++;
                 LastSource = source;
                 LastTarget = target;
+                OperationOrder += "send";
             }
 
             public void Reset()
@@ -183,6 +196,7 @@ namespace BetterUnturnedExperience.ClientUi.Tests
                 SendCount = 0;
                 LastSource = default(ItemGridPosition);
                 LastTarget = default(ItemGridPosition);
+                OperationOrder = string.Empty;
             }
         }
     }
