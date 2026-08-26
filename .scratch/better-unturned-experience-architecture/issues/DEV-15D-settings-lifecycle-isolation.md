@@ -1,7 +1,7 @@
 # DEV-15D：Settings + Lifecycle + Isolation
 
 Type: task
-Status: ready-for-human
+Status: resolved
 Owner: GPT（后端与运行时协调）
 Required reviewer: Gemini（前端消费与表现状态复核）
 Parent: DEV-15
@@ -47,12 +47,8 @@ Dependency: DEV-15C（resolved）
 - [x] ClientUi/Contracts/Core UI/native token 静态门禁通过；Headless 不实例化 ClientUi。
 - [x] Release 构建 0 errors / 0 warnings；全套测试通过。
 - [x] GPT 独立审计 R3 PASS（`audit/2026-08-26/GPT-DEV15D-Independent-Audit-R3.md`）。
-- [ ] Gemini 前端消费复核 ACCEPT 后正式关闭本票。
+- [x] Gemini 前端消费复核 ACCEPT（`Gemini-DEV-15D-Settings-Lifecycle-Isolation-Review.md`），正式关闭本票。
 
 ## 证据边界
 
 本票通过仅证明纯 C# 设置、生命周期、隔离与回退 Seam；不证明真实 Unturned UI Hook、单人、SteamP2PFriends、U3DS 或发布资格。
-
-## Answer
-
-DEV-15D 生产实现、R1/R2 阻断修复、Release/7 项测试/静态门禁及 GPT 独立审计 R3 已完成。工单保持 `ready-for-human`，等待 Gemini 前端消费复核后再转 `resolved`。

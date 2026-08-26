@@ -37,7 +37,7 @@
 - [裁定参考功能模块与最小接入样例](issues/GPT-16-reference-feature-module.md)：不新增第二个产品功能；“更好的物品交互”继续作为唯一首发参考实现，轻量 sample 仅可在实施阶段作为不进入 DLL 的文档/测试夹具。
 - [联合复核前后端 Wayfinder 决策包](issues/GPT-17-joint-wayfinder-consistency-review.md)：JCR-01～09 全部关闭；旋转方向、两类坐标区间、intended center seam 与证据边界完成双端对齐，独立终审 PASS。
 - [完成 DEV-15C Projection Relay 关闭修复](issues/DEV-15C-projection-relay-awaiting-projection.md)：补齐 `INativeInventoryProjectionSource.TryCapture` 直接消费测试；Release、全套测试、静态门禁与独立审计通过，Gemini R1 `ACCEPT`，本票已 `resolved`。
-- [完成 DEV-15D Settings + Lifecycle + Isolation 构建](issues/DEV-15D-settings-lifecycle-isolation.md)：设置快照门禁、九态生命周期、SafeMode、局部隔离、卫星降级、原生回退与 surface 重绑失效已实现；GPT R3 独立审计 PASS，等待 Gemini 前端消费复核。
+- [完成 DEV-15D Settings + Lifecycle + Isolation 构建](issues/DEV-15D-settings-lifecycle-isolation.md)：设置快照门禁、九态生命周期、SafeMode、局部隔离、卫星降级、原生回退与 surface 重绑失效已实现；GPT R3 独立审计 PASS，Gemini 前端消费复核 ACCEPT，本票已 resolved。
 
 ## Not yet specified
 
