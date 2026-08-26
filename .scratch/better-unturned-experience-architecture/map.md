@@ -39,6 +39,7 @@
 - [完成 DEV-15C Projection Relay 关闭修复](issues/DEV-15C-projection-relay-awaiting-projection.md)：补齐 `INativeInventoryProjectionSource.TryCapture` 直接消费测试；Release、全套测试、静态门禁与独立审计通过，Gemini R1 `ACCEPT`，本票已 `resolved`。
 - [完成 DEV-15D Settings + Lifecycle + Isolation 构建](issues/DEV-15D-settings-lifecycle-isolation.md)：设置快照门禁、九态生命周期、SafeMode、局部隔离、卫星降级、原生回退与 surface 重绑失效已实现；GPT R3 独立审计 PASS，Gemini 前端消费复核 ACCEPT，本票已 resolved。
 - [完成 DEV-15E Qualification Evidence 自动化门禁构建](issues/DEV-15E-qualification-evidence.md)：证据包校验、同候选三环境资格组合与 Fail-Closed 政策已实现；Release/7 项测试/Contracts-Core 扫描 PASS，GPT 独立审计返修后 PASS；真实 SP/P2P Host/Client/U3DS 证据仍待人工采集，票据保持 ready-for-human。
+- [建立 DEV-15E-HUMAN 真实运行证据采集门禁](issues/DEV-15E-HUMAN-runtime-evidence.md)：锁定当前 BUE 主 DLL SHA-256，规定 SP、P2P Host/Client、U3DS 的同哈希、CaseId、时间窗和原始日志要求；未完成前不宣称 DEV-15 整体运行或发布通过。
 
 ## Not yet specified
 
