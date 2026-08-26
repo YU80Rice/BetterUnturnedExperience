@@ -38,6 +38,7 @@
 - [联合复核前后端 Wayfinder 决策包](issues/GPT-17-joint-wayfinder-consistency-review.md)：JCR-01～09 全部关闭；旋转方向、两类坐标区间、intended center seam 与证据边界完成双端对齐，独立终审 PASS。
 - [完成 DEV-15C Projection Relay 关闭修复](issues/DEV-15C-projection-relay-awaiting-projection.md)：补齐 `INativeInventoryProjectionSource.TryCapture` 直接消费测试；Release、全套测试、静态门禁与独立审计通过，Gemini R1 `ACCEPT`，本票已 `resolved`。
 - [完成 DEV-15D Settings + Lifecycle + Isolation 构建](issues/DEV-15D-settings-lifecycle-isolation.md)：设置快照门禁、九态生命周期、SafeMode、局部隔离、卫星降级、原生回退与 surface 重绑失效已实现；GPT R3 独立审计 PASS，Gemini 前端消费复核 ACCEPT，本票已 resolved。
+- [完成 DEV-15E Qualification Evidence 自动化门禁构建](issues/DEV-15E-qualification-evidence.md)：证据包校验、同候选三环境资格组合与 Fail-Closed 政策已实现；Release/7 项测试/Contracts-Core 扫描 PASS，GPT 独立审计返修后 PASS；真实 SP/P2P Host/Client/U3DS 证据仍待人工采集，票据保持 ready-for-human。
 
 ## Not yet specified
 

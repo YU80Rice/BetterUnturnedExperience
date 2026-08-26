@@ -46,7 +46,7 @@ ReleaseReady 或玩家运行成功。
 - [x] 缺任一必需环境、Stale 或 Failed 时输出 `QualificationIncomplete`；
 - [x] 技术资格结果不改变 `FeatureState`、成熟度或发布授权；
 - [x] Release 编译 0 errors / 0 warnings；DEV-15A～DEV-15D 与既有 Release 测试全部 PASS；
-- [x] 独立审计首轮发现的 null policy 阻断已修复，并重新编译/测试；复审待完成；
+- [x] 独立审计首轮发现的 null policy 阻断已修复，并重新编译/测试；复审 PASS；
 - [ ] Gemini 前端消费复核完成后方可关闭工单；
 - [ ] 真实 SP、SteamP2PFriends Host/Client、U3DS 运行证据仍由人工采集，并绑定本票
       实际 Candidate/DLL SHA-256。
@@ -62,3 +62,12 @@ ReleaseReady 或玩家运行成功。
 - 组合器实现：`src/BetterUnturnedExperience.Release/QualificationEvidenceGate.cs`。
 - DEV-08 校验器修正：同一 CaseId 允许且仅允许 SteamP2P Host + Client 配对；同角色重复仍拒绝。
 - 当前静态/自动化结果 PASS，但真实运行证据仍未采集，工单保持 `ready-for-human`。
+
+## Answer
+
+DEV-15E 自动化资格门禁已实现并通过 GPT 独立复审：`QualificationEvidenceGate` 先验证
+证据包，再调用既有 `QualificationEvaluator`；只有同一候选 DLL SHA-256 下的单人、
+SteamP2PFriends Host/Client（同 CaseId 且时间窗重叠）与 U3DS Headless 全部
+`Fulfilled` 时才输出 `TechnicallyQualified`。坏包、缺证据、陈旧证据、无效政策均
+Fail-Closed。当前票据保持 `ready-for-human`，等待人工采集真实四角色证据和 Gemini
+前端消费复核；本票不构成三环境运行通过或发布授权。
