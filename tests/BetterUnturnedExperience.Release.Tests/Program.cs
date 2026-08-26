@@ -53,6 +53,10 @@ namespace BetterUnturnedExperience.Release.Tests
             Assert(invalidGate.Status == QualificationEvidenceGateStatus.EvidencePackageInvalid, "invalid package is fail-closed before qualification");
             var invalidPolicyGate = QualificationEvidenceGate.Evaluate(fullPackage, a, null);
             Assert(invalidPolicyGate.Status == QualificationEvidenceGateStatus.InvalidPolicy, "null policy is fail-closed without throwing");
+            AssertThrows(() => Evidence("zero-length", EvidenceEnvironmentRole.SinglePlayer, a, 5, 5, HashA), "zero-length evidence window rejected");
+            var touchingHost = Evidence("case-touching", EvidenceEnvironmentRole.SteamP2PHost, a, 60, 70, HashA);
+            var touchingClient = Evidence("case-touching", EvidenceEnvironmentRole.SteamP2PClient, a, 70, 80, HashA);
+            Assert(QualificationEvaluator.Evaluate(new[] { touchingHost, touchingClient }, a, QualificationPolicy.Default).For(EvidenceEnvironmentRole.SteamP2PHost) == QualificationVerdict.Failed, "touching P2P windows are not overlapping");
         }
         private static RuntimeEvidencePackage FullPackage(CandidateBuildDescriptor candidate)
         {

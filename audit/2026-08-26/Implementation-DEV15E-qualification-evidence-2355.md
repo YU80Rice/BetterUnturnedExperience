@@ -38,16 +38,18 @@
 
 - Round 1：FAIL，阻断 B-01：`null policy` 抛异常，不满足 Fail-Closed。
 - 修复：新增 `QualificationEvidenceGateStatus.InvalidPolicy`，空 policy 返回结构化结果；补回归测试。
-- Round 2：PASS，无剩余阻断。独立审计确认 P2P 同 CaseId/同候选/同 DLL hash/重叠窗口、包双向引用、类型隔离均通过。
+- Round 2：发现时间窗语义阻断：零长度和端点相接窗口可被视为重叠。
+- Round 3：修复为正持续时间（`endedUtc > startedUtc`）及严格重叠（`start < other.end && other.start < end`），补回归测试后 PASS，无剩余代码阻断。
 
 ## 六、产物哈希
 
 | 产物 | SHA-256 |
 | --- | --- |
 | `QualificationEvidenceGate.cs` | `6AB4BEFBC311BC88119E8E10A3D81CF4E606975268B130F9C86A138168D64446` |
+| `Qualification.cs` | `D26B9948630752A0284CC8C189D5772ACCCA1C0303817562667C61B5702A7D9D` |
 | `RuntimeEvidencePackage.cs` | `8F90C5FB61B00718465155D145400A1DA8443470FF915F6209072992F4BAD87A` |
-| `Program.cs` | `59E1AACB6A91F815EF8FC3DFA5E6E4BC5CC28E97EDF72BD2564182037A19BE88` |
-| `BetterUnturnedExperience.Release.dll` | `473DFFFC3DBB36F0BEE2EFA22144157E77BF580912B4A84D28512BC34DD01EE3` |
+| `Program.cs` | `91DC8052AC77E0FB5687513636419AE4837AC5A57BD3543A2E0DF47994B506F9` |
+| `BetterUnturnedExperience.Release.dll` | `CDBB52FA349D1E26FB7DA0300CB01384D0F26B2710745F62A63ED927C07EBFA8` |
 
 ## 七、证据边界与后续动作
 
@@ -58,3 +60,5 @@
 ## 八、提交
 
 `45ee80d Implement DEV-15E qualification evidence gate`
+
+后续修复在工作树中已完成并重新验证；应使用最新源码/DLL 哈希采集真实证据。
