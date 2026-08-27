@@ -37,6 +37,7 @@
 - 判定：`PASS`，无阻断项。
 - 复核确认：单 DLL ABI 闭包、四类环境门禁、官方 Satellite、初始化幂等、销毁清理及未修改 U3-SDK/Unturned/SteamP2PFriends。
 - 非阻断边界：DEV-16A 尚未实现真实 Glazier/Sleek/Harmony/库存 Hook；`nativeUiAvailable=true` 的真实探测属于 DEV-16B～D，不能宣称真实 UI 或玩法已通过。
+- `/code-review` 双轴复核：Standards `PASS`（无阻断）；Spec `PASS`（无超范围，真实 UI/Hook 缺口明确属于 DEV-16B～D）。复核建议已处理：插件销毁时对称退订 `SceneManager.sceneLoaded`。
 
 ## 六、产物哈希
 
