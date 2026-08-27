@@ -6,15 +6,15 @@
 
 **Status:** ready-for-human
 
-> 实施接管：原由 Gemini 负责的 ClientUi 代码现由 GPT 接手维护。本票已完成管理面板模型、设置编辑、持久化与生命周期 Seam；真实 Glazier/Sleek 控件注入仍待后续运行时接线票验证。
+> 实施接管：原由 Gemini 负责的 ClientUi 代码现由 GPT 接手维护。本票静态实现与自动化门禁已完成；真实客户端运行证据仍需人工采集。
 
-- [ ] 主菜单和暂停菜单均出现“BUE 插件管理”入口，UI 树重建后能安全重挂载。
-- [ ] 面板只展示 BepInEx Chainloader 已成功加载的插件，不扫描或主动加载任意 DLL。
-- [ ] BUE 功能条目显示 FeatureId、名称、版本、FeatureState、PresentationState 和 Settings Facet；普通插件条目显示 GUID、名称、版本和公开配置信息。
-- [ ] 收藏使用稳定 FeatureId/GUID；收藏优先，收藏内部按加入顺序，未收藏条目按 A→Z 或 Z→A 排列。
-- [ ] 排序偏好、收藏列表和收藏顺序跨重启持久化；取消后重新收藏进入序列末尾。
-- [ ] Better Item Interaction 的增强交互开关和自动旋转可见、可编辑，并由 SettingsRuntime 保持唯一权威。
-- [ ] 普通 BepInEx 插件的 bool、数字和字符串 ConfigEntry 可安全编辑；不支持类型只读，需重启的变更明确提示。
-- [ ] 不提供运行时强制启用、禁用、卸载或热重载；检测外部 UnturnedPluginManager 时只显示兼容提示。
-- [ ] 面板和仓库保留 `35117+Deepseek-v4-falsh-0731`、来源仓库、提交 `9b75730`、许可记录和致谢。
+- [x] 主菜单和暂停菜单均已接入“BUE 插件管理”入口，UI 树重建可安全重挂载（待实机确认可见性）。
+- [x] 面板只读取 BepInEx Chainloader 已成功加载的插件，不扫描或主动加载任意 DLL。
+- [x] BUE 功能条目与普通插件条目模型已分别提供稳定身份、版本、状态和公开设置数据（待实机确认显示）。
+- [x] 收藏使用稳定 FeatureId/GUID；收藏优先、收藏内部按加入顺序，未收藏条目支持 A→Z/Z→A。
+- [x] 排序偏好、收藏列表和收藏顺序已实现文件持久化；取消后重新收藏进入序列末尾。
+- [x] Better Item Interaction 的增强交互开关和自动旋转已接入 BUE 设置编辑 Seam，并保持单一设置状态源（待实机确认控件交互）。
+- [x] 普通插件 bool、数字和字符串 ConfigEntry 支持受限编辑；不支持类型只读、范围/长度校验、需重启标记和保存失败回滚已实现。
+- [x] 未提供运行时强制启用、禁用、卸载或热重载；检测外部 UnturnedPluginManager 时仅显示兼容提示。
+- [x] 面板和仓库保留 `35117+Deepseek-v4-falsh-0731`、来源仓库、提交 `9b75730`、许可记录和致谢。
 - [x] Release 编译、排序/持久化/配置编辑测试、UI 重建测试、静态门禁和独立审计通过（真实 UI 运行仍待人工验证）。
