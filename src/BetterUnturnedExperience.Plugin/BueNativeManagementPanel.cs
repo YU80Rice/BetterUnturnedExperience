@@ -16,6 +16,12 @@ namespace BetterUnturnedExperience.Plugin
     /// </summary>
     internal sealed class BueNativeManagementPanel
     {
+        internal enum TickSource : byte { Initialize, Update, Harmony }
+
+        private const string PluginId = "io.github.yu80rice.betterunturnedexperience";
+        private const string FeatureId = "io.github.yu80rice.bue.management-panel";
+        private const string Version = "0.0.0";
+        private const string TraceDiagnosticId = "BUE-MANAGEMENT-TRACE-001";
         private readonly BueManagementPanelRuntime runtime;
         private readonly ManualLogSource log;
         private readonly Harmony harmony;
@@ -31,14 +37,23 @@ namespace BetterUnturnedExperience.Plugin
         private ISleekElement pauseParent;
         private bool opened;
         private bool destroyed;
+        private bool firstTickLogged;
+        private int lastMainContainerState = -1;
+        private int lastPauseContainerState = -1;
+        private int updateTickCount;
+        private static BueNativeManagementPanel activeInstance;
 
         internal BueNativeManagementPanel(BueManagementPanelRuntime runtime, ManualLogSource log)
         {
             this.runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
             this.log = log;
-            workshopContainerField = typeof(MenuDashboardUI).GetField("container", BindingFlags.Static | BindingFlags.NonPublic);
+            // Match the visible vanilla page used by UnturnedPluginManager:
+            // the Workshop management page, not MenuDashboardUI.
+            workshopContainerField = typeof(MenuWorkshopUI).GetField("container", BindingFlags.Static | BindingFlags.NonPublic);
             pauseContainerField = typeof(PlayerPauseUI).GetField("container", BindingFlags.Static | BindingFlags.NonPublic);
             harmony = new Harmony("io.github.yu80rice.bue.management-panel");
+            activeInstance = this;
+            LogTrace("constructed", "workshopField=" + (workshopContainerField != null) + " pauseField=" + (pauseContainerField != null));
         }
 
         internal void Initialize()
@@ -46,14 +61,28 @@ namespace BetterUnturnedExperience.Plugin
             if (destroyed) return;
             runtime.Initialize();
             PatchRebuildHooks();
-            Tick();
+            LogTrace("initialize-complete", string.Empty);
+            Tick(TickSource.Initialize);
         }
 
-        internal void Tick()
+        internal void Tick(TickSource source)
         {
             if (destroyed) return;
-            TryAddMainButton();
-            TryAddPauseButton();
+            if (source == TickSource.Update)
+            {
+                updateTickCount++;
+                if (updateTickCount == 1 || updateTickCount % 120 == 0)
+                {
+                    LogTrace("heartbeat", "source=Update count=" + updateTickCount);
+                }
+            }
+            else if (!firstTickLogged)
+            {
+                firstTickLogged = true;
+                LogTrace("first-tick", "source=" + source);
+            }
+            TryAddMainButton(source.ToString());
+            TryAddPauseButton(source.ToString());
             if (opened && (panel == null || !IsAlive(panel))) Close();
         }
 
@@ -61,6 +90,9 @@ namespace BetterUnturnedExperience.Plugin
         {
             if (destroyed) return;
             destroyed = true;
+            if (ReferenceEquals(activeInstance, this)) activeInstance = null;
+            CleanupMainButton(mainParent);
+            CleanupPauseButton(pauseParent);
             Close();
             try { harmony.UnpatchSelf(); } catch (Exception error) { Log("unpatch failed: " + error.Message); }
             runtime.Destroy();
@@ -70,10 +102,44 @@ namespace BetterUnturnedExperience.Plugin
         {
             try
             {
-                var workshopCtor = AccessTools.Constructor(typeof(MenuDashboardUI), Type.EmptyTypes);
-                if (workshopCtor != null) harmony.Patch(workshopCtor, postfix: new HarmonyMethod(typeof(BueNativeManagementPanel), nameof(OnUiRebuilt)));
+                var workshopCtor = AccessTools.Constructor(typeof(MenuWorkshopUI), Type.EmptyTypes);
+                if (workshopCtor != null)
+                {
+                    harmony.Patch(workshopCtor, postfix: new HarmonyMethod(typeof(BueNativeManagementPanel), nameof(OnUiRebuilt)));
+                    LogTrace("patch-installed", "target=MenuWorkshopUI.constructor");
+                }
+                else
+                {
+                    LogTrace("patch-missing", "target=MenuWorkshopUI.constructor");
+                }
                 var pauseCtor = AccessTools.Constructor(typeof(PlayerPauseUI), Type.EmptyTypes);
-                if (pauseCtor != null) harmony.Patch(pauseCtor, postfix: new HarmonyMethod(typeof(BueNativeManagementPanel), nameof(OnUiRebuilt)));
+                if (pauseCtor != null)
+                {
+                    harmony.Patch(pauseCtor, postfix: new HarmonyMethod(typeof(BueNativeManagementPanel), nameof(OnUiRebuilt)));
+                    LogTrace("patch-installed", "target=PlayerPauseUI.constructor");
+                }
+                else
+                {
+                    LogTrace("patch-missing", "target=PlayerPauseUI.constructor");
+                }
+                var menuEscape = AccessTools.Method(typeof(MenuUI), "escapeMenu");
+                if (menuEscape != null)
+                {
+                    harmony.Patch(menuEscape, prefix: new HarmonyMethod(typeof(BueNativeManagementPanel), nameof(OnMenuEscapePrefix)));
+                    LogTrace("patch-installed", "target=MenuUI.escapeMenu");
+                }
+                var playerEscape = AccessTools.Method(typeof(PlayerUI), "escapeMenu");
+                if (playerEscape != null)
+                {
+                    harmony.Patch(playerEscape, prefix: new HarmonyMethod(typeof(BueNativeManagementPanel), nameof(OnPlayerEscapePrefix)));
+                    LogTrace("patch-installed", "target=PlayerUI.escapeMenu");
+                }
+                var menuCloseAll = AccessTools.Method(typeof(MenuUI), "closeAll");
+                if (menuCloseAll != null)
+                {
+                    harmony.Patch(menuCloseAll, postfix: new HarmonyMethod(typeof(BueNativeManagementPanel), nameof(OnMenuCloseAllPostfix)));
+                    LogTrace("patch-installed", "target=MenuUI.closeAll");
+                }
             }
             catch (Exception error)
             {
@@ -83,17 +149,54 @@ namespace BetterUnturnedExperience.Plugin
 
         private static void OnUiRebuilt()
         {
-            // Instance polling in the owning plugin is the authoritative path;
-            // this postfix intentionally contains no state mutation.
+            var instance = activeInstance;
+            if (instance == null || instance.destroyed) return;
+            instance.LogTrace("constructor-postfix", "source=Harmony");
+            instance.Tick(TickSource.Harmony);
         }
 
-        private void TryAddMainButton()
+        private static bool OnMenuEscapePrefix()
+        {
+            var instance = activeInstance;
+            if (instance == null || !instance.opened) return true;
+            instance.Close();
+            return false;
+        }
+
+        private static bool OnPlayerEscapePrefix()
+        {
+            var instance = activeInstance;
+            if (instance == null || !instance.opened) return true;
+            instance.Close();
+            return false;
+        }
+
+        private static void OnMenuCloseAllPostfix()
+        {
+            var instance = activeInstance;
+            if (instance != null) instance.Close();
+        }
+
+        private void TryAddMainButton(string source)
         {
             var parent = ReadContainer(workshopContainerField);
+            if (parent != null && !IsAlive(parent))
+            {
+                LogTrace("stale-container", "surface=MenuWorkshopUI source=" + source);
+                parent = null;
+            }
+            var mainState = parent == null ? 0 : 1;
+            if (mainState != lastMainContainerState)
+            {
+                lastMainContainerState = mainState;
+                LogTrace("container-state", "surface=MenuWorkshopUI state=" + (parent == null ? "null" : parent.GetType().FullName) + " active=" + SafeActive(typeof(MenuWorkshopUI)) + " source=" + source);
+            }
             if (parent == null || ReferenceEquals(mainParent, parent)) return;
             try
             {
+                LogTrace("create-button-begin", "surface=MenuWorkshopUI source=" + source);
                 mainButton = Glazier.Get().CreateButton();
+                LogTrace("create-button-result", "surface=MenuWorkshopUI created=" + (mainButton != null) + " source=" + source);
                 mainButton.PositionOffset_X = -110f;
                 mainButton.PositionOffset_Y = 185f;
                 mainButton.PositionScale_X = 0.5f;
@@ -104,17 +207,36 @@ namespace BetterUnturnedExperience.Plugin
                 mainButton.OnClicked += OnMainButtonClicked;
                 parent.AddChild(mainButton);
                 mainParent = parent;
+                LogTrace("add-child-success", "surface=MenuWorkshopUI source=" + source);
             }
-            catch (Exception error) { Log("main menu entry failed: " + error.Message); }
+            catch (Exception error)
+            {
+                CleanupMainButton(parent);
+                LogTrace("entry-failed", "surface=MenuWorkshopUI source=" + source + " errorType=" + error.GetType().FullName + " message=" + error.Message);
+                Log("workshop menu entry failed: " + error.Message);
+            }
         }
 
-        private void TryAddPauseButton()
+        private void TryAddPauseButton(string source)
         {
             var parent = ReadContainer(pauseContainerField);
+            if (parent != null && !IsAlive(parent))
+            {
+                LogTrace("stale-container", "surface=PlayerPauseUI source=" + source);
+                parent = null;
+            }
+            var pauseState = parent == null ? 0 : 1;
+            if (pauseState != lastPauseContainerState)
+            {
+                lastPauseContainerState = pauseState;
+                LogTrace("container-state", "surface=PlayerPauseUI state=" + (parent == null ? "null" : parent.GetType().FullName) + " active=" + SafeActive(typeof(PlayerPauseUI)) + " source=" + source);
+            }
             if (parent == null || ReferenceEquals(pauseParent, parent)) return;
             try
             {
+                LogTrace("create-button-begin", "surface=PlayerPauseUI source=" + source);
                 pauseButton = Glazier.Get().CreateButton();
+                LogTrace("create-button-result", "surface=PlayerPauseUI created=" + (pauseButton != null) + " source=" + source);
                 pauseButton.PositionOffset_X = 205f;
                 pauseButton.PositionOffset_Y = -290f;
                 pauseButton.PositionScale_X = 0.5f;
@@ -125,8 +247,14 @@ namespace BetterUnturnedExperience.Plugin
                 pauseButton.OnClicked += OnPauseButtonClicked;
                 parent.AddChild(pauseButton);
                 pauseParent = parent;
+                LogTrace("add-child-success", "surface=PlayerPauseUI source=" + source);
             }
-            catch (Exception error) { Log("pause menu entry failed: " + error.Message); }
+            catch (Exception error)
+            {
+                CleanupPauseButton(parent);
+                LogTrace("entry-failed", "surface=PlayerPauseUI source=" + source + " errorType=" + error.GetType().FullName + " message=" + error.Message);
+                Log("pause menu entry failed: " + error.Message);
+            }
         }
 
         private void OnMainButtonClicked(ISleekElement button) { Open(ReadContainer(workshopContainerField)); }
@@ -239,6 +367,19 @@ namespace BetterUnturnedExperience.Plugin
             try { return field.GetValue(null) as ISleekElement; } catch (Exception) { return null; }
         }
 
+        private static string SafeActive(Type uiType)
+        {
+            try
+            {
+                var field = uiType.GetField("active", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+                return field == null ? "field-missing" : Convert.ToString(field.GetValue(null));
+            }
+            catch (Exception error)
+            {
+                return "read-failed:" + error.GetType().Name;
+            }
+        }
+
         private static bool IsAlive(ISleekElement element)
         {
             if (element == null) return false;
@@ -263,7 +404,47 @@ namespace BetterUnturnedExperience.Plugin
 
         private void Log(string message)
         {
-            if (log != null) log.LogWarning("[BUE Management] " + message);
+            LogTrace("warning", "reasonCode=ManagementFailure message=" + message);
+        }
+
+        private void CleanupMainButton(ISleekElement parent)
+        {
+            if (mainButton == null) return;
+            try { mainButton.OnClicked -= OnMainButtonClicked; } catch (Exception) { }
+            try { if (parent != null) parent.RemoveChild(mainButton); } catch (Exception) { }
+            mainButton = null;
+        }
+
+        private void CleanupPauseButton(ISleekElement parent)
+        {
+            if (pauseButton == null) return;
+            try { pauseButton.OnClicked -= OnPauseButtonClicked; } catch (Exception) { }
+            try { if (parent != null) parent.RemoveChild(pauseButton); } catch (Exception) { }
+            pauseButton = null;
+        }
+
+        private void LogTrace(string eventName, string details)
+        {
+            if (log != null)
+            {
+                log.LogInfo("[BUE-UI-TRACE] plugin=" + PluginId + " featureId=" + FeatureId + " version=" + Version + " environmentRole=Client scenario=" + GetScenario() + " diagnosticId=" + TraceDiagnosticId + " event=" + eventName + " " + details);
+            }
+        }
+
+        private static string GetScenario()
+        {
+            try
+            {
+                if (Provider.isServer)
+                {
+                    return "LocalAuthorityOrHost";
+                }
+                return "RemoteClient";
+            }
+            catch (Exception)
+            {
+                return "Unknown";
+            }
         }
     }
 }

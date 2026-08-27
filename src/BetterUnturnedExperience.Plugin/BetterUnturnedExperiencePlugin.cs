@@ -58,7 +58,7 @@ namespace BetterUnturnedExperience.Plugin
 
         private void Update()
         {
-            if (nativeManagementPanel != null) nativeManagementPanel.Tick();
+            if (nativeManagementPanel != null) nativeManagementPanel.Tick(BueNativeManagementPanel.TickSource.Update);
             // Some BepInEx/Unity hosts do not dispatch a plugin Start message
             // before the first frame. Keep the same host-owned barrier as a
             // one-shot next-frame fallback; external features still cannot
