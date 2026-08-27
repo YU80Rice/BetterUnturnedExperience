@@ -56,8 +56,8 @@ Contracts/Core/ClientUi/Transport UI/native token scan PASS。既有 Release `Qu
 
 ## 五、独立审计记录
 
-- R1：FAIL，阻断项为 Forward 抓取偏移和图标锚点；报告 `GPT-DEV-15B-Independent-Audit-R1.md`；已修复。
-- R2：PASS，阻断项 0；报告 `GPT-DEV-15B-Independent-Audit-R2.md`。
+- R1：FAIL，阻断项为 Forward 抓取偏移和图标锚点；报告 `DEV-15B-Independent-Audit-R1.md`；已修复。
+- R2：PASS，阻断项 0；报告 `DEV-15B-Independent-Audit-R2.md`。
 
 ## 六、产物哈希
 
@@ -73,3 +73,4 @@ Contracts/Core/ClientUi/Transport UI/native token scan PASS。既有 Release `Qu
 ## 八、最终裁定
 
 DEV-15B 纯 C# Seam 可交 Gemini 前端消费复核；在 Gemini `ACCEPT` 前保持 `ready-for-human`，不得标记 `resolved`，不得宣称 Better Item Interaction 已完成。
+

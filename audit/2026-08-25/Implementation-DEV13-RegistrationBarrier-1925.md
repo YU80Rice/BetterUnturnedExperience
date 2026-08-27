@@ -54,7 +54,7 @@ DEV-13 external registration barrier tests: PASS
 
 ## 六、独立审计门禁
 
-GPT 独立审计 R1：`audit/2026-08-25/GPT-DEV-13-Independent-Audit-R1.md`，判定 **PASS，0 阻断**。现交 Gemini 进行前端公开 ABI、统一管理状态与 Headless 消费复核；在真实客户端部署 BUE + No-op Fixture 冒烟前，工单保持 `ready-for-human`，不得标记 `resolved`。
+GPT 独立审计 R1：`audit/2026-08-25/DEV-13-Independent-Audit-R1.md`，判定 **PASS，0 阻断**。现交 Gemini 进行前端公开 ABI、统一管理状态与 Headless 消费复核；在真实客户端部署 BUE + No-op Fixture 冒烟前，工单保持 `ready-for-human`，不得标记 `resolved`。
 
 ## 七、边界与未宣称事项
 
@@ -65,3 +65,4 @@ GPT 独立审计 R1：`audit/2026-08-25/GPT-DEV-13-Independent-Audit-R1.md`，�
 `UMM-诊断包_20260825_193703` 证明 BUE 与 No-op 均被加载且 No-op 注册成功，但没有 `BUE-BOOTSTRAP-003 status=RuntimeReady`。该证据不足以关闭 barrier 运行门禁。
 
 修复：BUE Plugin 保留 `Start()` 首选路径，并增加一次性 `Update()` fallback，仍只由 BUE Host 调用 `CompleteRuntime()`。修订后 Release 构建和 7/7 测试通过；新 BUE DLL SHA-256 为 `A76202EB3087549695C623C4B008F70E35E424252B79D6CE4C24919290065A64`。等待重新人工冒烟。
+

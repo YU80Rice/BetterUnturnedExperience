@@ -6,7 +6,7 @@ DEV-15A 已完成 TDD、Release 编译和 GPT 独立审计，请对以下产物�
 - `tests/BetterUnturnedExperience.ClientUi.Tests/Program.cs`
 - `issues/DEV-15A-native-drag-adapter.md`
 - `audit/2026-08-25/Implementation-DEV15A-2215.md`
-- `audit/2026-08-25/GPT-DEV-15A-Independent-Audit-R3.md`
+- `audit/2026-08-25/DEV-15A-Independent-Audit-R3.md`
 
 ## 复核问题
 
@@ -22,3 +22,4 @@ DEV-15A 已完成 TDD、Release 编译和 GPT 独立审计，请对以下产物�
 本票只证明纯值 Adapter Seam；不证明真实 Harmony/Unity Hook、Glazier 渲染、投影收敛、SP/P2P/U3DS 或发布资格。
 
 请输出 `ACCEPT`、`ACCEPT WITH CHANGES` 或 `BLOCKED`。
+

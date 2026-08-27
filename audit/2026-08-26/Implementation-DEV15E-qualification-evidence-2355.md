@@ -24,7 +24,7 @@
 - 完成 Release evidence/qualification 源码纳入解决方案构建；
 - 修正 `RuntimeEvidencePackageValidator`：同 CaseId 仅允许 Host+Client 配对，重复角色/第三角色仍拒绝；
 - 扩展 Release 测试为 DEV-15E 门禁测试；
-- 新增 Gemini 交接：`.scratch/better-unturned-experience-architecture/handoffs/GPT-to-Gemini-DEV-15E-qualification-evidence.md`。
+- 新增 Gemini 交接：`.scratch/better-unturned-experience-architecture/handoffs/to-DEV-15E-qualification-evidence.md`。
 
 ## 四、编译与测试验证记录
 
@@ -62,3 +62,5 @@
 `45ee80d Implement DEV-15E qualification evidence gate`
 
 后续修复在工作树中已完成并重新验证；应使用最新源码/DLL 哈希采集真实证据。
+
+

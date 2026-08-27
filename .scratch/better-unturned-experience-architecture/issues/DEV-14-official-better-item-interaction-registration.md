@@ -45,8 +45,9 @@ Depends on: DEV-13 (`resolved`), SCR-GPT18-001（已接受提案）
 - Release solution：0 errors / 0 warnings。
 - 完整 7 个测试套件：全部 PASS；目标输出 `DEV-14 official registration parity tests: PASS`。
 - GPT 独立审计：PASS，无阻断项。
-- Gemini 前端消费复核：ACCEPT（`Gemini-DEV-14-Official-Registration-Review.md`）。
+- Gemini 前端消费复核：ACCEPT（`DEV-14-Official-Registration-Review.md`）。
 - 实施报告：`audit/2026-08-25/Implementation-DEV14-Official-Registration-2043.md`。
 - 正式客户端双 DLL 冒烟：PASS；诊断包：`UMM-诊断包_20260825_205630`。
 - 实际部署哈希与 staging 哈希一致；日志出现 `BootstrapReady`、官方注册成功、No-op 注册成功及 `RuntimeReady`。
-- 最终运行审计：`audit/2026-08-25/GPT-DEV-14-Clean-Install-205630.md`。
+- 最终运行审计：`audit/2026-08-25/DEV-14-Clean-Install-205630.md`。
+

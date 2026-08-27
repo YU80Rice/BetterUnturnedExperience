@@ -10,7 +10,7 @@
 
 - 工单：`.scratch/better-unturned-experience-architecture/issues/DEV-15B-coordinate-preview-wiring.md`
 - 功能规格：`.scratch/better-unturned-experience-architecture/spec-DEV-15-better-item-interaction.md`
-- 坐标基线：`.scratch/better-unturned-experience-architecture/GPT-Item-Placement-Algorithm-Spec.md`、`GPT-RT-01-Shared-Contract-Baseline.md`
+- 坐标基线：`.scratch/better-unturned-experience-architecture/Item-Placement-Algorithm-Spec.md`、`RT-01-Shared-Contract-Baseline.md`
 - 主要实现：`src/BetterUnturnedExperience.ClientUi/InventoryPreviewWiring.cs`
 - 测试：`tests/BetterUnturnedExperience.ClientUi.Tests/Dev15BTests.cs`
 - 审计时间：2026-08-25（Asia/Shanghai）
@@ -100,4 +100,5 @@ A13695A1EF1CF99DC9EFDFA8698A1C79CA7D8CDE0A1C123C0F00FFE205E47B16
 ## 七、最终门禁
 
 在 B-15B-01、B-15B-02 修复并重新执行 Release 构建、7 套测试及独立审计前，**不得将 DEV-15B 标记为 resolved，也不得宣称 Better Item Interaction 已具备真实客户端功能或三环境资格**。
+
 

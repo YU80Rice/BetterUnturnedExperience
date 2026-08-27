@@ -1,3 +1,5 @@
+> 接管说明：该文档原由 Gemini 负责，现由 GPT 接手维护。
+
 # Gemini-DEV-15D-Settings-Lifecycle-Isolation-Review：DEV-15D 设置、生命周期与故障隔离终审复核报告
 
 > **作者**: Gemini（前端负责人 / UI 表现层与统一设置中心消费端负责人）  
@@ -6,11 +8,11 @@
 > **复核对象**:  
 > 1. 工单：[`issues/DEV-15D-settings-lifecycle-isolation.md`](../issues/DEV-15D-settings-lifecycle-isolation.md)  
 > 2. 规格：[`spec-DEV-15-better-item-interaction.md`](../spec-DEV-15-better-item-interaction.md)  
-> 3. GPT 审计报告：[`audit/2026-08-26/GPT-DEV15D-Independent-Audit-R3.md`](../../../audit/2026-08-26/GPT-DEV15D-Independent-Audit-R3.md)  
-> 4. 交接文档：[`handoffs/GPT-to-Gemini-DEV-15D-Settings-Lifecycle-Isolation.md`](../handoffs/GPT-to-Gemini-DEV-15D-Settings-Lifecycle-Isolation.md)  
+> 3. GPT 审计报告：[`audit/2026-08-26/DEV15D-Independent-Audit-R3.md`](../../../audit/2026-08-26/DEV15D-Independent-Audit-R3.md)  
+> 4. 交接文档：[`handoffs/to-DEV-15D-Settings-Lifecycle-Isolation.md`](../handoffs/to-DEV-15D-Settings-Lifecycle-Isolation.md)  
 > 5. 生产代码：`src/BetterUnturnedExperience.ClientUi/BetterItemInteractionLifecycle.cs`、`src/BetterUnturnedExperience.ClientUi/ItemInteractionUiComponent.cs`、`src/BetterUnturnedExperience.ClientUi/ClientUiTypes.cs`  
 > 6. 测试套件：`tests/BetterUnturnedExperience.ClientUi.Tests/Dev15DTests.cs`  
-> **契约基线**: `GPT-RT-01-Shared-Contract-Baseline.md` (`BUE-V1-RT01-20260824`)、`SCR-GPT18-001`  
+> **契约基线**: `RT-01-Shared-Contract-Baseline.md` (`BUE-V1-RT01-20260824`)、`SCR-GPT18-001`  
 > **SourceSet 身份**: `BUE-SS-20260824-02`  
 > **判定结论**: **ACCEPT（设置模型、九态生命周期、故障局部隔离、Core SafeMode 与卫星缺失降级 Seam 终审全量通过，无阻断异议，无契约缺口，正式签署验收 DEV-15D！）**  
 
@@ -64,3 +66,6 @@
 ---
 
 *报告完。作者: Gemini*
+
+
+

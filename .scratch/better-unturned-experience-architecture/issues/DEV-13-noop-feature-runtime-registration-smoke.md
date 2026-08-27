@@ -1,7 +1,7 @@
 # DEV-13：独立 No-op Feature 注册运行时与 Catalog Barrier 冒烟
 
 Type: task
-Status: ready-for-human
+Status: resolved
 Owner: GPT（总维护者/后端运行时）
 Required reviewer: Gemini（前端消费、公开 ABI 与 Headless 边界）
 Baseline: BUE-V1-RT01-20260824
@@ -48,7 +48,7 @@ Depends on: DEV-10、DEV-11、DEV-12、SCR-GPT18-001、GPT-18
 - Release：0 errors / 0 warnings；7 项测试全部 PASS。
 - staging 产物：`artifacts/DEV-13-noop-registration-20260825/`。
 - 实施报告：`audit/2026-08-25/Implementation-DEV13-RegistrationBarrier-1925.md`。
-- Gemini 前端消费复核：ACCEPT（`Gemini-DEV-13-Registration-Barrier-Review.md`）；同意工单维持 `ready-for-human`，待真实 BUE + No-op 双 DLL 客户端冒烟验证。
+- Gemini 前端消费复核：ACCEPT（`DEV-13-Registration-Barrier-Review.md`）；同意工单维持 `ready-for-human`，待真实 BUE + No-op 双 DLL 客户端冒烟验证。
 
 ## 人工双 DLL 冒烟 R1（2026-08-25 19:37）
 
@@ -63,7 +63,7 @@ Depends on: DEV-10、DEV-11、DEV-12、SCR-GPT18-001、GPT-18
 - 修订后 BUE DLL SHA-256：`A76202EB3087549695C623C4B008F70E35E424252B79D6CE4C24919290065A64`。
 - No-op DLL SHA-256 未变：`CD177FE68CED6EAE4986062D74D9BC07555EB12B7D4E70B756FFC2AAED42FA02`。
 - 已重新 Release 构建并完成 7/7 测试；需重新执行人工双 DLL 冒烟并采集 `RuntimeReady` 日志后才可关闭工单。
-- GPT 独立审计 R2：`audit/2026-08-25/GPT-DEV-13-Independent-Audit-R2.md`，判定 `PASS（静态修复审计）`；真实运行门禁仍未闭环。
+- GPT 独立审计 R2：`audit/2026-08-25/DEV-13-Independent-Audit-R2.md`，判定 `PASS（静态修复审计）`；真实运行门禁仍未闭环。
 
 ## R2 诊断修复（2026-08-25）
 
@@ -87,4 +87,21 @@ Depends on: DEV-10、DEV-11、DEV-12、SCR-GPT18-001、GPT-18
 - 诊断包：`UMM-诊断包_20260825_195629`。
 - 修订版 BUE 与 No-op 哈希均匹配；BUE/No-op 加载与 No-op 注册成功。
 - 仍缺少 `BUE-BOOTSTRAP-003 status=RuntimeReady`，故本轮判定 `PENDING`，工单继续保持 `ready-for-human`。
-- 复核报告：`audit/2026-08-25/GPT-DEV-13-Clean-Install-195629.md`。
+- 复核报告：`audit/2026-08-25/DEV-13-Clean-Install-195629.md`。
+
+## 正式清理版人工双 DLL 冒烟 R3（2026-08-25 20:31）
+
+- 诊断包：`D:\Agent-工作目录\DevelopMyUNMultiplayerModAndModloader\启动器\UnturnedModManager\publish\UMM-v2.2.0-win-x64\UMM-诊断包_20260825_203119`。
+- 部署目录：`E:\Steam\steamapps\common\Unturned\BepInEx\plugins\`。
+- 正式 BUE DLL：`BetterUnturnedExperience.dll`，SHA-256 `166B6C488F609BA933A02BB62432FD6079352B05CBD9F0FD40B6ABADF1DC8B32`。
+- No-op Fixture DLL：`BetterUnturnedExperience.NoOpFixture.dll`，SHA-256 `CD177FE68CED6EAE4986062D74D9BC07555EB12B7D4E70B756FFC2AAED42FA02`。
+- 实际部署文件哈希与正式 staging 产物 100% 一致；活动目录未要求 `BetterUnturnedExperience.Core.dll` 或 `BetterUnturnedExperience.Contracts.dll`。
+- BepInEx `5.4.23.5` 启动正常，共加载 2 个插件（BUE + No-op）。
+- BUE：`status=BootstrapReady decision=Client diagnosticId=BUE-BOOTSTRAP-001`。
+- No-op：`accepted=True reason=None diagnosticId=BUE-REG-ACCEPT`。
+- BUE：`status=RuntimeReady diagnosticId=BUE-BOOTSTRAP-003`。
+- UMM 摘要：`Normal`，受管会话退出码 `0`；未发现 `TypeLoadException`、`FileNotFoundException`、`MissingMethodException`、Fatal/Unhandled BepInEx 错误。
+- 结论：正式清理版 BUE + No-op 注册与 Catalog barrier 客户端冒烟通过，DEV-13 关闭。
+- 边界：不宣称 U3DS、SP/P2P、ClientUi Satellite、Better Item Interaction 或三环境发布资格通过。
+- 最终审计报告：`audit/2026-08-25/DEV-13-Clean-Install-203119.md`。
+

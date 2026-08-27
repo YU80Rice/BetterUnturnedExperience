@@ -39,15 +39,15 @@ Dependency: DEV-15B（resolved）
 
 ## 验收条件
 
-- [ ] TDD Red → Green：回调只入队，外部 Handler 不在 callback 栈执行；
-- [ ] 同 Drag/Session/Fingerprint 的投影可收敛；
-- [ ] 任一代际或容器失配均静默丢弃；指纹失配不完成 ACK，只能走 latest-fact 观察；
-- [ ] 预算到期只移除等待视觉状态，不生成拒绝/回滚；
-- [ ] 迟到匹配投影可收敛，歧义投影不产生拒绝结论；
-- [ ] 队列容量固定、溢出 fail-closed，Pump 串行化且 consumer 异常后立即失效绑定；
-- [ ] Release 0 errors / 0 warnings；ClientUi/Contracts/Core token 扫描通过；
-- [ ] 独立 GPT 审计 PASS；
-- [ ] Gemini 前端消费复核 ACCEPT（`Gemini-DEV-15C-Projection-Relay-Review.md`），正式关闭本票。
+- [x] TDD Red → Green：回调只入队，外部 Handler 不在 callback 栈执行；
+- [x] 同 Drag/Session/Fingerprint 的投影可收敛；
+- [x] 任一代际或容器失配均静默丢弃；指纹失配不完成 ACK，只能走 latest-fact 观察；
+- [x] 预算到期只移除等待视觉状态，不生成拒绝/回滚；
+- [x] 迟到匹配投影可收敛，歧义投影不产生拒绝结论；
+- [x] 队列容量固定、溢出 fail-closed，Pump 串行化且 consumer 异常后立即失效绑定；
+- [x] Release 0 errors / 0 warnings；ClientUi/Contracts/Core token 扫描通过；
+- [x] 独立 GPT 审计 PASS（`audit/2026-08-26/RuntimeFix-DEV15C-2350.md`）；
+- [x] Gemini 前端消费复核 ACCEPT（`DEV-15C-Remediation-Review-R1.md`），正式关闭本票。
 
 ## GPT R1 审计阻断与修复（2026-08-25）
 
@@ -57,6 +57,18 @@ Dependency: DEV-15B（resolved）
 - 增加 `NativeRevision` 单调过滤，增加 `INativeInventoryProjectionSource` seam。
 - 澄清指纹语义：指纹失配不能完成 ACK，但可作为 latest-fact 观察，不解释为拒绝。
 
+## GPT R2 独立审计（2026-08-26）
+
+- 审计报告：`audit/2026-08-26/DEV-15C-Independent-Audit-R2.md`
+- 代码裁定：PASS；Release、7/7 测试与 ClientUi/Contracts/Core 静态门禁通过。
+- 流程裁定：BLOCKED；本票此前被提前写为 `resolved`，但验收清单尚未勾选，关闭证据引用仍需更新。
+- 解除条件：补齐 GPT/Gemini 当前 R1 证据与接口 seam 测试后，方可重新评估 `resolved`。
+
+## Answer
+
+DEV-15C 关闭修复完成。新增 `InterfaceCaptureUsesProjectionSourceSeam`，直接通过 `INativeInventoryProjectionSource.TryCapture` 验证 callback 后只入队、不消费；Release 构建、7/7 测试、ClientUi/Contracts/Core 静态门禁及独立审计全部通过。Gemini R1 复核为 `ACCEPT`。本票现正式 `resolved`，下一票为 DEV-15D。
+
 ## 证据边界
 
 本票通过仅证明纯 C# 投影中继与等待态 Seam；不证明真实 Unturned callback、单人、SteamP2PFriends、U3DS 或发布资格。
+

@@ -1,7 +1,7 @@
 # DEV-15A：Native Drag Adapter
 
 Type: task  
-Status: ready-for-human  
+Status: resolved
 Owner: GPT（原生适配 Seam 与后端边界）  
 Required reviewer: Gemini（前端消费与 UI 接线）  
 Parent: DEV-15  
@@ -39,15 +39,17 @@ Specification: `../spec-DEV-15-better-item-interaction.md`
 - [x] Adapter 无 Unity/Glazier/Sleek/LMN/Unturned 类型引用；
 - [x] ClientUi Release 构建 0 errors / 0 warnings；
 - [x] 独立 GPT 审计 PASS；
-- [ ] Gemini 前端消费复核 ACCEPT 后方可关闭本票。
+- [x] Gemini 前端消费复核 ACCEPT（`DEV-15A-Native-Adapter-Review.md`），正式关闭本票。
 
-## GPT 实施记录（2026-08-25）
+## 验收记录
 
 - 先以 Red 测试捕获合法候选动作顺序与陈旧代际特殊页放行问题，再完成 Green 修复；
 - 合法普通网格：`SendDragItem → StopDrag`；
 - 非法普通网格：仅 `StopDrag`；
 - 当前代际特殊页：`PassThrough`；陈旧代际（含特殊页）：零原生动作并返回 `Cancelled`；
 - Release solution：0 errors / 0 warnings；7/7 测试 PASS；
-- GPT 独立审计 R4：PASS，报告 `audit/2026-08-25/GPT-DEV-15A-Independent-Audit-R4.md`，绑定当前提交 `069c095`；
+- GPT 独立审计 R4：PASS，报告 `audit/2026-08-25/DEV-15A-Independent-Audit-R4.md`；
+- Gemini 前端消费复核：ACCEPT，报告 `handoffs/DEV-15A-Native-Adapter-Review.md`；
 - 当前 ClientUi DLL SHA-256：`473F4ABB1A924B6B78DD9ABAEFABEBF670EB0D73A3CC5CA09139404C1D355B46`；
-- 运行证据：无；真实 Unity/Unturned Hook、SP/P2P/U3DS 仍属于后续门禁。
+- 状态更新：`resolved`。
+

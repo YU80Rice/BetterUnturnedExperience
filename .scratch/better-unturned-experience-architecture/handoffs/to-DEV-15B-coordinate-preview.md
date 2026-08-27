@@ -5,7 +5,7 @@
 - 工单：`DEV-15B-coordinate-preview-wiring.md`
 - 当前阶段：GPT 纯 C# Seam 已实现，等待 GPT 独立审计最终 PASS 与 Gemini 前端消费复核；尚未进入 DEV-15C。
 - 规格：`spec-DEV-15-better-item-interaction.md`
-- 算法：`GPT-Item-Placement-Algorithm-Spec.md`
+- 算法：`Item-Placement-Algorithm-Spec.md`
 - 依赖：DEV-15A（Gemini ACCEPT，已 resolved）
 
 ## GPT 已交付的纯 C# Seam
@@ -57,3 +57,4 @@ Gemini 应在独立的 ClientUi/卫星实现中消费上述 seam，不修改 Con
 ## 明确不应据此宣称
 
 本交接包不代表真实 Glazier UI 已完成，不代表 Better Item Interaction 已完成，不代表任何单人/P2P/U3DS 运行或发布资格通过。真实表现层完成后仍需 Gemini 复核、GPT 独立审计及 DEV-15E 同哈希资格证据。
+

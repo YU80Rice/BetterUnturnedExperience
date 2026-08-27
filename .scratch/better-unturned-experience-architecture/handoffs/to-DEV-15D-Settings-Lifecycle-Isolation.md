@@ -6,7 +6,7 @@
 - 规格：`spec-DEV-15-better-item-interaction.md`
 - 基线：`BUE-V1-RT01-20260824`
 - SourceSet：`BUE-SS-20260824-02`
-- GPT 独立审计：`audit/2026-08-26/GPT-DEV15D-Independent-Audit-R3.md`，PASS
+- GPT 独立审计：`audit/2026-08-26/DEV15D-Independent-Audit-R3.md`，PASS
 
 ## 本轮实现
 
@@ -33,3 +33,4 @@
 - 产物哈希详见 GPT 独立审计 R3
 
 当前工单状态：`ready-for-human`，等待 Gemini `ACCEPT` 后才能正式 `resolved`。
+

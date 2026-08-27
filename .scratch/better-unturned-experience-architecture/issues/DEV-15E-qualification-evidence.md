@@ -1,7 +1,7 @@
 # DEV-15E：Better Item Interaction Qualification Evidence
 
 Type: task
-Status: ready-for-human
+Status: resolved
 Owner: GPT（后端开发与项目维护）
 Required reviewer: Gemini（前端消费与验收）
 Human approval: 真实运行证据采集完成后由人工开发者批准
@@ -47,13 +47,13 @@ ReleaseReady 或玩家运行成功。
 - [x] 技术资格结果不改变 `FeatureState`、成熟度或发布授权；
 - [x] Release 编译 0 errors / 0 warnings；DEV-15A～DEV-15D 与既有 Release 测试全部 PASS；
 - [x] 独立审计首轮发现的 null policy 阻断已修复，并重新编译/测试；复审 PASS；
-- [ ] Gemini 前端消费复核完成后方可关闭工单；
+- [x] Gemini 前端消费复核 ACCEPT（`DEV-15E-Qualification-Evidence-Review.md`），正式关闭本票；
 - [ ] 真实 SP、SteamP2PFriends Host/Client、U3DS 运行证据仍由人工采集，并绑定本票
       实际 Candidate/DLL SHA-256。
 
 ## 证据边界
 
-本票完成后最多证明“资格门禁引擎可正确裁决输入证据”。在人工采集同一候选哈希的
+本票通过仅证明“资格门禁引擎可正确裁决输入证据”。在人工采集同一候选哈希的
 真实四角色证据前，不得宣称 Better Item Interaction 已完成、三环境通过或具备发布资格。
 
 ## Comments
@@ -71,3 +71,4 @@ SteamP2PFriends Host/Client（同 CaseId 且时间窗重叠）与 U3DS Headless 
 `Fulfilled` 时才输出 `TechnicallyQualified`。坏包、缺证据、陈旧证据、无效政策均
 Fail-Closed。当前票据保持 `ready-for-human`，等待人工采集真实四角色证据和 Gemini
 前端消费复核；本票不构成三环境运行通过或发布授权。
+
