@@ -1,0 +1,7 @@
+BetterUnturnedExperience.dll SHA-256: 899C9DAF47807A1E4B3CF01E6D4B372C8CE889158BCDFCB9775E538CE1F6DFEF
+Assembly references:
+mscorlib
+BepInEx
+UnityEngine.CoreModule
+System.Core
+System

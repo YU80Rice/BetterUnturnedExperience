@@ -1,0 +1,38 @@
+<Project ToolsVersion="Current" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Release</Configuration><Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
+    <ProjectGuid>{D2A52D07-B5A5-4F1F-8D80-5F48FBD4D5D7}</ProjectGuid><OutputType>Library</OutputType>
+    <RootNamespace>BetterUnturnedExperience.Plugin</RootNamespace><AssemblyName>BetterUnturnedExperience</AssemblyName>
+    <TargetFrameworkVersion>v4.7.2</TargetFrameworkVersion><LangVersion>10.0</LangVersion><Deterministic>true</Deterministic><DebugType>none</DebugType>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' "><Optimize>true</Optimize><OutputPath>bin\Release\</OutputPath><DefineConstants>TRACE</DefineConstants><WarningLevel>4</WarningLevel><TreatWarningsAsErrors>true</TreatWarningsAsErrors></PropertyGroup>
+  <ItemGroup><Reference Include="System" /><Reference Include="System.Core" /><Reference Include="BepInEx"><HintPath>..\..\..\Libs\BepInEx.dll</HintPath><Private>False</Private></Reference><Reference Include="UnityEngine"><HintPath>..\..\..\Libs\UnityEngine.dll</HintPath><Private>False</Private></Reference><Reference Include="UnityEngine.CoreModule"><HintPath>..\..\..\Libs\UnityEngine.CoreModule.dll</HintPath><Private>False</Private></Reference></ItemGroup>
+  <ItemGroup>
+    <Compile Include="..\BetterUnturnedExperience.Contracts\ContractTypes.cs"><Link>EmbeddedContracts\ContractTypes.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Core\CoreAssemblyMarker.cs"><Link>EmbeddedCore\CoreAssemblyMarker.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Core\Definitions\FeatureDefinitionLinker.cs"><Link>EmbeddedCore\Definitions\FeatureDefinitionLinker.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Core\Network\BueEnvelopeCodec.cs"><Link>EmbeddedCore\Network\BueEnvelopeCodec.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Core\Network\BueNetworkProtocol.cs"><Link>EmbeddedCore\Network\BueNetworkProtocol.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Core\Network\LocalLoopbackTransport.cs"><Link>EmbeddedCore\Network\LocalLoopbackTransport.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Core\Placement\PlacementCandidateEvaluator.cs"><Link>EmbeddedCore\Placement\PlacementCandidateEvaluator.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Core\Registration\FeatureRegistrationRuntime.cs"><Link>EmbeddedCore\Registration\FeatureRegistrationRuntime.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Core\Settings\SettingsRuntime.cs"><Link>EmbeddedCore\Settings\SettingsRuntime.cs</Link></Compile>
+    <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="PluginAssemblyMarker.cs" />
+    <Compile Include="BootstrapGuard.cs" />
+    <Compile Include="BueRuntimeHost.cs" />
+    <Compile Include="OfficialFeatureRegistration.cs" />
+    <Compile Include="BetterUnturnedExperiencePlugin.cs" />
+    <!-- DEV-16A: embed the pure-C# ClientUi seam into the single runtime assembly. -->
+    <Compile Include="..\BetterUnturnedExperience.ClientUi\ClientUiTypes.cs"><Link>EmbeddedClientUi\ClientUiTypes.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.ClientUi\InventoryDragPresenter.cs"><Link>EmbeddedClientUi\InventoryDragPresenter.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.ClientUi\NativeInventoryInteractionAdapter.cs"><Link>EmbeddedClientUi\NativeInventoryInteractionAdapter.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.ClientUi\InventoryPreviewWiring.cs"><Link>EmbeddedClientUi\InventoryPreviewWiring.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.ClientUi\InventoryProjectionRelay.cs"><Link>EmbeddedClientUi\InventoryProjectionRelay.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.ClientUi\ItemInteractionUiComponent.cs"><Link>EmbeddedClientUi\ItemInteractionUiComponent.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.ClientUi\SettingsSnapshotPresenter.cs"><Link>EmbeddedClientUi\SettingsSnapshotPresenter.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.ClientUi\BetterItemInteractionLifecycle.cs"><Link>EmbeddedClientUi\BetterItemInteractionLifecycle.cs</Link></Compile>
+    <Compile Include="ClientUiCompositionRoot.cs" />
+  </ItemGroup>
+  <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+</Project>

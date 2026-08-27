@@ -19,6 +19,8 @@
 
 ## Decisions so far
 
+- [完成 DEV-16 真实运行时接线规格](spec-DEV-16-runtime-clientui-management-panel.md)：BUE 最终只发布单一主 DLL，内化 `UnturnedPluginManager` 的管理面板能力并保留作者/仓库/提交/许可记录；冻结 Client/Headless 分流、原生库存 Adapter、BUE Settings Facet、普通 ConfigEntry 兼容编辑、收藏与排序、主菜单/暂停菜单入口，以及 DEV-16A～DEV-16E 的实施顺序。
+
 - [确定产品终点与首版范围](issues/GPT-01-product-scope.md)：交付可用公共框架、开发规格、统一设置入口和模块注册机制，并以“更好的物品交互”作为首个参考实现。
 - [划定前端、后端与共享契约所有权](issues/GPT-02-role-boundaries.md)：Gemini 负责玩家可见交互，GPT 负责后端及版本化共享契约。
 - [确定模块化、兼容与故障隔离原则](issues/GPT-03-modularity-compatibility.md)：功能独立工程、构建合并为单 DLL，模块故障局部隔离，公共 API 遵守语义化兼容。
@@ -40,6 +42,9 @@
 - [完成 DEV-15D Settings + Lifecycle + Isolation 构建](issues/DEV-15D-settings-lifecycle-isolation.md)：设置快照门禁、九态生命周期、SafeMode、局部隔离、卫星降级、原生回退与 surface 重绑失效已实现；GPT R3 独立审计 PASS，Gemini 前端消费复核 ACCEPT，本票已 resolved。
 - [完成 DEV-15E Qualification Evidence 自动化门禁构建](issues/DEV-15E-qualification-evidence.md)：证据包校验、同候选三环境资格组合与 Fail-Closed 政策已实现；Release/7 项测试/Contracts-Core 扫描 PASS，GPT 独立审计返修后 PASS；真实 SP/P2P Host/Client/U3DS 证据仍待人工采集，票据保持 ready-for-human。
 - [建立 DEV-15E-HUMAN 真实运行证据采集门禁](issues/DEV-15E-HUMAN-runtime-evidence.md)：锁定当前 BUE 主 DLL SHA-256，规定 SP、P2P Host/Client、U3DS 的同哈希、CaseId、时间窗和原始日志要求；未完成前不宣称 DEV-15 整体运行或发布通过。
+- [完成 DEV-16 真实运行时接线规格](spec-DEV-16-runtime-clientui-management-panel.md)：冻结 BUE 单 DLL 内化管理面板、主插件 Runtime Composition Root、真实 ClientUi/原生库存 Adapter、BUE Settings Facet、ConfigEntry 兼容编辑、收藏排序、主菜单/暂停菜单入口和 U3DS Headless 隔离；总工单已标记 `ready-for-agent`，下一步为 `/to-tickets`。
+- [拆分 DEV-16A～DEV-16E 实施工单](issues/01-dev-16a-single-dll-composition-root.md)：按依赖顺序建立单 DLL 组合根、管理面板/设置、原生库存生命周期、拖拽预览/投影和三环境证据五个垂直切片；01 可立即开始，02/03 并行阻塞于 01，04 阻塞于 02/03，05 阻塞于 01～04。
+- [完成 DEV-16A 单 DLL Composition Root](issues/01-dev-16a-single-dll-composition-root.md)：主 DLL 已嵌入 Contracts/Core/ClientUi Seam，官方 ClientUi Satellite 非空，客户端/Headless/不可用门禁、幂等初始化与销毁隔离通过；Release 编译、7 项测试、静态扫描和独立审计 PASS。真实 Glazier/Sleek/Harmony/库存接线仍属于 DEV-16B～D。
 
 ## Not yet specified
 

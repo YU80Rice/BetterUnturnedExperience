@@ -29,6 +29,8 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 var accepted = new NoOpFeatureBootstrap().Awake();
                 Assert(accepted.Accepted && accepted.Feature.Value == "io.github.yu80rice.bue.noop", "independent fixture registers through public host bridge");
                 Assert(runtime.CompleteRuntime() && runtime.Catalog.Entries.Count == 2, "official and fixture reach runtime ready through host barrier");
+                Assert(officialRegistrationHasClientUi(official), "official feature exposes a ClientUi satellite descriptor");
+                AssertClientUiCompositionGates();
                 Assert(runtime.Phase == FeatureRegistrationPhase.RuntimeReady, "runtime barrier enters RuntimeReady");
                 Assert(runtime.Catalog.Entries[0].Definition.Feature.Value == "io.github.yu80rice.bue.better-item-interaction", "catalog order is deterministic by feature identity");
                 var late = NoOpFeatureRegistration.Register();
@@ -36,6 +38,36 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 Console.WriteLine("DEV-14 official registration parity tests: PASS"); return 0;
             }
             catch (Exception error) { Console.WriteLine("DEV-14 official registration parity tests: FAIL"); Console.WriteLine(error.GetType().FullName); Console.WriteLine(error.Message); return 1; }
+        }
+        private static bool officialRegistrationHasClientUi(FeatureRegistrationResult result)
+        {
+            var runtime = BueRuntimeHost.CurrentRuntime;
+            if (runtime == null || runtime.Catalog == null) return false;
+            for (var index = 0; index < runtime.Catalog.Entries.Count; index++)
+            {
+                var entry = runtime.Catalog.Entries[index];
+                if (entry.Definition.Feature.Value == result.Feature.Value) return entry.ClientUi != null;
+            }
+            return false;
+        }
+        private static void AssertClientUiCompositionGates()
+        {
+            var client = new BueClientUiCompositionRoot();
+            Assert(client.Initialize(false, false, true), "client composition root initializes on client");
+            Assert(client.IsReady, "client composition root reaches ready");
+            var firstFactoryCount = client.FactoryInvocationCount;
+            Assert(client.Initialize(false, false, true), "repeated client initialization is idempotent");
+            Assert(client.FactoryInvocationCount == firstFactoryCount, "repeated initialization does not recreate UI components");
+            client.Destroy();
+            Assert(!client.Initialize(false, false, true), "destroyed composition root is not reinitialized");
+
+            var headless = new BueClientUiCompositionRoot();
+            Assert(!headless.Initialize(true, true, true), "batch/headless gate blocks composition");
+            Assert(headless.FactoryInvocationCount == 0, "headless gate never invokes UI factory");
+
+            var unavailable = new BueClientUiCompositionRoot();
+            Assert(!unavailable.Initialize(false, false, false), "native UI unavailable blocks composition");
+            Assert(unavailable.FactoryInvocationCount == 0, "native UI unavailable never invokes UI factory");
         }
         private static void AssertSingleDllAssemblyClosure()
         {

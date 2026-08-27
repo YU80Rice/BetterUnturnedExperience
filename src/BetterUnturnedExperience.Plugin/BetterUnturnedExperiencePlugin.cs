@@ -12,6 +12,7 @@ namespace BetterUnturnedExperience.Plugin
         private const string FeatureId = "io.github.yu80rice.betterunturnedexperience";
         private const string DiagnosticId = "BUE-BOOTSTRAP-001";
         private bool runtimeReadyLogged;
+        private BueClientUiCompositionRoot clientUiComposition;
 
         private void Awake()
         {
@@ -23,6 +24,18 @@ namespace BetterUnturnedExperience.Plugin
                 BueRuntimeHost.Bind(runtime);
                 runtime.OpenRegistration();
                 var officialRegistration = BetterItemInteractionFeatureRegistration.Register();
+                if (decision == BootstrapDecision.Client)
+                {
+                    clientUiComposition = new BueClientUiCompositionRoot();
+                    if (!clientUiComposition.Initialize(isBatchMode, isBatchMode, true))
+                    {
+                        Logger.LogWarning("BUE client UI composition unavailable diagnosticId=BUE-CLIENTUI-001");
+                    }
+                    else
+                    {
+                        Logger.LogInfo("BUE client UI composition ready featureId=io.github.yu80rice.bue.better-item-interaction diagnosticId=BUE-CLIENTUI-002");
+                    }
+                }
                 SceneManager.sceneLoaded += OnSceneLoaded;
                 Logger.LogInfo("Better Unturned Experience featureId=" + FeatureId + " status=BootstrapReady decision=" + decision + " diagnosticId=" + DiagnosticId);
                 Logger.LogInfo("Better Item Interaction featureId=" + officialRegistration.Feature.Value + " accepted=" + officialRegistration.Accepted + " reason=" + officialRegistration.Reason + " diagnosticId=" + officialRegistration.DiagnosticId);
@@ -61,6 +74,19 @@ namespace BetterUnturnedExperience.Plugin
             runtimeReadyLogged = true;
             SceneManager.sceneLoaded -= OnSceneLoaded;
             Logger.LogInfo("Better Unturned Experience featureId=" + FeatureId + " status=RuntimeReady diagnosticId=BUE-BOOTSTRAP-003");
+        }
+
+        private void OnDestroy()
+        {
+            try
+            {
+                if (clientUiComposition != null) clientUiComposition.Destroy();
+            }
+            catch (System.Exception error)
+            {
+                Logger.LogWarning("BUE client UI teardown isolated diagnosticId=BUE-CLIENTUI-003 errorType=" + error.GetType().FullName);
+            }
+            BueRuntimeHost.Clear();
         }
     }
 }

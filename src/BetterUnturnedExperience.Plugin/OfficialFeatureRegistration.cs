@@ -30,7 +30,14 @@ namespace BetterUnturnedExperience.Plugin
 
             public ContractVersion MinimumBueContract { get { return new ContractVersion(1, 0); } }
             public IFeatureModuleFactory ModuleFactory { get { return new ModuleFactory(); } }
-            public IClientUiSatelliteRegistration ClientUi { get { return null; } }
+            public IClientUiSatelliteRegistration ClientUi { get { return new OfficialClientUiSatelliteRegistration(); } }
+        }
+
+        private sealed class OfficialClientUiSatelliteRegistration : IClientUiSatelliteRegistration
+        {
+            public string SatelliteId { get { return "bue-clientui-embedded"; } }
+            public ContractVersion MinimumBueContract { get { return new ContractVersion(1, 0); } }
+            public string RegistrationToken { get { return "bue-official-clientui-v1"; } }
         }
 
         private sealed class ModuleFactory : IFeatureModuleFactory
