@@ -164,10 +164,18 @@ namespace BetterUnturnedExperience.ClientUi.Internal
         internal BetterItemInteractionUiComponent(
             InventoryPreviewPresenter previewPresenter,
             NativeInventoryInteractionAdapter nativeAdapter)
+            : this(previewPresenter, nativeAdapter, new BetterItemInteractionSettingsState())
+        {
+        }
+
+        internal BetterItemInteractionUiComponent(
+            InventoryPreviewPresenter previewPresenter,
+            NativeInventoryInteractionAdapter nativeAdapter,
+            BetterItemInteractionSettingsState settingsState)
         {
             this.previewPresenter = previewPresenter ?? throw new ArgumentNullException(nameof(previewPresenter));
             this.nativeAdapter = nativeAdapter ?? throw new ArgumentNullException(nameof(nativeAdapter));
-            settingsState = new BetterItemInteractionSettingsState();
+            this.settingsState = settingsState ?? throw new ArgumentNullException(nameof(settingsState));
             lifecycle = new BetterItemInteractionLifecycle();
             runtime = new BetterItemInteractionRuntime(settingsState, lifecycle);
             runtime.RegisterCleanup(CleanupUiAndDrag);

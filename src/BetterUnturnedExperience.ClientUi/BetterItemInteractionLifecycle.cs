@@ -60,6 +60,54 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             hasSnapshot = true;
             return true;
         }
+
+        internal FeatureSettingsSnapshot GetSnapshot()
+        {
+            return new FeatureSettingsSnapshot(Feature, 1, SettingRevisionScope.ClientPreference, revision,
+                SettingSyncState.Ready, SettingSnapshotSource.LocalPersistent, new[]
+                {
+                    new SettingEntryView("Enabled", SettingAuthority.ClientLocal, new SettingValueOption(true, SettingValue.Toggle(enabled)), false,
+                        default(SettingPolicyView), SettingValue.Toggle(enabled), true, true),
+                    new SettingEntryView("AutoRotate", SettingAuthority.ClientLocal, new SettingValueOption(true, SettingValue.Toggle(autoRotate)), false,
+                        default(SettingPolicyView), SettingValue.Toggle(autoRotate), true, true)
+                });
+        }
+    }
+
+    internal sealed class BetterItemInteractionSettingsEditor : IBueSettingsEditor
+    {
+        private readonly BetterItemInteractionSettingsState state;
+        internal BetterItemInteractionSettingsEditor(BetterItemInteractionSettingsState state) { this.state = state ?? throw new ArgumentNullException(nameof(state)); }
+        public FeatureSettingsSnapshot GetSnapshot(FeatureId feature)
+        {
+            return string.Equals(feature.Value, BetterItemInteractionSettingsState.Feature.Value, StringComparison.Ordinal)
+                ? state.GetSnapshot()
+                : new FeatureSettingsSnapshot(feature, 1, SettingRevisionScope.ClientPreference, 0, SettingSyncState.Unavailable,
+                    SettingSnapshotSource.SafeDefault, new SettingEntryView[0]);
+        }
+        public SettingChangeResult Apply(FeatureId feature, uint expectedRevision, SettingMutation mutation)
+        {
+            if (!string.Equals(feature.Value, BetterItemInteractionSettingsState.Feature.Value, StringComparison.Ordinal) ||
+                (!string.Equals(mutation.SettingId, "Enabled", StringComparison.OrdinalIgnoreCase) &&
+                 !string.Equals(mutation.SettingId, "AutoRotate", StringComparison.OrdinalIgnoreCase)) ||
+                mutation.Value.Kind != SettingKind.Toggle)
+            {
+                return new SettingChangeResult(false, FrameworkErrorCode.SettingRejected, state.Revision, state.GetSnapshot());
+            }
+            var snapshot = state.GetSnapshot();
+            if (snapshot.Revision != expectedRevision) return new SettingChangeResult(false, FrameworkErrorCode.SettingRevisionConflict, snapshot.Revision, snapshot);
+            var entries = new[]
+            {
+                new SettingEntryView("Enabled", SettingAuthority.ClientLocal, new SettingValueOption(true, SettingValue.Toggle(string.Equals(mutation.SettingId, "Enabled", StringComparison.OrdinalIgnoreCase) ? mutation.Value.Boolean : state.Enabled)), false,
+                    default(SettingPolicyView), SettingValue.Toggle(string.Equals(mutation.SettingId, "Enabled", StringComparison.OrdinalIgnoreCase) ? mutation.Value.Boolean : state.Enabled), true, true),
+                new SettingEntryView("AutoRotate", SettingAuthority.ClientLocal, new SettingValueOption(true, SettingValue.Toggle(string.Equals(mutation.SettingId, "AutoRotate", StringComparison.OrdinalIgnoreCase) ? mutation.Value.Boolean : state.AutoRotate)), false,
+                    default(SettingPolicyView), SettingValue.Toggle(string.Equals(mutation.SettingId, "AutoRotate", StringComparison.OrdinalIgnoreCase) ? mutation.Value.Boolean : state.AutoRotate), true, true)
+            };
+            var next = new FeatureSettingsSnapshot(feature, 1, SettingRevisionScope.ClientPreference, expectedRevision + 1,
+                SettingSyncState.Ready, SettingSnapshotSource.LocalPersistent, entries);
+            state.ApplySnapshot(next);
+            return new SettingChangeResult(true, FrameworkErrorCode.None, next.Revision, next);
+        }
     }
 
     internal sealed class BetterItemInteractionLifecycle

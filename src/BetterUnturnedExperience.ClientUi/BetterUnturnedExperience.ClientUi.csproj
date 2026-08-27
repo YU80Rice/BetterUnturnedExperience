@@ -36,6 +36,7 @@
     <Compile Include="ItemInteractionUiComponent.cs" />
     <Compile Include="SettingsSnapshotPresenter.cs" />
     <Compile Include="BetterItemInteractionLifecycle.cs" />
+    <Compile Include="ManagementPanel.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>

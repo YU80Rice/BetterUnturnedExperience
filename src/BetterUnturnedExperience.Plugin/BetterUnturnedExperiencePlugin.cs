@@ -14,6 +14,7 @@ namespace BetterUnturnedExperience.Plugin
         private bool runtimeReadyLogged;
         private bool sceneLoadedSubscribed;
         private BueClientUiCompositionRoot clientUiComposition;
+        private BueNativeManagementPanel nativeManagementPanel;
 
         private void Awake()
         {
@@ -34,6 +35,8 @@ namespace BetterUnturnedExperience.Plugin
                     }
                     else
                     {
+                        nativeManagementPanel = new BueNativeManagementPanel(clientUiComposition.ManagementPanel, Logger);
+                        nativeManagementPanel.Initialize();
                         Logger.LogInfo("BUE client UI composition ready featureId=io.github.yu80rice.bue.better-item-interaction diagnosticId=BUE-CLIENTUI-002");
                     }
                 }
@@ -55,6 +58,7 @@ namespace BetterUnturnedExperience.Plugin
 
         private void Update()
         {
+            if (nativeManagementPanel != null) nativeManagementPanel.Tick();
             // Some BepInEx/Unity hosts do not dispatch a plugin Start message
             // before the first frame. Keep the same host-owned barrier as a
             // one-shot next-frame fallback; external features still cannot
@@ -90,6 +94,7 @@ namespace BetterUnturnedExperience.Plugin
             try
             {
                 UnsubscribeSceneLoaded();
+                if (nativeManagementPanel != null) nativeManagementPanel.Destroy();
                 if (clientUiComposition != null) clientUiComposition.Destroy();
             }
             catch (System.Exception error)
