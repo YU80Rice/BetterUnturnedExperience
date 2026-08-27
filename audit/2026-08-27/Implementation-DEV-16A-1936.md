@@ -44,10 +44,10 @@
 | --- | --- |
 | `BetterUnturnedExperience.Plugin.csproj` | `1046056148F8F9949A9F3FF57727CFBC0DD5D49902A975353B68BEB0847FB837` |
 | `ClientUiCompositionRoot.cs` | `03F25D9D4BE03472631D4FA5CD6D9BF7E87A622298DB1D2A9DD2EE14B8A6F940` |
-| `BetterUnturnedExperiencePlugin.cs` | `A6838A8FF4C24F6355F4B92AE7366F9C9077F83BE36787FA7E15A58D8619D896` |
+| `BetterUnturnedExperiencePlugin.cs` | `A429590F7DEAA5310D5FC2B8BE7D0C121A1FB1F0F0F7353CEE0A1C3CE4A08691` |
 | `OfficialFeatureRegistration.cs` | `2505378B8B57144B908ABA2080287CF128A1A24AA21F61C9D15CAB5244E7D314` |
 | `Program.cs` | `8FA087643ADD70A81EC83B53B43F5BC0D6354C67136D49C319536EB8132A4F9F` |
-| `BetterUnturnedExperience.dll` | `899C9DAF47807A1E4B3CF01E6D4B372C8CE889158BCDFCB9775E538CE1F6DFEF` |
+| `BetterUnturnedExperience.dll` | `EBC1D3080D44D3C5D6A19B5E2EC6355CE9FAB99CC568FAE1B2DEEB2415965CC8` |
 
 ## 七、偏离与妥协说明
 
@@ -55,4 +55,4 @@
 
 ## 八、结论与下一步
 
-DEV-16A 静态、TDD、编译和独立审计闭环通过，可交 Gemini 前端消费复核并进入 DEV-16B。当前不等同于真实客户端 UI、库存拖拽或三环境资格通过。
+规格复核提出的场景订阅对称性建议已修复：`BetterUnturnedExperiencePlugin.OnDestroy` 现在会在任何运行阶段退订 `SceneManager.sceneLoaded`，并已重新编译和测试。DEV-16A 静态、TDD、编译和独立审计闭环通过，可交 Gemini 前端消费复核并进入 DEV-16B。当前不等同于真实客户端 UI、库存拖拽或三环境资格通过。

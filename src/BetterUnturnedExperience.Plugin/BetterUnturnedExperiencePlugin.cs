@@ -12,6 +12,7 @@ namespace BetterUnturnedExperience.Plugin
         private const string FeatureId = "io.github.yu80rice.betterunturnedexperience";
         private const string DiagnosticId = "BUE-BOOTSTRAP-001";
         private bool runtimeReadyLogged;
+        private bool sceneLoadedSubscribed;
         private BueClientUiCompositionRoot clientUiComposition;
 
         private void Awake()
@@ -37,6 +38,7 @@ namespace BetterUnturnedExperience.Plugin
                     }
                 }
                 SceneManager.sceneLoaded += OnSceneLoaded;
+                sceneLoadedSubscribed = true;
                 Logger.LogInfo("Better Unturned Experience featureId=" + FeatureId + " status=BootstrapReady decision=" + decision + " diagnosticId=" + DiagnosticId);
                 Logger.LogInfo("Better Item Interaction featureId=" + officialRegistration.Feature.Value + " accepted=" + officialRegistration.Accepted + " reason=" + officialRegistration.Reason + " diagnosticId=" + officialRegistration.DiagnosticId);
             }
@@ -72,14 +74,22 @@ namespace BetterUnturnedExperience.Plugin
             if (runtime == null || runtime.Phase != FeatureRegistrationPhase.RegistrationOpen) return;
             if (!runtime.CompleteRuntime()) return;
             runtimeReadyLogged = true;
-            SceneManager.sceneLoaded -= OnSceneLoaded;
+            UnsubscribeSceneLoaded();
             Logger.LogInfo("Better Unturned Experience featureId=" + FeatureId + " status=RuntimeReady diagnosticId=BUE-BOOTSTRAP-003");
+        }
+
+        private void UnsubscribeSceneLoaded()
+        {
+            if (!sceneLoadedSubscribed) return;
+            SceneManager.sceneLoaded -= OnSceneLoaded;
+            sceneLoadedSubscribed = false;
         }
 
         private void OnDestroy()
         {
             try
             {
+                UnsubscribeSceneLoaded();
                 if (clientUiComposition != null) clientUiComposition.Destroy();
             }
             catch (System.Exception error)
