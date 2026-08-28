@@ -17,8 +17,13 @@ namespace BetterUnturnedExperience.Plugin
         private bool runtimeReadyLogged;
         private bool sceneLoadedSubscribed;
         private int updateTickCount;
+        private int runtimePumpTickCount;
+        private bool runtimePumpIsolated;
         private BueClientUiCompositionRoot clientUiComposition;
         private BueNativeManagementPanel nativeManagementPanel;
+        private readonly BueRuntimePumpSlot runtimePumpSlot = new BueRuntimePumpSlot();
+        private BueRuntimePump runtimePump;
+        private BueRuntimePumpBehaviour runtimePumpBehaviour;
 
         private void Awake()
         {
@@ -27,6 +32,7 @@ namespace BetterUnturnedExperience.Plugin
                 LogAssemblyIdentity();
                 var isBatchMode = Application.isBatchMode;
                 var decision = BootstrapGuard.Decide(isBatchMode, isBatchMode, !isBatchMode);
+                Logger.LogInfo("[BUE-UI-TRACE] plugin=io.github.yu80rice.betterunturnedexperience diagnosticId=BUE-BOOTSTRAP-002 event=runtime-gate decision=" + decision + " batchMode=" + isBatchMode + " headless=" + isBatchMode);
                 var runtime = new FeatureRegistrationRuntime();
                 BueRuntimeHost.Bind(runtime);
                 runtime.OpenRegistration();
@@ -42,6 +48,7 @@ namespace BetterUnturnedExperience.Plugin
                     {
                         nativeManagementPanel = new BueNativeManagementPanel(clientUiComposition.ManagementPanel, Logger);
                         nativeManagementPanel.Initialize();
+                        AttachRuntimePump();
                         Logger.LogInfo("BUE client UI composition ready featureId=io.github.yu80rice.bue.better-item-interaction diagnosticId=BUE-CLIENTUI-002");
                     }
                 }
@@ -60,6 +67,57 @@ namespace BetterUnturnedExperience.Plugin
         {
             Logger.LogInfo("[BUE-UI-TRACE] plugin=io.github.yu80rice.betterunturnedexperience diagnosticId=BUE-MANAGEMENT-TRACE-002 event=start-entered");
             TryCompleteRuntime();
+        }
+
+        private void AttachRuntimePump()
+        {
+            if (runtimePumpBehaviour != null && runtimePumpBehaviour.gameObject != null) return;
+            DestroyRuntimePump();
+            try
+            {
+                runtimePump = runtimePumpSlot.GetOrCreate(OnRuntimePumpTick);
+                runtimePumpBehaviour = BueRuntimePumpBehaviour.Attach(runtimePump);
+                Logger.LogInfo("[BUE-UI-TRACE] plugin=io.github.yu80rice.betterunturnedexperience diagnosticId=BUE-MANAGEMENT-TRACE-003 event=runtime-pump-created object=BUE.RuntimePump");
+            }
+            catch (Exception error)
+            {
+                DestroyRuntimePump();
+                Logger.LogWarning("[BUE-UI-TRACE] plugin=io.github.yu80rice.betterunturnedexperience diagnosticId=BUE-MANAGEMENT-TRACE-003 event=runtime-pump-create-failed errorType=" + error.GetType().FullName);
+            }
+        }
+
+        private void DestroyRuntimePump()
+        {
+            runtimePumpSlot.Clear();
+            runtimePump = null;
+            var behaviour = runtimePumpBehaviour;
+            runtimePumpBehaviour = null;
+            if (behaviour != null)
+            {
+                var pumpObject = behaviour.gameObject;
+                if (pumpObject != null) UnityEngine.Object.Destroy(pumpObject);
+            }
+        }
+
+        private void OnRuntimePumpTick()
+        {
+            if (runtimePumpIsolated) return;
+            runtimePumpTickCount++;
+            if (runtimePumpTickCount == 1)
+            {
+                Logger.LogInfo("[BUE-UI-TRACE] plugin=io.github.yu80rice.betterunturnedexperience diagnosticId=BUE-MANAGEMENT-TRACE-003 event=runtime-pump-tick count=1");
+            }
+            try
+            {
+                if (nativeManagementPanel != null) nativeManagementPanel.Tick(BueNativeManagementPanel.TickSource.RuntimePump);
+                TryCompleteRuntime();
+            }
+            catch (Exception error)
+            {
+                runtimePumpIsolated = true;
+                Logger.LogWarning("[BUE-UI-TRACE] plugin=io.github.yu80rice.betterunturnedexperience diagnosticId=BUE-MANAGEMENT-TRACE-003 event=runtime-pump-failed errorType=" + error.GetType().FullName);
+                Logger.LogWarning("[BUE-UI-TRACE] plugin=io.github.yu80rice.betterunturnedexperience diagnosticId=BUE-MANAGEMENT-TRACE-003 event=runtime-pump-isolated fallback=NativeUi");
+            }
         }
 
         private void Update()
@@ -127,6 +185,7 @@ namespace BetterUnturnedExperience.Plugin
             try
             {
                 UnsubscribeSceneLoaded();
+                DestroyRuntimePump();
                 if (nativeManagementPanel != null) nativeManagementPanel.Destroy();
                 if (clientUiComposition != null) clientUiComposition.Destroy();
             }

@@ -16,7 +16,7 @@ namespace BetterUnturnedExperience.Plugin
     /// </summary>
     internal sealed class BueNativeManagementPanel
     {
-        internal enum TickSource : byte { Initialize, Update, HostUi, Harmony }
+        internal enum TickSource : byte { Initialize, Update, HostUi, RuntimePump, Harmony }
 
         private const string PluginId = "io.github.yu80rice.betterunturnedexperience";
         private const string FeatureId = "io.github.yu80rice.bue.management-panel";

@@ -23,6 +23,7 @@
     <Compile Include="BueRuntimeHost.cs" />
     <Compile Include="OfficialFeatureRegistration.cs" />
     <Compile Include="BetterUnturnedExperiencePlugin.cs" />
+    <Compile Include="BueRuntimePump.cs" />
     <!-- DEV-16A: embed the pure-C# ClientUi seam into the single runtime assembly. -->
     <Compile Include="..\BetterUnturnedExperience.ClientUi\ClientUiTypes.cs"><Link>EmbeddedClientUi\ClientUiTypes.cs</Link></Compile>
     <Compile Include="..\BetterUnturnedExperience.ClientUi\InventoryDragPresenter.cs"><Link>EmbeddedClientUi\InventoryDragPresenter.cs</Link></Compile>

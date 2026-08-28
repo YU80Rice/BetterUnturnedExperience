@@ -33,6 +33,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 Assert(runtime.CompleteRuntime() && runtime.Catalog.Entries.Count == 2, "official and fixture reach runtime ready through host barrier");
                 Assert(officialRegistrationHasClientUi(official), "official feature exposes a ClientUi satellite descriptor");
                 AssertClientUiCompositionGates();
+                AssertRuntimePumpBridge();
                 AssertManagementPanelOpenHooks();
                 Assert(RequiresParentRebindSemantics(), "management panel resets bindings when UI parent changes");
                 Assert(runtime.Phase == FeatureRegistrationPhase.RuntimeReady, "runtime barrier enters RuntimeReady");
@@ -50,6 +51,25 @@ namespace BetterUnturnedExperience.Plugin.Tests
             return !BueNativeManagementPanel.RequiresParentRebind(first, first)
                 && BueNativeManagementPanel.RequiresParentRebind(first, second)
                 && !BueNativeManagementPanel.RequiresParentRebind(first, null);
+        }
+
+        private static void AssertRuntimePumpBridge()
+        {
+            var ticks = 0;
+            var pump = new BueRuntimePump(() => ticks++);
+            pump.Tick();
+            Assert(ticks == 1, "runtime pump forwards one main-thread tick");
+            pump.Clear();
+            pump.Tick();
+            Assert(ticks == 1, "cleared runtime pump does not call stale plugin state");
+
+            var slot = new BueRuntimePumpSlot();
+            var first = slot.GetOrCreate(() => { });
+            var second = slot.GetOrCreate(() => { });
+            Assert(object.ReferenceEquals(first, second), "runtime pump slot is idempotent");
+            slot.Clear();
+            var third = slot.GetOrCreate(() => { });
+            Assert(!object.ReferenceEquals(first, third), "cleared runtime pump slot creates a fresh generation");
         }
         private static void AssertManagementPanelOpenHooks()
         {
