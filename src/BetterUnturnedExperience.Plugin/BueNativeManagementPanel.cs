@@ -100,28 +100,12 @@ namespace BetterUnturnedExperience.Plugin
 
         private void PatchRebuildHooks()
         {
+            PatchPostfix(AccessTools.Constructor(typeof(MenuWorkshopUI), Type.EmptyTypes), "MenuWorkshopUI.constructor", nameof(OnUiRebuilt));
+            PatchPostfix(AccessTools.Constructor(typeof(PlayerPauseUI), Type.EmptyTypes), "PlayerPauseUI.constructor", nameof(OnUiRebuilt));
+            PatchPostfix(AccessTools.Method(typeof(MenuWorkshopUI), "open"), "MenuWorkshopUI.open", nameof(OnSurfaceOpened));
+            PatchPostfix(AccessTools.Method(typeof(PlayerPauseUI), "open"), "PlayerPauseUI.open", nameof(OnSurfaceOpened));
             try
             {
-                var workshopCtor = AccessTools.Constructor(typeof(MenuWorkshopUI), Type.EmptyTypes);
-                if (workshopCtor != null)
-                {
-                    harmony.Patch(workshopCtor, postfix: new HarmonyMethod(typeof(BueNativeManagementPanel), nameof(OnUiRebuilt)));
-                    LogTrace("patch-installed", "target=MenuWorkshopUI.constructor");
-                }
-                else
-                {
-                    LogTrace("patch-missing", "target=MenuWorkshopUI.constructor");
-                }
-                var pauseCtor = AccessTools.Constructor(typeof(PlayerPauseUI), Type.EmptyTypes);
-                if (pauseCtor != null)
-                {
-                    harmony.Patch(pauseCtor, postfix: new HarmonyMethod(typeof(BueNativeManagementPanel), nameof(OnUiRebuilt)));
-                    LogTrace("patch-installed", "target=PlayerPauseUI.constructor");
-                }
-                else
-                {
-                    LogTrace("patch-missing", "target=PlayerPauseUI.constructor");
-                }
                 var menuEscape = AccessTools.Method(typeof(MenuUI), "escapeMenu");
                 if (menuEscape != null)
                 {
@@ -147,11 +131,40 @@ namespace BetterUnturnedExperience.Plugin
             }
         }
 
+        private void PatchPostfix(MethodBase target, string targetName, string callbackName)
+        {
+            if (target == null)
+            {
+                LogTrace("patch-missing", "target=" + targetName);
+                return;
+            }
+            try
+            {
+                harmony.Patch(target, postfix: new HarmonyMethod(typeof(BueNativeManagementPanel), callbackName));
+                LogTrace("patch-installed", "target=" + targetName);
+            }
+            catch (Exception error)
+            {
+                LogTrace("patch-failed", "target=" + targetName + " errorType=" + error.GetType().FullName + " message=" + error.Message);
+            }
+        }
+
         private static void OnUiRebuilt()
         {
             var instance = activeInstance;
             if (instance == null || instance.destroyed) return;
             instance.LogTrace("constructor-postfix", "source=Harmony");
+            instance.Tick(TickSource.Harmony);
+        }
+
+        // The vanilla UI objects can be constructed before BepInEx finishes
+        // loading this plugin.  Pumping on the public open methods closes that
+        // timing gap and mirrors the proven PluginManager integration path.
+        private static void OnSurfaceOpened()
+        {
+            var instance = activeInstance;
+            if (instance == null || instance.destroyed) return;
+            instance.LogTrace("surface-opened", "source=Harmony");
             instance.Tick(TickSource.Harmony);
         }
 

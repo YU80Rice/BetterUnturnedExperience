@@ -3,6 +3,8 @@ using BetterUnturnedExperience.Contracts;
 using BetterUnturnedExperience.Core.Registration;
 using BetterUnturnedExperience.NoOpFixture;
 using BetterUnturnedExperience.Plugin;
+using HarmonyLib;
+using SDG.Unturned;
 
 namespace BetterUnturnedExperience.Plugin.Tests
 {
@@ -31,6 +33,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 Assert(runtime.CompleteRuntime() && runtime.Catalog.Entries.Count == 2, "official and fixture reach runtime ready through host barrier");
                 Assert(officialRegistrationHasClientUi(official), "official feature exposes a ClientUi satellite descriptor");
                 AssertClientUiCompositionGates();
+                AssertManagementPanelOpenHooks();
                 Assert(runtime.Phase == FeatureRegistrationPhase.RuntimeReady, "runtime barrier enters RuntimeReady");
                 Assert(runtime.Catalog.Entries[0].Definition.Feature.Value == "io.github.yu80rice.bue.better-item-interaction", "catalog order is deterministic by feature identity");
                 var late = NoOpFeatureRegistration.Register();
@@ -38,6 +41,33 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 Console.WriteLine("DEV-14 official registration parity tests: PASS"); return 0;
             }
             catch (Exception error) { Console.WriteLine("DEV-14 official registration parity tests: FAIL"); Console.WriteLine(error.GetType().FullName); Console.WriteLine(error.Message); return 1; }
+        }
+        private static void AssertManagementPanelOpenHooks()
+        {
+            var composition = new BueClientUiCompositionRoot();
+            var panel = new BueNativeManagementPanel(composition.ManagementPanel, null);
+            try
+            {
+                panel.Initialize();
+                var workshop = Harmony.GetPatchInfo(AccessTools.Method(typeof(MenuWorkshopUI), "open"));
+                var pause = Harmony.GetPatchInfo(AccessTools.Method(typeof(PlayerPauseUI), "open"));
+                Assert(HasOwner(workshop, "io.github.yu80rice.bue.management-panel"), "workshop open hook is installed");
+                Assert(HasOwner(pause, "io.github.yu80rice.bue.management-panel"), "pause open hook is installed");
+            }
+            finally
+            {
+                panel.Destroy();
+            }
+        }
+        private static bool HasOwner(HarmonyLib.Patches patches, string owner)
+        {
+            if (patches == null) return false;
+            if (patches.Postfixes == null) return false;
+            foreach (var patch in patches.Postfixes)
+            {
+                if (patch != null && patch.owner == owner) return true;
+            }
+            return false;
         }
         private static bool officialRegistrationHasClientUi(FeatureRegistrationResult result)
         {

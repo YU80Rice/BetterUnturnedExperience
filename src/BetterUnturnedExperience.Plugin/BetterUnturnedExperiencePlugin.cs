@@ -13,6 +13,7 @@ namespace BetterUnturnedExperience.Plugin
         private const string DiagnosticId = "BUE-BOOTSTRAP-001";
         private bool runtimeReadyLogged;
         private bool sceneLoadedSubscribed;
+        private int updateTickCount;
         private BueClientUiCompositionRoot clientUiComposition;
         private BueNativeManagementPanel nativeManagementPanel;
 
@@ -58,6 +59,11 @@ namespace BetterUnturnedExperience.Plugin
 
         private void Update()
         {
+            updateTickCount++;
+            if (updateTickCount == 1 || updateTickCount % 120 == 0)
+            {
+                Logger.LogInfo("[BUE-UI-TRACE] plugin=io.github.yu80rice.betterunturnedexperience diagnosticId=BUE-MANAGEMENT-TRACE-001 event=plugin-update count=" + updateTickCount);
+            }
             if (nativeManagementPanel != null) nativeManagementPanel.Tick(BueNativeManagementPanel.TickSource.Update);
             // Some BepInEx/Unity hosts do not dispatch a plugin Start message
             // before the first frame. Keep the same host-owned barrier as a
