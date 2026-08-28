@@ -10,6 +10,8 @@
 
 > 2026-08-28 运行修复：针对 `UMM-诊断包_20260828_081850` 中启动时容器为空且无运行期注入事件的问题，BUE 已补充 `MenuWorkshopUI.open` 与 `PlayerPauseUI.open` 的 Harmony Postfix；该修复覆盖 UI 先于插件构造的时序，仍待人工实机确认按钮可见与可点击。
 
+> 2026-08-28 R5 修复：`UMM-诊断包_20260828_090329` 对应截图实际处于 `MenuDashboardUI` 主菜单；已新增 Dashboard 构造/open Hook、入口按钮和容器变更时对称清理。请以 R5 DLL 的启动 `assembly-identity` SHA-256 作为部署确认依据。
+
 - [x] 主菜单和暂停菜单均已接入“BUE 插件管理”入口，UI 树重建可安全重挂载（待实机确认可见性）。
 - [x] 面板只读取 BepInEx Chainloader 已成功加载的插件，不扫描或主动加载任意 DLL。
 - [x] BUE 功能条目与普通插件条目模型已分别提供稳定身份、版本、状态和公开设置数据（待实机确认显示）。
