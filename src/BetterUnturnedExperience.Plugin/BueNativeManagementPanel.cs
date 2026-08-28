@@ -16,7 +16,7 @@ namespace BetterUnturnedExperience.Plugin
     /// </summary>
     internal sealed class BueNativeManagementPanel
     {
-        internal enum TickSource : byte { Initialize, Update, Harmony }
+        internal enum TickSource : byte { Initialize, Update, HostUi, Harmony }
 
         private const string PluginId = "io.github.yu80rice.betterunturnedexperience";
         private const string FeatureId = "io.github.yu80rice.bue.management-panel";
@@ -117,6 +117,8 @@ namespace BetterUnturnedExperience.Plugin
             PatchPostfix(AccessTools.Method(typeof(MenuDashboardUI), "open"), "MenuDashboardUI.open", nameof(OnSurfaceOpened));
             PatchPostfix(AccessTools.Method(typeof(MenuWorkshopUI), "open"), "MenuWorkshopUI.open", nameof(OnSurfaceOpened));
             PatchPostfix(AccessTools.Method(typeof(PlayerPauseUI), "open"), "PlayerPauseUI.open", nameof(OnSurfaceOpened));
+            PatchPostfix(AccessTools.Method(typeof(MenuUI), "Update"), "MenuUI.Update", nameof(OnHostUiTick));
+            PatchPostfix(AccessTools.Method(typeof(PlayerUI), "Update"), "PlayerUI.Update", nameof(OnHostUiTick));
             try
             {
                 var menuEscape = AccessTools.Method(typeof(MenuUI), "escapeMenu");
@@ -179,6 +181,16 @@ namespace BetterUnturnedExperience.Plugin
             if (instance == null || instance.destroyed) return;
             instance.LogTrace("surface-opened", "source=Harmony");
             instance.Tick(TickSource.Harmony);
+        }
+
+        // BUE's BaseUnityPlugin lifecycle is not guaranteed to receive Update
+        // on every supported host.  The vanilla UI roots do receive their own
+        // Update messages, so use them as a reliable main-thread pump.
+        private static void OnHostUiTick()
+        {
+            var instance = activeInstance;
+            if (instance == null || instance.destroyed) return;
+            instance.Tick(TickSource.HostUi);
         }
 
         private void TryAddDashboardButton(string source)
