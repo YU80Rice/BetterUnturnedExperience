@@ -44,6 +44,7 @@ namespace BetterUnturnedExperience.Plugin
         private int lastMainContainerState = -1;
         private int lastPauseContainerState = -1;
         private int updateTickCount;
+        private bool hostUiTickLogged;
         private static BueNativeManagementPanel activeInstance;
 
         internal static bool RequiresParentRebind(object boundParent, object currentParent)
@@ -84,6 +85,11 @@ namespace BetterUnturnedExperience.Plugin
                 {
                     LogTrace("heartbeat", "source=Update count=" + updateTickCount);
                 }
+            }
+            else if (source == TickSource.HostUi && !hostUiTickLogged)
+            {
+                hostUiTickLogged = true;
+                LogTrace("host-ui-tick", "source=VanillaUiUpdate");
             }
             else if (!firstTickLogged)
             {
@@ -365,6 +371,8 @@ namespace BetterUnturnedExperience.Plugin
             }
         }
 
+        // Optional secondary entry on the Workshop sub-page.  The Dashboard
+        // button above is the canonical main-menu entry required by DEV-16B.
         private void OnMainButtonClicked(ISleekElement button) { Open(ReadContainer(workshopContainerField)); }
         private void OnPauseButtonClicked(ISleekElement button) { Open(ReadContainer(pauseContainerField)); }
         private void OnDashboardButtonClicked(ISleekElement button) { Open(ReadContainer(dashboardContainerField)); }
