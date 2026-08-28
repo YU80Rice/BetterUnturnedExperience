@@ -29,6 +29,8 @@ namespace BetterUnturnedExperience.Plugin
         {
             try
             {
+                DontDestroyOnLoad(gameObject);
+                enabled = true;
                 LogAssemblyIdentity();
                 var isBatchMode = Application.isBatchMode;
                 var decision = BootstrapGuard.Decide(isBatchMode, isBatchMode, !isBatchMode);
@@ -63,7 +65,7 @@ namespace BetterUnturnedExperience.Plugin
             }
         }
 
-        private void Start()
+        public void Start()
         {
             Logger.LogInfo("[BUE-UI-TRACE] plugin=io.github.yu80rice.betterunturnedexperience diagnosticId=BUE-MANAGEMENT-TRACE-002 event=start-entered");
             TryCompleteRuntime();
@@ -109,7 +111,11 @@ namespace BetterUnturnedExperience.Plugin
             }
             try
             {
-                if (nativeManagementPanel != null) nativeManagementPanel.Tick(BueNativeManagementPanel.TickSource.RuntimePump);
+                if (nativeManagementPanel != null && !nativeManagementPanel.Dispatch(BueNativeManagementPanel.TickSource.RuntimePump) && nativeManagementPanel.TickIsolated)
+                {
+                    runtimePumpIsolated = true;
+                    DestroyRuntimePump();
+                }
                 TryCompleteRuntime();
             }
             catch (Exception error)
@@ -120,14 +126,14 @@ namespace BetterUnturnedExperience.Plugin
             }
         }
 
-        private void Update()
+        public void Update()
         {
             updateTickCount++;
             if (updateTickCount == 1 || updateTickCount % 120 == 0)
             {
                 Logger.LogInfo("[BUE-UI-TRACE] plugin=io.github.yu80rice.betterunturnedexperience diagnosticId=BUE-MANAGEMENT-TRACE-001 event=plugin-update count=" + updateTickCount);
             }
-            if (nativeManagementPanel != null) nativeManagementPanel.Tick(BueNativeManagementPanel.TickSource.Update);
+            if (nativeManagementPanel != null) nativeManagementPanel.Dispatch(BueNativeManagementPanel.TickSource.Update);
             // Some BepInEx/Unity hosts do not dispatch a plugin Start message
             // before the first frame. Keep the same host-owned barrier as a
             // one-shot next-frame fallback; external features still cannot

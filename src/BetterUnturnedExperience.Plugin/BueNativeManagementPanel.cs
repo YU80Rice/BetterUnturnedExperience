@@ -10,6 +10,28 @@ using BetterUnturnedExperience.Contracts;
 
 namespace BetterUnturnedExperience.Plugin
 {
+    internal interface IBueButtonInjectionSeam
+    {
+        void Inject(string source);
+    }
+
+    internal sealed class NativeButtonInjectionSeam : IBueButtonInjectionSeam
+    {
+        private readonly BueNativeManagementPanel owner;
+
+        internal NativeButtonInjectionSeam(BueNativeManagementPanel owner)
+        {
+            this.owner = owner ?? throw new ArgumentNullException(nameof(owner));
+        }
+
+        public void Inject(string source)
+        {
+            owner.TryAddDashboardButton(source);
+            owner.TryAddMainButton(source);
+            owner.TryAddPauseButton(source);
+        }
+    }
+
     /// <summary>
     /// Native Glazier adapter for the BUE-owned management panel. All UI and
     /// Unity references stop at this file; the panel model remains pure C#.
@@ -28,6 +50,8 @@ namespace BetterUnturnedExperience.Plugin
         private readonly FieldInfo dashboardContainerField;
         private readonly FieldInfo workshopContainerField;
         private readonly FieldInfo pauseContainerField;
+        private readonly BueRuntimeTickDispatcher tickDispatcher;
+        private readonly IBueButtonInjectionSeam buttonInjectionSeam;
         private SleekFullscreenBox panel;
         private ISleekButton dashboardButton;
         private ISleekButton mainButton;
@@ -53,6 +77,11 @@ namespace BetterUnturnedExperience.Plugin
         }
 
         internal BueNativeManagementPanel(BueManagementPanelRuntime runtime, ManualLogSource log)
+            : this(runtime, log, null)
+        {
+        }
+
+        internal BueNativeManagementPanel(BueManagementPanelRuntime runtime, ManualLogSource log, IBueButtonInjectionSeam buttonInjectionSeam)
         {
             this.runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
             this.log = log;
@@ -62,6 +91,8 @@ namespace BetterUnturnedExperience.Plugin
             workshopContainerField = typeof(MenuWorkshopUI).GetField("container", BindingFlags.Static | BindingFlags.NonPublic);
             pauseContainerField = typeof(PlayerPauseUI).GetField("container", BindingFlags.Static | BindingFlags.NonPublic);
             harmony = new Harmony("io.github.yu80rice.bue.management-panel");
+            tickDispatcher = new BueRuntimeTickDispatcher(TickCore, OnTickFailure, log == null ? (Func<int>)(() => -1) : GetFrameCountSafe);
+            this.buttonInjectionSeam = buttonInjectionSeam ?? new NativeButtonInjectionSeam(this);
             activeInstance = this;
             LogTrace("constructed", "dashboardField=" + (dashboardContainerField != null) + " workshopField=" + (workshopContainerField != null) + " pauseField=" + (pauseContainerField != null));
         }
@@ -72,10 +103,38 @@ namespace BetterUnturnedExperience.Plugin
             runtime.Initialize();
             PatchRebuildHooks();
             LogTrace("initialize-complete", string.Empty);
-            Tick(TickSource.Initialize);
+            Dispatch(TickSource.Initialize);
         }
 
-        internal void Tick(TickSource source)
+        internal bool Dispatch(TickSource source)
+        {
+            return tickDispatcher.Dispatch(source);
+        }
+
+        internal bool TickIsolated { get { return tickDispatcher.Isolated; } }
+
+        private void OnTickFailure(Exception error)
+        {
+            LogTrace("tick-isolated", "errorType=" + error.GetType().FullName + " message=" + error.Message);
+            Destroy();
+        }
+
+        private static int GetFrameCountSafe()
+        {
+            try
+            {
+                return Time.frameCount;
+            }
+            catch (Exception)
+            {
+                // Pure-C# test hosts do not provide Unity's native frame
+                // counter. A stable sentinel preserves fail-closed dispatch
+                // semantics without making construction depend on the engine.
+                return -1;
+            }
+        }
+
+        private void TickCore(TickSource source)
         {
             if (destroyed) return;
             if (source == TickSource.Update)
@@ -96,9 +155,7 @@ namespace BetterUnturnedExperience.Plugin
                 firstTickLogged = true;
                 LogTrace("first-tick", "source=" + source);
             }
-            TryAddDashboardButton(source.ToString());
-            TryAddMainButton(source.ToString());
-            TryAddPauseButton(source.ToString());
+            buttonInjectionSeam.Inject(source.ToString());
             if (opened && (panel == null || !IsAlive(panel))) Close();
         }
 
@@ -175,7 +232,7 @@ namespace BetterUnturnedExperience.Plugin
             var instance = activeInstance;
             if (instance == null || instance.destroyed) return;
             instance.LogTrace("constructor-postfix", "source=Harmony");
-            instance.Tick(TickSource.Harmony);
+            instance.Dispatch(TickSource.Harmony);
         }
 
         // The vanilla UI objects can be constructed before BepInEx finishes
@@ -186,7 +243,7 @@ namespace BetterUnturnedExperience.Plugin
             var instance = activeInstance;
             if (instance == null || instance.destroyed) return;
             instance.LogTrace("surface-opened", "source=Harmony");
-            instance.Tick(TickSource.Harmony);
+            instance.Dispatch(TickSource.Harmony);
         }
 
         // BUE's BaseUnityPlugin lifecycle is not guaranteed to receive Update
@@ -196,10 +253,10 @@ namespace BetterUnturnedExperience.Plugin
         {
             var instance = activeInstance;
             if (instance == null || instance.destroyed) return;
-            instance.Tick(TickSource.HostUi);
+            instance.Dispatch(TickSource.HostUi);
         }
 
-        private void TryAddDashboardButton(string source)
+        internal void TryAddDashboardButton(string source)
         {
             var parent = ReadContainer(dashboardContainerField);
             if (parent != null && !IsAlive(parent)) parent = null;
@@ -238,6 +295,7 @@ namespace BetterUnturnedExperience.Plugin
             {
                 CleanupDashboardButton(parent);
                 LogTrace("entry-failed", "surface=MenuDashboardUI source=" + source + " errorType=" + error.GetType().FullName + " message=" + error.Message);
+                throw;
             }
         }
 
@@ -263,7 +321,7 @@ namespace BetterUnturnedExperience.Plugin
             if (instance != null) instance.Close();
         }
 
-        private void TryAddMainButton(string source)
+        internal void TryAddMainButton(string source)
         {
             var parent = ReadContainer(workshopContainerField);
             if (parent != null && !IsAlive(parent))
@@ -314,10 +372,11 @@ namespace BetterUnturnedExperience.Plugin
                 CleanupMainButton(parent);
                 LogTrace("entry-failed", "surface=MenuWorkshopUI source=" + source + " errorType=" + error.GetType().FullName + " message=" + error.Message);
                 Log("workshop menu entry failed: " + error.Message);
+                throw;
             }
         }
 
-        private void TryAddPauseButton(string source)
+        internal void TryAddPauseButton(string source)
         {
             var parent = ReadContainer(pauseContainerField);
             if (parent != null && !IsAlive(parent))
@@ -368,6 +427,7 @@ namespace BetterUnturnedExperience.Plugin
                 CleanupPauseButton(parent);
                 LogTrace("entry-failed", "surface=PlayerPauseUI source=" + source + " errorType=" + error.GetType().FullName + " message=" + error.Message);
                 Log("pause menu entry failed: " + error.Message);
+                throw;
             }
         }
 

@@ -34,6 +34,8 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 Assert(officialRegistrationHasClientUi(official), "official feature exposes a ClientUi satellite descriptor");
                 AssertClientUiCompositionGates();
                 AssertRuntimePumpBridge();
+                AssertRuntimeDriverDispatchesButtonInjectionSeam();
+                AssertPanelDispatchReachesButtonInjectionSeam();
                 AssertManagementPanelOpenHooks();
                 Assert(RequiresParentRebindSemantics(), "management panel resets bindings when UI parent changes");
                 Assert(runtime.Phase == FeatureRegistrationPhase.RuntimeReady, "runtime barrier enters RuntimeReady");
@@ -42,7 +44,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 Assert(late.Reason == FeatureRegistrationReason.PhaseClosed, "fixture late registration is rejected");
                 Console.WriteLine("DEV-14/DEV-16B plugin runtime tests: PASS"); return 0;
             }
-            catch (Exception error) { Console.WriteLine("DEV-14 official registration parity tests: FAIL"); Console.WriteLine(error.GetType().FullName); Console.WriteLine(error.Message); return 1; }
+            catch (Exception error) { Console.WriteLine("DEV-14 official registration parity tests: FAIL"); Console.WriteLine(error.ToString()); return 1; }
         }
         private static bool RequiresParentRebindSemantics()
         {
@@ -70,6 +72,82 @@ namespace BetterUnturnedExperience.Plugin.Tests
             slot.Clear();
             var third = slot.GetOrCreate(() => { });
             Assert(!object.ReferenceEquals(first, third), "cleared runtime pump slot creates a fresh generation");
+        }
+
+        private static void AssertRuntimeDriverDispatchesButtonInjectionSeam()
+        {
+            var frame = 10;
+            var ticks = 0;
+            var driver = new BueRuntimeTickDispatcher(source => ticks++, () => frame);
+            Assert(driver.Dispatch(BueNativeManagementPanel.TickSource.Update), "runtime driver dispatches the button injection seam");
+            Assert(ticks == 1, "button injection seam receives one runtime tick");
+            Assert(!driver.Dispatch(BueNativeManagementPanel.TickSource.Update), "runtime driver de-duplicates the same source within one frame");
+            Assert(driver.Dispatch(BueNativeManagementPanel.TickSource.Harmony), "runtime driver still permits a distinct source within one frame");
+            frame++;
+            Assert(driver.Dispatch(BueNativeManagementPanel.TickSource.Update), "runtime driver resets source de-duplication on the next frame");
+            driver.Isolate();
+            Assert(!driver.Dispatch(BueNativeManagementPanel.TickSource.RuntimePump), "isolated runtime driver rejects stale tick");
+            Assert(ticks == 3, "isolated runtime driver does not call button injection seam");
+
+            var failures = 0;
+            BueRuntimeTickDispatcher throwing = null;
+            throwing = new BueRuntimeTickDispatcher(source =>
+            {
+                failures++;
+                Assert(!throwing.Dispatch(BueNativeManagementPanel.TickSource.Harmony), "reentrant button injection is rejected");
+                throw new InvalidOperationException("synthetic button injection failure");
+            }, () => 20);
+            Assert(!throwing.Dispatch(BueNativeManagementPanel.TickSource.Update), "runtime driver rejects the failing first tick");
+            Assert(failures == 1, "failing button injection seam is called once");
+            Assert(!throwing.Dispatch(BueNativeManagementPanel.TickSource.Harmony), "runtime driver opens fail-closed barrier after first error");
+            Assert(failures == 1, "fail-closed barrier blocks later harmony callbacks");
+        }
+
+        private static void AssertPanelDispatchReachesButtonInjectionSeam()
+        {
+            var composition = new BueClientUiCompositionRoot();
+            var recording = new RecordingButtonInjectionSeam();
+            var panel = new BueNativeManagementPanel(composition.ManagementPanel, null, recording);
+            Assert(panel.Dispatch(BueNativeManagementPanel.TickSource.Update), "panel dispatch reaches the button injection seam");
+            Assert(recording.Sources.Count == 1, "panel performs one injection pass for the update source");
+            Assert(recording.Sources[0] == "Update", "panel forwards the source identity to injection");
+            Assert(!panel.Dispatch(BueNativeManagementPanel.TickSource.Update), "panel rejects duplicate same-frame injection");
+            panel.Destroy();
+
+            var failures = 0;
+            var failing = new BueNativeManagementPanel(composition.ManagementPanel, null,
+                new ThrowingButtonInjectionSeam(() => failures++));
+            Assert(!failing.Dispatch(BueNativeManagementPanel.TickSource.RuntimePump), "button injection failure is rejected by panel dispatch");
+            Assert(failures == 1, "button injection failure enters the seam exactly once");
+            Assert(failing.TickIsolated, "button injection failure isolates the panel");
+            Assert(!failing.Dispatch(BueNativeManagementPanel.TickSource.Harmony), "isolated panel rejects later Harmony injection");
+            failing.Destroy();
+        }
+
+        private sealed class RecordingButtonInjectionSeam : IBueButtonInjectionSeam
+        {
+            internal readonly System.Collections.Generic.List<string> Sources = new System.Collections.Generic.List<string>();
+
+            public void Inject(string source)
+            {
+                Sources.Add(source);
+            }
+        }
+
+        private sealed class ThrowingButtonInjectionSeam : IBueButtonInjectionSeam
+        {
+            private readonly System.Action onAttempt;
+
+            internal ThrowingButtonInjectionSeam(System.Action onAttempt)
+            {
+                this.onAttempt = onAttempt;
+            }
+
+            public void Inject(string source)
+            {
+                onAttempt();
+                throw new InvalidOperationException("synthetic button injection failure");
+            }
         }
         private static void AssertManagementPanelOpenHooks()
         {
