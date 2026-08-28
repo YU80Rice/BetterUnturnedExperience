@@ -34,13 +34,22 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 Assert(officialRegistrationHasClientUi(official), "official feature exposes a ClientUi satellite descriptor");
                 AssertClientUiCompositionGates();
                 AssertManagementPanelOpenHooks();
+                Assert(RequiresParentRebindSemantics(), "management panel resets bindings when UI parent changes");
                 Assert(runtime.Phase == FeatureRegistrationPhase.RuntimeReady, "runtime barrier enters RuntimeReady");
                 Assert(runtime.Catalog.Entries[0].Definition.Feature.Value == "io.github.yu80rice.bue.better-item-interaction", "catalog order is deterministic by feature identity");
                 var late = NoOpFeatureRegistration.Register();
                 Assert(late.Reason == FeatureRegistrationReason.PhaseClosed, "fixture late registration is rejected");
-                Console.WriteLine("DEV-14 official registration parity tests: PASS"); return 0;
+                Console.WriteLine("DEV-14/DEV-16B plugin runtime tests: PASS"); return 0;
             }
             catch (Exception error) { Console.WriteLine("DEV-14 official registration parity tests: FAIL"); Console.WriteLine(error.GetType().FullName); Console.WriteLine(error.Message); return 1; }
+        }
+        private static bool RequiresParentRebindSemantics()
+        {
+            var first = new object();
+            var second = new object();
+            return !BueNativeManagementPanel.RequiresParentRebind(first, first)
+                && BueNativeManagementPanel.RequiresParentRebind(first, second)
+                && !BueNativeManagementPanel.RequiresParentRebind(first, null);
         }
         private static void AssertManagementPanelOpenHooks()
         {
@@ -51,8 +60,10 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 panel.Initialize();
                 var workshop = Harmony.GetPatchInfo(AccessTools.Method(typeof(MenuWorkshopUI), "open"));
                 var pause = Harmony.GetPatchInfo(AccessTools.Method(typeof(PlayerPauseUI), "open"));
+                var dashboard = Harmony.GetPatchInfo(AccessTools.Method(typeof(MenuDashboardUI), "open"));
                 Assert(HasOwner(workshop, "io.github.yu80rice.bue.management-panel"), "workshop open hook is installed");
                 Assert(HasOwner(pause, "io.github.yu80rice.bue.management-panel"), "pause open hook is installed");
+                Assert(HasOwner(dashboard, "io.github.yu80rice.bue.management-panel"), "dashboard open hook is installed");
             }
             finally
             {
@@ -125,5 +136,6 @@ namespace BetterUnturnedExperience.Plugin.Tests
             Assert(typeof(FeatureId).Assembly == typeof(BueRuntimeHost).Assembly, "public ABI identity is resolved by BUE runtime assembly");
         }
         private static void Assert(bool condition, string message) { if (!condition) throw new InvalidOperationException(message); }
+
     }
 }

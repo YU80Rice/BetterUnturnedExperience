@@ -25,15 +25,18 @@ namespace BetterUnturnedExperience.Plugin
         private readonly BueManagementPanelRuntime runtime;
         private readonly ManualLogSource log;
         private readonly Harmony harmony;
+        private readonly FieldInfo dashboardContainerField;
         private readonly FieldInfo workshopContainerField;
         private readonly FieldInfo pauseContainerField;
         private SleekFullscreenBox panel;
+        private ISleekButton dashboardButton;
         private ISleekButton mainButton;
         private ISleekButton pauseButton;
         private ISleekButton closeButton;
         private ISleekLabel title;
         private ISleekLabel body;
         private ISleekElement mainParent;
+        private ISleekElement dashboardParent;
         private ISleekElement pauseParent;
         private bool opened;
         private bool destroyed;
@@ -43,17 +46,23 @@ namespace BetterUnturnedExperience.Plugin
         private int updateTickCount;
         private static BueNativeManagementPanel activeInstance;
 
+        internal static bool RequiresParentRebind(object boundParent, object currentParent)
+        {
+            return currentParent != null && !ReferenceEquals(boundParent, currentParent);
+        }
+
         internal BueNativeManagementPanel(BueManagementPanelRuntime runtime, ManualLogSource log)
         {
             this.runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
             this.log = log;
+            dashboardContainerField = typeof(MenuDashboardUI).GetField("container", BindingFlags.Static | BindingFlags.NonPublic);
             // Match the visible vanilla page used by UnturnedPluginManager:
             // the Workshop management page, not MenuDashboardUI.
             workshopContainerField = typeof(MenuWorkshopUI).GetField("container", BindingFlags.Static | BindingFlags.NonPublic);
             pauseContainerField = typeof(PlayerPauseUI).GetField("container", BindingFlags.Static | BindingFlags.NonPublic);
             harmony = new Harmony("io.github.yu80rice.bue.management-panel");
             activeInstance = this;
-            LogTrace("constructed", "workshopField=" + (workshopContainerField != null) + " pauseField=" + (pauseContainerField != null));
+            LogTrace("constructed", "dashboardField=" + (dashboardContainerField != null) + " workshopField=" + (workshopContainerField != null) + " pauseField=" + (pauseContainerField != null));
         }
 
         internal void Initialize()
@@ -81,6 +90,7 @@ namespace BetterUnturnedExperience.Plugin
                 firstTickLogged = true;
                 LogTrace("first-tick", "source=" + source);
             }
+            TryAddDashboardButton(source.ToString());
             TryAddMainButton(source.ToString());
             TryAddPauseButton(source.ToString());
             if (opened && (panel == null || !IsAlive(panel))) Close();
@@ -91,6 +101,7 @@ namespace BetterUnturnedExperience.Plugin
             if (destroyed) return;
             destroyed = true;
             if (ReferenceEquals(activeInstance, this)) activeInstance = null;
+            CleanupDashboardButton(dashboardParent);
             CleanupMainButton(mainParent);
             CleanupPauseButton(pauseParent);
             Close();
@@ -102,6 +113,8 @@ namespace BetterUnturnedExperience.Plugin
         {
             PatchPostfix(AccessTools.Constructor(typeof(MenuWorkshopUI), Type.EmptyTypes), "MenuWorkshopUI.constructor", nameof(OnUiRebuilt));
             PatchPostfix(AccessTools.Constructor(typeof(PlayerPauseUI), Type.EmptyTypes), "PlayerPauseUI.constructor", nameof(OnUiRebuilt));
+            PatchPostfix(AccessTools.Constructor(typeof(MenuDashboardUI), Type.EmptyTypes), "MenuDashboardUI.constructor", nameof(OnUiRebuilt));
+            PatchPostfix(AccessTools.Method(typeof(MenuDashboardUI), "open"), "MenuDashboardUI.open", nameof(OnSurfaceOpened));
             PatchPostfix(AccessTools.Method(typeof(MenuWorkshopUI), "open"), "MenuWorkshopUI.open", nameof(OnSurfaceOpened));
             PatchPostfix(AccessTools.Method(typeof(PlayerPauseUI), "open"), "PlayerPauseUI.open", nameof(OnSurfaceOpened));
             try
@@ -168,6 +181,48 @@ namespace BetterUnturnedExperience.Plugin
             instance.Tick(TickSource.Harmony);
         }
 
+        private void TryAddDashboardButton(string source)
+        {
+            var parent = ReadContainer(dashboardContainerField);
+            if (parent != null && !IsAlive(parent)) parent = null;
+            if (parent == null)
+            {
+                if (dashboardParent != null)
+                {
+                    CleanupDashboardButton(dashboardParent);
+                    dashboardParent = null;
+                }
+                return;
+            }
+            if (!RequiresParentRebind(dashboardParent, parent)) return;
+            if (dashboardParent != null)
+            {
+                CleanupDashboardButton(dashboardParent);
+                dashboardParent = null;
+            }
+            try
+            {
+                LogTrace("create-button-begin", "surface=MenuDashboardUI source=" + source);
+                dashboardButton = Glazier.Get().CreateButton();
+                if (dashboardButton == null) throw new InvalidOperationException("Glazier.CreateButton returned null");
+                dashboardButton.PositionOffset_Y = 410f;
+                dashboardButton.SizeOffset_X = 200f;
+                dashboardButton.SizeOffset_Y = 50f;
+                dashboardButton.Text = "BUE 插件管理";
+                dashboardButton.TooltipText = "查看已加载的 BepInEx 插件，并可在游戏内修改其配置";
+                dashboardButton.FontSize = ESleekFontSize.Medium;
+                dashboardButton.OnClicked += OnDashboardButtonClicked;
+                parent.AddChild(dashboardButton);
+                dashboardParent = parent;
+                LogTrace("add-child-success", "surface=MenuDashboardUI source=" + source);
+            }
+            catch (Exception error)
+            {
+                CleanupDashboardButton(parent);
+                LogTrace("entry-failed", "surface=MenuDashboardUI source=" + source + " errorType=" + error.GetType().FullName + " message=" + error.Message);
+            }
+        }
+
         private static bool OnMenuEscapePrefix()
         {
             var instance = activeInstance;
@@ -204,7 +259,21 @@ namespace BetterUnturnedExperience.Plugin
                 lastMainContainerState = mainState;
                 LogTrace("container-state", "surface=MenuWorkshopUI state=" + (parent == null ? "null" : parent.GetType().FullName) + " active=" + SafeActive(typeof(MenuWorkshopUI)) + " source=" + source);
             }
-            if (parent == null || ReferenceEquals(mainParent, parent)) return;
+            if (parent == null)
+            {
+                if (mainParent != null)
+                {
+                    CleanupMainButton(mainParent);
+                    mainParent = null;
+                }
+                return;
+            }
+            if (!RequiresParentRebind(mainParent, parent)) return;
+            if (mainParent != null)
+            {
+                CleanupMainButton(mainParent);
+                mainParent = null;
+            }
             try
             {
                 LogTrace("create-button-begin", "surface=MenuWorkshopUI source=" + source);
@@ -244,7 +313,21 @@ namespace BetterUnturnedExperience.Plugin
                 lastPauseContainerState = pauseState;
                 LogTrace("container-state", "surface=PlayerPauseUI state=" + (parent == null ? "null" : parent.GetType().FullName) + " active=" + SafeActive(typeof(PlayerPauseUI)) + " source=" + source);
             }
-            if (parent == null || ReferenceEquals(pauseParent, parent)) return;
+            if (parent == null)
+            {
+                if (pauseParent != null)
+                {
+                    CleanupPauseButton(pauseParent);
+                    pauseParent = null;
+                }
+                return;
+            }
+            if (!RequiresParentRebind(pauseParent, parent)) return;
+            if (pauseParent != null)
+            {
+                CleanupPauseButton(pauseParent);
+                pauseParent = null;
+            }
             try
             {
                 LogTrace("create-button-begin", "surface=PlayerPauseUI source=" + source);
@@ -272,6 +355,7 @@ namespace BetterUnturnedExperience.Plugin
 
         private void OnMainButtonClicked(ISleekElement button) { Open(ReadContainer(workshopContainerField)); }
         private void OnPauseButtonClicked(ISleekElement button) { Open(ReadContainer(pauseContainerField)); }
+        private void OnDashboardButtonClicked(ISleekElement button) { Open(ReadContainer(dashboardContainerField)); }
 
         private void Open(ISleekElement parent)
         {
@@ -426,6 +510,14 @@ namespace BetterUnturnedExperience.Plugin
             try { mainButton.OnClicked -= OnMainButtonClicked; } catch (Exception) { }
             try { if (parent != null) parent.RemoveChild(mainButton); } catch (Exception) { }
             mainButton = null;
+        }
+
+        private void CleanupDashboardButton(ISleekElement parent)
+        {
+            if (dashboardButton == null) return;
+            try { dashboardButton.OnClicked -= OnDashboardButtonClicked; } catch (Exception) { }
+            try { if (parent != null) parent.RemoveChild(dashboardButton); } catch (Exception) { }
+            dashboardButton = null;
         }
 
         private void CleanupPauseButton(ISleekElement parent)

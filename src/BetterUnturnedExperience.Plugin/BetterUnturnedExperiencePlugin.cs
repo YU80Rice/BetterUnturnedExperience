@@ -1,4 +1,7 @@
 using BepInEx;
+using System;
+using System.IO;
+using System.Security.Cryptography;
 using BetterUnturnedExperience.Contracts;
 using BetterUnturnedExperience.Core.Registration;
 using UnityEngine;
@@ -21,6 +24,7 @@ namespace BetterUnturnedExperience.Plugin
         {
             try
             {
+                LogAssemblyIdentity();
                 var isBatchMode = Application.isBatchMode;
                 var decision = BootstrapGuard.Decide(isBatchMode, isBatchMode, !isBatchMode);
                 var runtime = new FeatureRegistrationRuntime();
@@ -54,6 +58,7 @@ namespace BetterUnturnedExperience.Plugin
 
         private void Start()
         {
+            Logger.LogInfo("[BUE-UI-TRACE] plugin=io.github.yu80rice.betterunturnedexperience diagnosticId=BUE-MANAGEMENT-TRACE-002 event=start-entered");
             TryCompleteRuntime();
         }
 
@@ -93,6 +98,28 @@ namespace BetterUnturnedExperience.Plugin
             if (!sceneLoadedSubscribed) return;
             SceneManager.sceneLoaded -= OnSceneLoaded;
             sceneLoadedSubscribed = false;
+        }
+
+        private void LogAssemblyIdentity()
+        {
+            try
+            {
+                var location = typeof(BetterUnturnedExperiencePlugin).Assembly.Location;
+                var hash = "unavailable";
+                if (!string.IsNullOrEmpty(location) && File.Exists(location))
+                {
+                    using (var sha = SHA256.Create())
+                    using (var stream = File.OpenRead(location))
+                    {
+                        hash = BitConverter.ToString(sha.ComputeHash(stream)).Replace("-", string.Empty);
+                    }
+                }
+                Logger.LogInfo("[BUE-UI-TRACE] plugin=io.github.yu80rice.betterunturnedexperience diagnosticId=BUE-MANAGEMENT-TRACE-002 event=assembly-identity path=" + location + " sha256=" + hash);
+            }
+            catch (Exception error)
+            {
+                Logger.LogWarning("[BUE-UI-TRACE] plugin=io.github.yu80rice.betterunturnedexperience diagnosticId=BUE-MANAGEMENT-TRACE-002 event=assembly-identity-failed errorType=" + error.GetType().FullName);
+            }
         }
 
         private void OnDestroy()
