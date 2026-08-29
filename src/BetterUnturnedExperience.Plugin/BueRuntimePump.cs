@@ -4,6 +4,32 @@ using UnityEngine;
 namespace BetterUnturnedExperience.Plugin
 {
     /// <summary>
+    /// The authoritative per-frame driver for the BUE plugin. This mirrors the
+    /// proven UnturnedPluginManager path: BaseUnityPlugin.Update forwards
+    /// directly to the native panel and never depends on a child GameObject.
+    /// </summary>
+    internal sealed class BuePluginUpdateDriver
+    {
+        private Action tick;
+
+        internal BuePluginUpdateDriver(Action tick)
+        {
+            this.tick = tick ?? throw new ArgumentNullException(nameof(tick));
+        }
+
+        internal void Update()
+        {
+            var callback = tick;
+            if (callback != null) callback();
+        }
+
+        internal void Clear()
+        {
+            tick = null;
+        }
+    }
+
+    /// <summary>
     /// Single guarded seam for every main-thread route that can reach the
     /// native management panel. Once a route fails, all later sources are
     /// rejected so an isolated UI cannot continue receiving stale callbacks.

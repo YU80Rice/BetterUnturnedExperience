@@ -24,6 +24,7 @@ namespace BetterUnturnedExperience.Plugin
         private readonly BueRuntimePumpSlot runtimePumpSlot = new BueRuntimePumpSlot();
         private BueRuntimePump runtimePump;
         private BueRuntimePumpBehaviour runtimePumpBehaviour;
+        private BuePluginUpdateDriver pluginUpdateDriver;
 
         private void Awake()
         {
@@ -41,14 +42,15 @@ namespace BetterUnturnedExperience.Plugin
                 var officialRegistration = BetterItemInteractionFeatureRegistration.Register();
                 if (decision == BootstrapDecision.Client)
                 {
+                    pluginUpdateDriver = new BuePluginUpdateDriver(OnPluginUpdateTick);
                     clientUiComposition = new BueClientUiCompositionRoot();
-                    if (!clientUiComposition.Initialize(isBatchMode, isBatchMode, true))
+                    if (!clientUiComposition.Initialize(isBatchMode, isBatchMode, BueNativeManagementPanel.CanBindNativeUi()))
                     {
                         Logger.LogWarning("BUE client UI composition unavailable diagnosticId=BUE-CLIENTUI-001");
                     }
                     else
                     {
-                        nativeManagementPanel = new BueNativeManagementPanel(clientUiComposition.ManagementPanel, Logger);
+                        nativeManagementPanel = new BueNativeManagementPanel(clientUiComposition.ManagementPanel, Logger, null, clientUiComposition.RefreshManagementPanel);
                         nativeManagementPanel.Initialize();
                         AttachRuntimePump();
                         Logger.LogInfo("BUE client UI composition ready featureId=io.github.yu80rice.bue.better-item-interaction diagnosticId=BUE-CLIENTUI-002");
@@ -126,7 +128,17 @@ namespace BetterUnturnedExperience.Plugin
             }
         }
 
-        public void Update()
+        private void Update()
+        {
+            if (pluginUpdateDriver != null) pluginUpdateDriver.Update();
+            // Some BepInEx/Unity hosts do not dispatch a plugin Start message
+            // before the first frame. Keep the same host-owned barrier as a
+            // one-shot next-frame fallback; external features still cannot
+            // advance the registration phase.
+            TryCompleteRuntime();
+        }
+
+        private void OnPluginUpdateTick()
         {
             updateTickCount++;
             if (updateTickCount == 1 || updateTickCount % 120 == 0)
@@ -134,11 +146,6 @@ namespace BetterUnturnedExperience.Plugin
                 Logger.LogInfo("[BUE-UI-TRACE] plugin=io.github.yu80rice.betterunturnedexperience diagnosticId=BUE-MANAGEMENT-TRACE-001 event=plugin-update count=" + updateTickCount);
             }
             if (nativeManagementPanel != null) nativeManagementPanel.Dispatch(BueNativeManagementPanel.TickSource.Update);
-            // Some BepInEx/Unity hosts do not dispatch a plugin Start message
-            // before the first frame. Keep the same host-owned barrier as a
-            // one-shot next-frame fallback; external features still cannot
-            // advance the registration phase.
-            TryCompleteRuntime();
         }
 
         private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
@@ -153,6 +160,7 @@ namespace BetterUnturnedExperience.Plugin
             if (runtime == null || runtime.Phase != FeatureRegistrationPhase.RegistrationOpen) return;
             if (!runtime.CompleteRuntime()) return;
             runtimeReadyLogged = true;
+            if (clientUiComposition != null) clientUiComposition.RefreshManagementPanel();
             UnsubscribeSceneLoaded();
             Logger.LogInfo("Better Unturned Experience featureId=" + FeatureId + " status=RuntimeReady diagnosticId=BUE-BOOTSTRAP-003");
         }
@@ -192,6 +200,7 @@ namespace BetterUnturnedExperience.Plugin
             {
                 UnsubscribeSceneLoaded();
                 DestroyRuntimePump();
+                if (pluginUpdateDriver != null) pluginUpdateDriver.Clear();
                 if (nativeManagementPanel != null) nativeManagementPanel.Destroy();
                 if (clientUiComposition != null) clientUiComposition.Destroy();
             }

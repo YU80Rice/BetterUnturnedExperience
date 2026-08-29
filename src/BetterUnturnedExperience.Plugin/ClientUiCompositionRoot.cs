@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using BetterUnturnedExperience.ClientUi.Internal;
 using BetterUnturnedExperience.Contracts;
 using BetterUnturnedExperience.Core.Placement;
+using BetterUnturnedExperience.Core.Registration;
 
 namespace BetterUnturnedExperience.Plugin
 {
@@ -51,14 +53,35 @@ namespace BetterUnturnedExperience.Plugin
             if (initialized)
             {
                 managementPanel.Initialize();
-                var feature = BetterItemInteractionSettingsState.Feature;
-                managementPanel.Refresh(new[]
-                {
-                    new BueFeatureManagementEntry(feature, "Better Item Interaction", "1.0.0", FeatureState.Running,
-                        new FeaturePresentationView(feature, FeaturePresentationState.Available, string.Empty, 1), settingsState.GetSnapshot())
-                }, loadedPluginAdapter.CaptureLoadedPlugins());
+                RefreshManagementPanel();
             }
             return initialized;
+        }
+
+        internal void RefreshManagementPanel()
+        {
+            var runtime = BueRuntimeHost.CurrentRuntime;
+            var entries = runtime == null || runtime.Catalog == null
+                ? new[] { OfficialManagementEntry() }
+                : runtime.Catalog.Entries.Select(ToManagementEntry).ToArray();
+            managementPanel.Refresh(entries, loadedPluginAdapter.CaptureLoadedPlugins());
+        }
+
+        private BueFeatureManagementEntry OfficialManagementEntry()
+        {
+            var feature = BetterItemInteractionSettingsState.Feature;
+            return new BueFeatureManagementEntry(feature, "Better Item Interaction", "1.0.0", FeatureState.Running,
+                new FeaturePresentationView(feature, FeaturePresentationState.Available, string.Empty, 1), settingsState.GetSnapshot());
+        }
+
+        private BueFeatureManagementEntry ToManagementEntry(FeatureRegistrationEntry entry)
+        {
+            var feature = entry.Definition.Feature;
+            if (feature.Value == BetterItemInteractionSettingsState.Feature.Value) return OfficialManagementEntry();
+            var presentation = entry.ClientUi == null
+                ? new FeaturePresentationView(feature, FeaturePresentationState.PresentationDegraded, "BUE-UI-SATELLITE-001", 1)
+                : new FeaturePresentationView(feature, FeaturePresentationState.Available, string.Empty, 1);
+            return new BueFeatureManagementEntry(feature, feature.Value, "0.0.0", FeatureState.Running, presentation, default(FeatureSettingsSnapshot));
         }
 
         internal void Destroy()

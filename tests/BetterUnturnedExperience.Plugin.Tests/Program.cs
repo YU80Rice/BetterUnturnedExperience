@@ -34,8 +34,11 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 Assert(officialRegistrationHasClientUi(official), "official feature exposes a ClientUi satellite descriptor");
                 AssertClientUiCompositionGates();
                 AssertRuntimePumpBridge();
+                AssertPluginUpdateDriverForwardsButtonInjection();
+                AssertButtonInjectionRoutesAreLocallyIsolated();
                 AssertRuntimeDriverDispatchesButtonInjectionSeam();
                 AssertPanelDispatchReachesButtonInjectionSeam();
+                AssertManagementPanelConsumesRuntimeCatalog();
                 AssertManagementPanelOpenHooks();
                 Assert(RequiresParentRebindSemantics(), "management panel resets bindings when UI parent changes");
                 Assert(runtime.Phase == FeatureRegistrationPhase.RuntimeReady, "runtime barrier enters RuntimeReady");
@@ -72,6 +75,34 @@ namespace BetterUnturnedExperience.Plugin.Tests
             slot.Clear();
             var third = slot.GetOrCreate(() => { });
             Assert(!object.ReferenceEquals(first, third), "cleared runtime pump slot creates a fresh generation");
+        }
+
+        private static void AssertPluginUpdateDriverForwardsButtonInjection()
+        {
+            var calls = 0;
+            var driver = new BuePluginUpdateDriver(() => calls++);
+            driver.Update();
+            driver.Update();
+            Assert(calls == 2, "plugin Update fallback forwards every frame to button injection");
+            driver.Clear();
+            driver.Update();
+            Assert(calls == 2, "cleared plugin Update fallback cannot call stale panel state");
+        }
+
+        private static void AssertButtonInjectionRoutesAreLocallyIsolated()
+        {
+            var dashboard = 0;
+            var workshop = 0;
+            var pause = 0;
+            var failures = 0;
+            var routes = new BueButtonInjectionCoordinator(
+                () => { dashboard++; throw new InvalidOperationException("dashboard fixture failure"); },
+                () => workshop++,
+                () => pause++,
+                (surface, error) => failures++);
+            routes.Inject();
+            Assert(dashboard == 1 && workshop == 1 && pause == 1, "one failed entry does not block other menu routes");
+            Assert(failures == 1, "failed entry emits one local diagnostic");
         }
 
         private static void AssertRuntimeDriverDispatchesButtonInjectionSeam()
@@ -122,6 +153,23 @@ namespace BetterUnturnedExperience.Plugin.Tests
             Assert(failing.TickIsolated, "button injection failure isolates the panel");
             Assert(!failing.Dispatch(BueNativeManagementPanel.TickSource.Harmony), "isolated panel rejects later Harmony injection");
             failing.Destroy();
+        }
+
+        private static void AssertManagementPanelConsumesRuntimeCatalog()
+        {
+            var runtime = BueRuntimeHost.CurrentRuntime;
+            var composition = new BueClientUiCompositionRoot();
+            composition.RefreshManagementPanel();
+            var entries = composition.ManagementPanel.Model.GetEntries();
+            Assert(entries.Count >= 2, "management model consumes registered runtime catalog entries");
+            var hasNoOp = false;
+            for (var index = 0; index < entries.Count; index++)
+            {
+                if (entries[index].StableId == "io.github.yu80rice.bue.noop") hasNoOp = true;
+            }
+            Assert(hasNoOp, "third-party BUE registration appears in management model");
+            Assert(runtime != null, "runtime remains bound while catalog is projected");
+            composition.Destroy();
         }
 
         private sealed class RecordingButtonInjectionSeam : IBueButtonInjectionSeam

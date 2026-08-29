@@ -9,6 +9,7 @@ namespace BetterUnturnedExperience.ClientUi.Tests
         internal static void Run()
         {
             CallbackOnlyEnqueuesUntilPump();
+            InterfaceCaptureUsesProjectionSourceSeam();
             FixedCapacityOverflowFailsClosed();
             StaleGenerationAndSessionAreDropped();
             ConsumerFailureInvalidatesBindingAndQueuedSnapshots();
@@ -39,6 +40,16 @@ namespace BetterUnturnedExperience.ClientUi.Tests
             Assert(relay.TryEnqueue(Snapshot(binding, 1)), "first snapshot enters bounded queue");
             Assert(!relay.TryEnqueue(Snapshot(binding, 2)), "full queue rejects overflow");
             Assert(relay.Count == 1, "overflow does not corrupt queue count");
+        }
+
+        private static void InterfaceCaptureUsesProjectionSourceSeam()
+        {
+            var relay = new NativeInventoryProjectionRelay(4);
+            var binding = Binding(2, 15, 5);
+            relay.Bind(binding);
+            INativeInventoryProjectionSource source = relay;
+            Assert(source.TryCapture(Snapshot(binding, 1)), "projection source interface accepts callback snapshot");
+            Assert(relay.Count == 1, "interface capture only enqueues and does not consume");
         }
 
         private static void StaleGenerationAndSessionAreDropped()

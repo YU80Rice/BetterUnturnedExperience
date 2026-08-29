@@ -22,3 +22,12 @@
 - [x] 未提供运行时强制启用、禁用、卸载或热重载；检测外部 UnturnedPluginManager 时仅显示兼容提示。
 - [x] 面板和仓库保留 `35117+Deepseek-v4-falsh-0731`、来源仓库、提交 `9b75730`、许可记录和致谢。
 - [x] Release 编译、排序/持久化/配置编辑测试、UI 重建测试、静态门禁和独立审计通过（真实 UI 运行仍待人工验证）。
+
+## Comments
+
+### 2026-08-29 R10 基线固化（agent）
+
+- Release 构建 **0 错误 / 0 警告**；7/7 测试运行器 PASS（日志归档 `audit/2026-08-29/tests-*.log`）；`Verify-NoUiTokens.ps1` 三个 SourceRoot PASS；`git diff --check` CLEAN。
+- 新 DLL：`artifacts/DEV-16B-management-panel-runtime-fix-r10-20260829/BetterUnturnedExperience.dll`（168960 bytes，SHA-256 `AF065D83…64CBE`，CaseId `DEV-16B-R10-20260829`；完整值见 `audit/2026-08-29/r10-dll-sha256.txt`）。
+- 审计：`audit/2026-08-29/Implementation-DEV-16B-R10-baseline-0950.md`（含真机 UMM 诊断包六边界判别矩阵与部署步骤）。
+- 状态保持 `ready-for-human`：等待人工部署 r10 DLL 并回传诊断包；`plugin-update` 是否 >0 为第一判据。

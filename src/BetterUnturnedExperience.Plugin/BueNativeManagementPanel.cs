@@ -26,9 +26,40 @@ namespace BetterUnturnedExperience.Plugin
 
         public void Inject(string source)
         {
-            owner.TryAddDashboardButton(source);
-            owner.TryAddMainButton(source);
-            owner.TryAddPauseButton(source);
+            new BueButtonInjectionCoordinator(
+                () => owner.TryAddDashboardButton(source),
+                () => owner.TryAddMainButton(source),
+                () => owner.TryAddPauseButton(source),
+                owner.LogEntryFailure).Inject();
+        }
+    }
+
+    internal sealed class BueButtonInjectionCoordinator
+    {
+        private readonly System.Action dashboard;
+        private readonly System.Action workshop;
+        private readonly System.Action pause;
+        private readonly System.Action<string, Exception> onFailure;
+
+        internal BueButtonInjectionCoordinator(System.Action dashboard, System.Action workshop, System.Action pause, System.Action<string, Exception> onFailure)
+        {
+            this.dashboard = dashboard ?? throw new ArgumentNullException(nameof(dashboard));
+            this.workshop = workshop ?? throw new ArgumentNullException(nameof(workshop));
+            this.pause = pause ?? throw new ArgumentNullException(nameof(pause));
+            this.onFailure = onFailure;
+        }
+
+        internal void Inject()
+        {
+            TryInject("MenuDashboardUI", dashboard);
+            TryInject("MenuWorkshopUI", workshop);
+            TryInject("PlayerPauseUI", pause);
+        }
+
+        private void TryInject(string surface, System.Action action)
+        {
+            try { action(); }
+            catch (Exception error) { if (onFailure != null) onFailure(surface, error); }
         }
     }
 
@@ -52,16 +83,23 @@ namespace BetterUnturnedExperience.Plugin
         private readonly FieldInfo pauseContainerField;
         private readonly BueRuntimeTickDispatcher tickDispatcher;
         private readonly IBueButtonInjectionSeam buttonInjectionSeam;
+        private readonly System.Action refreshModel;
         private SleekFullscreenBox panel;
         private ISleekButton dashboardButton;
         private ISleekButton mainButton;
         private ISleekButton pauseButton;
         private ISleekButton closeButton;
+        private ISleekButton refreshButton;
+        private ISleekButton sortAscendingButton;
+        private ISleekButton sortDescendingButton;
         private ISleekLabel title;
-        private ISleekLabel body;
+        private ISleekLabel status;
+        private ISleekScrollView listScroll;
+        private ISleekScrollView detailScroll;
         private ISleekElement mainParent;
         private ISleekElement dashboardParent;
         private ISleekElement pauseParent;
+        private SleekFullscreenBox hiddenOrigin;
         private bool opened;
         private bool destroyed;
         private bool firstTickLogged;
@@ -69,6 +107,7 @@ namespace BetterUnturnedExperience.Plugin
         private int lastPauseContainerState = -1;
         private int updateTickCount;
         private bool hostUiTickLogged;
+        private string selectedStableId;
         private static BueNativeManagementPanel activeInstance;
 
         internal static bool RequiresParentRebind(object boundParent, object currentParent)
@@ -76,12 +115,30 @@ namespace BetterUnturnedExperience.Plugin
             return currentParent != null && !ReferenceEquals(boundParent, currentParent);
         }
 
+        internal static bool CanBindNativeUi()
+        {
+            return Glazier.Get() != null
+                && typeof(MenuDashboardUI).GetField("container", BindingFlags.Static | BindingFlags.NonPublic) != null
+                && typeof(MenuWorkshopUI).GetField("container", BindingFlags.Static | BindingFlags.NonPublic) != null
+                && typeof(PlayerPauseUI).GetField("container", BindingFlags.Static | BindingFlags.NonPublic) != null
+                && AccessTools.Constructor(typeof(MenuDashboardUI), Type.EmptyTypes) != null
+                && AccessTools.Constructor(typeof(MenuWorkshopUI), Type.EmptyTypes) != null
+                && AccessTools.Constructor(typeof(PlayerPauseUI), Type.EmptyTypes) != null
+                && AccessTools.Method(typeof(MenuUI), "Update") != null
+                && AccessTools.Method(typeof(PlayerUI), "Update") != null;
+        }
+
         internal BueNativeManagementPanel(BueManagementPanelRuntime runtime, ManualLogSource log)
-            : this(runtime, log, null)
+            : this(runtime, log, null, null)
         {
         }
 
         internal BueNativeManagementPanel(BueManagementPanelRuntime runtime, ManualLogSource log, IBueButtonInjectionSeam buttonInjectionSeam)
+            : this(runtime, log, buttonInjectionSeam, null)
+        {
+        }
+
+        internal BueNativeManagementPanel(BueManagementPanelRuntime runtime, ManualLogSource log, IBueButtonInjectionSeam buttonInjectionSeam, System.Action refreshModel)
         {
             this.runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
             this.log = log;
@@ -93,6 +150,7 @@ namespace BetterUnturnedExperience.Plugin
             harmony = new Harmony("io.github.yu80rice.bue.management-panel");
             tickDispatcher = new BueRuntimeTickDispatcher(TickCore, OnTickFailure, log == null ? (Func<int>)(() => -1) : GetFrameCountSafe);
             this.buttonInjectionSeam = buttonInjectionSeam ?? new NativeButtonInjectionSeam(this);
+            this.refreshModel = refreshModel;
             activeInstance = this;
             LogTrace("constructed", "dashboardField=" + (dashboardContainerField != null) + " workshopField=" + (workshopContainerField != null) + " pauseField=" + (pauseContainerField != null));
         }
@@ -167,7 +225,7 @@ namespace BetterUnturnedExperience.Plugin
             CleanupDashboardButton(dashboardParent);
             CleanupMainButton(mainParent);
             CleanupPauseButton(pauseParent);
-            Close();
+                Close();
             try { harmony.UnpatchSelf(); } catch (Exception error) { Log("unpatch failed: " + error.Message); }
             runtime.Destroy();
         }
@@ -355,6 +413,7 @@ namespace BetterUnturnedExperience.Plugin
                 LogTrace("create-button-begin", "surface=MenuWorkshopUI source=" + source);
                 mainButton = Glazier.Get().CreateButton();
                 LogTrace("create-button-result", "surface=MenuWorkshopUI created=" + (mainButton != null) + " source=" + source);
+                if (mainButton == null) throw new InvalidOperationException("Glazier.CreateButton returned null");
                 mainButton.PositionOffset_X = -110f;
                 mainButton.PositionOffset_Y = 185f;
                 mainButton.PositionScale_X = 0.5f;
@@ -410,6 +469,7 @@ namespace BetterUnturnedExperience.Plugin
                 LogTrace("create-button-begin", "surface=PlayerPauseUI source=" + source);
                 pauseButton = Glazier.Get().CreateButton();
                 LogTrace("create-button-result", "surface=PlayerPauseUI created=" + (pauseButton != null) + " source=" + source);
+                if (pauseButton == null) throw new InvalidOperationException("Glazier.CreateButton returned null");
                 pauseButton.PositionOffset_X = 205f;
                 pauseButton.PositionOffset_Y = -290f;
                 pauseButton.PositionScale_X = 0.5f;
@@ -433,18 +493,22 @@ namespace BetterUnturnedExperience.Plugin
 
         // Optional secondary entry on the Workshop sub-page.  The Dashboard
         // button above is the canonical main-menu entry required by DEV-16B.
-        private void OnMainButtonClicked(ISleekElement button) { Open(ReadContainer(workshopContainerField)); }
-        private void OnPauseButtonClicked(ISleekElement button) { Open(ReadContainer(pauseContainerField)); }
-        private void OnDashboardButtonClicked(ISleekElement button) { Open(ReadContainer(dashboardContainerField)); }
+        private void OnMainButtonClicked(ISleekElement button) { Open(MenuUI.container, ReadContainer(workshopContainerField)); }
+        private void OnPauseButtonClicked(ISleekElement button) { Open(PlayerUI.container, ReadContainer(pauseContainerField)); }
+        private void OnDashboardButtonClicked(ISleekElement button) { Open(MenuUI.container, ReadContainer(dashboardContainerField)); }
 
-        private void Open(ISleekElement parent)
+        private void Open(ISleekElement host, ISleekElement origin)
         {
-            if (parent == null || destroyed) return;
+            if (host == null || destroyed) return;
             try
             {
                 EnsurePanel();
-                parent.AddChild(panel);
+                if (refreshModel != null) refreshModel();
+                host.AddChild(panel);
                 opened = true;
+                hiddenOrigin = origin as SleekFullscreenBox;
+                if (hiddenOrigin != null && !ReferenceEquals(hiddenOrigin, panel)) hiddenOrigin.AnimateOutOfView(0f, 1f);
+                panel.AnimateIntoView();
                 Render();
             }
             catch (Exception error) { Log("open management panel failed: " + error.Message); }
@@ -478,6 +542,33 @@ namespace BetterUnturnedExperience.Plugin
             title.TextAlignment = TextAnchor.MiddleLeft;
             panel.AddChild(title);
 
+            refreshButton = Glazier.Get().CreateButton();
+            refreshButton.PositionOffset_X = 250f;
+            refreshButton.PositionOffset_Y = 20f;
+            refreshButton.SizeOffset_X = 100f;
+            refreshButton.SizeOffset_Y = 40f;
+            refreshButton.Text = "刷新";
+            refreshButton.OnClicked += OnRefreshClicked;
+            panel.AddChild(refreshButton);
+
+            sortAscendingButton = Glazier.Get().CreateButton();
+            sortAscendingButton.PositionOffset_X = 24f;
+            sortAscendingButton.PositionOffset_Y = 62f;
+            sortAscendingButton.SizeOffset_X = 92f;
+            sortAscendingButton.SizeOffset_Y = 32f;
+            sortAscendingButton.Text = "A-Z";
+            sortAscendingButton.OnClicked += OnSortAscendingClicked;
+            panel.AddChild(sortAscendingButton);
+
+            sortDescendingButton = Glazier.Get().CreateButton();
+            sortDescendingButton.PositionOffset_X = 122f;
+            sortDescendingButton.PositionOffset_Y = 62f;
+            sortDescendingButton.SizeOffset_X = 92f;
+            sortDescendingButton.SizeOffset_Y = 32f;
+            sortDescendingButton.Text = "Z-A";
+            sortDescendingButton.OnClicked += OnSortDescendingClicked;
+            panel.AddChild(sortDescendingButton);
+
             closeButton = Glazier.Get().CreateButton();
             closeButton.PositionOffset_X = -130f;
             closeButton.PositionOffset_Y = 20f;
@@ -488,45 +579,283 @@ namespace BetterUnturnedExperience.Plugin
             closeButton.OnClicked += OnCloseClicked;
             panel.AddChild(closeButton);
 
-            body = Glazier.Get().CreateLabel();
-            body.PositionOffset_X = 24f;
-            body.PositionOffset_Y = 78f;
-            body.SizeOffset_X = -48f;
-            body.SizeOffset_Y = -100f;
-            body.SizeScale_X = 1f;
-            body.SizeScale_Y = 1f;
-            body.TextAlignment = TextAnchor.UpperLeft;
-            panel.AddChild(body);
+            listScroll = Glazier.Get().CreateScrollView();
+            listScroll.PositionOffset_X = 24f;
+            listScroll.PositionOffset_Y = 104f;
+            listScroll.SizeOffset_X = 270f;
+            listScroll.SizeOffset_Y = -136f;
+            listScroll.SizeScale_Y = 1f;
+            listScroll.ScaleContentToWidth = true;
+            listScroll.HandleScrollWheel = true;
+            panel.AddChild(listScroll);
+
+            detailScroll = Glazier.Get().CreateScrollView();
+            detailScroll.PositionOffset_X = 310f;
+            detailScroll.PositionOffset_Y = 62f;
+            detailScroll.SizeOffset_X = -334f;
+            detailScroll.SizeOffset_Y = -94f;
+            detailScroll.SizeScale_X = 1f;
+            detailScroll.SizeScale_Y = 1f;
+            detailScroll.ScaleContentToWidth = true;
+            detailScroll.HandleScrollWheel = true;
+            panel.AddChild(detailScroll);
+
+            status = Glazier.Get().CreateLabel();
+            status.PositionOffset_X = 24f;
+            status.PositionOffset_Y = -28f;
+            status.PositionScale_Y = 1f;
+            status.SizeOffset_X = -48f;
+            status.SizeOffset_Y = 24f;
+            status.TextAlignment = TextAnchor.MiddleLeft;
+            panel.AddChild(status);
         }
 
         private void Render()
         {
-            if (body == null) return;
+            if (listScroll == null || detailScroll == null) return;
             var rows = runtime.Model.GetEntries();
-            var lines = new List<string>();
-            lines.Add("收藏优先 · 未收藏排序：" + (runtime.Model.SortOrder == ManagementSortOrder.NameAscending ? "A-Z" : "Z-A"));
-            if (runtime.Model.ExternalManagerDetected) lines.Add(runtime.Model.CompatibilityNotice);
-            lines.Add(string.Empty);
+            ClearChildren(listScroll);
+            var y = 0;
             for (var index = 0; index < rows.Count; index++)
             {
                 var row = rows[index];
-                var marker = row.IsFavorite ? "★" : "☆";
-                lines.Add(marker + " " + row.DisplayName + "  [" + row.StableId + "]  v" + row.Version);
-                if (row.Kind == ManagementEntryKind.BueFeature && row.BueSettings != null)
+                var capturedId = row.StableId;
+                var button = Glazier.Get().CreateButton();
+                button.PositionOffset_Y = y;
+                button.SizeOffset_X = -8f;
+                button.SizeOffset_Y = 38f;
+                button.SizeScale_X = 1f;
+                button.Text = (row.IsFavorite ? "★ " : "☆ ") + row.DisplayName;
+                button.TooltipText = row.StableId + "\n版本: " + row.Version;
+                button.OnClicked += delegate(ISleekElement ignored)
                 {
-                    for (var settingIndex = 0; settingIndex < row.BueSettings.Count; settingIndex++)
-                    {
-                        var setting = row.BueSettings[settingIndex];
-                        lines.Add("    · " + setting.SettingId + " = " + FormatSetting(setting.EffectiveValue) + (setting.CanEdit ? " (可编辑)" : " (只读)"));
-                    }
-                }
-                if (row.Kind == ManagementEntryKind.ExternalPlugin && row.PluginConfig != null)
+                    selectedStableId = capturedId;
+                    RenderDetails();
+                };
+                listScroll.AddChild(button);
+                y += 42;
+            }
+            listScroll.ContentSizeOffset = new Vector2(0f, y);
+            if (rows.Count == 0) SetStatus("当前没有检测到已加载的外部插件。", false);
+            RenderDetails();
+        }
+
+        private void RenderDetails()
+        {
+            if (detailScroll == null) return;
+            ClearChildren(detailScroll);
+            var rows = runtime.Model.GetEntries();
+            ManagementEntryView selected = default(ManagementEntryView);
+            var found = false;
+            for (var index = 0; index < rows.Count; index++)
+            {
+                if (string.Equals(rows[index].StableId, selectedStableId, StringComparison.Ordinal))
                 {
-                    lines.Add("    · ConfigEntry：" + row.PluginConfig.Count + " 项（仅基础类型可编辑）");
+                    selected = rows[index];
+                    found = true;
+                    break;
                 }
             }
-            if (rows.Count == 0) lines.Add("当前没有检测到已加载的外部插件。");
-            body.Text = string.Join("\n", lines.ToArray());
+            if (!found && rows.Count > 0)
+            {
+                selected = rows[0];
+                selectedStableId = selected.StableId;
+                found = true;
+            }
+            var y = 0;
+            if (!found)
+            {
+                AddDetailLabel(ref y, "选择一个功能或插件查看详情。", ESleekFontSize.Medium);
+                detailScroll.ContentSizeOffset = new Vector2(0f, y + 10);
+                return;
+            }
+            AddDetailLabel(ref y, selected.DisplayName, ESleekFontSize.Large);
+            AddDetailLabel(ref y, "身份：" + selected.StableId, ESleekFontSize.Small);
+            AddDetailLabel(ref y, "版本：" + selected.Version, ESleekFontSize.Small);
+            AddDetailLabel(ref y, "收藏：" + (selected.IsFavorite ? "是" : "否"), ESleekFontSize.Small);
+            var favoriteButton = Glazier.Get().CreateButton();
+            favoriteButton.PositionOffset_Y = y;
+            favoriteButton.SizeOffset_X = 180f;
+            favoriteButton.SizeOffset_Y = 32f;
+            favoriteButton.Text = selected.IsFavorite ? "取消收藏" : "加入收藏";
+            var favoriteId = selected.StableId;
+            favoriteButton.OnClicked += delegate(ISleekElement ignored)
+            {
+                runtime.Model.ToggleFavorite(favoriteId);
+                Render();
+            };
+            detailScroll.AddChild(favoriteButton);
+            y += 40;
+            if (selected.Kind == ManagementEntryKind.BueFeature)
+            {
+                AddDetailLabel(ref y, "BUE 功能设置", ESleekFontSize.Medium);
+                for (var index = 0; index < selected.BueSettings.Count; index++)
+                {
+                    AddBueSettingControl(ref y, selected, selected.BueSettings[index]);
+                }
+                AddDetailLabel(ref y, "功能状态：" + selected.FeatureState, ESleekFontSize.Small);
+                AddDetailLabel(ref y, "表现状态：" + selected.Presentation.State, ESleekFontSize.Small);
+            }
+            else
+            {
+                AddDetailLabel(ref y, "普通 BepInEx ConfigEntry", ESleekFontSize.Medium);
+                for (var index = 0; index < selected.PluginConfig.Count; index++)
+                {
+                    AddPluginConfigControl(ref y, selected, selected.PluginConfig[index]);
+                }
+            }
+            detailScroll.ContentSizeOffset = new Vector2(0f, y + 10);
+            if (runtime.Model.ExternalManagerDetected) SetStatus(runtime.Model.CompatibilityNotice, false);
+        }
+
+        private void AddBueSettingControl(ref int y, ManagementEntryView row, SettingEntryView setting)
+        {
+            AddDetailLabel(ref y, setting.SettingId + " = " + FormatSetting(setting.EffectiveValue), ESleekFontSize.Small);
+            if (!setting.CanEdit) return;
+            var feature = row.StableId;
+            if (setting.EffectiveValue.Kind == SettingKind.Toggle)
+            {
+                var toggle = Glazier.Get().CreateToggle();
+                toggle.PositionOffset_Y = y;
+                toggle.SizeOffset_X = 40f;
+                toggle.SizeOffset_Y = 30f;
+                toggle.Value = setting.EffectiveValue.Boolean;
+                toggle.OnValueChanged += delegate(ISleekToggle ignored, bool value)
+                {
+                    var result = runtime.Model.TryEditBueSetting(new FeatureId(feature), setting.SettingId, PluginConfigValue.BooleanValue(value));
+                    SetStatus(result.Accepted ? "BUE 设置已保存。" : "BUE 设置被拒绝。", !result.Accepted);
+                    if (result.Accepted) Render();
+                };
+                detailScroll.AddChild(toggle);
+                y += 36;
+            }
+            else
+            {
+                AddTextEditor(ref y, setting.SettingId, FormatSetting(setting.EffectiveValue), raw =>
+                {
+                    PluginConfigValue value;
+                    if (!TryConvertSetting(setting.EffectiveValue.Kind, raw, out value)) return false;
+                    var result = runtime.Model.TryEditBueSetting(new FeatureId(feature), setting.SettingId, value);
+                    SetStatus(result.Accepted ? "BUE 设置已保存。" : "BUE 设置被拒绝。", !result.Accepted);
+                    if (result.Accepted) Render();
+                    return result.Accepted;
+                });
+            }
+        }
+
+        private void AddPluginConfigControl(ref int y, ManagementEntryView row, PluginConfigEntryView entry)
+        {
+            AddDetailLabel(ref y, entry.DisplayName + " = " + FormatPluginValue(entry.Value) + (entry.RequiresRestart ? "（需要重启）" : string.Empty), ESleekFontSize.Small);
+            if (!entry.CanEdit) return;
+            var pluginGuid = row.StableId;
+            if (entry.Kind == PluginConfigValueKind.Boolean)
+            {
+                var toggle = Glazier.Get().CreateToggle();
+                toggle.PositionOffset_Y = y;
+                toggle.SizeOffset_X = 40f;
+                toggle.SizeOffset_Y = 30f;
+                toggle.Value = entry.Value.Boolean;
+                toggle.OnValueChanged += delegate(ISleekToggle ignored, bool value)
+                {
+                    var result = runtime.Model.TryEditPluginConfig(pluginGuid, entry.Key, value ? "true" : "false");
+                    SetStatus(result.Accepted ? "插件配置已保存。" : "插件配置保存失败。", !result.Accepted);
+                    if (result.Accepted) Render();
+                };
+                detailScroll.AddChild(toggle);
+                y += 36;
+            }
+            else
+            {
+                AddTextEditor(ref y, entry.Key, FormatPluginValue(entry.Value), raw =>
+                {
+                    var result = runtime.Model.TryEditPluginConfig(pluginGuid, entry.Key, raw);
+                    SetStatus(result.Accepted ? "插件配置已保存。" : "插件配置保存失败。", !result.Accepted);
+                    if (result.Accepted) Render();
+                    return result.Accepted;
+                });
+            }
+        }
+
+        private void AddTextEditor(ref int y, string key, string value, Func<string, bool> submit)
+        {
+            var field = Glazier.Get().CreateStringField();
+            field.PositionOffset_Y = y;
+            field.SizeOffset_X = 360f;
+            field.SizeOffset_Y = 30f;
+            field.SizeScale_X = 0f;
+            field.Text = value ?? string.Empty;
+            field.MaxLength = 4096;
+            field.OnTextSubmitted += delegate(ISleekField submitted)
+            {
+                if (!submit(submitted.Text == null ? string.Empty : submitted.Text.Trim())) submitted.Text = value ?? string.Empty;
+            };
+            field.OnTextEscaped += delegate(ISleekField escaped) { escaped.Text = value ?? string.Empty; };
+            detailScroll.AddChild(field);
+            y += 36;
+        }
+
+        private static bool TryConvertSetting(SettingKind kind, string raw, out PluginConfigValue value)
+        {
+            value = PluginConfigValue.UnsupportedValue();
+            if (kind == SettingKind.Integer)
+            {
+                long number;
+                if (!long.TryParse(raw, out number)) return false;
+                value = PluginConfigValue.IntegerValue(number);
+                return true;
+            }
+            if (kind == SettingKind.Float)
+            {
+                double number;
+                if (!double.TryParse(raw, out number)) return false;
+                value = PluginConfigValue.FloatValue(number);
+                return true;
+            }
+            if (kind == SettingKind.Text || kind == SettingKind.Choice || kind == SettingKind.KeyBinding)
+            {
+                value = PluginConfigValue.StringValue(raw);
+                return true;
+            }
+            return false;
+        }
+
+        private static string FormatPluginValue(PluginConfigValue value)
+        {
+            switch (value.Kind)
+            {
+                case PluginConfigValueKind.Boolean: return value.Boolean ? "true" : "false";
+                case PluginConfigValueKind.Integer: return value.Integer64.ToString();
+                case PluginConfigValueKind.Float: return value.Float64.ToString("0.###");
+                default: return value.Text ?? string.Empty;
+            }
+        }
+
+        private void AddDetailLabel(ref int y, string text, ESleekFontSize fontSize)
+        {
+            var label = Glazier.Get().CreateLabel();
+            label.PositionOffset_Y = y;
+            label.SizeOffset_X = -10f;
+            label.SizeOffset_Y = 28f;
+            label.SizeScale_X = 1f;
+            label.Text = text ?? string.Empty;
+            label.FontSize = fontSize;
+            label.TextAlignment = TextAnchor.MiddleLeft;
+            detailScroll.AddChild(label);
+            y += 30;
+        }
+
+        private static void ClearChildren(ISleekElement parent)
+        {
+            if (parent == null) return;
+            parent.RemoveAllChildren();
+        }
+
+        private void OnRefreshClicked(ISleekElement button) { if (refreshModel != null) refreshModel(); Render(); }
+        private void OnSortAscendingClicked(ISleekElement button) { runtime.Model.SetSortOrder(ManagementSortOrder.NameAscending); Render(); }
+        private void OnSortDescendingClicked(ISleekElement button) { runtime.Model.SetSortOrder(ManagementSortOrder.NameDescending); Render(); }
+        private void SetStatus(string text, bool error)
+        {
+            if (status != null) status.Text = (error ? "错误：" : string.Empty) + (text ?? string.Empty);
         }
 
         private void OnCloseClicked(ISleekElement button) { Close(); }
@@ -536,6 +865,8 @@ namespace BetterUnturnedExperience.Plugin
             if (!opened) return;
             opened = false;
             try { if (panel != null && IsAlive(panel)) panel.AnimateOutOfView(0f, -1f); } catch (Exception error) { Log("close management panel failed: " + error.Message); }
+            try { if (hiddenOrigin != null && IsAlive(hiddenOrigin)) hiddenOrigin.AnimateIntoView(); } catch (Exception error) { Log("restore management origin failed: " + error.Message); }
+            hiddenOrigin = null;
         }
 
         private static ISleekElement ReadContainer(FieldInfo field)
@@ -562,7 +893,21 @@ namespace BetterUnturnedExperience.Plugin
             if (element == null) return false;
             try
             {
-                if (element is SleekWrapper wrapper) return wrapper.GetProxyImplementation() != null;
+                if (element is SleekWrapper wrapper)
+                {
+                    var implementation = wrapper.GetProxyImplementation();
+                    if (implementation == null) return false;
+                    var type = implementation.GetType();
+                    while (type != null && type != typeof(object))
+                    {
+                        var property = type.GetProperty("gameObject", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                        if (property != null) return property.GetValue(implementation, null) != null;
+                        var field = type.GetField("<gameObject>k__BackingField", BindingFlags.Instance | BindingFlags.NonPublic);
+                        if (field != null) return field.GetValue(implementation) != null;
+                        type = type.BaseType;
+                    }
+                    return false;
+                }
                 return true;
             }
             catch (Exception) { return false; }
@@ -582,6 +927,11 @@ namespace BetterUnturnedExperience.Plugin
         private void Log(string message)
         {
             LogTrace("warning", "reasonCode=ManagementFailure message=" + message);
+        }
+
+        internal void LogEntryFailure(string surface, Exception error)
+        {
+            LogTrace("entry-isolated", "surface=" + surface + " errorType=" + error.GetType().FullName + " message=" + error.Message);
         }
 
         private void CleanupMainButton(ISleekElement parent)

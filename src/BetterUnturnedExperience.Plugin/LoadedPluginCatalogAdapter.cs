@@ -37,7 +37,7 @@ namespace BetterUnturnedExperience.Plugin
                         {
                             var definition = entry == null ? null : entry.Definition;
                             if (definition == null || entry == null) continue;
-                            var value = ToValue(entry.SettingType, entry.BoxedValue);
+                            var value = HasDiscreteConstraint(entry) ? PluginConfigValue.UnsupportedValue() : ToValue(entry.SettingType, entry.BoxedValue);
                             double? minimum;
                             double? maximum;
                             GetBounds(entry, out minimum, out maximum);
@@ -71,7 +71,14 @@ namespace BetterUnturnedExperience.Plugin
                 try
                 {
                     oldValue = entry.GetSerializedValue();
-                    entry.SetSerializedValue(ToSerialized(value));
+                    var submitted = ToSerialized(value);
+                    entry.SetSerializedValue(submitted);
+                    var actual = entry.GetSerializedValue();
+                    if (!EquivalentSerialized(entry.SettingType, submitted, actual))
+                    {
+                        entry.SetSerializedValue(oldValue);
+                        return false;
+                    }
                     config.Save();
                     return true;
                 }
@@ -121,6 +128,20 @@ namespace BetterUnturnedExperience.Plugin
             }
         }
 
+        private static bool EquivalentSerialized(Type type, string expected, string actual)
+        {
+            if (string.Equals(expected, actual, StringComparison.Ordinal)) return true;
+            if (type == typeof(float) || type == typeof(double) || type == typeof(decimal))
+            {
+                double expectedNumber;
+                double actualNumber;
+                return double.TryParse(expected, NumberStyles.Float, CultureInfo.InvariantCulture, out expectedNumber)
+                    && double.TryParse(actual, NumberStyles.Float, CultureInfo.InvariantCulture, out actualNumber)
+                    && Math.Abs(expectedNumber - actualNumber) <= 0.0000001d;
+            }
+            return string.Equals(expected, actual, StringComparison.OrdinalIgnoreCase);
+        }
+
         private static bool RequiresRestart(ConfigEntryBase entry)
         {
             return entry.Description != null && entry.Description.Tags != null && Array.Exists(entry.Description.Tags, x => string.Equals(Convert.ToString(x, CultureInfo.InvariantCulture), "RequiresRestart", StringComparison.OrdinalIgnoreCase));
@@ -138,6 +159,12 @@ namespace BetterUnturnedExperience.Plugin
                 try { if (minProperty != null) minimum = Convert.ToDouble(minProperty.GetValue(acceptable, null), CultureInfo.InvariantCulture); } catch (Exception) { }
                 try { if (maxProperty != null) maximum = Convert.ToDouble(maxProperty.GetValue(acceptable, null), CultureInfo.InvariantCulture); } catch (Exception) { }
             }
+        }
+
+        private static bool HasDiscreteConstraint(ConfigEntryBase entry)
+        {
+            var acceptable = entry == null || entry.Description == null ? null : entry.Description.AcceptableValues;
+            return acceptable != null && acceptable.GetType().Name.IndexOf("AcceptableValueList", StringComparison.OrdinalIgnoreCase) >= 0;
         }
     }
 }
