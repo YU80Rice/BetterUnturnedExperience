@@ -193,7 +193,12 @@ namespace BetterUnturnedExperience.Plugin
             try
             {
                 gameObject = new GameObject("BUE.RuntimePump");
-                gameObject.hideFlags = HideFlags.HideAndDontSave;
+                // [R14] HideAndDontSave removed: the R12/R13 readings show every
+                // HideAndDontSave object (BepInEx_Manager, this pump) gets
+                // disabled/never-ticked on Unturned 3.26.3.9, while the plugin
+                // object hierarchy itself survives. HideInHierarchy keeps the
+                // hierarchy clean without the DontSave semantics.
+                gameObject.hideFlags = HideFlags.HideInHierarchy;
                 UnityEngine.Object.DontDestroyOnLoad(gameObject);
 
                 var behaviour = gameObject.AddComponent<BueRuntimePumpBehaviour>();

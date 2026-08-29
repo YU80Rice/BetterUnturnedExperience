@@ -58,11 +58,21 @@ namespace BetterUnturnedExperience.Plugin
                         // dedicated headless server never grows the log unbounded.
                         StartCoroutine(DrvCoroutinePump());
                         DrvStartContextPump();
+                        // [DEBUG-drv] standalone probe host WITHOUT HideAndDontSave:
+                        // R12/R13 show every HideAndDontSave object dies on this game
+                        // build, so this host answers whether a plain object ticks.
+                        var probeHost = new GameObject("DEBUG.ProbeHost");
+                        UnityEngine.Object.DontDestroyOnLoad(probeHost);
+                        probeHost.AddComponent<DrvProbeHostBehaviour>();
+                        Logger.LogInfo("[DEBUG-drv] event=probe-host-created");
                         Logger.LogInfo("BUE client UI composition ready featureId=io.github.yu80rice.bue.better-item-interaction diagnosticId=BUE-CLIENTUI-002");
                     }
                 }
                 SceneManager.sceneLoaded += OnSceneLoaded;
                 sceneLoadedSubscribed = true;
+                // [DEBUG-drv] static log source + instance anchor survive host destruction.
+                DrvLog = Logger;
+                DrvInstance = this;
                 // [DEBUG-drv] host-object state probe; removed after diagnosis.
                 Logger.LogInfo("[DEBUG-drv] event=awake-object-state activeInHierarchy=" + gameObject.activeInHierarchy + " activeSelf=" + gameObject.activeSelf + " enabled=" + enabled + " scene=" + gameObject.scene.name);
                 Logger.LogInfo("Better Unturned Experience featureId=" + FeatureId + " status=BootstrapReady decision=" + decision + " diagnosticId=" + DiagnosticId);
@@ -103,6 +113,9 @@ namespace BetterUnturnedExperience.Plugin
         private int drvContextTicks;
         private bool drvGameDetourChecked;
         private bool drvReviveLogged;
+        private string drvContextStopReason;
+        internal static BepInEx.Logging.ManualLogSource DrvLog;
+        internal static BetterUnturnedExperiencePlugin DrvInstance;
 
         private void DrvAttemptSelfRevive(bool logFirstOnly)
         {
@@ -140,21 +153,57 @@ namespace BetterUnturnedExperience.Plugin
             context.Post(_ => DrvContextTick(context), null);
         }
 
-        private void DrvContextTick(System.Threading.SynchronizationContext context)
+        private void DrvContextTick(object context)
         {
-            drvContextTicks++;
-            if (drvContextTicks == 1 || drvContextTicks % 120 == 0)
-                Logger.LogInfo("[DEBUG-drv] event=context-tick count=" + drvContextTicks + " enabled=" + enabled + " activeInHierarchy=" + gameObject.activeInHierarchy);
-            if (drvContextTicks >= 3600)
+            // [DEBUG-drv] hardened: a destroyed host must not break the pump
+            // chain silently, so every failure is logged and the chain keeps
+            // posting until a stop reason is set or the tick limit hits.
+            try
             {
-                // [DEBUG-drv] exit guard: the probe pump must not outlive the
-                // diagnostic session even if the disable source never stops.
-                Logger.LogInfo("[DEBUG-drv] event=context-pump-stopped reason=tick-limit");
+                if (this == null)
+                {
+                    drvContextStopReason = "manager-destroyed";
+                    DrvLog?.LogInfo("[DEBUG-drv] event=context-pump-stopped reason=manager-destroyed ticks=" + drvContextTicks);
+                    return;
+                }
+                drvContextTicks++;
+                if (drvContextTicks >= 3600)
+                {
+                    drvContextStopReason = "tick-limit";
+                    return;
+                }
+                if (drvContextTicks == 1 || drvContextTicks % 120 == 0)
+                    Logger.LogInfo("[DEBUG-drv] event=context-tick count=" + drvContextTicks + " enabled=" + enabled + " activeInHierarchy=" + gameObject.activeInHierarchy);
+                DrvAttemptSelfRevive(logFirstOnly: true);
+                DrvCheckGameDetour();
+            }
+            catch (Exception error)
+            {
+                DrvLog?.LogWarning("[DEBUG-drv] event=context-tick-failed errorType=" + error.GetType().FullName + " message=" + error.Message);
+            }
+            finally
+            {
+                if (drvContextStopReason != null)
+                    DrvLog?.LogInfo("[DEBUG-drv] event=context-pump-chain-ended reason=" + drvContextStopReason);
+                else if (context is System.Threading.SynchronizationContext sc)
+                    DrvPostContextTick(sc);
+                else
+                    DrvLog?.LogWarning("[DEBUG-drv] event=context-pump-broken reason=context-mismatch");
+            }
+        }
+
+        // [DEBUG-drv] called from the standalone probe host; Unity's overloaded
+        // == makes `i == null` true after Destroy, which names the killer.
+        internal static void DrvManagerStateCheck()
+        {
+            var instance = DrvInstance;
+            if (instance == null)
+            {
+                DrvLog?.LogInfo("[DEBUG-drv] event=manager-destroyed");
                 return;
             }
-            DrvAttemptSelfRevive(logFirstOnly: true);
-            DrvCheckGameDetour();
-            DrvPostContextTick(context);
+            DrvLog?.LogInfo("[DEBUG-drv] event=manager-state activeSelf=" + instance.gameObject.activeSelf + " activeInHierarchy=" + instance.gameObject.activeInHierarchy + " enabled=" + instance.enabled);
+            instance.DrvAttemptSelfRevive(logFirstOnly: true);
         }
 
         private void DrvCheckGameDetour()
@@ -349,6 +398,32 @@ namespace BetterUnturnedExperience.Plugin
                 Logger.LogWarning("BUE client UI teardown isolated diagnosticId=BUE-CLIENTUI-003 errorType=" + error.GetType().FullName);
             }
             BueRuntimeHost.Clear();
+        }
+    }
+
+    // [DEBUG-drv] standalone probe host without HideAndDontSave; removed after
+    // diagnosis. Its Update answers whether a plain object gets ticked on this
+    // game build while BepInEx_Manager does not.
+    internal sealed class DrvProbeHostBehaviour : MonoBehaviour
+    {
+        private int ticks;
+
+        private void Update()
+        {
+            if (ticks >= 3600)
+            {
+                if (ticks == 3600)
+                {
+                    ticks++;
+                    BetterUnturnedExperiencePlugin.DrvLog?.LogInfo("[DEBUG-drv] event=drv-host-probe-stopped reason=tick-limit");
+                }
+                return;
+            }
+            ticks++;
+            if (ticks == 1 || ticks % 120 == 0)
+                BetterUnturnedExperiencePlugin.DrvLog?.LogInfo("[DEBUG-drv] event=drv-host-tick count=" + ticks);
+            if (ticks == 2 || ticks % 120 == 2)
+                BetterUnturnedExperiencePlugin.DrvManagerStateCheck();
         }
     }
 }

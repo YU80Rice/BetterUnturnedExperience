@@ -188,3 +188,39 @@ R10 新增的 `CanBindNativeUi()` 把 `Glazier.Get() != null` 混入门禁。`Gl
 ### 探针产物
 
 `artifacts/DEV-16B-management-panel-runtime-probe-r13-20260829/BetterUnturnedExperience.dll`，175616 bytes，SHA-256 `54783075E0B024624D6A7CF9D2790AA33E918B83FE368B7EBB752D529AEAEE4E`，CaseId `DEV-16B-R13-20260829`。**探针轮产物仅用于诊断。** 一手资料调查（BepInEx Chainloader 行为）另见 RT-08。
+
+## 13. R14 探针+修复轮（2026-08-29，HideAndDontSave 统一假设）
+
+### R13 真机读数（`UMM-诊断包_20260829_210341`）——归因命中
+
+- `on-disabled` 归因（第 45 行）：宿主 = **`BepInEx_Manager`**，被**整对象 SetActive(false)**（`activeSelf=False`、组件 `enabled=True`），父链无，组件清单仅 `Transform + BUE(self)`——**Chainloader 组件不在其上**（BepInEx 5.4.23 的 Chainloader 是 static 类，反编译 `bepinex-decompile/BepInEx.Bootstrap/Chainloader.cs` L289-294：`ManagerObject` 创建后设 `HideFlags.HideAndDontSave` + DontDestroyOnLoad；L433 complete 后**无任何清理动作**）。
+- `on-disabled-stack`：Unity native 调用，托管栈不可得——禁用者非托管代码可见路径。
+- `self-revive` 成功（SetActive(true) 打回）但 `context-tick` 从未执行——回调断链，怀疑对象随后被销毁或禁用源持续存在。
+- **统一嫌疑成立性**：`BepInEx_Manager`（HideAndDontSave）被禁 + `BUE.RuntimePump`（同 HideAndDontSave，`BueRuntimePump.cs` 旧代码 L196）从未 tick + self-patch（程序集级）正常 ⇒ **游戏启动序列清理/禁用 HideAndDontSave 对象**（反外挂常用手段；SDK 反编译版本旧无此逻辑）。
+
+### R14 变更（探针 + 修复性实验）
+
+1. **修复性实验**：`BueRuntimePumpBehaviour.Attach` 的 `HideAndDontSave` → `HideInHierarchy`（保留 DontDestroyOnLoad）——若 HideAndDontSave 假设成立，pump 的 `runtime-pump-tick` 应在 r14 恢复。
+2. **独立探针宿主**：`DEBUG.ProbeHost`（**无 hideFlags** + DontDestroyOnLoad + `DrvProbeHostBehaviour.Update`）——`drv-host-tick` 增长 ⇒ 普通对象被正常驱动、HideAndDontSave 假设证实；为零 ⇒ 假设证伪、扩大排查。
+3. **manager 销毁判别**：`DrvManagerStateCheck`（probe host 定期调）用 Unity 重载 `==` 判 `Destroy`（`manager-destroyed` 事件），并持续 `manager-state`/自唤醒。
+4. **context pump 健壮化**：`this==null` 防御、全 try/catch、finally 续链三分支（chain-ended / repost / broken）、3600 tick 上限——消除断链静默与无限刷屏。
+
+### 循环审查记录
+
+第 1 轮（增量双轴并行）：Standards 0 硬违规 + 3 判断性；Spec 判别充分性/Headless 隔离/`==` 语义全部成立 + 1 项偏差（destroyed 分支不计数 → 泵无限续链）→ 修复 4 项（销毁分支置 reason 终止链；probe host 3600 上限；public→internal；context-mismatch 打 broken 不静默）→ 复审双轴 **CLEAN**（4/4 闭合）。构建 0/0、7/7 测试 PASS（`tests-r14-*.log`）、`git diff --check` CLEAN。
+
+**可推迟项**：① HideInHierarchy 使 pump 对 `FindObjectsOfType` 可见性增大（判断级）；② 周期性自唤醒掩盖禁用事实（判别必需，诊断后清理）；③ 归因（谁是禁用/销毁者）无托管栈手段，仅能答存在性——**依赖 RT-08 一手调查**。
+
+### 探针产物
+
+`artifacts/DEV-16B-management-panel-runtime-probe-r14-20260829/BetterUnturnedExperience.dll`，177664 bytes，SHA-256 `A3B144281EE82B6A5ECA35428B3F0308F939FD1DDB12D88A43976CC21447C4E1`，CaseId `DEV-16B-R14-20260829`。**探针轮产物仅用于诊断，不得驻留真机。**
+
+### R14 真机判读分支
+
+| 读数 | 结论 → 方向 |
+|---|---|
+| `drv-host-tick` 持续增长 + `runtime-pump-tick` 恢复 | **HideAndDontSave 假设证实**：驱动链修复即「pump 脱离 HideAndDontSave」+ 评估插件宿主迁移；面板按钮应出现 |
+| `drv-host-tick` 增长 + `runtime-pump-tick` 仍 0 | 独立宿主正常但 pump 仍死 → pump 特异问题（创建时机/父对象） |
+| `drv-host-tick` 恒 0 | HideAndDontSave 假设证伪 → 排查场景/引擎级消息派发，依赖 RT-08 |
+| `manager-destroyed` | 存在销毁者（非单纯禁用）→ 定位销毁时机与 Client.log 时序互证 |
+| `self-patch-probe-done` 后无 `drv-host-tick` 且无 `manager-*` | probe host 创建即死 → 引擎级异常，收窄至 Unity 2022.3.62 + BepInEx 组合 |
