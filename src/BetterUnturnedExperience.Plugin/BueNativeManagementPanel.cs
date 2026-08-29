@@ -163,9 +163,34 @@ namespace BetterUnturnedExperience.Plugin
             if (destroyed) return;
             runtime.Initialize();
             PatchRebuildHooks();
+            // [DEBUG-drv] Harmony self-patch probe: patch our own static no-op
+            // and invoke it directly. A hit proves the detour mechanism works
+            // in this environment; a miss indicts Harmony or the game assembly
+            // identity rather than the message pump. Removed after diagnosis.
+            try
+            {
+                DrvSelfPatchHit = false;
+                DrvProbeCalls = 0;
+                var selfTarget = AccessTools.Method(typeof(BueNativeManagementPanel), "DrvProbeTarget");
+                harmony.Patch(selfTarget, postfix: new HarmonyMethod(typeof(BueNativeManagementPanel), nameof(DrvProbePostfix)));
+                LogTrace("self-patch-installed", "target=" + (selfTarget != null));
+                DrvProbeTarget();
+                selfTarget.Invoke(null, null);
+                LogTrace("self-patch-probe-done", "bodyCalls=" + DrvProbeCalls + " postfixHit=" + DrvSelfPatchHit);
+            }
+            catch (Exception error)
+            {
+                LogTrace("self-patch-failed", "errorType=" + error.GetType().FullName + " message=" + error.Message);
+            }
             LogTrace("initialize-complete", string.Empty);
             Dispatch(TickSource.Initialize);
         }
+
+        // [DEBUG-drv] probe pair; removed after diagnosis.
+        internal static bool DrvSelfPatchHit;
+        internal static int DrvProbeCalls;
+        internal static void DrvProbeTarget() { DrvProbeCalls++; }
+        internal static void DrvProbePostfix() { DrvSelfPatchHit = true; var instance = activeInstance; if (instance != null) instance.LogTrace("self-patch-hit", "source=DirectCall"); }
 
         internal bool Dispatch(TickSource source)
         {

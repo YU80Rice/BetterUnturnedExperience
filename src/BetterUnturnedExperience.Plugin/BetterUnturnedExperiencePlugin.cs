@@ -54,11 +54,16 @@ namespace BetterUnturnedExperience.Plugin
                         nativeManagementPanel = new BueNativeManagementPanel(clientUiComposition.ManagementPanel, Logger, null, clientUiComposition.RefreshManagementPanel);
                         nativeManagementPanel.Initialize();
                         AttachRuntimePump();
+                        // [DEBUG-drv] coroutine probe rides the client branch so a
+                        // dedicated headless server never grows the log unbounded.
+                        StartCoroutine(DrvCoroutinePump());
                         Logger.LogInfo("BUE client UI composition ready featureId=io.github.yu80rice.bue.better-item-interaction diagnosticId=BUE-CLIENTUI-002");
                     }
                 }
                 SceneManager.sceneLoaded += OnSceneLoaded;
                 sceneLoadedSubscribed = true;
+                // [DEBUG-drv] host-object state probe; removed after diagnosis.
+                Logger.LogInfo("[DEBUG-drv] event=awake-object-state activeInHierarchy=" + gameObject.activeInHierarchy + " activeSelf=" + gameObject.activeSelf + " enabled=" + enabled + " scene=" + gameObject.scene.name);
                 Logger.LogInfo("Better Unturned Experience featureId=" + FeatureId + " status=BootstrapReady decision=" + decision + " diagnosticId=" + DiagnosticId);
                 Logger.LogInfo("Better Item Interaction featureId=" + officialRegistration.Feature.Value + " accepted=" + officialRegistration.Accepted + " reason=" + officialRegistration.Reason + " diagnosticId=" + officialRegistration.DiagnosticId);
             }
@@ -72,6 +77,31 @@ namespace BetterUnturnedExperience.Plugin
         {
             Logger.LogInfo("[BUE-UI-TRACE] plugin=io.github.yu80rice.betterunturnedexperience diagnosticId=BUE-MANAGEMENT-TRACE-002 event=start-entered");
             TryCompleteRuntime();
+        }
+
+        // [DEBUG-drv] lifecycle probes distinguish a dead host object from a
+        // silent message pump; removed after diagnosis.
+        private void OnEnable()
+        {
+            Logger.LogInfo("[DEBUG-drv] event=on-enabled activeInHierarchy=" + (gameObject != null ? gameObject.activeInHierarchy.ToString() : "n/a"));
+        }
+
+        private void OnDisable()
+        {
+            // [DEBUG-drv] info level: a normal shutdown must not trip UMM's
+            // warning-pattern summary; only the event's presence matters.
+            Logger.LogInfo("[DEBUG-drv] event=on-disabled");
+        }
+
+        private System.Collections.IEnumerator DrvCoroutinePump()
+        {
+            var ticks = 0;
+            while (true)
+            {
+                ticks++;
+                if (ticks == 1 || ticks % 120 == 0) Logger.LogInfo("[DEBUG-drv] event=coroutine-tick count=" + ticks);
+                yield return null;
+            }
         }
 
         private void AttachRuntimePump()

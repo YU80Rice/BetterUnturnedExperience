@@ -34,6 +34,8 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 Assert(officialRegistrationHasClientUi(official), "official feature exposes a ClientUi satellite descriptor");
                 AssertClientUiCompositionGates();
                 AssertNativeUiGateReflectsMemberPresence();
+                // [DEBUG-drv] probe self-check; removed after diagnosis.
+                AssertSelfPatchProbeHitsOnThisHost();
                 AssertRuntimePumpBridge();
                 AssertPluginUpdateDriverForwardsButtonInjection();
                 AssertButtonInjectionRoutesAreLocallyIsolated();
@@ -195,6 +197,29 @@ namespace BetterUnturnedExperience.Plugin.Tests
             // must reflect vanilla member presence only: engine readiness is
             // owned by the injection path's null guards, not by this gate.
             Assert(BueNativeManagementPanel.CanBindNativeUi(), "native ui gate stays true on vanilla member presence while Glazier is not yet initialized");
+        }
+
+        // [DEBUG-drv] probe self-check; removed after diagnosis.
+        private static void AssertSelfPatchProbeHitsOnThisHost()
+        {
+            // Probe self-check: on a healthy Harmony runtime, patching our own
+            // static no-op and invoking it once must fire the postfix. If this
+            // fails on the test host, the probe's real-machine reading would
+            // be meaningless, so we lock it here first.
+            BetterUnturnedExperience.Plugin.BueNativeManagementPanel.DrvSelfPatchHit = false;
+            var composition = new BueClientUiCompositionRoot();
+            var panel = new BueNativeManagementPanel(composition.ManagementPanel, null);
+            try
+            {
+                panel.Initialize();
+                Console.WriteLine("[DEBUG-drv-host] bodyCalls=" + BetterUnturnedExperience.Plugin.BueNativeManagementPanel.DrvProbeCalls + " postfixHit=" + BetterUnturnedExperience.Plugin.BueNativeManagementPanel.DrvSelfPatchHit);
+                Assert(BetterUnturnedExperience.Plugin.BueNativeManagementPanel.DrvProbeCalls >= 2, "probe target body executes on direct and reflected calls");
+                Assert(BetterUnturnedExperience.Plugin.BueNativeManagementPanel.DrvSelfPatchHit, "harmony self-patch probe hits on a healthy runtime");
+            }
+            finally
+            {
+                panel.Destroy();
+            }
         }
 
         private static void AssertManagementPanelConsumesRuntimeCatalog()

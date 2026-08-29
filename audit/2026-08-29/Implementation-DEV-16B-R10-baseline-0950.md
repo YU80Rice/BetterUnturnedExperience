@@ -127,3 +127,36 @@ R10 新增的 `CanBindNativeUi()` 把 `Glazier.Get() != null` 混入门禁。`Gl
 ### 下一次真机判读变更
 
 预期日志链：`assembly-identity`（=r11 哈希）→ `decision=Client` → **`BUE-CLIENTUI-002`（composition ready）** → `BootstrapReady` → `REG-ACCEPT` → `plugin-update` → `create-button-*`。门禁层已排除；若 `plugin-update` 仍为 0，则回到 R9 的驱动层假设（宿主是否调度插件 Update）。
+
+## 11. R12 诊断探针轮（2026-08-29，驱动层三分判别）
+
+### R11 真机判读（`UMM-诊断包_20260829_201509`）
+
+部署 r11（`assembly-identity` = `EA77D360…` ✓）：**门禁层通过**（`constructed` + `patch-installed ×11` + `BUE-CLIENTUI-002`），但**驱动层全零**——`start-entered`/`plugin-update`/`runtime-pump-tick`/`host-ui-tick`/`constructor-postfix`/`surface-opened`/`create-button-begin` 全部 0。游戏确实进入主菜单+PEI（`Client.log` 会话 20:11-20:14），`MenuUI.Update` 每帧在跑、UI 构造器必然触发——同步代码链 100% 工作，一切 Unity 消息泵与 Harmony detour 依赖路径全部静默。R9 原始谜团以更强证据回归。
+
+### 对照实验（测试宿主 vs 真机）
+
+宿主探针（`AssertSelfPatchProbeHitsOnThisHost`）：`bodyCalls=2 postfixHit=True`——同一套 detour 代码在宿主**完全正常**。⇒ 假设空间收窄至真机特有因素：Harmony 机制在 BepInEx 环境整体失效，或游戏类型 patch 特异失效（注意：诊断包 `1 plugin to load`——**UPM 从未在本机验证**，"UPM 正常工作"仅为文档假设）。
+
+### R12 探针集（tagged `[DEBUG-drv]`，诊断完成后清理）
+
+| 探针 | 事件 | 判别 |
+|---|---|---|
+| self-patch（patch 自家 `DrvProbeTarget` + 直调/反射调用） | `self-patch-installed` / `self-patch-probe-done bodyCalls= postfixHit=` / `self-patch-hit` | 命中 ⇒ Harmony 机制正常、问题在游戏类型 patch；不命中 ⇒ BepInEx 环境的 Harmony detour 整体失效 |
+| 宿主对象状态 | `awake-object-state activeInHierarchy= activeSelf= enabled= scene=` | Awake 时宿主对象活性基线 |
+| 生命周期 | `on-enabled` / `on-disabled`（LogInfo） | 宿主对象死亡/禁用判别 |
+| 协程泵（仅 Client 分支启动） | `coroutine-tick count=` | 协程跑而 `plugin-update` 不跑 ⇒ 消息派发特定失效；两者皆零 ⇒ 宿主对象问题 |
+
+### 循环审查记录
+
+第 1 轮（增量双轴并行）：Standards 1 硬违规（测试侧探针未带标记，单前缀清理不完备）+ 3 判断性；Spec 4 可推迟级（① 矩阵未补探针行 ② 协程在 Headless 可达 ③ OnDisable 警告级误报 ④ 生命周期探针 seam gap）→ 修复 4 项（标记补全；协程移入 Client 分支；降 LogInfo；本节记录）→ 复审 **CLEAN**（1=闭合标记全覆盖 2=闭合 Client 分支独占 3=闭合 LogInfo 4=记录类已写入本节）。构建 0/0、Plugin/ClientUi 测试 PASS。
+
+**Seam gap 记录**（output-review-loop 第 1 步义务）：生命周期探针（OnEnable/OnDisable/协程）依赖 Unity 引擎回调，纯 C# 宿主不可自校验；其有效性由真机读数与 `awake-object-state` 基线交叉印证。
+
+### 探针产物（正式输出）
+
+`artifacts/DEV-16B-management-panel-runtime-probe-r12-20260829/BetterUnturnedExperience.dll`，CaseId `DEV-16B-R12-20260829`（SHA-256 见 `audit/2026-08-29/r12-dll-sha256.txt`）。**探针轮产物仅用于诊断，不代表修复进度。**
+
+### R12 真机读数顺序
+
+`[DEBUG-drv]` 流（裸 Logger）：`awake-object-state` → `on-enabled` → `coroutine-tick count=1`；`[BUE-UI-TRACE]` 流：`self-patch-installed` → `self-patch-probe-done bodyCalls=2 postfixHit=?` → 判别关键读数。若 `postfixHit=False` ⇒ BepInEx/Harmony 环境级失效（方向：Harmony 版本兼容性）；若 `True` 而 `host-ui-tick`=0 ⇒ 游戏类型 patch 特异失效（方向：类型身份/预编译 detour）；`coroutine-tick` 增长而 `plugin-update`=0 ⇒ 消息派发特定失效。
