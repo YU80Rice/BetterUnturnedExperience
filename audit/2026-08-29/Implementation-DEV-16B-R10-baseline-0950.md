@@ -98,3 +98,32 @@ TDD 闭环：红（CS0246 类型缺失）→ 绿（`AssertRuntimeCompletionBarri
 **第四轮终审记录（循环闭合，2026-08-29）**：双轴独立终审均 `CLEAN`。Spec 侧（5/5 闭合）：16 断言计数与源码实证一致；`git show 1747f98` 取证确认基线无 `RuntimeCompletionIsolated`，溯源表述成立；§5 矩阵行已补；`tests-r10b-*.log` ×7 全 PASS + exe SHA 锚定 + mtime 弱证据；工单证据引用与循环链完整。Standards 侧（4/4 核验）：§9 屏障语义与 CONTEXT.md「核心安全降级保留最小诊断」逐字吻合、未夸大为核级停机；3 项可推迟 smell 按循环规则第 3 条显式记录；矩阵行事件名与代码（Plugin.cs:163/168/189）实证一致；循环链无自相矛盾。**循环终止：双轴无阻断发现，`e3d1986` 及本审计记录为正式输出。**
 
 **新产物**：`artifacts/DEV-16B-management-panel-runtime-fix-r10b-20260829/BetterUnturnedExperience.dll`，169984 bytes，SHA-256 `D8F9AF516AC530EDDA93AE61DDBE168375C2F6B96027751C1CB7F6FCEA4212D5`，**CaseId `DEV-16B-R10B-20260829`**（r10 的 `AF065D83…` 从未被部署，保留作对照）。验证：构建 0/0、7/7 测试 PASS（`tests-r10b-*.log`）、NoUiTokens 三 SourceRoot PASS、`git diff --check` CLEAN。
+
+## 10. R11 门禁修复轮（2026-08-29 真机诊断驱动，循环审查闭合）
+
+### 真机诊断（`UMM-诊断包_20260829_194254`）
+
+部署 r10b（`assembly-identity` SHA-256 实测等于 r10b 产物 ✓）后：`runtime-gate decision=Client` → **`BUE-CLIENTUI-001`（composition unavailable）** → BootstrapReady。面板整链未构造（无 constructed / patch-installed / pump / 注入事件），按钮不存在。故障边界：**门禁层**（早于 R9 的驱动层问题）。
+
+### 根因（证据链闭合）
+
+R10 新增的 `CanBindNativeUi()` 把 `Glazier.Get() != null` 混入门禁。`Glazier.Get()` 返回静态 `instance` 字段（U3-SDK `SDG.Glazier/Glazier.cs`——主菜单构建前恒 null），Awake（Chainloader 阶段）调用时**恒 false** → 面板整链被时机性误杀。对照：R9 基线（`2bf61ce`）该参数硬编码 `true`，面板可构造。测试宿主探针（tagged `[DEBUG-cbnu]`，已清理）实证 8 个成员存在性条件全 True、方法仍 False——与真机行为一致，离线可复现。
+
+### 修复（TDD 红→绿）
+
+- 红：新增 `AssertNativeUiGateReflectsMemberPresence`——纯宿主（Glazier.instance=null）下 `CanBindNativeUi()` 必须为 true；当前代码 FAIL（`native ui gate stays true on vanilla member presence while Glazier is not yet initialized`）。
+- 绿：`CanBindNativeUi()` 移除 `Glazier.Get() != null` 条件，语义收敛为**纯成员存在性**；引擎就绪性由注入路径既有防御接管（vanilla container 非空 ⇒ 菜单已建 ⇒ Glazier 就绪，双轴审查特别核验确认）。
+- 全套验证：构建 0/0、7/7 测试 PASS（`tests-r11-*.log`）、`git diff --check` CLEAN。
+
+### 循环审查记录
+
+- 第 1 轮（增量双轴并行）：Standards **无硬违规** + 2 项判断性可推迟；Spec **CLEAN**（忠实根因、Headless 隔离由 `ClientUiEnvironment.CanCompose` 独立承担不削弱、预期日志链与判别矩阵一致、测试语义正确）。
+- **循环终止：双轴无阻断发现。** 可推迟项显式记录：① 测试未显式断言 `Glazier.Get()==null` 前提（锁定力依赖纯宿主事实）；② 门禁注释 "null guards" 措辞偏宽（实为容器前置检查 + try/catch 隔离）；③ 无「成员缺失→false」负向测试。
+
+### 新产物（正式输出）
+
+`artifacts/DEV-16B-management-panel-runtime-fix-r11-20260829/BetterUnturnedExperience.dll`，169984 bytes，SHA-256 `EA77D360E0C2BCB2FBF8F8DE4696A6B40C49E69934A3D8A40121B33E838D000A`，**CaseId `DEV-16B-R11-20260829`**（r10b 的 `D8F9AF51…` 已被真机否证为门禁误杀，保留作对照）。
+
+### 下一次真机判读变更
+
+预期日志链：`assembly-identity`（=r11 哈希）→ `decision=Client` → **`BUE-CLIENTUI-002`（composition ready）** → `BootstrapReady` → `REG-ACCEPT` → `plugin-update` → `create-button-*`。门禁层已排除；若 `plugin-update` 仍为 0，则回到 R9 的驱动层假设（宿主是否调度插件 Update）。

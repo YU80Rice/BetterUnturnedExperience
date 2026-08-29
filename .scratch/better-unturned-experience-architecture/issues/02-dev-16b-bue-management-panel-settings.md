@@ -39,3 +39,11 @@
 - **循环审查链**：R10b 增量双轴审查（Standards 1 硬违规 + Spec 3 缺失）→ 修复 → 第三轮复审（Standards CLEAN；Spec 3 项记录/证据偏差）→ 记录修正（16 断言、溯源表述、独立 r10b 测试日志、判别矩阵补 RuntimeCompletionIsolated 行）。
 - **待规格裁决**（双轴子代理审查发现，未修改）：① AcceptableValueList 条目只读 vs 规格要求的校验编辑路径；② 第三方条目显示名/版本/运行状态模型缺口（`FeatureState` 恒 Running，ContractTypes 无字段）；③ 面板打开时整页遮蔽宿主页面的规格授权；④ `IsAlive` 反射失败返回 false 的 fail 方向（无纯宿主测试 seam）。
 - 状态保持 `ready-for-human`：请部署 **r10b** 产物并回传 UMM 诊断包；判别矩阵见 `audit/2026-08-29/Implementation-DEV-16B-R10-baseline-0950.md` 第 5/7/9 节。
+
+### 2026-08-29 R11 门禁修复（真机诊断驱动，循环审查闭合）
+
+- **真机判读**（`UMM-诊断包_20260829_194254`）：r10b 部署身份正确，但 `BUE-CLIENTUI-001` ——R10 新增的 `CanBindNativeUi()` 含 `Glazier.Get() != null` 时机性条件，`Glazier.instance` 主菜单构建前恒 null，门禁误杀面板整链（早于 R9 的驱动层问题）。
+- **修复**（TDD 红→绿）：门禁收敛为纯成员存在性；新增 `AssertNativeUiGateReflectsMemberPresence` 锁定语义；全套 0/0 构建 + 7/7 测试（`tests-r11-*.log`）。
+- **循环审查**：增量双轴并行（Standards 无硬违规 + 2 可推迟 / Spec CLEAN）→ 双轴无阻断，循环闭合。可推迟项：测试 Glazier 前提断言、注释措辞、负向测试——记入审计 §10。
+- **新产物**：`artifacts/DEV-16B-management-panel-runtime-fix-r11-20260829/BetterUnturnedExperience.dll`（169984 bytes，SHA-256 `EA77D360…000A`，CaseId `DEV-16B-R11-20260829`；完整值 `audit/2026-08-29/r11-dll-sha256.txt`）。
+- 状态保持 `ready-for-human`：请部署 **r11** 产物并回传 UMM 诊断包。预期日志链 `BUE-CLIENTUI-002` → `plugin-update`；若 `plugin-update` 仍为 0，则回到驱动层假设。

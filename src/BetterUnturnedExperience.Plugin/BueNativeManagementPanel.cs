@@ -117,8 +117,11 @@ namespace BetterUnturnedExperience.Plugin
 
         internal static bool CanBindNativeUi()
         {
-            return Glazier.Get() != null
-                && typeof(MenuDashboardUI).GetField("container", BindingFlags.Static | BindingFlags.NonPublic) != null
+            // Member presence only. Glazier.instance is null until the menu
+            // UI builds, so engine readiness must not enter this gate: the
+            // injection path's null guards own it (a non-null vanilla
+            // container implies a live Glazier).
+            return typeof(MenuDashboardUI).GetField("container", BindingFlags.Static | BindingFlags.NonPublic) != null
                 && typeof(MenuWorkshopUI).GetField("container", BindingFlags.Static | BindingFlags.NonPublic) != null
                 && typeof(PlayerPauseUI).GetField("container", BindingFlags.Static | BindingFlags.NonPublic) != null
                 && AccessTools.Constructor(typeof(MenuDashboardUI), Type.EmptyTypes) != null

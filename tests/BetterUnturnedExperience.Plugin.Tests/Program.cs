@@ -33,6 +33,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 Assert(runtime.CompleteRuntime() && runtime.Catalog.Entries.Count == 2, "official and fixture reach runtime ready through host barrier");
                 Assert(officialRegistrationHasClientUi(official), "official feature exposes a ClientUi satellite descriptor");
                 AssertClientUiCompositionGates();
+                AssertNativeUiGateReflectsMemberPresence();
                 AssertRuntimePumpBridge();
                 AssertPluginUpdateDriverForwardsButtonInjection();
                 AssertButtonInjectionRoutesAreLocallyIsolated();
@@ -185,6 +186,15 @@ namespace BetterUnturnedExperience.Plugin.Tests
             Assert(ready.TryComplete() && done == 1, "completed barrier is idempotent");
             Assert(!ready.Isolated, "successful completion does not isolate the barrier");
             Assert(ready.LastFailure == null, "successful completion leaves no failure behind");
+        }
+
+        private static void AssertNativeUiGateReflectsMemberPresence()
+        {
+            // The gate runs during plugin Awake, before the menu UI exists.
+            // Glazier.instance stays null until the menu builds, so the gate
+            // must reflect vanilla member presence only: engine readiness is
+            // owned by the injection path's null guards, not by this gate.
+            Assert(BueNativeManagementPanel.CanBindNativeUi(), "native ui gate stays true on vanilla member presence while Glazier is not yet initialized");
         }
 
         private static void AssertManagementPanelConsumesRuntimeCatalog()
