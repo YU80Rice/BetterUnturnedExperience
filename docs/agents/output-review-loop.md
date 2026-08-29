@@ -1,0 +1,26 @@
+# Output Review Loop
+
+A hard rule for every artifact this workspace outputs: production source changes, tests, DLL artifacts, and audit reports. An artifact is a **formal output** only after this loop closes with both review axes **CLEAN**. Static verification (build, test runners, static gates) is the per-round baseline; it never replaces the review.
+
+## Loop
+
+1. **Red first** — write the failing test at an agreed seam, then the minimal implementation that turns it green.
+   - Done when: the new test is observed red, then green, and the full suite passes.
+   - When a pure host cannot construct a seam, record the seam gap in the ticket and the audit. Every gap is named; none is skipped silently.
+
+2. **Dual-axis review** — dispatch the Standards and Spec reviewers as two independent subagents, each in its own context, each reviewing the current round's incremental diff per the `/code-review` flow.
+   - Done when: both axes have returned their own reports. Two fresh contexts, one per axis, every round.
+
+3. **Re-review** — a finding means a fix, and the fixed increment returns to step 2.
+   - Done when: Standards reports no hard violation and Spec reports no gap or deviation.
+   - Judgment-call smells stay unblocking only when they are explicitly listed as deferrable in the audit; every deferral is named.
+
+4. **Close the loop** — record the chain (rounds, findings, fixes, re-review verdicts) in the round's audit report, then grant the artifact identity (SHA-256, CandidateBuild, CaseId).
+   - Done when: the audit names every round and both final verdicts are CLEAN.
+   - Intermediate DLLs produced before closure carry no CaseId; identity is granted to reviewed artifacts only.
+
+## Vocabulary
+
+- **CLEAN** — an axis verdict with no blocking findings. Deferrable smells are listed, not counted.
+- **Red / green** — the TDD gate at step 1: the test fails on the bug, then passes on the fix.
+- **Dual-axis** — Standards (documented standards + smell baseline) and Spec (issue/spec fidelity), always two independent contexts.
