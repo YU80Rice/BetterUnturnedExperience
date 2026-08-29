@@ -351,12 +351,12 @@ namespace BetterUnturnedExperience.Plugin
                 LogTrace("create-button-begin", "surface=MenuDashboardUI source=" + source);
                 dashboardButton = Glazier.Get().CreateButton();
                 if (dashboardButton == null) throw new InvalidOperationException("Glazier.CreateButton returned null");
-                // Left button column, one pitch below the item-store entry the
+                // Left button column, directly below the item-store entry the
                 // game inserts at y=410 (the column runs y=170 with a 60px
                 // pitch: Play/Survivors/Configuration/Workshop/Store/...).
                 // Glazier exposes no public child enumeration, so nudging the
                 // vanilla store button is not robustly possible - BUE takes
-                // the next free slot instead.
+                // the next free slot (user-specified y=460) instead.
                 dashboardButton.PositionOffset_X = 0f;
                 dashboardButton.PositionOffset_Y = 460f;
                 dashboardButton.SizeOffset_X = 200f;
