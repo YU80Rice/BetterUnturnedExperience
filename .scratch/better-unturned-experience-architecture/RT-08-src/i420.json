@@ -1,0 +1,110 @@
+{
+  "url": "https://api.github.com/repos/BepInEx/BepInEx/issues/420",
+  "repository_url": "https://api.github.com/repos/BepInEx/BepInEx",
+  "labels_url": "https://api.github.com/repos/BepInEx/BepInEx/issues/420/labels{/name}",
+  "comments_url": "https://api.github.com/repos/BepInEx/BepInEx/issues/420/comments",
+  "events_url": "https://api.github.com/repos/BepInEx/BepInEx/issues/420/events",
+  "html_url": "https://github.com/BepInEx/BepInEx/issues/420",
+  "id": 1247672216,
+  "node_id": "I_kwDOBzdWfM5KXfeY",
+  "number": 420,
+  "title": "BaseUnityPlugin got destroyed after awake, can't use update / onGUI",
+  "user": {
+    "login": "nmanhei",
+    "id": 47458124,
+    "node_id": "MDQ6VXNlcjQ3NDU4MTI0",
+    "avatar_url": "https://avatars.githubusercontent.com/u/47458124?v=4",
+    "gravatar_id": "",
+    "url": "https://api.github.com/users/nmanhei",
+    "html_url": "https://github.com/nmanhei",
+    "followers_url": "https://api.github.com/users/nmanhei/followers",
+    "following_url": "https://api.github.com/users/nmanhei/following{/other_user}",
+    "gists_url": "https://api.github.com/users/nmanhei/gists{/gist_id}",
+    "starred_url": "https://api.github.com/users/nmanhei/starred{/owner}{/repo}",
+    "subscriptions_url": "https://api.github.com/users/nmanhei/subscriptions",
+    "organizations_url": "https://api.github.com/users/nmanhei/orgs",
+    "repos_url": "https://api.github.com/users/nmanhei/repos",
+    "events_url": "https://api.github.com/users/nmanhei/events{/privacy}",
+    "received_events_url": "https://api.github.com/users/nmanhei/received_events",
+    "type": "User",
+    "user_view_type": "public",
+    "site_admin": false
+  },
+  "labels": [
+    {
+      "id": 833622439,
+      "node_id": "MDU6TGFiZWw4MzM2MjI0Mzk=",
+      "url": "https://api.github.com/repos/BepInEx/BepInEx/labels/bug",
+      "name": "bug",
+      "color": "d73a4a",
+      "default": true,
+      "description": "Something isn't working"
+    }
+  ],
+  "state": "closed",
+  "locked": false,
+  "assignees": [
+
+  ],
+  "milestone": null,
+  "comments": 6,
+  "created_at": "2022-05-25T07:23:32Z",
+  "updated_at": "2022-06-01T21:10:14Z",
+  "closed_at": "2022-05-30T02:06:57Z",
+  "assignee": null,
+  "author_association": "NONE",
+  "issue_field_values": [
+
+  ],
+  "type": null,
+  "active_lock_reason": null,
+  "sub_issues_summary": {
+    "total": 0,
+    "completed": 0,
+    "percent_completed": 0
+  },
+  "issue_dependencies_summary": {
+    "blocked_by": 0,
+    "total_blocked_by": 0,
+    "blocking": 0,
+    "total_blocking": 0
+  },
+  "body": "### What happened?\n\n\"Start()\", \"Update()\" and \"OnGUI()\" didn't get called ,\r\nFound out the plugin class got destroyed .\n\n### Steps to reproduce\n\n1. create a plugin with UnityEngine.Debug.Log inside Awake(), Update() and OnDestroy()\r\n2. add it into the plugin folder and run it\r\n3. read the log as the plugin got destroyed, update() never get called\n\n### BepInEx Distribution\n\nStable from GitHub\n\n### Log outputs\n\n```txt\n[Message:   BepInEx] BepInEx 5.4.11.0 - Craftopia\r\n[Info   :   BepInEx] Running under Unity v2022.1.0.9261453\r\n[Info   :   BepInEx] CLR runtime version: 4.0.30319.42000\r\n[Info   :   BepInEx] Supports SRE: True\r\n[Info   :   BepInEx] System platform: Bits64, Windows\r\n[Message:   BepInEx] Preloader started\r\n[Info   :   BepInEx] Loaded 1 patcher method from [BepInEx.MultiFolderLoader 1.1.0.0]\r\n[Info   :   BepInEx] 2 patcher plugins loaded\r\n[Info   :MultiFolderLoader] Loading preloader patchers from mod\r\n[Info   :MultiFolderLoader] Loading 0 preloader patchers from mods...\r\n[Info   :   BepInEx] Patching [UnityEngine.CoreModule] with [BepInEx.Chainloader]\r\n[Message:   BepInEx] Preloader finished\r\n[Message:   BepInEx] Chainloader ready\r\n[Message:   BepInEx] Chainloader started\r\n[Info   :MultiFolderLoader] Finding plugins from mods...\r\n[Info   :   BepInEx] 2 plugins to load\r\n[Info   :   BepInEx] Loading [CraftopiaBepinExDemo 0.0.1]\r\n[Info   :   BepInEx] Loading [ShowItemChest Plug-In 1.0.0.7]\r\n[Message:   BepInEx] Chainloader startup complete\r\n[Message:   BepInEx] BepInEx 5.4.11.0 - Craftopia\r\n[Info   :   BepInEx] Running under Unity v2022.1.0.9261453\r\n[Info   :   BepInEx] CLR runtime version: 4.0.30319.42000\r\n[Info   :   BepInEx] Supports SRE: True\r\n[Info   :   BepInEx] System platform: Bits64, Windows\r\n[Message:   BepInEx] Preloader started\r\n[Info   :   BepInEx] Loaded 1 patcher method from [BepInEx.MultiFolderLoader 1.1.0.0]\r\n[Info   :   BepInEx] 2 patcher plugins loaded\r\n[Info   :MultiFolderLoader] Loading preloader patchers from mod\r\n[Info   :MultiFolderLoader] Loading 0 preloader patchers from mods...\r\n[Info   :   BepInEx] Patching [UnityEngine.CoreModule] with [BepInEx.Chainloader]\r\n[Message:   BepInEx] Preloader finished\r\n[Message:   BepInEx] Chainloader ready\r\n[Message:   BepInEx] Chainloader started\r\n[Info   :MultiFolderLoader] Finding plugins from mods...\r\n[Info   :   BepInEx] 2 plugins to load\r\n[Info   :   BepInEx] Loading [CraftopiaBepinExDemo 0.0.1]\r\n[Info   : Unity Log] CraftopiaBepinExDemo DontDestroyOnLoad\r\n[Info   : Unity Log] CraftopiaBepinExDemo SetParent(null)\r\n[Info   : Unity Log] CraftopiaBepinExDemo Awake\r\n[Info   : Unity Log] CraftopiaBepinExDemo OnEnable\r\n[Info   :   BepInEx] Loading [ShowItemChest Plug-In 1.0.0.7]\r\n[Message:   BepInEx] Chainloader startup complete\r\n[Info   : Unity Log] CraftopiaBepinExDemo OnDisable\r\n[Info   : Unity Log] CraftopiaBepinExDemo OnDestroy\r\n[Info   : Unity Log] OcUI_HomeScene.OnUnityAwake\r\n[Info   : Unity Log] VersionInt=205192016\r\n[Info   : Unity Log] IsAdmin = True\r\n[Info   : Unity Log] OcSteamworkHander:OnUnityAwake\r\n[Info   : Unity Log] [Steamworks.NET] SteamAPI_Init() success.\r\n[Info   : Unity Log] NetLog:<color=#7fff00>[CLT]OcNetMng.setJoinState:NotConnect</color>:Frame=0\r\n[Info   : Unity Log] NetLog:<color=cyan>[SVR]OcNetMng.setServerState: SrvState=Default joinWaitNetPlId=-1</color>:Frame=0\r\n[Info   : Unity Log] Initialize UniTask.MainThreadDispatcher\r\n[Info   : Unity Log] OcUI_HomeScene.Start\n```\n\n\n### Environment\n\n```markdown\n- OS: windows10\r\n- BepInEx: 5.4.11.0\r\n- Game: Craftopia\n```\n",
+  "closed_by": {
+    "login": "nmanhei",
+    "id": 47458124,
+    "node_id": "MDQ6VXNlcjQ3NDU4MTI0",
+    "avatar_url": "https://avatars.githubusercontent.com/u/47458124?v=4",
+    "gravatar_id": "",
+    "url": "https://api.github.com/users/nmanhei",
+    "html_url": "https://github.com/nmanhei",
+    "followers_url": "https://api.github.com/users/nmanhei/followers",
+    "following_url": "https://api.github.com/users/nmanhei/following{/other_user}",
+    "gists_url": "https://api.github.com/users/nmanhei/gists{/gist_id}",
+    "starred_url": "https://api.github.com/users/nmanhei/starred{/owner}{/repo}",
+    "subscriptions_url": "https://api.github.com/users/nmanhei/subscriptions",
+    "organizations_url": "https://api.github.com/users/nmanhei/orgs",
+    "repos_url": "https://api.github.com/users/nmanhei/repos",
+    "events_url": "https://api.github.com/users/nmanhei/events{/privacy}",
+    "received_events_url": "https://api.github.com/users/nmanhei/received_events",
+    "type": "User",
+    "user_view_type": "public",
+    "site_admin": false
+  },
+  "reactions": {
+    "url": "https://api.github.com/repos/BepInEx/BepInEx/issues/420/reactions",
+    "total_count": 0,
+    "+1": 0,
+    "-1": 0,
+    "laugh": 0,
+    "hooray": 0,
+    "confused": 0,
+    "heart": 0,
+    "rocket": 0,
+    "eyes": 0
+  },
+  "timeline_url": "https://api.github.com/repos/BepInEx/BepInEx/issues/420/timeline",
+  "performed_via_github_app": null,
+  "state_reason": "completed",
+  "pinned_comment": null
+}
