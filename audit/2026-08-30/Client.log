@@ -1,0 +1,88 @@
+﻿[2026-08-29 16:35:55] Reflect net invokables: 19ms
+[2026-08-29 16:35:55] Looking for module files in: E:\Steam\steamapps\common\Unturned\Modules
+[2026-08-29 16:35:55] Scheduled CHRISTMAS from 2026/12/7 0:00:00 to 2027/1/2 12:00:00 local time (2026/12/6 16:00:00 to 2027/1/2 4:00:00 UTC)
+[2026-08-29 16:35:55] Scheduled HALLOWEEN from 2026/10/20 0:00:00 to 2026/11/1 12:00:00 local time (2026/10/19 16:00:00 to 2026/11/1 4:00:00 UTC)
+[2026-08-29 16:35:55] Scheduled VALENTINES from 2026/2/14 0:00:00 to 2026/2/14 23:59:59 local time (2026/2/13 16:00:00 to 2026/2/14 15:59:59 UTC)
+[2026-08-29 16:35:55] Scheduled APRIL_FOOLS from 2026/4/1 0:00:00 to 2026/4/1 23:59:59 local time (2026/3/31 16:00:00 to 2026/4/1 15:59:59 UTC)
+[2026-08-29 16:35:55] Scheduled PRIDE_MONTH from 2026/6/1 0:00:00 to 2026/6/30 23:59:59 local time (2026/5/31 16:00:00 to 2026/6/30 15:59:59 UTC)
+[2026-08-29 16:35:55] Scheduled LUNAR_NEW_YEAR from 2026/2/16 0:00:00 to 2026/3/4 23:59:59 local time (2026/2/15 16:00:00 to 2026/3/4 15:59:59 UTC)
+[2026-08-29 16:35:55] Scheduled UNTURNED_ANNIVERSARY from 2026/7/7 0:00:00 to 2026/7/7 23:59:59 local time (2026/7/6 16:00:00 to 2026/7/7 15:59:59 UTC)
+[2026-08-29 16:35:55] Unturned overriding Steam AppId with "304930"
+[2026-08-29 16:35:56] Steam launch command-line is empty
+[2026-08-29 16:35:56] Subscribed workshop file ID(s): 3784972001, 2678210891
+[2026-08-29 16:35:56] Querying details for subscribed workshop files...
+[2026-08-29 16:35:56] Game version: 3.26.3.9 Engine version: 2022.3.62f3
+[2026-08-29 16:35:56] Requesting promo item grant
+[2026-08-29 16:35:56] Found Steam language 'schinese' in root Localization directory
+[2026-08-29 16:35:56] Looked for economy translation at: E:\Steam\steamapps\common\Unturned/Localization/Schinese/EconInfo.json
+[2026-08-29 16:35:56] Platform: WindowsPlayer
+[2026-08-29 16:35:56] Operating System: Windows 11  (10.0.26200) 64bit
+[2026-08-29 16:35:56] System Memory: 28356MB
+[2026-08-29 16:35:56] Graphics Device Name: AMD Radeon RX 6850M XT
+[2026-08-29 16:35:56] Graphics Device Type: Direct3D11
+[2026-08-29 16:35:56] Graphics Memory: 12240MB
+[2026-08-29 16:35:56] Graphics Multi-Threaded: False
+[2026-08-29 16:35:56] Render Threading Mode: LegacyJobified
+[2026-08-29 16:35:56] Supports Audio: True
+[2026-08-29 16:35:56] Supports Instancing: True
+[2026-08-29 16:35:56] Supports Motion Vectors: True
+[2026-08-29 16:35:56] Supports Ray Tracing: False
+[2026-08-29 16:35:56] Requesting resolution change: Windowed 1920 x 1080
+[2026-08-29 16:35:56] Set target frame rate to -1 fps
+[2026-08-29 16:35:56] Received details for 2 subscribed workshop file(s)
+[2026-08-29 16:35:56] Subscribed workshop file 1 of 2: "北极星" (3784972001)
+[2026-08-29 16:35:56] Workshop file 3784972001 not requesting load because asset refresh is in progress
+[2026-08-29 16:35:56] Subscribed workshop file 2 of 2: "超级荧光背包+超级储物箱" (2678210891)
+[2026-08-29 16:35:56] Workshop file 2678210891 not requesting load because asset refresh is in progress
+[2026-08-29 16:35:56] Vanilla Built-in Assets added asset search location "E:\Steam\steamapps\common\Unturned\Bundles"
+[2026-08-29 16:35:56] Workshop File (3784972001) added asset search location "E:\Steam\steamapps\workshop\content\304930\3784972001"
+[2026-08-29 16:35:56] Workshop File (2678210891) added asset search location "E:\Steam\steamapps\workshop\content\304930\2678210891"
+[2026-08-29 16:35:56] Discovered level "Alpha Valley" at "E:\Steam\steamapps\common\Unturned\Maps\Alpha Valley"
+[2026-08-29 16:35:56] Discovered level "Destruction" at "E:\Steam\steamapps\common\Unturned\Maps\Destruction"
+[2026-08-29 16:35:56] Discovered level "Germany" at "E:\Steam\steamapps\common\Unturned\Maps\Germany"
+[2026-08-29 16:35:56] Discovered level "Monolith" at "E:\Steam\steamapps\common\Unturned\Maps\Monolith"
+[2026-08-29 16:35:56] Discovered level "Paintball_Arena_0" at "E:\Steam\steamapps\common\Unturned\Maps\Paintball_Arena_0"
+[2026-08-29 16:35:56] Discovered level "PEI" at "E:\Steam\steamapps\common\Unturned\Maps\PEI"
+[2026-08-29 16:35:56] Discovered level "Russia" at "E:\Steam\steamapps\common\Unturned\Maps\Russia"
+[2026-08-29 16:35:56] Discovered level "Tutorial" at "E:\Steam\steamapps\common\Unturned\Maps\Tutorial"
+[2026-08-29 16:35:56] Discovered level "Washington" at "E:\Steam\steamapps\common\Unturned\Maps\Washington"
+[2026-08-29 16:35:56] Discovered level "Yukon" at "E:\Steam\steamapps\common\Unturned\Maps\Yukon"
+[2026-08-29 16:35:56] Map "Germany" added asset search location "E:\Steam\steamapps\common\Unturned\Maps\Germany\Bundles"
+[2026-08-29 16:35:56] Loading asset bundle "北极星.masterbundle" from "E:\Steam\steamapps\workshop\content\304930\3784972001\北极星"...
+[2026-08-29 16:35:56] Loaded "北极星.masterbundle" custom data from "Assets/RE_BX出品模组/北极星/AssetBundleCustomData.asset"
+[2026-08-29 16:35:56] Loading asset bundle "北极星.masterbundle" from "E:\Steam\steamapps\workshop\content\304930\3784972001\北极星" took 0.1199259s
+[2026-08-29 16:35:57] Loading asset bundle "core.masterbundle" from "E:\Steam\steamapps\common\Unturned\Bundles"...
+[2026-08-29 16:35:58] Hashed resources
+[2026-08-29 16:36:03] Loading asset bundle "core.masterbundle" from "E:\Steam\steamapps\common\Unturned\Bundles" took 5.7198315s
+[2026-08-29 16:36:03] Workshop File (2678210891) 黑色大容量储物箱 (Storage Item) [ec203d87d51e4ed2862be41739b0abf5]: unable to load "Sounds/MetalPlacement.mp3" without masterbundle
+[2026-08-29 16:36:07] Link spawns: 0 children, 852 sorted/normalized and 775 parents
+[2026-08-29 16:36:07] Loading all assets took 11.1828037s
+[2026-08-29 16:36:07] Launching main menu
+[2026-08-29 16:36:07] Loading additive default menu
+[2026-08-29 16:36:07] Refreshing Steam inventory
+[2026-08-29 16:36:07] Loaded characters
+[2026-08-29 16:36:07] Applying graphics settings (loaded menu)
+[2026-08-29 16:36:07] Applied graphics settings
+[2026-08-29 16:36:07] Unable to get current Steam beta name, defaulting to "public"
+[2026-08-29 16:36:07] Checking for updates on Steam beta branch "public"...
+[2026-08-29 16:36:07] Requesting popular workshop files from the past 30 day(s) for news feed
+[2026-08-29 16:36:08] Requesting Steam item store prices
+[2026-08-29 16:36:08] Requesting 1 Steam community announcements
+[2026-08-29 16:36:08] Menu UI ready
+[2026-08-29 16:36:08] Received popular workshop files
+[2026-08-29 16:36:08] Requesting workshop file details for news feed (3782807535)
+[2026-08-29 16:36:08] Game version is up-to-date
+[2026-08-29 16:36:08] Received workshop file details for news feed
+[2026-08-29 16:36:09] Item store using current culture Chinese (Simplified) for Steam currency code CNY
+[2026-08-29 16:36:09] Received Steam item store prices - Discounted: 0 All: 332
+[2026-08-29 16:36:09] Received Steam item store live config - New: 0 Featured: 28
+[2026-08-29 16:36:14] Received Steam community announcements
+[2026-08-29 16:36:32] Quit game: clicked quit in main menu
+[2026-08-29 16:36:32] Application quitting
+[2026-08-29 16:36:32] Saved convenient data
+[2026-08-29 16:36:32] Saved menu settings
+[2026-08-29 16:36:32] Skipped saving blocked players
+[2026-08-29 16:36:32] Skipped saving server bookmarks
+[2026-08-29 16:36:32] Disconnecting: application quitting
+[2026-08-29 16:36:32] Disconnected
+[2026-08-29 16:36:32] Finished quitting

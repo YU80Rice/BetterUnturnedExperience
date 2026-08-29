@@ -4,7 +4,7 @@
 
 **Blocked by:** 01：DEV-16A 单 DLL Runtime Composition Root 与 Client/Headless 装配
 
-**Status:** ready-for-human
+**Status:** resolved
 
 > 实施接管：原由 Gemini 负责的 ClientUi 代码现由 GPT 接手维护。本票静态实现与自动化门禁已完成；真实客户端运行证据仍需人工采集。
 
@@ -47,3 +47,20 @@
 - **循环审查**：增量双轴并行（Standards 无硬违规 + 2 可推迟 / Spec CLEAN）→ 双轴无阻断，循环闭合。可推迟项：测试 Glazier 前提断言、注释措辞、负向测试——记入审计 §10。
 - **新产物**：`artifacts/DEV-16B-management-panel-runtime-fix-r11-20260829/BetterUnturnedExperience.dll`（169984 bytes，SHA-256 `EA77D360…000A`，CaseId `DEV-16B-R11-20260829`；完整值 `audit/2026-08-29/r11-dll-sha256.txt`）。
 - 状态保持 `ready-for-human`：请部署 **r11** 产物并回传 UMM 诊断包。预期日志链 `BUE-CLIENTUI-002` → `plugin-update`；若 `plugin-update` 仍为 0，则回到驱动层假设。
+
+### 2026-08-29/30 R12～R21 诊断与修复链（agent，循环审查驱动）
+
+完整判读与修复记录见 `audit/2026-08-29/Implementation-DEV-16B-R10-baseline-0950.md` §11-18 与 RT-08 一手调查。摘要：
+
+- **R12-R15 探针链**（UPM 形状极简 + 全 patch 命中图 + 生存策略）：真机逐层排错——Harmony detour 正常（self-patch 命中）、独立对象不被驱动、`BepInEx_Manager` 被 SetActive(false)+Destroy（`manager-destroyed`）、UPM 对照证实环境健康。
+- **R16**：移除 self-revive 诊断仪器（其在 OnDisable 中 SetActive(true) 与引擎禁用流程竞争，导致组件死亡）。
+- **真因定案（R18-R19）**：全部 11 个 vanilla patch 真机命中；驱动链死亡真因 = 组件 `OnDestroy` 的 `harmony.UnpatchSelf()` 自废 patch（UPM 不 unpatch 故存活）。修复：`Destroy(bool unpatchHarmony)` 拆分 + `Application.quitting` 区分组件销毁（保活 patch 与面板静态状态）/应用退出（完整清理）。
+- **R20/R21 布局**：三按钮统一 200×50（dashboard y=460 列尾避让商店按钮、workshop/pause 对齐 UPM 参数）；面板全屏动态分辨率适配（vanilla `MenuDashboardUI.container` 模式）。
+- **正式产物**：`artifacts/DEV-16B-management-panel-ui-layout-r21-20260829/BetterUnturnedExperience.dll`（SHA-256 `2917C303…81BF`，CaseId `DEV-16B-R21-20260829`）。
+
+### 2026-08-30 真机验收通过，工单关闭（agent）
+
+- **真机证据**（`UMM-诊断包_20260830_003650`，部署身份 = r21 `2917C303…81BF`，日志归档 `audit/2026-08-30/`）：`BUE-CLIENTUI-002` → `host-destroyed state=preserved patches-kept=true`（保活生效）→ 三路 `create-button-begin`+`add-child-success`（Dashboard/Workshop/PlayerPause，含进 PEI）→ **用户人工验收：三处"BUE 插件管理"按钮可见、可点，管理面板打开正常、随分辨率动态适配**。
+- **完成判定逐项核对**（交接文档第 9 节）：Release 0/0 ✓、全套测试+静态门禁 ✓、新 DLL SHA-256/CandidateBuild/CaseId ✓（r21）、独立审查 PASS ✓（R16-R21 各轮双轴循环审查）、人工 clean-install 确认可见可点 ✓、证据不继承旧 DLL ✓。
+- **边界**：本工单关闭 = DEV-16B 范围完成；**发布授权仍需 DEV-15E 资格门禁与三环境证据**（DEV-16C/D/E 待实现）。
+- 状态：`ready-for-human` → **`resolved`**。
