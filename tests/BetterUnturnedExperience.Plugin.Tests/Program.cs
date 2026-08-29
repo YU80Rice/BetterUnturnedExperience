@@ -34,6 +34,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 Assert(officialRegistrationHasClientUi(official), "official feature exposes a ClientUi satellite descriptor");
                 AssertClientUiCompositionGates();
                 AssertNativeUiGateReflectsMemberPresence();
+                AssertPanelSurvivesComponentTeardown();
                 AssertRuntimePumpBridge();
                 AssertPluginUpdateDriverForwardsButtonInjection();
                 AssertButtonInjectionRoutesAreLocallyIsolated();
@@ -195,6 +196,19 @@ namespace BetterUnturnedExperience.Plugin.Tests
             // must reflect vanilla member presence only: engine readiness is
             // owned by the injection path's null guards, not by this gate.
             Assert(BueNativeManagementPanel.CanBindNativeUi(), "native ui gate stays true on vanilla member presence while Glazier is not yet initialized");
+        }
+
+        // [R19] The game destroys the BepInEx_Manager host mid-session; only
+        // unpatching on real application quit keeps the panel drivable through
+        // the vanilla MenuUI.Update postfix (R18 hit map: it ticks every frame).
+        private static void AssertPanelSurvivesComponentTeardown()
+        {
+            var composition = new BueClientUiCompositionRoot();
+            var panel = new BueNativeManagementPanel(composition.ManagementPanel, null);
+            panel.Initialize();
+            panel.Destroy(unpatchHarmony: false);
+            Assert(HasOwner(Harmony.GetPatchInfo(AccessTools.Method(typeof(MenuWorkshopUI), "open")), "io.github.yu80rice.bue.management-panel"), "component teardown keeps the workshop-open patch");
+            Assert(HasOwner(Harmony.GetPatchInfo(AccessTools.Method(typeof(MenuUI), "Update")), "io.github.yu80rice.bue.management-panel"), "component teardown keeps the MenuUI.Update frame-driver patch");
         }
 
         private static void AssertManagementPanelConsumesRuntimeCatalog()

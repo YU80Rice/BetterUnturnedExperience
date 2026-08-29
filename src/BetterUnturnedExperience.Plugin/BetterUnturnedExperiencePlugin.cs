@@ -1,102 +1,269 @@
 using BepInEx;
 using System;
-using System.Reflection;
-using HarmonyLib;
+using System.IO;
+using System.Security.Cryptography;
+using BetterUnturnedExperience.Contracts;
+using BetterUnturnedExperience.Core.Registration;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 
 namespace BetterUnturnedExperience.Plugin
 {
-    // [DEBUG-min] R18 patch-level bisection probe: UPM-shaped minimal plugin
-    // plus ALL 11 vanilla patches from the full build, each postfix logging
-    // independently so one run shows exactly which patches hit and which
-    // never do. Removed after diagnosis.
     [BepInPlugin("io.github.yu80rice.betterunturnedexperience", "Better Unturned Experience", "0.0.0")]
     public sealed class BetterUnturnedExperiencePlugin : BaseUnityPlugin
     {
-        internal static ManualLogSourceProxy log;
-
-        private int updateTicks;
-        private Harmony harmony;
+        private const string FeatureId = "io.github.yu80rice.betterunturnedexperience";
+        private const string DiagnosticId = "BUE-BOOTSTRAP-001";
+        private bool runtimeReadyLogged;
+        private bool sceneLoadedSubscribed;
+        private int updateTickCount;
+        private int runtimePumpTickCount;
+        private bool runtimePumpIsolated;
+        private BueClientUiCompositionRoot clientUiComposition;
+        private BueNativeManagementPanel nativeManagementPanel;
+        private readonly BueRuntimePumpSlot runtimePumpSlot = new BueRuntimePumpSlot();
+        private BueRuntimePump runtimePump;
+        private BueRuntimePumpBehaviour runtimePumpBehaviour;
+        private BuePluginUpdateDriver pluginUpdateDriver;
+        private BueRuntimeCompletionBarrier completionBarrier;
 
         private void Awake()
         {
-            log = new ManualLogSourceProxy(Logger);
-            log.Info("[DEBUG-min] event=awake-entered");
+            // [R19] Subscribe before anything can fail: the quit flag decides
+            // whether OnDestroy preserves or tears down the panel state.
+            Application.quitting += OnApplicationQuitting;
             try
             {
-                harmony = new Harmony("io.github.yu80rice.bue.management-panel");
-                Patch("MenuWorkshopUI.constructor", AccessTools.Constructor(typeof(SDG.Unturned.MenuWorkshopUI), Type.EmptyTypes), nameof(MenuWorkshopCtorPostfix));
-                Patch("PlayerPauseUI.constructor", AccessTools.Constructor(typeof(SDG.Unturned.PlayerPauseUI), Type.EmptyTypes), nameof(PlayerPauseCtorPostfix));
-                Patch("MenuDashboardUI.constructor", AccessTools.Constructor(typeof(SDG.Unturned.MenuDashboardUI), Type.EmptyTypes), nameof(MenuDashboardCtorPostfix));
-                Patch("MenuDashboardUI.open", AccessTools.Method(typeof(SDG.Unturned.MenuDashboardUI), "open"), nameof(MenuDashboardOpenPostfix));
-                Patch("MenuWorkshopUI.open", AccessTools.Method(typeof(SDG.Unturned.MenuWorkshopUI), "open"), nameof(MenuWorkshopOpenPostfix));
-                Patch("PlayerPauseUI.open", AccessTools.Method(typeof(SDG.Unturned.PlayerPauseUI), "open"), nameof(PlayerPauseOpenPostfix));
-                Patch("MenuUI.Update", AccessTools.Method(typeof(SDG.Unturned.MenuUI), "Update"), nameof(MenuUIUpdatePostfix));
-                Patch("PlayerUI.Update", AccessTools.Method(typeof(SDG.Unturned.PlayerUI), "Update"), nameof(PlayerUIUpdatePostfix));
-                Patch("MenuUI.escapeMenu", AccessTools.Method(typeof(SDG.Unturned.MenuUI), "escapeMenu"), nameof(MenuEscapePostfix));
-                Patch("PlayerUI.escapeMenu", AccessTools.Method(typeof(SDG.Unturned.PlayerUI), "escapeMenu"), nameof(PlayerEscapePostfix));
-                Patch("MenuUI.closeAll", AccessTools.Method(typeof(SDG.Unturned.MenuUI), "closeAll"), nameof(MenuCloseAllPostfix));
+                DontDestroyOnLoad(gameObject);
+                enabled = true;
+                LogAssemblyIdentity();
+                var isBatchMode = Application.isBatchMode;
+                var decision = BootstrapGuard.Decide(isBatchMode, isBatchMode, !isBatchMode);
+                Logger.LogInfo("[BUE-UI-TRACE] plugin=io.github.yu80rice.betterunturnedexperience diagnosticId=BUE-BOOTSTRAP-002 event=runtime-gate decision=" + decision + " batchMode=" + isBatchMode + " headless=" + isBatchMode);
+                var runtime = new FeatureRegistrationRuntime();
+                BueRuntimeHost.Bind(runtime);
+                runtime.OpenRegistration();
+                var officialRegistration = BetterItemInteractionFeatureRegistration.Register();
+                if (decision == BootstrapDecision.Client)
+                {
+                    pluginUpdateDriver = new BuePluginUpdateDriver(OnPluginUpdateTick);
+                    clientUiComposition = new BueClientUiCompositionRoot();
+                    if (!clientUiComposition.Initialize(isBatchMode, isBatchMode, BueNativeManagementPanel.CanBindNativeUi()))
+                    {
+                        Logger.LogWarning("BUE client UI composition unavailable diagnosticId=BUE-CLIENTUI-001");
+                    }
+                    else
+                    {
+                        nativeManagementPanel = new BueNativeManagementPanel(clientUiComposition.ManagementPanel, Logger, null, clientUiComposition.RefreshManagementPanel);
+                        nativeManagementPanel.Initialize();
+                        AttachRuntimePump();
+                        Logger.LogInfo("BUE client UI composition ready featureId=io.github.yu80rice.bue.better-item-interaction diagnosticId=BUE-CLIENTUI-002");
+                    }
+                }
+                SceneManager.sceneLoaded += OnSceneLoaded;
+                sceneLoadedSubscribed = true;
+                Logger.LogInfo("Better Unturned Experience featureId=" + FeatureId + " status=BootstrapReady decision=" + decision + " diagnosticId=" + DiagnosticId);
+                Logger.LogInfo("Better Item Interaction featureId=" + officialRegistration.Feature.Value + " accepted=" + officialRegistration.Accepted + " reason=" + officialRegistration.Reason + " diagnosticId=" + officialRegistration.DiagnosticId);
             }
-            catch (Exception error)
+            catch (System.Exception error)
             {
-                log.Warn("[DEBUG-min] event=patch-failed errorType=" + error.GetType().FullName + " message=" + error.Message);
+                Logger.LogError("Better Unturned Experience featureId=" + FeatureId + " status=BootstrapFailed diagnosticId=" + DiagnosticId + " errorType=" + error.GetType().FullName);
             }
         }
 
-        private void Patch(string name, MethodBase target, string postfixName)
+        public void Start()
         {
-            var installed = false;
+            Logger.LogInfo("[BUE-UI-TRACE] plugin=io.github.yu80rice.betterunturnedexperience diagnosticId=BUE-MANAGEMENT-TRACE-002 event=start-entered");
+            TryCompleteRuntime();
+        }
+
+        private void AttachRuntimePump()
+        {
+            if (runtimePumpBehaviour != null && runtimePumpBehaviour.gameObject != null) return;
+            DestroyRuntimePump();
             try
             {
-                harmony.Patch(target, postfix: new HarmonyMethod(typeof(BetterUnturnedExperiencePlugin), postfixName));
-                installed = true;
+                runtimePump = runtimePumpSlot.GetOrCreate(OnRuntimePumpTick);
+                runtimePumpBehaviour = BueRuntimePumpBehaviour.Attach(runtimePump);
+                Logger.LogInfo("[BUE-UI-TRACE] plugin=io.github.yu80rice.betterunturnedexperience diagnosticId=BUE-MANAGEMENT-TRACE-003 event=runtime-pump-created object=BUE.RuntimePump");
             }
             catch (Exception error)
             {
-                log.Warn("[DEBUG-min] event=patch-failed target=" + name + " errorType=" + error.GetType().FullName + " message=" + error.Message);
+                DestroyRuntimePump();
+                Logger.LogWarning("[BUE-UI-TRACE] plugin=io.github.yu80rice.betterunturnedexperience diagnosticId=BUE-MANAGEMENT-TRACE-003 event=runtime-pump-create-failed errorType=" + error.GetType().FullName);
             }
-            log.Info("[DEBUG-min] event=patch-installed target=" + name + " installed=" + installed);
         }
 
-        private void Start()
+        private void DestroyRuntimePump()
         {
-            log.Info("[DEBUG-min] event=start-entered");
+            runtimePumpSlot.Clear();
+            runtimePump = null;
+            var behaviour = runtimePumpBehaviour;
+            runtimePumpBehaviour = null;
+            if (behaviour != null)
+            {
+                var pumpObject = behaviour.gameObject;
+                if (pumpObject != null) UnityEngine.Object.Destroy(pumpObject);
+            }
+        }
+
+        private void OnRuntimePumpTick()
+        {
+            if (runtimePumpIsolated) return;
+            runtimePumpTickCount++;
+            if (runtimePumpTickCount == 1)
+            {
+                Logger.LogInfo("[BUE-UI-TRACE] plugin=io.github.yu80rice.betterunturnedexperience diagnosticId=BUE-MANAGEMENT-TRACE-003 event=runtime-pump-tick count=1");
+            }
+            try
+            {
+                if (nativeManagementPanel != null && !nativeManagementPanel.Dispatch(BueNativeManagementPanel.TickSource.RuntimePump) && nativeManagementPanel.TickIsolated)
+                {
+                    runtimePumpIsolated = true;
+                    DestroyRuntimePump();
+                }
+                TryCompleteRuntime();
+            }
+            catch (Exception error)
+            {
+                runtimePumpIsolated = true;
+                Logger.LogWarning("[BUE-UI-TRACE] plugin=io.github.yu80rice.betterunturnedexperience diagnosticId=BUE-MANAGEMENT-TRACE-003 event=runtime-pump-failed errorType=" + error.GetType().FullName);
+                Logger.LogWarning("[BUE-UI-TRACE] plugin=io.github.yu80rice.betterunturnedexperience diagnosticId=BUE-MANAGEMENT-TRACE-003 event=runtime-pump-isolated fallback=NativeUi");
+            }
         }
 
         private void Update()
         {
-            updateTicks++;
-            if (updateTicks == 1 || updateTicks % 120 == 0)
-                log.Info("[DEBUG-min] event=plugin-update count=" + updateTicks);
+            if (pluginUpdateDriver != null) pluginUpdateDriver.Update();
+            // Some BepInEx/Unity hosts do not dispatch a plugin Start message
+            // before the first frame. Keep the same host-owned barrier as a
+            // one-shot next-frame fallback; external features still cannot
+            // advance the registration phase.
+            TryCompleteRuntime();
         }
 
-        private void OnDisable()
+        private void OnPluginUpdateTick()
         {
-            log.Info("[DEBUG-min] event=on-disabled");
+            updateTickCount++;
+            if (updateTickCount == 1 || updateTickCount % 120 == 0)
+            {
+                Logger.LogInfo("[BUE-UI-TRACE] plugin=io.github.yu80rice.betterunturnedexperience diagnosticId=BUE-MANAGEMENT-TRACE-001 event=plugin-update count=" + updateTickCount);
+            }
+            if (nativeManagementPanel != null) nativeManagementPanel.Dispatch(BueNativeManagementPanel.TickSource.Update);
         }
 
-        private static void Hit(string target) { log.Info("[DEBUG-min] event=hit target=" + target); }
-        private static void MenuWorkshopCtorPostfix() { Hit("MenuWorkshopUI.constructor"); }
-        private static void PlayerPauseCtorPostfix() { Hit("PlayerPauseUI.constructor"); }
-        private static void MenuDashboardCtorPostfix() { Hit("MenuDashboardUI.constructor"); }
-        private static void MenuDashboardOpenPostfix() { Hit("MenuDashboardUI.open"); }
-        private static void MenuWorkshopOpenPostfix() { Hit("MenuWorkshopUI.open"); }
-        private static void PlayerPauseOpenPostfix() { Hit("PlayerPauseUI.open"); }
-        private static void MenuUIUpdatePostfix() { Hit("MenuUI.Update"); }
-        private static void PlayerUIUpdatePostfix() { Hit("PlayerUI.Update"); }
-        private static void MenuEscapePostfix() { Hit("MenuUI.escapeMenu"); }
-        private static void PlayerEscapePostfix() { Hit("PlayerUI.escapeMenu"); }
-        private static void MenuCloseAllPostfix() { Hit("MenuUI.closeAll"); }
-    }
+        private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
+        {
+            TryCompleteRuntime();
+        }
 
-    // [DEBUG-min] thin logger wrapper; removed after diagnosis.
-    internal sealed class ManualLogSourceProxy
-    {
-        private readonly BepInEx.Logging.ManualLogSource source;
+        private void TryCompleteRuntime()
+        {
+            if (runtimeReadyLogged) return;
+            if (completionBarrier == null) completionBarrier = new BueRuntimeCompletionBarrier(CompleteRuntimeOnce, LogRuntimeCompletionIsolated);
+            if (!completionBarrier.TryComplete()) return;
+            runtimeReadyLogged = true;
+            Logger.LogInfo("Better Unturned Experience featureId=" + FeatureId + " status=RuntimeReady diagnosticId=BUE-BOOTSTRAP-003");
+        }
 
-        internal ManualLogSourceProxy(BepInEx.Logging.ManualLogSource source) { this.source = source; }
+        private void LogRuntimeCompletionIsolated(Exception error)
+        {
+            Logger.LogError("Better Unturned Experience featureId=" + FeatureId + " status=RuntimeCompletionIsolated decision=Isolate errorType=" + error.GetType().FullName + " diagnosticId=" + DiagnosticId);
+        }
 
-        internal void Info(string message) { source?.LogInfo(message); }
-        internal void Warn(string message) { source?.LogWarning(message); }
+        private bool CompleteRuntimeOnce()
+        {
+            var runtime = BueRuntimeHost.CurrentRuntime;
+            if (runtime == null || runtime.Phase != FeatureRegistrationPhase.RegistrationOpen) return false;
+            if (!runtime.CompleteRuntime()) return false;
+            TryRefreshAfterCompletion();
+            UnsubscribeSceneLoaded();
+            return true;
+        }
+
+        private void TryRefreshAfterCompletion()
+        {
+            try
+            {
+                if (clientUiComposition != null) clientUiComposition.RefreshManagementPanel();
+            }
+            catch (Exception error)
+            {
+                Logger.LogWarning("BUE client UI refresh after completion isolated errorType=" + error.GetType().FullName + " diagnosticId=BUE-CLIENTUI-004");
+            }
+        }
+
+        private void UnsubscribeSceneLoaded()
+        {
+            if (!sceneLoadedSubscribed) return;
+            SceneManager.sceneLoaded -= OnSceneLoaded;
+            sceneLoadedSubscribed = false;
+        }
+
+        private void LogAssemblyIdentity()
+        {
+            try
+            {
+                var location = typeof(BetterUnturnedExperiencePlugin).Assembly.Location;
+                var hash = "unavailable";
+                if (!string.IsNullOrEmpty(location) && File.Exists(location))
+                {
+                    using (var sha = SHA256.Create())
+                    using (var stream = File.OpenRead(location))
+                    {
+                        hash = BitConverter.ToString(sha.ComputeHash(stream)).Replace("-", string.Empty);
+                    }
+                }
+                Logger.LogInfo("[BUE-UI-TRACE] plugin=io.github.yu80rice.betterunturnedexperience diagnosticId=BUE-MANAGEMENT-TRACE-002 event=assembly-identity path=" + location + " sha256=" + hash);
+            }
+            catch (Exception error)
+            {
+                Logger.LogWarning("[BUE-UI-TRACE] plugin=io.github.yu80rice.betterunturnedexperience diagnosticId=BUE-MANAGEMENT-TRACE-002 event=assembly-identity-failed errorType=" + error.GetType().FullName);
+            }
+        }
+
+        // [R19] The game sweeps the BepInEx_Manager host mid-session (R18 hit
+        // map: the vanilla MenuUI.Update postfix keeps ticking every frame
+        // through that sweep). A component teardown is therefore NOT an
+        // application quit: Harmony patches and the static panel state must
+        // survive it, or the driver chain dies with the host object.
+        private static bool applicationQuitting;
+
+        private void OnApplicationQuitting()
+        {
+            applicationQuitting = true;
+        }
+
+        private void OnDestroy()
+        {
+            if (!applicationQuitting)
+            {
+                try
+                {
+                    UnsubscribeSceneLoaded();
+                    if (pluginUpdateDriver != null) pluginUpdateDriver.Clear();
+                    Logger.LogWarning("[BUE-UI-TRACE] plugin=io.github.yu80rice.betterunturnedexperience event=host-destroyed state=preserved patches-kept=true diagnosticId=BUE-CLIENTUI-005");
+                }
+                catch (System.Exception error)
+                {
+                    Logger.LogWarning("[BUE-UI-TRACE] plugin=io.github.yu80rice.betterunturnedexperience event=host-destroyed-preserve-failed errorType=" + error.GetType().FullName);
+                }
+                BueRuntimeHost.Clear();
+                return;
+            }
+            try
+            {
+                UnsubscribeSceneLoaded();
+                DestroyRuntimePump();
+                if (pluginUpdateDriver != null) pluginUpdateDriver.Clear();
+                if (nativeManagementPanel != null) nativeManagementPanel.Destroy();
+                if (clientUiComposition != null) clientUiComposition.Destroy();
+            }
+            catch (System.Exception error)
+            {
+                Logger.LogWarning("BUE client UI teardown isolated diagnosticId=BUE-CLIENTUI-003 errorType=" + error.GetType().FullName);
+            }
+            BueRuntimeHost.Clear();
+        }
     }
 }

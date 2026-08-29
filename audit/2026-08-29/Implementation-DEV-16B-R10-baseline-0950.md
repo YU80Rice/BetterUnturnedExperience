@@ -306,3 +306,37 @@ R16 真机（`UMM-诊断包_20260829_225222`）驱动层依旧全停（37 行后
 ### 探针产物
 
 `artifacts/DEV-16B-management-panel-runtime-probe-r17-minimal-20260829/BetterUnturnedExperience.dll`，SHA-256 `26010A213FEA5FBC15642198AF08AA4136356F9F99EFE83DF970859CD4DF0C6B`。**探针轮产物仅用于诊断，不得驻留真机；全量 [DEBUG-min] 标记。**
+
+## 17. R18 命中图 + R19 保活修复轮（2026-08-29，真因定案）
+
+### R17 读数（`UMM-诊断包_20260829_230326`）——UPM 形状即可用
+
+极简版（UPM 形状）：`awake-entered` → `patch-installed` → `on-disabled` → **`ctor-postfix-hit` 命中**——环境、detour、游戏类型 patch 全部可用；`start-entered`/`plugin-update` 因宿主禁用停止（组件消息语义）。**用户反证成立**：UPM 无需 cfg 修改即存活，"清场导致停摆"链不成立。
+
+### R18 命中图（`UMM-诊断包_20260829_231242`）——11 patch 全命中
+
+极简宿主 + 全部 11 个 vanilla patch，每 postfix 独立日志：**全部命中**，`MenuUI.Update` 每帧命中（数百条）、constructor ×3 命中。**Harmony 通道从来可用**；完整版静默的真因锁定为**组件 OnDestroy 链**。
+
+### 真因定案（R15 + R18 联合证据）
+
+`BepInEx_Manager` 被游戏 SetActive(false) → **BUE 组件 `OnDestroy` → `nativeManagementPanel.Destroy()` → `harmony.UnpatchSelf()` 自废全部 patch** → MenuUI.Update 每帧照跑但 BUE postfix 已被解除 → 一切静默。**UPM 不 unpatch**：组件死但 patch 永存，按钮死前已注入（static UI 状态）→ 功能正常。R13 的 self-revive（OnDisable 中 SetActive(true)）与引擎禁用流程竞争，叠加加速组件死亡。
+
+### R19 修复（TDD 红→绿）
+
+1. `BueNativeManagementPanel.Destroy(bool unpatchHarmony = true)`——`false` 跳过 UnpatchSelf（`OnTickFailure` 自毁路径传 false，patch 保留供观察/恢复）。
+2. `BetterUnturnedExperiencePlugin`：`applicationQuitting` 静态标志 + `Application.quitting` 订阅（Awake 首行，先于一切可失败代码）+ `OnDestroy` 分支——**非退出（宿主被游戏销毁）= 保活**（清 driver/退订场景回调/保留 patch 与 panel 静态状态，日志 `host-destroyed state=preserved patches-kept=true`）；**应用退出 = 完整清理含 unpatch**。
+3. 红测试 `AssertPanelSurvivesComponentTeardown`（CS1739 红 → 绿）：`Destroy(unpatchHarmony: false)` 后 workshop-open 与 MenuUI.Update 两 patch 仍属 BUE owner。
+
+### 循环审查记录
+
+第 1 轮（增量双轴并行）：Standards 0 硬违规 + 3 判断性；Spec 2 记录类 → 修复（注释措辞准确化、quitting 订阅提前、测试扩双 patch 断言、plugin 层 OnDestroy 分支路由**纯宿主不可测记 seam gap**）→ 复审双轴 **CLEAN**（4/4 闭合）。构建 0/0、7/7 测试 PASS（`tests-r19-*.log`）、`git diff --check` CLEAN。
+
+**Seam gap 记录**：plugin 层 `OnDestroy` 的 preserve/quit 分支路由依赖 Unity 组件生命周期（`Application.quitting` 时序、宿主销毁语义），纯宿主不可自校验；panel 层语义已由 `AssertPanelSurvivesComponentTeardown` 双 patch 断言锁定。
+
+### 正式产物
+
+`artifacts/DEV-16B-management-panel-runtime-fix-r19-20260829/BetterUnturnedExperience.dll`，SHA-256 `3FC1C55467AE8DED713B1A3C8D19B5D479C03C2EAF8CD573D921C8A885573FEA`，**CaseId `DEV-16B-R19-20260829`**。
+
+### R19 真机预期
+
+R18 已证 `MenuUI.Update` postfix 每帧命中 + `host-destroyed state=preserved` 后 patch 保留 ⇒ **驱动链在宿主被清后由 Harmony 通道独立维持**：`create-button-*` 应随菜单 UI 构造出现（`OnUiRebuilt`/`OnSurfaceOpened` 均为命中路径），**"BUE 插件管理"按钮应可见**。若按钮出现可点击 → DEV-16B 可见性门禁通过，进入证据归档。

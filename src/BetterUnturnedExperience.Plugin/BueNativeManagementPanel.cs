@@ -177,7 +177,10 @@ namespace BetterUnturnedExperience.Plugin
         private void OnTickFailure(Exception error)
         {
             LogTrace("tick-isolated", "errorType=" + error.GetType().FullName + " message=" + error.Message);
-            Destroy();
+            // Keep the vanilla detours: the postfixes still observe the isolated
+            // state. This is a one-way isolation - the panel is not rebuilt
+            // until a fresh BueNativeManagementPanel is constructed.
+            Destroy(unpatchHarmony: false);
         }
 
         private static int GetFrameCountSafe()
@@ -220,7 +223,11 @@ namespace BetterUnturnedExperience.Plugin
             if (opened && (panel == null || !IsAlive(panel))) Close();
         }
 
-        internal void Destroy()
+        // unpatchHarmony=false keeps the vanilla detours alive when the game
+        // destroys the plugin host mid-session: the MenuUI.Update postfix is
+        // the frame driver and must survive component teardown. Only a real
+        // application quit may remove the patches.
+        internal void Destroy(bool unpatchHarmony = true)
         {
             if (destroyed) return;
             destroyed = true;
@@ -228,8 +235,11 @@ namespace BetterUnturnedExperience.Plugin
             CleanupDashboardButton(dashboardParent);
             CleanupMainButton(mainParent);
             CleanupPauseButton(pauseParent);
-                Close();
-            try { harmony.UnpatchSelf(); } catch (Exception error) { Log("unpatch failed: " + error.Message); }
+            Close();
+            if (unpatchHarmony)
+            {
+                try { harmony.UnpatchSelf(); } catch (Exception error) { Log("unpatch failed: " + error.Message); }
+            }
             runtime.Destroy();
         }
 
