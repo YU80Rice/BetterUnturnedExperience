@@ -36,6 +36,8 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 AssertNativeUiGateReflectsMemberPresence();
                 // [DEBUG-drv] probe self-check; removed after diagnosis.
                 AssertSelfPatchProbeHitsOnThisHost();
+                // [DEBUG-drv] host-ui tick counter check; removed after diagnosis.
+                AssertHostUiTickCounterAdvances();
                 AssertRuntimePumpBridge();
                 AssertPluginUpdateDriverForwardsButtonInjection();
                 AssertButtonInjectionRoutesAreLocallyIsolated();
@@ -197,6 +199,27 @@ namespace BetterUnturnedExperience.Plugin.Tests
             // must reflect vanilla member presence only: engine readiness is
             // owned by the injection path's null guards, not by this gate.
             Assert(BueNativeManagementPanel.CanBindNativeUi(), "native ui gate stays true on vanilla member presence while Glazier is not yet initialized");
+        }
+
+        // [DEBUG-drv] host-ui tick counter check; removed after diagnosis.
+        private static void AssertHostUiTickCounterAdvances()
+        {
+            var composition = new BueClientUiCompositionRoot();
+            var panel = new BueNativeManagementPanel(composition.ManagementPanel, null);
+            try
+            {
+                panel.Initialize();
+                var before = BueNativeManagementPanel.HostUiTickHits;
+                // Invoke the postfix body directly: the counter lives there, and
+                // the Harmony detour path itself is already covered by the
+                // self-patch probe on this host.
+                HarmonyLib.AccessTools.Method(typeof(BueNativeManagementPanel), "OnHostUiTick").Invoke(null, null);
+                Assert(BueNativeManagementPanel.HostUiTickHits == before + 1, "host-ui tick counter advances when the postfix body runs");
+            }
+            finally
+            {
+                panel.Destroy();
+            }
         }
 
         // [DEBUG-drv] probe self-check; removed after diagnosis.

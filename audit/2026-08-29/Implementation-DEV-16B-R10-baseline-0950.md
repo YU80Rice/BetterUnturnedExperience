@@ -160,3 +160,31 @@ R10 新增的 `CanBindNativeUi()` 把 `Glazier.Get() != null` 混入门禁。`Gl
 ### R12 真机读数顺序
 
 `[DEBUG-drv]` 流（裸 Logger）：`awake-object-state` → `on-enabled` → `coroutine-tick count=1`；`[BUE-UI-TRACE]` 流：`self-patch-installed` → `self-patch-probe-done bodyCalls=2 postfixHit=?` → 判别关键读数。若 `postfixHit=False` ⇒ BepInEx/Harmony 环境级失效（方向：Harmony 版本兼容性）；若 `True` 而 `host-ui-tick`=0 ⇒ 游戏类型 patch 特异失效（方向：类型身份/预编译 detour）；`coroutine-tick` 增长而 `plugin-update`=0 ⇒ 消息派发特定失效。
+
+## 12. R13 探针轮（2026-08-29，R12 读数驱动的归因/对抗/判别）
+
+### R12 真机读数（`UMM-诊断包_20260829_204130`）
+
+部署 r12 探针（`assembly-identity` = `773A4FDF…` ✓）：**三分判别全部命中**——
+1. **Harmony detour 机制在真机正常**：`self-patch-hit` + `self-patch-probe-done bodyCalls=2 postfixHit=True`（第 29-31 行）。
+2. **宿主对象 Awake 时完全活跃**：`awake-object-state activeInHierarchy=True activeSelf=True enabled=True scene=DontDestroyOnLoad`（第 39 行）。
+3. **`on-disabled` 在 "Chainloader startup complete" 之后立即发生**（第 43→44 行），随后 `coroutine-tick count=2` 永不再现、`plugin-update`/`start-entered`/`host-ui-tick`/`constructor-postfix` 全零——**宿主被禁用，一切 Unity 消息泵停摆**；而 Harmony patch 是静态 postfix，不受组件禁用影响，游戏类型 patch 仍零命中 ⇒ 「游戏程序集方法 patch 特异失效」独立成立。
+
+### R13 探针集（在 R12 基础上，tagged `[DEBUG-drv]`）
+
+| 探针 | 事件/读数 | 判别 |
+|---|---|---|
+| OnDisable 归因 | `on-disabled activeSelf= activeInHierarchy= enabled= name= parent= components=` + `on-disabled-stack trace=`（Environment.StackTrace 单行化） | 区分「组件 enabled=false」vs「GameObject SetActive(false)」，栈直接抓禁用调用方 |
+| 自唤醒对抗 | `self-revive componentReEnabled= objectActiveSelf=` | 禁用后立即恢复，观察是否被反复禁用；若成功，面板链可能直接复活 |
+| UnitySynchronizationContext 泵 | `context-pump-started` / `context-tick count= enabled= activeInHierarchy=`（3600 tick 上限护栏） | 独立于组件生命周期的主线程通道：持续跳动即证实禁用且拥有恢复通道 |
+| 游戏 detour 判别 | `game-detour-check manualInvoked=true hostUiHitsBefore= hostUiHitsAfter=`（恢复后反射 `MenuUI.instance` 手动 Invoke 一次被 patch 的 `Update`） | After>Before ⇒ 游戏方法 detour 有效（不命中归因调用路径）；After=Before ⇒ 游戏方法 patch 无效（类型身份/detour 对游戏程序集失效） |
+
+### 循环审查记录
+
+第 1 轮（增量双轴并行）：Standards **CLEAN**（0 硬违规 + 3 判断性）；Spec 4 项（StackTrace 归因缺失、pump 无退出护栏、测试名夸大、读数分支未入审计）→ 修复 3 项 + 记录 1 项 → 复审双轴 **CLEAN**（1=StackTrace 单行化先于自复活 2=tick-limit 后不再 Post 3=断言语义一致）。构建 0/0、7/7 测试 PASS（`tests-r13-*.log`）、`git diff --check` CLEAN。
+
+**可推迟项（显式记录）**：① OnDisable 内自 re-enable/SetActive 副作用偏激进（探针设计内、try/catch 隔离、已标记，**r13 产物不得驻留真机**）；② `HostUiTickHits` 前缀脱离 Drv* 家族；③ 手动 Invoke MenuUI.Update 每帧幂等但 tickInput 可能重复处理一次输入（单次执行已由 `drvGameDetourChecked` 保证）。**Seam gap**：context pump 与自唤醒依赖 Unity 主线程/引擎语义，纯宿主不可自校验（计数器逻辑已由 `AssertHostUiTickCounterAdvances` 锁定）。
+
+### 探针产物
+
+`artifacts/DEV-16B-management-panel-runtime-probe-r13-20260829/BetterUnturnedExperience.dll`，175616 bytes，SHA-256 `54783075E0B024624D6A7CF9D2790AA33E918B83FE368B7EBB752D529AEAEE4E`，CaseId `DEV-16B-R13-20260829`。**探针轮产物仅用于诊断。** 一手资料调查（BepInEx Chainloader 行为）另见 RT-08。

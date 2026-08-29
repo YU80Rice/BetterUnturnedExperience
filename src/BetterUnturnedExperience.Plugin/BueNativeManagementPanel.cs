@@ -189,6 +189,7 @@ namespace BetterUnturnedExperience.Plugin
         // [DEBUG-drv] probe pair; removed after diagnosis.
         internal static bool DrvSelfPatchHit;
         internal static int DrvProbeCalls;
+        internal static int HostUiTickHits;
         internal static void DrvProbeTarget() { DrvProbeCalls++; }
         internal static void DrvProbePostfix() { DrvSelfPatchHit = true; var instance = activeInstance; if (instance != null) instance.LogTrace("self-patch-hit", "source=DirectCall"); }
 
@@ -337,6 +338,7 @@ namespace BetterUnturnedExperience.Plugin
         // Update messages, so use them as a reliable main-thread pump.
         private static void OnHostUiTick()
         {
+            HostUiTickHits++; // [DEBUG-drv] removed after diagnosis.
             var instance = activeInstance;
             if (instance == null || instance.destroyed) return;
             instance.Dispatch(TickSource.HostUi);

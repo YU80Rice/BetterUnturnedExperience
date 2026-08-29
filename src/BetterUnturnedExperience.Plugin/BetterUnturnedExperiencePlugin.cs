@@ -54,9 +54,10 @@ namespace BetterUnturnedExperience.Plugin
                         nativeManagementPanel = new BueNativeManagementPanel(clientUiComposition.ManagementPanel, Logger, null, clientUiComposition.RefreshManagementPanel);
                         nativeManagementPanel.Initialize();
                         AttachRuntimePump();
-                        // [DEBUG-drv] coroutine probe rides the client branch so a
+                        // [DEBUG-drv] coroutine + context pumps ride the client branch so a
                         // dedicated headless server never grows the log unbounded.
                         StartCoroutine(DrvCoroutinePump());
+                        DrvStartContextPump();
                         Logger.LogInfo("BUE client UI composition ready featureId=io.github.yu80rice.bue.better-item-interaction diagnosticId=BUE-CLIENTUI-002");
                     }
                 }
@@ -88,9 +89,93 @@ namespace BetterUnturnedExperience.Plugin
 
         private void OnDisable()
         {
-            // [DEBUG-drv] info level: a normal shutdown must not trip UMM's
-            // warning-pattern summary; only the event's presence matters.
-            Logger.LogInfo("[DEBUG-drv] event=on-disabled");
+            // [DEBUG-drv] attribution probe; removed after diagnosis. Info
+            // level keeps UMM warning summaries clean.
+            var components = new System.Text.StringBuilder();
+            foreach (var component in gameObject.GetComponents<Component>())
+                components.Append(component == null ? "null;" : component.GetType().FullName + (component == this ? "(self)" : "") + ";");
+            Logger.LogInfo("[DEBUG-drv] event=on-disabled activeSelf=" + gameObject.activeSelf + " activeInHierarchy=" + gameObject.activeInHierarchy + " enabled=" + enabled + " name=" + gameObject.name + " parent=" + (transform.parent != null ? transform.parent.name : "null") + " components=" + components);
+            Logger.LogInfo("[DEBUG-drv] event=on-disabled-stack trace=" + Environment.StackTrace.Replace("\n", " | ").Replace("\r", string.Empty));
+            DrvAttemptSelfRevive(logFirstOnly: false);
+        }
+
+        // [DEBUG-drv] everything below is diagnostic; removed after diagnosis.
+        private int drvContextTicks;
+        private bool drvGameDetourChecked;
+        private bool drvReviveLogged;
+
+        private void DrvAttemptSelfRevive(bool logFirstOnly)
+        {
+            try
+            {
+                var revived = false;
+                if (!enabled) { enabled = true; revived = true; }
+                if (!gameObject.activeSelf) { gameObject.SetActive(true); revived = true; }
+                if (revived && (!logFirstOnly || !drvReviveLogged))
+                {
+                    drvReviveLogged = true;
+                    Logger.LogInfo("[DEBUG-drv] event=self-revive componentReEnabled=" + enabled + " objectActiveSelf=" + gameObject.activeSelf);
+                }
+            }
+            catch (Exception error)
+            {
+                Logger.LogWarning("[DEBUG-drv] event=self-revive-failed errorType=" + error.GetType().FullName);
+            }
+        }
+
+        private void DrvStartContextPump()
+        {
+            var context = System.Threading.SynchronizationContext.Current;
+            if (context == null)
+            {
+                Logger.LogWarning("[DEBUG-drv] event=context-pump-unavailable");
+                return;
+            }
+            Logger.LogInfo("[DEBUG-drv] event=context-pump-started type=" + context.GetType().FullName);
+            DrvPostContextTick(context);
+        }
+
+        private void DrvPostContextTick(System.Threading.SynchronizationContext context)
+        {
+            context.Post(_ => DrvContextTick(context), null);
+        }
+
+        private void DrvContextTick(System.Threading.SynchronizationContext context)
+        {
+            drvContextTicks++;
+            if (drvContextTicks == 1 || drvContextTicks % 120 == 0)
+                Logger.LogInfo("[DEBUG-drv] event=context-tick count=" + drvContextTicks + " enabled=" + enabled + " activeInHierarchy=" + gameObject.activeInHierarchy);
+            if (drvContextTicks >= 3600)
+            {
+                // [DEBUG-drv] exit guard: the probe pump must not outlive the
+                // diagnostic session even if the disable source never stops.
+                Logger.LogInfo("[DEBUG-drv] event=context-pump-stopped reason=tick-limit");
+                return;
+            }
+            DrvAttemptSelfRevive(logFirstOnly: true);
+            DrvCheckGameDetour();
+            DrvPostContextTick(context);
+        }
+
+        private void DrvCheckGameDetour()
+        {
+            if (drvGameDetourChecked) return;
+            try
+            {
+                var menuUiType = typeof(SDG.Unturned.MenuUI);
+                var instanceField = menuUiType.GetField("instance", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
+                var menuUi = instanceField == null ? null : instanceField.GetValue(null);
+                if (menuUi == null) return;
+                drvGameDetourChecked = true;
+                var before = BueNativeManagementPanel.HostUiTickHits;
+                HarmonyLib.AccessTools.Method(typeof(SDG.Unturned.MenuUI), "Update").Invoke(menuUi, null);
+                Logger.LogInfo("[DEBUG-drv] event=game-detour-check manualInvoked=true hostUiHitsBefore=" + before + " hostUiHitsAfter=" + BueNativeManagementPanel.HostUiTickHits);
+            }
+            catch (Exception error)
+            {
+                drvGameDetourChecked = true;
+                Logger.LogWarning("[DEBUG-drv] event=game-detour-check-failed errorType=" + error.GetType().FullName + " message=" + error.Message);
+            }
         }
 
         private System.Collections.IEnumerator DrvCoroutinePump()
