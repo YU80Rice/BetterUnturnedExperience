@@ -34,12 +34,6 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 Assert(officialRegistrationHasClientUi(official), "official feature exposes a ClientUi satellite descriptor");
                 AssertClientUiCompositionGates();
                 AssertNativeUiGateReflectsMemberPresence();
-                // [DEBUG-drv] probe self-check; removed after diagnosis.
-                AssertSelfPatchProbeHitsOnThisHost();
-                // [DEBUG-drv] host-ui tick counter check; removed after diagnosis.
-                AssertHostUiTickCounterAdvances();
-                // [DEBUG-drv] scene-loaded rebuild check; removed after diagnosis.
-                AssertSceneLoadedRebuildCounterAdvances();
                 AssertRuntimePumpBridge();
                 AssertPluginUpdateDriverForwardsButtonInjection();
                 AssertButtonInjectionRoutesAreLocallyIsolated();
@@ -201,58 +195,6 @@ namespace BetterUnturnedExperience.Plugin.Tests
             // must reflect vanilla member presence only: engine readiness is
             // owned by the injection path's null guards, not by this gate.
             Assert(BueNativeManagementPanel.CanBindNativeUi(), "native ui gate stays true on vanilla member presence while Glazier is not yet initialized");
-        }
-
-        // [DEBUG-drv] scene-loaded rebuild check; removed after diagnosis.
-        private static void AssertSceneLoadedRebuildCounterAdvances()
-        {
-            var before = BetterUnturnedExperience.Plugin.BetterUnturnedExperiencePlugin.DrvSceneRebuildCount;
-            BetterUnturnedExperience.Plugin.BetterUnturnedExperiencePlugin.DrvRebuildProbeHost();
-            Assert(BetterUnturnedExperience.Plugin.BetterUnturnedExperiencePlugin.DrvSceneRebuildCount == before + 1, "scene-loaded rebuild counter advances per rebuild request");
-        }
-
-        // [DEBUG-drv] host-ui tick counter check; removed after diagnosis.
-        private static void AssertHostUiTickCounterAdvances()
-        {
-            var composition = new BueClientUiCompositionRoot();
-            var panel = new BueNativeManagementPanel(composition.ManagementPanel, null);
-            try
-            {
-                panel.Initialize();
-                var before = BueNativeManagementPanel.HostUiTickHits;
-                // Invoke the postfix body directly: the counter lives there, and
-                // the Harmony detour path itself is already covered by the
-                // self-patch probe on this host.
-                HarmonyLib.AccessTools.Method(typeof(BueNativeManagementPanel), "OnHostUiTick").Invoke(null, null);
-                Assert(BueNativeManagementPanel.HostUiTickHits == before + 1, "host-ui tick counter advances when the postfix body runs");
-            }
-            finally
-            {
-                panel.Destroy();
-            }
-        }
-
-        // [DEBUG-drv] probe self-check; removed after diagnosis.
-        private static void AssertSelfPatchProbeHitsOnThisHost()
-        {
-            // Probe self-check: on a healthy Harmony runtime, patching our own
-            // static no-op and invoking it once must fire the postfix. If this
-            // fails on the test host, the probe's real-machine reading would
-            // be meaningless, so we lock it here first.
-            BetterUnturnedExperience.Plugin.BueNativeManagementPanel.DrvSelfPatchHit = false;
-            var composition = new BueClientUiCompositionRoot();
-            var panel = new BueNativeManagementPanel(composition.ManagementPanel, null);
-            try
-            {
-                panel.Initialize();
-                Console.WriteLine("[DEBUG-drv-host] bodyCalls=" + BetterUnturnedExperience.Plugin.BueNativeManagementPanel.DrvProbeCalls + " postfixHit=" + BetterUnturnedExperience.Plugin.BueNativeManagementPanel.DrvSelfPatchHit);
-                Assert(BetterUnturnedExperience.Plugin.BueNativeManagementPanel.DrvProbeCalls >= 2, "probe target body executes on direct and reflected calls");
-                Assert(BetterUnturnedExperience.Plugin.BueNativeManagementPanel.DrvSelfPatchHit, "harmony self-patch probe hits on a healthy runtime");
-            }
-            finally
-            {
-                panel.Destroy();
-            }
         }
 
         private static void AssertManagementPanelConsumesRuntimeCatalog()

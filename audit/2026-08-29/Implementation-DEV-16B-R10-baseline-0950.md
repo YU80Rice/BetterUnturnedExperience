@@ -258,3 +258,29 @@ R10 新增的 `CanBindNativeUi()` 把 `Glazier.Get() != null` 混入门禁。`Gl
 ### 探针产物
 
 `artifacts/DEV-16B-management-panel-runtime-probe-r15-20260829/BetterUnturnedExperience.dll`，CaseId `DEV-16B-R15-20260829`（SHA-256 见 `audit/2026-08-29/r15-dll-sha256.txt`）。**探针轮产物仅用于诊断，不得驻留真机。**
+
+## 15. R16 正式修复轮（2026-08-29，UPM 对照实验定案）
+
+### 决定性对照实验（`UMM-诊断包_20260829_223101`，BUE + UPM 双插件并存）
+
+- **UPM 完全正常**：Harmony 构造器 postfix 命中（创意工坊 + 暂停菜单按钮注入成功）、Update 驱动、组件存活——**环境（官方 BepInEx 5.4.23.5 × Unturned 3.26.3.9 × UMM `-NoBattlEye`）健康，HideAndDontSave 清理假设证伪**。
+- **BUE 组件死亡真因**：R13 引入的 `self-revive`（OnDisable 中 `SetActive(true)`）与 Unity 禁用流程竞争，导致组件被引擎销毁（`manager-destroyed` 判定 + UPM 对照）——**诊断对抗行为本身放大并造成了组件死亡**。
+- 附带确认：宿主 `SetActive(false)` 为瞬态（UPM 存活证明对象随后恢复）；UPM changelog 记载 3.26.3.8+ UI 重建销毁 uGUI 底层对象——属注入层参考，BUE 已有容器有效性检查（`IsAlive`）。
+
+### R16 变更
+
+1. **移除全部 `[DEBUG-drv]` 诊断仪器**（Phase 6 清理，grep 归零）：self-revive、context/coroutine pump、probe host、self-patch 对、生命周期探针、`HostUiTickHits`、三个探针测试。
+2. **保留有效修复**：`CanBindNativeUi()` 门禁纯成员存在性语义（R11）、pump `HideInHierarchy`（R14，安全改进）、`BueRuntimeCompletionBarrier`（R10b）。
+3. 注释改为稳定设计理由（去诊断轮次编号）。
+
+### 循环审查记录
+
+第 1 轮（增量双轴并行）：Standards **CLEAN**（清理彻底无误删、R9 基线对照无生产逻辑丢失、1 判断性注释改进）；Spec **CLEAN**（存活条件与 UPM 等价、保留修复对应工单验收项、日志链与判别矩阵一致）→ 循环闭合。构建 0/0、7/7 测试 PASS（`tests-r16-*.log`）、`git diff --check` CLEAN。
+
+### 正式产物
+
+`artifacts/DEV-16B-management-panel-runtime-fix-r16-20260829/BetterUnturnedExperience.dll`，SHA-256 `B8E4DB14D69530FD37DD5D46416252E699E97E9220E0385741C9EC70ACFABBF8`，**CaseId `DEV-16B-R16-20260829`**。
+
+### R16 真机预期
+
+与 UPM 同等存活条件：`BUE-CLIENTUI-002` → `start-entered` → `plugin-update`（驱动链恢复）→ `runtime-pump-tick` → `constructor-postfix`/`host-ui-tick`（Harmony 命中）→ `create-button-*` → **按钮可见**。若某环节仍缺失，按判别矩阵定位（此时无 self-revive 干扰，读数可信）。DEV-16B 保持 `ready-for-human`：真实按钮可见性门禁待本次部署验证。
