@@ -38,6 +38,8 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 AssertSelfPatchProbeHitsOnThisHost();
                 // [DEBUG-drv] host-ui tick counter check; removed after diagnosis.
                 AssertHostUiTickCounterAdvances();
+                // [DEBUG-drv] scene-loaded rebuild check; removed after diagnosis.
+                AssertSceneLoadedRebuildCounterAdvances();
                 AssertRuntimePumpBridge();
                 AssertPluginUpdateDriverForwardsButtonInjection();
                 AssertButtonInjectionRoutesAreLocallyIsolated();
@@ -199,6 +201,14 @@ namespace BetterUnturnedExperience.Plugin.Tests
             // must reflect vanilla member presence only: engine readiness is
             // owned by the injection path's null guards, not by this gate.
             Assert(BueNativeManagementPanel.CanBindNativeUi(), "native ui gate stays true on vanilla member presence while Glazier is not yet initialized");
+        }
+
+        // [DEBUG-drv] scene-loaded rebuild check; removed after diagnosis.
+        private static void AssertSceneLoadedRebuildCounterAdvances()
+        {
+            var before = BetterUnturnedExperience.Plugin.BetterUnturnedExperiencePlugin.DrvSceneRebuildCount;
+            BetterUnturnedExperience.Plugin.BetterUnturnedExperiencePlugin.DrvRebuildProbeHost();
+            Assert(BetterUnturnedExperience.Plugin.BetterUnturnedExperiencePlugin.DrvSceneRebuildCount == before + 1, "scene-loaded rebuild counter advances per rebuild request");
         }
 
         // [DEBUG-drv] host-ui tick counter check; removed after diagnosis.

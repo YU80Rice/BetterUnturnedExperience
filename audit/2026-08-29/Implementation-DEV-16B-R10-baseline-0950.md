@@ -224,3 +224,37 @@ R10 新增的 `CanBindNativeUi()` 把 `Glazier.Get() != null` 混入门禁。`Gl
 | `drv-host-tick` 恒 0 | HideAndDontSave 假设证伪 → 排查场景/引擎级消息派发，依赖 RT-08 |
 | `manager-destroyed` | 存在销毁者（非单纯禁用）→ 定位销毁时机与 Client.log 时序互证 |
 | `self-patch-probe-done` 后无 `drv-host-tick` 且无 `manager-*` | probe host 创建即死 → 引擎级异常，收窄至 Unity 2022.3.62 + BepInEx 组合 |
+
+## 14. R15 生存策略探针轮（2026-08-29，场景加载后重建）
+
+### R14 真机读数（`UMM-诊断包_20260829_215924`）——HideAndDontSave 假设证伪
+
+- `manager-destroyed`（`context-pump-stopped reason=manager-destroyed ticks=0` + `context-pump-chain-ended`）：`BepInEx_Manager` 在 Chainloader complete 后被 **Destroy**（下一帧回调以 Unity 重载 `==` 判定）。
+- **`drv-host-tick` = 0**：无 hideFlags 的独立对象 `DEBUG.ProbeHost`（DontDestroyOnLoad）的 Update 也从未执行 ⇒ **HideAndDontSave 假设证伪**；统一解释收敛为：**游戏清理引导阶段（第一场景加载前）创建的一切对象**（SetActive(false)+Destroy），包括 manager、pump、probe host。
+- `self-patch` 仍命中（程序集级 detour 正常）；游戏类型 patch 零命中为独立未解问题。
+- 唯一存活的托管入口：`SceneManager.sceneLoaded` 静态订阅（RuntimeReady 未达成、未退订，BUE 组件销毁不影响 static 事件）。
+
+### R15 变更（生存策略验证）
+
+1. `OnSceneLoaded` 增强：`scene-loaded scene= mode= managerAlive=` 归因日志 + 调用 `DrvRebuildProbeHost()`。
+2. `DrvRebuildProbeHost`：计数（`DrvSceneRebuildCount`）+ `rebuilt` 单次守卫 + **Unity 调用隔离**到 `DrvCreateProbeHostObject`（纯宿主 Mono 对含 ECall 的方法体在 JIT 边界抛 `SecurityException`，隔离到独立方法后异常在 try 内调用点抛出、可捕获——**新 seam gap**）+ try/catch；重建对象 `DEBUG.ProbeHostR15`（DontDestroyOnLoad，无 hideFlags）。
+3. 测试 `AssertSceneLoadedRebuildCounterAdvances`（纯宿主锁定计数语义）。
+
+### 循环审查记录
+
+第 1 轮（增量双轴并行）：Standards **CLEAN**（0 硬违规 + 3 判断性：子方法标记行、首败永久放弃、删除边界注释）；Spec 1 项（R15 seam gap 未按规则第 1 步入审计）→ 本节即补记。**循环闭合：双轴无阻断发现。** 构建 0/0、7/7 测试 PASS（`tests-r15-*.log`）、`git diff --check` CLEAN。
+
+**Seam gap 记录（output-review-loop 第 1 步义务）**：
+1. `DrvCreateProbeHostObject` 的 Unity ECall 在纯宿主 JIT 边界抛 `SecurityException`——计数语义已由测试锁定，GameObject 创建/DontDestroyOnLoad/AddComponent/Update 驱动的 Unity 行为**不可宿主自校验**。
+2. 场景回调链（`scene-loaded` → 重建 → `drv-host-tick`）整体依赖 Unity 场景系统，有效性只能由真机读数判定。
+
+**R15 读数分支**：
+| 读数 | 结论 → 方向 |
+|---|---|
+| `scene-loaded` 出现 + `probe-host-rebuilt` + `drv-host-tick` 增长 | 生存策略成立：驱动链迁移到「场景加载后重建宿主」即为 R16 修复形态 |
+| `scene-loaded` 出现 + `probe-host-rebuilt` + `drv-host-tick` = 0 | 场景后对象仍不被驱动 → 引擎级派发失效（RT-08 扩查 + UPM 对照实验） |
+| `scene-loaded` 未出现 | static 事件链路也失效 → 托管世界与游戏主循环全面脱钩，环境级问题 |
+
+### 探针产物
+
+`artifacts/DEV-16B-management-panel-runtime-probe-r15-20260829/BetterUnturnedExperience.dll`，CaseId `DEV-16B-R15-20260829`（SHA-256 见 `audit/2026-08-29/r15-dll-sha256.txt`）。**探针轮产物仅用于诊断，不得驻留真机。**

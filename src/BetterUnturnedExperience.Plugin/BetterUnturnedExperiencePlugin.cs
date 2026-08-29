@@ -315,7 +315,44 @@ namespace BetterUnturnedExperience.Plugin
 
         private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
         {
+            // [DEBUG-drv] attribution + survival probe; removed after diagnosis.
+            DrvLog?.LogInfo("[DEBUG-drv] event=scene-loaded scene=" + scene.name + " mode=" + mode + " managerAlive=" + (this != null));
+            DrvRebuildProbeHost();
             TryCompleteRuntime();
+        }
+
+        // [DEBUG-drv] rebuild counter; removed after diagnosis.
+        internal static int DrvSceneRebuildCount;
+        private static bool drvProbeHostRebuilt;
+
+        // [DEBUG-drv] Objects created during the Chainloader stage (before the
+        // first scene) are swept by the game's startup sequence. The static
+        // sceneLoaded subscription survives that sweep, so rebuilding the probe
+        // host here answers whether post-scene objects get ticked normally.
+        internal static void DrvRebuildProbeHost()
+        {
+            DrvSceneRebuildCount++;
+            if (drvProbeHostRebuilt) return;
+            drvProbeHostRebuilt = true;
+            try
+            {
+                // Unity calls are isolated here: pure hosts throw ECall
+                // SecurityException at the JIT boundary of the calling method,
+                // so the construction must live in its own method body.
+                DrvCreateProbeHostObject();
+                DrvLog?.LogInfo("[DEBUG-drv] event=probe-host-rebuilt");
+            }
+            catch (Exception error)
+            {
+                DrvLog?.LogWarning("[DEBUG-drv] event=probe-host-rebuild-failed errorType=" + error.GetType().FullName);
+            }
+        }
+
+        private static void DrvCreateProbeHostObject()
+        {
+            var probeHost = new GameObject("DEBUG.ProbeHostR15");
+            UnityEngine.Object.DontDestroyOnLoad(probeHost);
+            probeHost.AddComponent<DrvProbeHostBehaviour>();
         }
 
         private void TryCompleteRuntime()
