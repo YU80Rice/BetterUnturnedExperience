@@ -340,3 +340,33 @@ R16 真机（`UMM-诊断包_20260829_225222`）驱动层依旧全停（37 行后
 ### R19 真机预期
 
 R18 已证 `MenuUI.Update` postfix 每帧命中 + `host-destroyed state=preserved` 后 patch 保留 ⇒ **驱动链在宿主被清后由 Harmony 通道独立维持**：`create-button-*` 应随菜单 UI 构造出现（`OnUiRebuilt`/`OnSurfaceOpened` 均为命中路径），**"BUE 插件管理"按钮应可见**。若按钮出现可点击 → DEV-16B 可见性门禁通过，进入证据归档。
+
+## 18. R20 UI 布局修复轮（2026-08-29，按钮可见达成后的真机反馈）
+
+### R19 真机验证（`UMM-诊断包_20260829_233820`）——可见性门禁通过
+
+`BUE-CLIENTUI-002` ✓ → `host-destroyed state=preserved patches-kept=true` ✓（保活生效）→ **三路 `create-button-begin/result/add-child-success` 全部成功**（Dashboard/Workshop/PlayerPause，含进 PEI 后 `scenario=LocalAuthorityOrHost`）✓。**用户亲眼确认"BUE 插件管理"按钮出现**——DEV-16B 可见性门禁通过。用户反馈三个布局问题：①按钮比例与 vanilla 不一致（扁）；②暂停按钮在 ESC 菜单外；③主界面按钮被游戏异步插入的商店按钮遮挡；④面板固定尺寸不随分辨率。
+
+### 根因（SDK 对照）
+
+- **遮挡**：SDK `MenuDashboardUI.cs` 左列按钮 y=170 起步、60px 间距；商店按钮由 `OnPricesReceived` **异步插入同列**（y=410 格）——BUE dashboard 按钮固定 `(0,410)` 正撞商店格。
+- **扁**：workshop/pause 按钮尺寸 220×44 vs UPM 已验证的 200×50。
+- **面板错位**：`EnsurePanel` 的 `PositionScale_Y = -1f`（底部锚定）导致高分辨率下面板被压扁。
+
+### R20 修复（UPM 已验证参数 + vanilla 模式对照）
+
+1. dashboard 按钮：`Pos(-100,-290,0.5,0.5)`（中央下方，避开左列按钮与商店格）+ `Size(200,50)`。
+2. workshop 按钮：`Pos(-100,185,0.5,0.5)` `Size(200,50)`——与 UPM L431-436 逐值一致；补 TooltipText/FontSize。
+3. pause 按钮：`Pos(205,-290,0.5,0.5)` `Size(200,50)`——与 UPM L483-488 逐值一致。
+4. 面板：`PositionOffset(10,10) SizeOffset(-20,-20) SizeScale(1,1)` 全屏动态适配（vanilla `MenuDashboardUI.container` 同款模式），移除 `PositionScale_Y=-1`；title 宽度随面板适配、refresh 按钮右锚、status 补 `SizeScale_X=1`。
+5. **不改任何 vanilla 控件**（用户提出的"移动游戏购买按钮"改为 BUE 按钮避让——原生回退原则）。
+
+### 循环审查记录
+
+第 1 轮（增量双轴并行）：Standards 0 硬违规 + 3 判断性；Spec 1 项（status 缺 SizeScale_X）→ 修复 4 项（status Scale_X、注释归因更正为 vanilla 模式、mainButton 补 Tooltip/FontSize、seam gap 记录本节）。构建 0/0、7/7 测试 PASS（`tests-r20-*.log`）、`git diff --check` CLEAN。
+
+**Seam gap 记录（output-review-loop 第 1 步义务）**：UI 布局参数（Position/Size offset/scale）依赖 Glazier/uGUI 渲染，纯宿主不可自校验；参数已逐值对照 UPM 已验证实现与 vanilla `MenuDashboardUI.container` 模式，最终以真机截图验证。
+
+### 布局产物
+
+`artifacts/DEV-16B-management-panel-ui-layout-r20-20260829/BetterUnturnedExperience.dll`，SHA-256 `42BA8B1ACA355895C2D642555F221633B2EC2E06E4F80B7481522784121F7AF1`，CaseId `DEV-16B-R20-20260829`。**R20 真机验证项**：三按钮比例与位置、面板动态分辨率适配、dashboard 按钮不再被商店按钮遮挡。

@@ -351,7 +351,14 @@ namespace BetterUnturnedExperience.Plugin
                 LogTrace("create-button-begin", "surface=MenuDashboardUI source=" + source);
                 dashboardButton = Glazier.Get().CreateButton();
                 if (dashboardButton == null) throw new InvalidOperationException("Glazier.CreateButton returned null");
-                dashboardButton.PositionOffset_Y = 410f;
+                // Center-bottom anchor, clear of the left button column (Play/
+                // Survivors/... start at y=170 with a 60px pitch) and of the
+                // item-store entry that the game inserts into that column
+                // asynchronously.
+                dashboardButton.PositionOffset_X = -100f;
+                dashboardButton.PositionOffset_Y = -290f;
+                dashboardButton.PositionScale_X = 0.5f;
+                dashboardButton.PositionScale_Y = 0.5f;
                 dashboardButton.SizeOffset_X = 200f;
                 dashboardButton.SizeOffset_Y = 50f;
                 dashboardButton.Text = "BUE 插件管理";
@@ -427,13 +434,15 @@ namespace BetterUnturnedExperience.Plugin
                 mainButton = Glazier.Get().CreateButton();
                 LogTrace("create-button-result", "surface=MenuWorkshopUI created=" + (mainButton != null) + " source=" + source);
                 if (mainButton == null) throw new InvalidOperationException("Glazier.CreateButton returned null");
-                mainButton.PositionOffset_X = -110f;
+                mainButton.PositionOffset_X = -100f;
                 mainButton.PositionOffset_Y = 185f;
                 mainButton.PositionScale_X = 0.5f;
                 mainButton.PositionScale_Y = 0.5f;
-                mainButton.SizeOffset_X = 220f;
-                mainButton.SizeOffset_Y = 44f;
+                mainButton.SizeOffset_X = 200f;
+                mainButton.SizeOffset_Y = 50f;
                 mainButton.Text = "BUE 插件管理";
+                mainButton.TooltipText = "查看已加载的 BepInEx 插件，并可在游戏内修改其配置";
+                mainButton.FontSize = ESleekFontSize.Medium;
                 mainButton.OnClicked += OnMainButtonClicked;
                 parent.AddChild(mainButton);
                 mainParent = parent;
@@ -487,8 +496,8 @@ namespace BetterUnturnedExperience.Plugin
                 pauseButton.PositionOffset_Y = -290f;
                 pauseButton.PositionScale_X = 0.5f;
                 pauseButton.PositionScale_Y = 0.5f;
-                pauseButton.SizeOffset_X = 220f;
-                pauseButton.SizeOffset_Y = 44f;
+                pauseButton.SizeOffset_X = 200f;
+                pauseButton.SizeOffset_Y = 50f;
                 pauseButton.Text = "BUE 插件管理";
                 pauseButton.OnClicked += OnPauseButtonClicked;
                 parent.AddChild(pauseButton);
@@ -531,11 +540,15 @@ namespace BetterUnturnedExperience.Plugin
         {
             if (panel != null && IsAlive(panel)) return;
             panel = new SleekFullscreenBox();
-            panel.PositionOffset_X = 12f;
-            panel.PositionOffset_Y = 12f;
-            panel.PositionScale_Y = -1f;
-            panel.SizeOffset_X = -24f;
-            panel.SizeOffset_Y = -24f;
+            // Full-bleed overlay that tracks the game resolution: scale 1,1
+            // with symmetric 10px margins, the same pattern the vanilla
+            // MenuDashboardUI.container uses. The previous PositionScale_Y=-1
+            // pinned the panel to the bottom edge and squashed it at higher
+            // resolutions.
+            panel.PositionOffset_X = 10f;
+            panel.PositionOffset_Y = 10f;
+            panel.SizeOffset_X = -20f;
+            panel.SizeOffset_Y = -20f;
             panel.SizeScale_X = 1f;
             panel.SizeScale_Y = 1f;
 
@@ -548,7 +561,8 @@ namespace BetterUnturnedExperience.Plugin
             title = Glazier.Get().CreateLabel();
             title.PositionOffset_X = 24f;
             title.PositionOffset_Y = 20f;
-            title.SizeOffset_X = 620f;
+            title.SizeOffset_X = -300f;
+            title.SizeScale_X = 1f;
             title.SizeOffset_Y = 40f;
             title.Text = "Better Unturned Experience · 插件管理";
             title.FontSize = ESleekFontSize.Large;
@@ -556,8 +570,9 @@ namespace BetterUnturnedExperience.Plugin
             panel.AddChild(title);
 
             refreshButton = Glazier.Get().CreateButton();
-            refreshButton.PositionOffset_X = 250f;
+            refreshButton.PositionOffset_X = -260f;
             refreshButton.PositionOffset_Y = 20f;
+            refreshButton.PositionScale_X = 1f;
             refreshButton.SizeOffset_X = 100f;
             refreshButton.SizeOffset_Y = 40f;
             refreshButton.Text = "刷新";
@@ -618,6 +633,7 @@ namespace BetterUnturnedExperience.Plugin
             status.PositionOffset_Y = -28f;
             status.PositionScale_Y = 1f;
             status.SizeOffset_X = -48f;
+            status.SizeScale_X = 1f;
             status.SizeOffset_Y = 24f;
             status.TextAlignment = TextAnchor.MiddleLeft;
             panel.AddChild(status);
