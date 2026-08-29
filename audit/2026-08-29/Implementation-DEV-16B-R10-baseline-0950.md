@@ -284,3 +284,25 @@ R10 新增的 `CanBindNativeUi()` 把 `Glazier.Get() != null` 混入门禁。`Gl
 ### R16 真机预期
 
 与 UPM 同等存活条件：`BUE-CLIENTUI-002` → `start-entered` → `plugin-update`（驱动链恢复）→ `runtime-pump-tick` → `constructor-postfix`/`host-ui-tick`（Harmony 命中）→ `create-button-*` → **按钮可见**。若某环节仍缺失，按判别矩阵定位（此时无 self-revive 干扰，读数可信）。DEV-16B 保持 `ready-for-human`：真实按钮可见性门禁待本次部署验证。
+
+## 16. R17 极简 bisection 探针轮（2026-08-29，用户反证驱动的方向修正）
+
+### 用户反证（关键纠偏）
+
+R16 真机（`UMM-诊断包_20260829_225222`）驱动层依旧全停（37 行后无事件）。用户指出：**UPM 不需要修改任何 cfg 即正常工作**——推翻「HideManagerGameObject 未设置」假设与「清场导致停摆」推理链。**R15 同场铁证重申**：同一方法 `MenuWorkshopUI.constructor`，UPM 的 postfix 命中、BUE 的 postfix 未命中——**差异在 BUE 自身**。
+
+### R17 极简对照版
+
+`BetterUnturnedExperiencePlugin` 重写为 UPM 形状的最小插件：仅 `Harmony patch MenuWorkshopUI.constructor → ctor-postfix-hit 日志` + `Update → plugin-update 日志` + `Start/OnDisable` 日志；BUE 其余全部旁路（类型保留编译、不被调用）。其余源文件不变，其余测试不变（7/7 PASS，构建 0/0）。
+
+### R17 真机判读分支
+
+| 读数 | 结论 → 方向 |
+|---|---|
+| `ctor-postfix-hit` + `plugin-update` 出现 | 通道可用：BUE 完整版 Awake 的某语句破坏帧管线 → 按语句清单 bisection 定位 |
+| `ctor-postfix-hit` 出现但 `plugin-update`=0 | Harmony 命中但组件 Update 仍不被调度 → 组件级消息问题（与 UPM 对比仅剩 GUID/类差异） |
+| 两者皆零 | BUE 程序集/身份级差异 → 检查 GUID 冲突、程序集结构、加载顺序 |
+
+### 探针产物
+
+`artifacts/DEV-16B-management-panel-runtime-probe-r17-minimal-20260829/BetterUnturnedExperience.dll`，SHA-256 `26010A213FEA5FBC15642198AF08AA4136356F9F99EFE83DF970859CD4DF0C6B`。**探针轮产物仅用于诊断，不得驻留真机；全量 [DEBUG-min] 标记。**
