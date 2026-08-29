@@ -59,21 +59,37 @@ R10 方向的未提交修改（插件自身 `Update()` 直驱 driver、三路注
 
 判定规则：`plugin-update` > 0 且最终截图无按钮 → 按表继续向右定位；六项全零 → 假设 #1（部署身份错误）复核 `assembly-identity` SHA-256 是否等于本文第 4 节值。
 
-## 6. 已知风险（本轮不修改生产代码，记录待后）
+## 6. 已知风险（2026-08-29 R10b 轮更新）
 
-1. `BetterUnturnedExperiencePlugin.TryCompleteRuntime()` 无异常屏障：`CompleteRuntime()` 或 `RefreshManagementPanel()` 若抛异常，`Update()` 将每帧重试并刷错误日志。非 R9 全零候选原因（R9 无异常记录），建议在真机证据回来自动修复轮以 TDD 处理。
+1. ~~`TryCompleteRuntime()` 无异常屏障~~ → **已在 R10b 修复**（`BueRuntimeCompletionBarrier`：未就绪可重试、异常永久隔离并保留 `LastFailure` 诊断；`CompleteRuntime` 成功后的 Refresh 副作用局部隔离，不再阻塞 RuntimeReady 输出）。详见第 9 节。
 2. `BueRuntimeTickDispatcher` 在 `log == null`（纯测试宿主）时 frameProvider 恒为 `-1`，同帧去重语义与生产分叉；生产路径不受影响，已有测试锁定哨兵行为。
 3. 面板挂载于 vanilla 页面容器（非独立 `SleekWindow`），光标/遮罩/输入焦点需真机确认（交接文档第 8.4 条）。
+4. **待规格裁决项（双轴审查发现，未在本轮修改，已记入工单 Comments）**：枚举（AcceptableValueList）条目只读 vs 规格要求的校验编辑路径；第三方条目显示名/版本/运行状态模型缺口（`FeatureState` 恒 Running）；面板打开时整页遮蔽宿主页面的规格授权；`IsAlive` 反射失败返回 false 的 fail 方向。
 
-## 7. 唯一人工步骤（HITL）
+## 7. 唯一人工步骤（HITL，2026-08-29 更新为 r10b 产物）
 
-1. 备份并替换 `E:\Steam\steamapps\common\Unturned\BepInEx\plugins\BetterUnturnedExperience.dll` 为 r10 产物（部署前删除旧文件，避免残留）。
+1. 备份并替换 `E:\Steam\steamapps\common\Unturned\BepInEx\plugins\BetterUnturnedExperience.dll` 为 **r10b 产物**（部署前删除旧文件，避免残留）。
 2. 启动 Unturned → 进入主菜单（Workshop 页与 Dashboard 页各停留数秒）→ 进入游戏 → 打开暂停菜单。
 3. 导出 UMM 诊断包，并将包内 `LogOutput.log`（含 `assembly-identity` 行）与截图交回。
-4. 预期比对：`assembly-identity` SHA-256 必须等于 `AF065D83B04D604113CB96DDB57B7A39CD98F1BEC1456DA303ECD6A1F1064CBE`，否则为部署身份错误。
+4. 预期比对：`assembly-identity` SHA-256 必须等于 `D8F9AF516AC530EDDA93AE61DDBE168375C2F6B96027751C1CB7F6FCEA4212D5`（r10b），否则为部署身份错误。
 
 ## 8. 三态声明
 
-- **静态已证明**：R10 代码编译、7/7 测试、门禁、单 DLL 闭包、diff 卫生。
+- **静态已证明**：R10b 代码编译、7/7 测试、门禁、单 DLL 闭包、diff 卫生、双轴子代理审查（Standards/Spec 独立并行）通过。
 - **运行时未证明**：按钮可见性、面板交互、Harmony 命中、容器时序。
 - **发布未授权**：DEV-16B 不得标记 resolved/Stable/三环境通过，直至新证据包与资格门禁完整通过。
+
+## 9. R10b 修复记录（2026-08-29，双轴审查驱动的 TDD 轮）
+
+**范围**：仅修复审查发现的阻断项，其余记入 §6.4 待规格裁决。
+
+| 发现来源 | 问题 | 修复 |
+|---|---|---|
+| Standards（硬违规） | 屏障 catch 裸吞异常，违反「核心安全降级保留最小诊断」 | `BueRuntimeCompletionBarrier` 保存 `LastFailure`；日志补 `errorType=` |
+| Standards（smell） | `completionIsolatedLogged` 与屏障幂等重复 | 首次隔离回调 `onFirstFailure` 内聚进屏障，插件字段删除 |
+| Spec-② | `RuntimeCompletionIsolated` 缺 Decision 结构化字段 | 日志补 `decision=Isolate`（符合规格 §3 结构化四元组） |
+| Spec-③ | `CompleteRuntime` 成功后 Refresh 抛异常 → RuntimeReady 永不输出、退订被跳过 | `TryRefreshAfterCompletion()` 副作用局部隔离（`BUE-CLIENTUI-004`），RuntimeReady 事实输出不再被 UI 刷新失败阻塞 |
+
+TDD 闭环：红（CS0246 类型缺失）→ 绿（`AssertRuntimeCompletionBarrierIsolates` 13 断言，含 LastFailure 保留、回调仅一次、未就绪可重试、完成幂等）。
+
+**新产物**：`artifacts/DEV-16B-management-panel-runtime-fix-r10b-20260829/BetterUnturnedExperience.dll`，169984 bytes，SHA-256 `D8F9AF516AC530EDDA93AE61DDBE168375C2F6B96027751C1CB7F6FCEA4212D5`，**CaseId `DEV-16B-R10B-20260829`**（r10 的 `AF065D83…` 从未被部署，保留作对照）。验证：构建 0/0、7/7 测试 PASS、NoUiTokens 三 SourceRoot PASS、`git diff --check` CLEAN。

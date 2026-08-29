@@ -25,6 +25,7 @@ namespace BetterUnturnedExperience.Plugin
         private BueRuntimePump runtimePump;
         private BueRuntimePumpBehaviour runtimePumpBehaviour;
         private BuePluginUpdateDriver pluginUpdateDriver;
+        private BueRuntimeCompletionBarrier completionBarrier;
 
         private void Awake()
         {
@@ -156,13 +157,37 @@ namespace BetterUnturnedExperience.Plugin
         private void TryCompleteRuntime()
         {
             if (runtimeReadyLogged) return;
-            var runtime = BueRuntimeHost.CurrentRuntime;
-            if (runtime == null || runtime.Phase != FeatureRegistrationPhase.RegistrationOpen) return;
-            if (!runtime.CompleteRuntime()) return;
+            if (completionBarrier == null) completionBarrier = new BueRuntimeCompletionBarrier(CompleteRuntimeOnce, LogRuntimeCompletionIsolated);
+            if (!completionBarrier.TryComplete()) return;
             runtimeReadyLogged = true;
-            if (clientUiComposition != null) clientUiComposition.RefreshManagementPanel();
-            UnsubscribeSceneLoaded();
             Logger.LogInfo("Better Unturned Experience featureId=" + FeatureId + " status=RuntimeReady diagnosticId=BUE-BOOTSTRAP-003");
+        }
+
+        private void LogRuntimeCompletionIsolated(Exception error)
+        {
+            Logger.LogError("Better Unturned Experience featureId=" + FeatureId + " status=RuntimeCompletionIsolated decision=Isolate errorType=" + error.GetType().FullName + " diagnosticId=" + DiagnosticId);
+        }
+
+        private bool CompleteRuntimeOnce()
+        {
+            var runtime = BueRuntimeHost.CurrentRuntime;
+            if (runtime == null || runtime.Phase != FeatureRegistrationPhase.RegistrationOpen) return false;
+            if (!runtime.CompleteRuntime()) return false;
+            TryRefreshAfterCompletion();
+            UnsubscribeSceneLoaded();
+            return true;
+        }
+
+        private void TryRefreshAfterCompletion()
+        {
+            try
+            {
+                if (clientUiComposition != null) clientUiComposition.RefreshManagementPanel();
+            }
+            catch (Exception error)
+            {
+                Logger.LogWarning("BUE client UI refresh after completion isolated errorType=" + error.GetType().FullName + " diagnosticId=BUE-CLIENTUI-004");
+            }
         }
 
         private void UnsubscribeSceneLoaded()

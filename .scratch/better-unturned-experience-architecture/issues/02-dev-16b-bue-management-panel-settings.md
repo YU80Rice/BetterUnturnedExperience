@@ -31,3 +31,10 @@
 - 新 DLL：`artifacts/DEV-16B-management-panel-runtime-fix-r10-20260829/BetterUnturnedExperience.dll`（168960 bytes，SHA-256 `AF065D83…64CBE`，CaseId `DEV-16B-R10-20260829`；完整值见 `audit/2026-08-29/r10-dll-sha256.txt`）。
 - 审计：`audit/2026-08-29/Implementation-DEV-16B-R10-baseline-0950.md`（含真机 UMM 诊断包六边界判别矩阵与部署步骤）。
 - 状态保持 `ready-for-human`：等待人工部署 r10 DLL 并回传诊断包；`plugin-update` 是否 >0 为第一判据。
+
+### 2026-08-29 R10b 屏障修复（agent，双轴审查驱动）
+
+- **修复**（TDD 红→绿）：新增 `BueRuntimeCompletionBarrier`（未就绪可重试 / 异常永久隔离 + `LastFailure` 保留 + 首次隔离回调），`TryCompleteRuntime` 经屏障执行；日志补 `decision=Isolate errorType=`；`CompleteRuntime` 成功后的 Refresh 副作用局部隔离（`BUE-CLIENTUI-004`），RuntimeReady 输出不再被 UI 刷新失败阻塞。
+- **新产物**：`artifacts/DEV-16B-management-panel-runtime-fix-r10b-20260829/BetterUnturnedExperience.dll`（169984 bytes，SHA-256 `D8F9AF51…12D5`，CaseId `DEV-16B-R10B-20260829`；完整值 `audit/2026-08-29/r10b-dll-sha256.txt`）。验证全绿：构建 0/0、7/7 测试、NoUiTokens×3、`git diff --check`。
+- **待规格裁决**（双轴子代理审查发现，未修改）：① AcceptableValueList 条目只读 vs 规格要求的校验编辑路径；② 第三方条目显示名/版本/运行状态模型缺口（`FeatureState` 恒 Running，ContractTypes 无字段）；③ 面板打开时整页遮蔽宿主页面的规格授权；④ `IsAlive` 反射失败返回 false 的 fail 方向（无纯宿主测试 seam）。
+- 状态保持 `ready-for-human`：请部署 **r10b** 产物并回传 UMM 诊断包；判别矩阵见 `audit/2026-08-29/Implementation-DEV-16B-R10-baseline-0950.md` 第 5/7/9 节。

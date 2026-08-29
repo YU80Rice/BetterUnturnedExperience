@@ -222,4 +222,59 @@ namespace BetterUnturnedExperience.Plugin
             if (current != null) current.Clear();
         }
     }
+
+    /// <summary>
+    /// One-shot guard for runtime completion. A "not ready yet" result
+    /// (false without exception) may retry next frame; a throwing attempt
+    /// isolates the barrier so a broken completion path cannot spam the
+    /// host log every frame and drown the diagnostic trace. Trade-off:
+    /// every exception is treated as a core-safety degradation and isolates
+    /// permanently; transient failures are not retried. The captured
+    /// exception stays available as <see cref="LastFailure"/> so isolation
+    /// still leaves the minimal diagnostic behind.
+    /// </summary>
+    internal sealed class BueRuntimeCompletionBarrier
+    {
+        private readonly Func<bool> attempt;
+        private readonly Action<Exception> onFirstFailure;
+        private bool completed;
+        private bool isolated;
+        private Exception lastFailure;
+
+        internal BueRuntimeCompletionBarrier(Func<bool> attempt)
+            : this(attempt, null)
+        {
+        }
+
+        internal BueRuntimeCompletionBarrier(Func<bool> attempt, Action<Exception> onFirstFailure)
+        {
+            this.attempt = attempt ?? throw new ArgumentNullException(nameof(attempt));
+            this.onFirstFailure = onFirstFailure;
+        }
+
+        internal bool Isolated { get { return isolated; } }
+
+        internal Exception LastFailure { get { return lastFailure; } }
+
+        internal bool TryComplete()
+        {
+            if (completed || isolated) return completed;
+            try
+            {
+                if (attempt())
+                {
+                    completed = true;
+                    return true;
+                }
+                return false;
+            }
+            catch (Exception error)
+            {
+                isolated = true;
+                lastFailure = error;
+                if (onFirstFailure != null) onFirstFailure(error);
+                return false;
+            }
+        }
+    }
 }

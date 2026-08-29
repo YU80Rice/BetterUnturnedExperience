@@ -38,6 +38,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 AssertButtonInjectionRoutesAreLocallyIsolated();
                 AssertRuntimeDriverDispatchesButtonInjectionSeam();
                 AssertPanelDispatchReachesButtonInjectionSeam();
+                AssertRuntimeCompletionBarrierIsolates();
                 AssertManagementPanelConsumesRuntimeCatalog();
                 AssertManagementPanelOpenHooks();
                 Assert(RequiresParentRebindSemantics(), "management panel resets bindings when UI parent changes");
@@ -153,6 +154,37 @@ namespace BetterUnturnedExperience.Plugin.Tests
             Assert(failing.TickIsolated, "button injection failure isolates the panel");
             Assert(!failing.Dispatch(BueNativeManagementPanel.TickSource.Harmony), "isolated panel rejects later Harmony injection");
             failing.Destroy();
+        }
+
+        private static void AssertRuntimeCompletionBarrierIsolates()
+        {
+            var calls = 0;
+            var failing = new BueRuntimeCompletionBarrier(() => { calls++; throw new InvalidOperationException("synthetic barrier failure"); });
+            Assert(!failing.TryComplete(), "barrier rejects the throwing completion attempt");
+            Assert(!failing.TryComplete(), "barrier does not retry after an exception");
+            Assert(calls == 1, "barrier isolation prevents per-frame retry spam");
+            Assert(failing.Isolated, "barrier reports isolated after a completion failure");
+            Assert(failing.LastFailure is InvalidOperationException, "barrier preserves the isolated exception for diagnostics");
+
+            var notifications = 0;
+            var notifying = new BueRuntimeCompletionBarrier(() => { throw new InvalidOperationException("notify once"); }, error => notifications++);
+            Assert(!notifying.TryComplete(), "notifying barrier rejects the throwing attempt");
+            Assert(!notifying.TryComplete(), "notifying barrier does not retry after isolation");
+            Assert(notifications == 1, "first-failure callback fires exactly once");
+            Assert(notifying.LastFailure != null, "notifying barrier also preserves the failure");
+
+            var attempts = 0;
+            var notReady = new BueRuntimeCompletionBarrier(() => { attempts++; return false; });
+            Assert(!notReady.TryComplete(), "not-ready barrier reports incomplete");
+            Assert(!notReady.TryComplete(), "not-ready barrier may retry next frame");
+            Assert(attempts == 2, "not-ready barrier keeps retrying without isolating");
+
+            var done = 0;
+            var ready = new BueRuntimeCompletionBarrier(() => { done++; return true; });
+            Assert(ready.TryComplete() && done == 1, "ready barrier completes once");
+            Assert(ready.TryComplete() && done == 1, "completed barrier is idempotent");
+            Assert(!ready.Isolated, "successful completion does not isolate the barrier");
+            Assert(ready.LastFailure == null, "successful completion leaves no failure behind");
         }
 
         private static void AssertManagementPanelConsumesRuntimeCatalog()
