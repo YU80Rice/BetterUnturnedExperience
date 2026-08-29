@@ -56,6 +56,7 @@ R10 方向的未提交修改（插件自身 `Update()` 直驱 driver、三路注
 | 4 | `create-button-begin` | 容器非空、注入开始 | 容器时序边界：检查 `surface-opened` 与容器重建 |
 | 5 | `create-button-result` / `add-child-success` | 按钮创建/挂载成功 | 注入实现边界 |
 | 6 | 截图可见按钮 | 可见性门禁通过 | 可见性/布局边界 |
+| — | `RuntimeCompletionIsolated`（R10b 新增） | 运行时屏障完成路径异常并被隔离（附 errorType） | 出现即表示注册屏障失败被拦截；此时 `RuntimeReady` 不会出现，属预期 fail-closed 而非判别矩阵故障 |
 
 判定规则：`plugin-update` > 0 且最终截图无按钮 → 按表继续向右定位；六项全零 → 假设 #1（部署身份错误）复核 `assembly-identity` SHA-256 是否等于本文第 4 节值。
 
@@ -85,11 +86,15 @@ R10 方向的未提交修改（插件自身 `Update()` 直驱 driver、三路注
 
 | 发现来源 | 问题 | 修复 |
 |---|---|---|
-| Standards（硬违规） | 屏障 catch 裸吞异常，违反「核心安全降级保留最小诊断」 | `BueRuntimeCompletionBarrier` 保存 `LastFailure`；日志补 `errorType=` |
-| Standards（smell） | `completionIsolatedLogged` 与屏障幂等重复 | 首次隔离回调 `onFirstFailure` 内聚进屏障，插件字段删除 |
-| Spec-② | `RuntimeCompletionIsolated` 缺 Decision 结构化字段 | 日志补 `decision=Isolate`（符合规格 §3 结构化四元组） |
+| Standards（硬违规） | R10b 初版屏障 catch 裸吞异常，违反「核心安全降级保留最小诊断」 | 屏障保存 `LastFailure`；隔离日志含 `errorType=` |
+| Standards（smell） | R10b 初版的 `completionIsolatedLogged` 防重字段与屏障幂等重复 | 首次隔离回调 `onFirstFailure` 内聚进屏障，初版字段同轮删除 |
+| Spec-② | 隔离诊断缺结构化字段 | **新增** `RuntimeCompletionIsolated` 事件，含 `decision=Isolate`（规格 §3 四元组：FeatureId/DiagnosticId/Decision/Status；该事件 R10b 轮新增，非基线已有） |
 | Spec-③ | `CompleteRuntime` 成功后 Refresh 抛异常 → RuntimeReady 永不输出、退订被跳过 | `TryRefreshAfterCompletion()` 副作用局部隔离（`BUE-CLIENTUI-004`），RuntimeReady 事实输出不再被 UI 刷新失败阻塞 |
 
-TDD 闭环：红（CS0246 类型缺失）→ 绿（`AssertRuntimeCompletionBarrierIsolates` 13 断言，含 LastFailure 保留、回调仅一次、未就绪可重试、完成幂等）。
+TDD 闭环：红（CS0246 类型缺失）→ 绿（`AssertRuntimeCompletionBarrierIsolates` **16 断言**，含 LastFailure 保留、回调仅一次、未就绪可重试、完成幂等）。
 
-**新产物**：`artifacts/DEV-16B-management-panel-runtime-fix-r10b-20260829/BetterUnturnedExperience.dll`，169984 bytes，SHA-256 `D8F9AF516AC530EDDA93AE61DDBE168375C2F6B96027751C1CB7F6FCEA4212D5`，**CaseId `DEV-16B-R10B-20260829`**（r10 的 `AF065D83…` 从未被部署，保留作对照）。验证：构建 0/0、7/7 测试 PASS、NoUiTokens 三 SourceRoot PASS、`git diff --check` CLEAN。
+**第三轮复审记录（循环审查第二轮）**：Standards 轴 `CLEAN`（前轮硬违规消除确认 + 3 项可推迟 smell：完成路径退订纳入屏障的失败语义偏宽、单参构造轻冗余、BUE-CLIENTUI-004 日志格式与主隔离日志不一致）；Spec 轴 3 项记录/证据偏差 → 已修正（断言计数 13→16、溯源表述更正为「R10b 新增事件」、R10b 轮测试证据以独立 `tests-r10b-*.log` ×7 + 测试 exe SHA-256（`r10b-tests-exe-sha256.txt`，`A4F65BCC…EABB`）留存）。
+
+**第四轮终审记录（循环闭合，2026-08-29）**：双轴独立终审均 `CLEAN`。Spec 侧（5/5 闭合）：16 断言计数与源码实证一致；`git show 1747f98` 取证确认基线无 `RuntimeCompletionIsolated`，溯源表述成立；§5 矩阵行已补；`tests-r10b-*.log` ×7 全 PASS + exe SHA 锚定 + mtime 弱证据；工单证据引用与循环链完整。Standards 侧（4/4 核验）：§9 屏障语义与 CONTEXT.md「核心安全降级保留最小诊断」逐字吻合、未夸大为核级停机；3 项可推迟 smell 按循环规则第 3 条显式记录；矩阵行事件名与代码（Plugin.cs:163/168/189）实证一致；循环链无自相矛盾。**循环终止：双轴无阻断发现，`e3d1986` 及本审计记录为正式输出。**
+
+**新产物**：`artifacts/DEV-16B-management-panel-runtime-fix-r10b-20260829/BetterUnturnedExperience.dll`，169984 bytes，SHA-256 `D8F9AF516AC530EDDA93AE61DDBE168375C2F6B96027751C1CB7F6FCEA4212D5`，**CaseId `DEV-16B-R10B-20260829`**（r10 的 `AF065D83…` 从未被部署，保留作对照）。验证：构建 0/0、7/7 测试 PASS（`tests-r10b-*.log`）、NoUiTokens 三 SourceRoot PASS、`git diff --check` CLEAN。

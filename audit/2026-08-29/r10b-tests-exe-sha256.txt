@@ -1,0 +1,1 @@
+a4f65bcc6de8b0eb74fa899bca5a60a51482e198532d5ad2487446ecf754eabb *tests/BetterUnturnedExperience.Plugin.Tests/bin/Release/BetterUnturnedExperience.Plugin.Tests.exe
