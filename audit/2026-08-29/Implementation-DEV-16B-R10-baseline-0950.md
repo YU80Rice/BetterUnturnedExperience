@@ -370,3 +370,27 @@ R18 已证 `MenuUI.Update` postfix 每帧命中 + `host-destroyed state=preserve
 ### 布局产物
 
 `artifacts/DEV-16B-management-panel-ui-layout-r20-20260829/BetterUnturnedExperience.dll`，SHA-256 `42BA8B1ACA355895C2D642555F221633B2EC2E06E4F80B7481522784121F7AF1`，CaseId `DEV-16B-R20-20260829`。**R20 真机验证项**：三按钮比例与位置、面板动态分辨率适配、dashboard 按钮不再被商店按钮遮挡。
+
+## 19. R21 dashboard 按钮定位修正轮（2026-08-29，用户布局指令）
+
+### 用户反馈（R20 真机）
+
+R20 其余项达标；dashboard 按钮被放到页面中央（`-100,-290,0.5,0.5` 中心锚点）不合预期。用户给出主界面真实结构：左列按钮自上而下为开始游戏/角色设定/游戏设置/创意工坊/商店购买，指令为「商店购买下移一格，BUE 插件管理放创意工坊下方」。
+
+### 技术边界与取舍
+
+SDK 确认商店按钮 `SleekItemStoreMainMenuButton` 为 **OnPricesReceived 内的局部变量**（异步创建、y=410、无静态字段引用），且 Glazier/ISleekElement **无公开子元素枚举**（`GlazierElementBase` 的 children 为 protected）——移动 vanilla 商店按钮需深反射 proxy 内部（脆弱、版本即断、原生回退边缘）。**取舍**：商店保持 410 原位，BUE 按钮放 **y=460（列尾下一格）**——等效满足用户诉求（按钮列内、创意工坊下方、不遮挡）。
+
+### R21 变更
+
+dashboard 按钮：`PositionOffset(0,460)`、无 scale、`Size(200,50)`——对齐按钮列规则（X=0、60px pitch）。其余不动。
+
+### 循环审查记录
+
+R20 双轴（Standards 0 硬违规 + 3 判断性 / Spec 1 项 status Scale_X）→ 修复 4 项全绿。R21 双轴复审进行中（定位调整 + 注释取舍说明核验）。构建 0/0、7/7 测试 PASS（`tests-r21-*.log`）、`git diff --check` CLEAN。
+
+**Seam gap**：沿用 R20（布局参数纯宿主不可自校验，真机截图为准）。
+
+### 布局产物
+
+`artifacts/DEV-16B-management-panel-ui-layout-r21-20260829/BetterUnturnedExperience.dll`，SHA-256 `2917C3035A3984B21F87D2B018F359253AD322CE9391447ADC3E3E402B1881BF`，CaseId `DEV-16B-R21-20260829`。
