@@ -169,11 +169,11 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 "screen-space pointer applies native scroll exactly once");
             Assert(UnturnedInventorySurfaceContext.ResolveEffectiveScrollPixels(false, float.NaN) == 0f,
                 "invalid native scroll fails closed");
-            Assert((int)UnturnedInventorySurfaceContext.PointerCoordinateMode.LiveGridAbsoluteIncludesScroll == 0,
-                "surface advertises the live-grid coordinate mode");
-            Assert(UnturnedInventorySurfaceContext.ResolveEffectiveScrollPixels(true, 240f) == 0f,
-                "native grid owns scroll application and evaluator receives no duplicate offset");
-            var viewport = UnturnedInventorySurfaceContext.BuildLiveGridViewport(8, 12, 150f, 400f, 300f);
+            Assert((int)UnturnedInventorySurfaceContext.PointerCoordinateMode.ViewportLocalRequiresScroll == 0,
+                "surface advertises the viewport-local coordinate mode");
+            Assert(Math.Abs(UnturnedInventorySurfaceContext.ResolveEffectiveScrollPixels(false, 240f) - 240f) < 0.001f,
+                "viewport-local pointer applies native scroll exactly once");
+            var viewport = UnturnedInventorySurfaceContext.BuildLiveGridViewport(8, 12, 400f, 300f);
             Assert(Math.Abs(viewport.OriginY) < 0.001f && Math.Abs(viewport.ClipY) < 0.001f,
                 "live grid pointer and clip share one viewport-local origin");
             Assert(Math.Abs(viewport.ClipWidth - 400f) < 0.001f && Math.Abs(viewport.ClipHeight - 300f) < 0.001f,

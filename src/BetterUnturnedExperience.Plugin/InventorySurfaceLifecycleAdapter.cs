@@ -152,7 +152,7 @@ namespace BetterUnturnedExperience.Plugin
         internal static readonly FieldInfo DashboardItemsField = typeof(PlayerDashboardInventoryUI).GetField("items", BindingFlags.Static | BindingFlags.NonPublic);
         internal enum PointerCoordinateMode
         {
-            LiveGridAbsoluteIncludesScroll = 0
+            ViewportLocalRequiresScroll = 0
         }
 
         internal static float NormalizeUiScale(float value)
@@ -213,20 +213,16 @@ namespace BetterUnturnedExperience.Plugin
             var pointer = MapNormalizedPointer(snapshot.PointerNormalized.x, snapshot.PointerNormalized.y,
                 snapshot.GridSize.x, snapshot.GridSize.y);
             if (pointer == Vector2.zero && (snapshot.PointerNormalized.x != 0f || snapshot.PointerNormalized.y != 0f)) return false;
-            viewport = BuildLiveGridViewport(0, 0, snapshot.ScrollPixelsY, snapshot.ViewportSize.x, snapshot.ViewportSize.y);
+            viewport = BuildLiveGridViewport(0, 0, snapshot.ViewportSize.x, snapshot.ViewportSize.y);
             pointerPixels = pointer;
             return true;
         }
 
         internal static InventoryGridViewport BuildLiveGridViewport(byte gridWidth, byte gridHeight,
-            float scrollPixelsY, float viewportWidth, float viewportHeight)
+            float viewportWidth, float viewportHeight)
         {
             if (float.IsNaN(viewportWidth) || float.IsInfinity(viewportWidth) || viewportWidth <= 0f) viewportWidth = gridWidth * 50f;
             if (float.IsNaN(viewportHeight) || float.IsInfinity(viewportHeight) || viewportHeight <= 0f) viewportHeight = gridHeight * 50f;
-            // GetNormalizedCursorPosition is measured against the grid's live
-            // transformed rect. The native scroll has therefore already been
-            // applied; the evaluator must see one coherent viewport-local
-            // coordinate space and must not add the scroll a second time.
             return new InventoryGridViewport(0f, 0f, gridWidth, gridHeight,
                 0f, 0f, viewportWidth, viewportHeight);
         }
@@ -241,8 +237,8 @@ namespace BetterUnturnedExperience.Plugin
         private readonly FieldInfo scrollViewField;
         private readonly FieldInfo gridField;
         private readonly FieldInfo itemsPanelField;
-        internal PointerCoordinateMode CoordinateMode { get { return PointerCoordinateMode.LiveGridAbsoluteIncludesScroll; } }
-        internal bool ScrollAppliedByNativeGrid { get { return true; } }
+        internal PointerCoordinateMode CoordinateMode { get { return PointerCoordinateMode.ViewportLocalRequiresScroll; } }
+        internal bool ScrollAppliedByNativeGrid { get { return false; } }
         internal float NativeScrollPixelsY { get { return ReadScrollPixelsY(); } }
 
         internal UnturnedInventorySurfaceContext(ContainerReference currentContainer, IVisualContainer topLevelContainer,
@@ -267,11 +263,8 @@ namespace BetterUnturnedExperience.Plugin
         public InventoryGridViewport Viewport { get { return viewport; } }
         public float CellPixelSize { get { return 50f; } }
         public float UiScale { get { return uiScale; } }
-        // The pointer is measured from the live grid child's absolute rect;
-        // Glazier has already applied the scroll transform there. Returning
-        // zero prevents the evaluator from double-counting that same scroll.
-        public float ScrollPixelsX { get { return ResolveEffectiveScrollPixels(true, ReadScrollPixelsX()); } }
-        public float ScrollPixelsY { get { return ResolveEffectiveScrollPixels(true, ReadScrollPixelsY()); } }
+        public float ScrollPixelsX { get { return ReadScrollPixelsX(); } }
+        public float ScrollPixelsY { get { return ReadScrollPixelsY(); } }
         public IGridOccupancyView Occupancy { get { return occupancy; } }
 
         // Sleek coordinates are local to the live inventory surface. Reading
@@ -287,7 +280,9 @@ namespace BetterUnturnedExperience.Plugin
             if (float.IsNaN(normalized.x) || float.IsInfinity(normalized.x) ||
                 float.IsNaN(normalized.y) || float.IsInfinity(normalized.y)) return false;
             if (normalized.x < 0f || normalized.x > 1f || normalized.y < 0f || normalized.y > 1f) return false;
-            var size = native.GetAbsoluteSize();
+            var scroll = ResolveScrollView();
+            if (scroll == null) return false;
+            var size = scroll.GetAbsoluteSize();
             if (size.x <= 0f || size.y <= 0f || float.IsNaN(size.x) || float.IsNaN(size.y)) return false;
             x = normalized.x * size.x;
             y = normalized.y * size.y;
@@ -543,8 +538,7 @@ namespace BetterUnturnedExperience.Plugin
                 nativeScroll.NormalizedViewportHeight,
                 dataItems.height * 50f * uiScale);
             viewport = UnturnedInventorySurfaceContext.BuildLiveGridViewport(
-                (byte)dataItems.width, (byte)dataItems.height, liveScrollPixelsY,
-                scrollSize.x, scrollSize.y);
+                (byte)dataItems.width, (byte)dataItems.height, scrollSize.x, scrollSize.y);
 
             return new UnturnedInventorySurfaceContext(
                 new ContainerReference(MapKind(kind), page, generation),
