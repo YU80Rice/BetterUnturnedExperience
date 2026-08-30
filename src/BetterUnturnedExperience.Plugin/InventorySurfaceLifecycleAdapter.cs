@@ -146,6 +146,10 @@ namespace BetterUnturnedExperience.Plugin
     /// </summary>
     internal sealed class UnturnedInventorySurfaceContext : IInventorySurfaceContext
     {
+        internal static float NormalizeUiScale(float value)
+        {
+            return value > 0f && !float.IsNaN(value) && !float.IsInfinity(value) ? value : 1f;
+        }
         internal static Vector2 MapNormalizedPointer(float nx, float ny, float width, float height)
         {
             return new Vector2(nx * width, ny * height);
@@ -175,7 +179,7 @@ namespace BetterUnturnedExperience.Plugin
             this.topLevelContainer = topLevelContainer;
             this.gridPanelContainer = gridPanelContainer;
             this.viewport = viewport;
-            this.uiScale = uiScale > 0f && !float.IsNaN(uiScale) && !float.IsInfinity(uiScale) ? uiScale : 1f;
+            this.uiScale = NormalizeUiScale(uiScale);
             this.occupancy = occupancy;
             this.nativeItems = nativeItems;
             scrollViewField = typeof(SleekItems).GetField("horizontalScrollView", BindingFlags.Instance | BindingFlags.NonPublic);

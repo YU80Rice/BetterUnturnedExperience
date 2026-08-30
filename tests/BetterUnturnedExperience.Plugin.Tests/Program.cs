@@ -147,6 +147,10 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 "native-like SleekItems hierarchy is complete");
             Assert(!UnturnedInventorySurfaceContext.IsNativeHierarchyComplete(true, false, true),
                 "incomplete native-like hierarchy fails closed");
+            Assert(Math.Abs(UnturnedInventorySurfaceContext.NormalizeUiScale(1.5f) - 1.5f) < 0.001f,
+                "non-default UI scale is preserved");
+            Assert(Math.Abs(UnturnedInventorySurfaceContext.NormalizeUiScale(float.NaN) - 1f) < 0.001f,
+                "invalid UI scale fails closed to one");
         }
         private static bool RequiresParentRebindSemantics()
         {
