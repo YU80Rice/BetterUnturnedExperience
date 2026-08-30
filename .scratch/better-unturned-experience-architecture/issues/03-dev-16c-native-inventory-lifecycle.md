@@ -29,3 +29,11 @@
 - **正式产物**：`artifacts/DEV-16C-inventory-lifecycle-r22-20260830/BetterUnturnedExperience.dll`（SHA-256 `E8B6733C…1FE0`，CaseId `DEV-16C-R22-20260830`；完整值 `audit/2026-08-30/r22-dll-sha256.txt`）。
 - **真机验证项**（下轮 HITL）：进背包/开箱/车辆后备箱 → `container-session-open kind= page= generation=` 日志链 + `IInventorySurfaceContext` 投影正确性；Storage/Trunk 切换代际推进；关闭/重开失效。
 - 状态：`in-progress` → **`resolved`**（静态实现与测试全绿；真机运行证据按 DEV-16B 模式由下轮 HITL 采集后归档）。
+
+### 2026-08-30 R24 真机全链验证通过，工单终版（agent）
+
+- **真机证据**（`UMM-诊断包_20260830_114508`，部署身份 = r24 `9CE92796…A969`，日志归档 `audit/2026-08-30/LogOutput.log`）：**7 次 surface-context-dispatched**，序列 `PlayerInventory page=3 g=1 grid=5x7` → `Storage page=7 g=2 grid=7x5` → `PlayerInventory g=3`（关箱回背包）→ `Storage g=4`（换箱）→ `PlayerInventory g=5` → `Trunk page=7 g=6 grid=6x3`（车辆后备箱）→ `PlayerInventory g=7`——generation 1→7 单调递增，kind 随操作正确切换，**会话代际语义完整验证**。
+- **日志风暴消除**：r23 的 44366 条 stale-container 归零（日志 64 行 vs 44366 行）——stale-container 独立日志删除、container-state 节流保留。
+- **R19 保活**：`host-destroyed state=preserved patches-kept=true` 后事件链持续工作（PlayerUI.Update postfix 驱动）。
+- **V1 范围澄清**：用户注意到的"手持/背心/上衣/裤子格子"无会话日志为**设计裁决**——`ContainerKind` V1 仅 PlayerInventory/Storage/Equipment，快捷槽与装备页按 spec-DEV-16 保持原生 Pass-Through（工单 02 L22 同源验收项）。
+- 状态：`resolved`（终版——静态实现、测试、真机生命周期全链证据齐备）。
