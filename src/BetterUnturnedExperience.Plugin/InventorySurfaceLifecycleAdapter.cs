@@ -533,10 +533,6 @@ namespace BetterUnturnedExperience.Plugin
             try { scrollSize = nativeScroll.GetAbsoluteSize(); } catch (Exception) { scrollSize = Vector2.zero; }
             if (scrollSize.x <= 0f || scrollSize.y <= 0f || float.IsNaN(scrollSize.x) || float.IsNaN(scrollSize.y)) return null;
 
-            var liveScrollPixelsY = UnturnedInventorySurfaceContext.ComputeScrollPixels(
-                nativeScroll.NormalizedVerticalPosition,
-                nativeScroll.NormalizedViewportHeight,
-                dataItems.height * 50f * uiScale);
             viewport = UnturnedInventorySurfaceContext.BuildLiveGridViewport(
                 (byte)dataItems.width, (byte)dataItems.height, scrollSize.x, scrollSize.y);
 

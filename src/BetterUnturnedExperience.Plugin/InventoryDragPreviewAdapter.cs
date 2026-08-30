@@ -385,8 +385,9 @@ namespace BetterUnturnedExperience.Plugin
             if (outcome == NativeDragAdapterOutcome.Cancelled && IsSwapOntoOccupied(page, x, y))
             {
                 // A swap onto an occupied same-page cell is a native operation:
-                // undo our stopDrag and let the vanilla path run.
-                PlayerDashboardInventoryUI.stopDrag();
+                // BUE declines to act (no stopDrag - the vanilla swap branch
+                // requires isDragging to still be true) and lets the vanilla
+                // path run with the drag state untouched.
                 return true;
             }
             if (outcome == NativeDragAdapterOutcome.Cancelled)
