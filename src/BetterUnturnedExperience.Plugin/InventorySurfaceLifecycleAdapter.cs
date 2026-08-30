@@ -168,11 +168,12 @@ namespace BetterUnturnedExperience.Plugin
             return hasScroll && hasGrid && hasItemsPanel;
         }
 
-        internal static bool IsNativeHierarchyConsistent(object owner, object scroll, object grid, object itemsPanel)
+        internal static bool IsNativeHierarchyConsistent(object owner, object scroll, object grid, object itemsPanel,
+            object scrollParent, object gridParent, object itemsPanelParent)
         {
             return owner != null && scroll != null && grid != null && itemsPanel != null &&
-                !ReferenceEquals(owner, scroll) && !ReferenceEquals(owner, grid) &&
-                !ReferenceEquals(owner, itemsPanel);
+                ReferenceEquals(scrollParent, owner) && ReferenceEquals(gridParent, scroll) &&
+                ReferenceEquals(itemsPanelParent, grid);
         }
 
         internal static InventoryGridViewport BuildLiveGridViewport(byte gridWidth, byte gridHeight,
@@ -477,7 +478,8 @@ namespace BetterUnturnedExperience.Plugin
             var nativeGrid = gridField == null ? null : gridField.GetValue(sleekItems) as ISleekElement;
             var nativePanel = nativePanelField == null ? null : nativePanelField.GetValue(sleekItems) as ISleekElement;
             if (!UnturnedInventorySurfaceContext.IsNativeHierarchyComplete(nativeScroll != null, nativeGrid != null, nativePanel != null) ||
-                !UnturnedInventorySurfaceContext.IsNativeHierarchyConsistent(sleekItems, nativeScroll, nativeGrid, nativePanel)) return null;
+                !UnturnedInventorySurfaceContext.IsNativeHierarchyConsistent(sleekItems, nativeScroll, nativeGrid, nativePanel,
+                    nativeScroll.Parent, nativeGrid.Parent, nativePanel.Parent)) return null;
             if (PlayerUI.container == null) return null;
             var topLevel = new UnturnedVisualContainer(PlayerUI.container);
             var gridPanel = new UnturnedVisualContainer(nativePanel);
@@ -492,10 +494,9 @@ namespace BetterUnturnedExperience.Plugin
             if (uiScale <= 0f) uiScale = 1f;
 
             var grid = nativeGrid;
-            var gridSize = Vector2.zero;
-            try { if (grid != null) gridSize = grid.GetAbsoluteSize(); } catch (Exception) { gridSize = Vector2.zero; }
-            var clipWidth = gridSize.x > 0f ? gridSize.x : dataItems.width * 50f * uiScale;
-            var clipHeight = gridSize.y > 0f ? gridSize.y : dataItems.height * 50f * uiScale;
+            var scrollSize = Vector2.zero;
+            try { scrollSize = nativeScroll.GetAbsoluteSize(); } catch (Exception) { scrollSize = Vector2.zero; }
+            if (scrollSize.x <= 0f || scrollSize.y <= 0f || float.IsNaN(scrollSize.x) || float.IsNaN(scrollSize.y)) return null;
 
             var liveScrollPixelsY = UnturnedInventorySurfaceContext.ComputeScrollPixels(
                 nativeScroll.NormalizedVerticalPosition,
@@ -503,7 +504,7 @@ namespace BetterUnturnedExperience.Plugin
                 dataItems.height * 50f * uiScale);
             viewport = UnturnedInventorySurfaceContext.BuildLiveGridViewport(
                 (byte)dataItems.width, (byte)dataItems.height, liveScrollPixelsY,
-                clipWidth, clipHeight);
+                scrollSize.x, scrollSize.y);
 
             return new UnturnedInventorySurfaceContext(
                 new ContainerReference(MapKind(kind), page, generation),

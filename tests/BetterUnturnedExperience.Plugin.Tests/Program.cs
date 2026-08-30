@@ -182,10 +182,10 @@ namespace BetterUnturnedExperience.Plugin.Tests
             var scroll = new object();
             var grid = new object();
             var panel = new object();
-            Assert(UnturnedInventorySurfaceContext.IsNativeHierarchyConsistent(owner, scroll, grid, panel),
-                "fake native SleekItems hierarchy keeps distinct scroll/grid/itemsPanel nodes");
-            Assert(!UnturnedInventorySurfaceContext.IsNativeHierarchyConsistent(owner, scroll, grid, owner),
-                "collapsed native hierarchy fails closed");
+            Assert(UnturnedInventorySurfaceContext.IsNativeHierarchyConsistent(owner, scroll, grid, panel, owner, scroll, grid),
+                "fake native SleekItems hierarchy keeps scroll/grid/itemsPanel parent chain");
+            Assert(!UnturnedInventorySurfaceContext.IsNativeHierarchyConsistent(owner, scroll, grid, panel, owner, owner, grid),
+                "broken native parent chain fails closed");
         }
         private static bool RequiresParentRebindSemantics()
         {
