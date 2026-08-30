@@ -404,7 +404,6 @@ namespace BetterUnturnedExperience.Plugin
             var parent = ReadContainer(workshopContainerField);
             if (parent != null && !IsAlive(parent))
             {
-                LogTrace("stale-container", "surface=MenuWorkshopUI source=" + source);
                 parent = null;
             }
             var mainState = parent == null ? 0 : 1;
@@ -462,7 +461,6 @@ namespace BetterUnturnedExperience.Plugin
             var parent = ReadContainer(pauseContainerField);
             if (parent != null && !IsAlive(parent))
             {
-                LogTrace("stale-container", "surface=PlayerPauseUI source=" + source);
                 parent = null;
             }
             var pauseState = parent == null ? 0 : 1;

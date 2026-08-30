@@ -256,7 +256,9 @@ namespace BetterUnturnedExperience.Plugin
             if (!surfaceDispatched || generation != dispatchedGeneration)
             {
                 var kind = tracker.Kind;
-                var page = kind == ContainerSessionKind.PlayerInventory ? (byte)0 : (byte)PlayerInventory.STORAGE;
+                // PlayerInventory V1 surfaces the backpack grid page; storage
+                // and trunk both live on the shared STORAGE page.
+                var page = kind == ContainerSessionKind.PlayerInventory ? (byte)PlayerInventory.BACKPACK : (byte)PlayerInventory.STORAGE;
                 var context = BuildSurfaceContext(kind, page, generation);
                 if (context == null) return;
                 openDispatcher(context);
