@@ -35,6 +35,9 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 AssertClientUiCompositionGates();
                 AssertNativeUiGateReflectsMemberPresence();
                 AssertPanelSurvivesComponentTeardown();
+                AssertContainerSessionTrackerLifecycle();
+                AssertInventoryLifecycleGateDecisions();
+                AssertInventoryLifecycleWatcherDiffing();
                 AssertRuntimePumpBridge();
                 AssertPluginUpdateDriverForwardsButtonInjection();
                 AssertButtonInjectionRoutesAreLocallyIsolated();
@@ -211,6 +214,103 @@ namespace BetterUnturnedExperience.Plugin.Tests
             Assert(HasOwner(Harmony.GetPatchInfo(AccessTools.Method(typeof(MenuUI), "Update")), "io.github.yu80rice.bue.management-panel"), "component teardown keeps the MenuUI.Update frame-driver patch");
         }
 
+        // [DEV-16C] Container session lifecycle state machine.
+        private static void AssertContainerSessionTrackerLifecycle()
+        {
+            var tracker = new BetterUnturnedExperience.Plugin.ContainerSessionTracker();
+            Assert(!tracker.HasActiveSession, "fresh tracker has no active session");
+            Assert(!tracker.TryGetActiveGeneration(out _), "fresh tracker has no active generation");
+
+            tracker.OnPlayerInventoryOpened();
+            Assert(tracker.HasActiveSession, "player inventory open starts a session");
+            Assert(tracker.Kind == ContainerSessionKind.PlayerInventory, "player session kind");
+            Assert(tracker.TryGetActiveGeneration(out var playerGeneration), "player session has a generation");
+
+            tracker.OnStorageOpened(isTrunk: false);
+            Assert(tracker.Kind == ContainerSessionKind.Storage, "storage open switches kind");
+            Assert(tracker.TryGetActiveGeneration(out var storageGeneration) && storageGeneration == playerGeneration + 1, "switching containers advances the generation exactly once");
+
+            tracker.OnStorageOpened(isTrunk: true);
+            Assert(tracker.Kind == ContainerSessionKind.Trunk, "trunk open switches kind");
+            Assert(tracker.TryGetActiveGeneration(out var trunkGeneration) && trunkGeneration == storageGeneration + 1, "trunk switch advances the generation");
+
+            tracker.OnContainerClosed();
+            Assert(!tracker.HasActiveSession, "close ends the session");
+            Assert(!tracker.TryGetActiveGeneration(out _), "closed session generations are stale for projections");
+
+            tracker.OnStorageOpened(isTrunk: false);
+            Assert(tracker.TryGetActiveGeneration(out var reopenGeneration) && reopenGeneration > trunkGeneration, "reopening after close starts a fresh generation");
+
+            tracker.OnConnectionLost();
+            Assert(!tracker.HasActiveSession, "connection loss invalidates the session");
+            Assert(!tracker.TryGetActiveGeneration(out _), "connection loss invalidates old projections");
+            tracker.OnStorageOpened(isTrunk: false);
+            Assert(tracker.TryGetActiveGeneration(out var afterReconnect) && afterReconnect > reopenGeneration, "post-reconnect open advances the generation");
+
+            tracker.OnStorageSwapped();
+            Assert(tracker.TryGetActiveGeneration(out var afterSwap) && afterSwap == afterReconnect + 1, "storage page data swap advances the generation without changing kind");
+            Assert(tracker.Kind == ContainerSessionKind.Storage, "swap keeps the storage kind");
+        }
+
+        // [DEV-16C] Probe gate: detection result -> decision + structured diagnostics.
+        private static void AssertInventoryLifecycleGateDecisions()
+        {
+            var headless = BetterUnturnedExperience.Plugin.InventoryLifecycleGate.Evaluate(isClientBranch: false, probe: BetterUnturnedExperience.Plugin.InventoryLifecycleProbe.AllPresent());
+            Assert(!headless.Enabled, "headless branch disables inventory hooks");
+            Assert(headless.Diagnostics.Contains("headless"), "headless disable carries a structured reason");
+
+            var missingProbe = BetterUnturnedExperience.Plugin.InventoryLifecycleProbe.MissingIsStoring();
+            var gated = BetterUnturnedExperience.Plugin.InventoryLifecycleGate.Evaluate(isClientBranch: true, probe: missingProbe);
+            Assert(!gated.Enabled, "missing probe targets disable the wiring");
+            Assert(gated.Diagnostics.Contains("PlayerInventory.isStoring"), "diagnostics name the missing member");
+            Assert(!gated.Diagnostics.Contains("PlayerDashboardInventoryUI.active"), "diagnostics only name the missing members");
+
+            var full = BetterUnturnedExperience.Plugin.InventoryLifecycleGate.Evaluate(isClientBranch: true, probe: BetterUnturnedExperience.Plugin.InventoryLifecycleProbe.AllPresent());
+            Assert(full.Enabled, "client branch with all members present enables the hooks");
+            Assert(full.Diagnostics.Length == 0, "enabled gate carries no diagnostics");
+        }
+
+        // [DEV-16C] Watcher diffing: snapshot sequences raise the right
+        // lifecycle events on the tracker.
+        private static void AssertInventoryLifecycleWatcherDiffing()
+        {
+            var tracker = new BetterUnturnedExperience.Plugin.ContainerSessionTracker();
+            var watcher = new BetterUnturnedExperience.Plugin.InventoryLifecycleWatcher(tracker);
+            watcher.Feed(new BetterUnturnedExperience.Plugin.InventoryLifecycleSnapshot(false, false, false, 0, true));
+            Assert(!tracker.HasActiveSession, "idle snapshot starts no session");
+
+            watcher.Feed(new BetterUnturnedExperience.Plugin.InventoryLifecycleSnapshot(true, false, false, 0, true));
+            Assert(tracker.HasActiveSession && tracker.Kind == ContainerSessionKind.PlayerInventory, "dashboard active raises player inventory open");
+
+            watcher.Feed(new BetterUnturnedExperience.Plugin.InventoryLifecycleSnapshot(true, true, false, 101, true));
+            Assert(tracker.Kind == ContainerSessionKind.Storage, "storage open switches the session kind");
+            Assert(tracker.TryGetActiveGeneration(out var storageGeneration), "storage session carries a generation");
+
+            var storageIdentity = 101;
+            watcher.Feed(new BetterUnturnedExperience.Plugin.InventoryLifecycleSnapshot(true, true, false, storageIdentity, true));
+            Assert(tracker.TryGetActiveGeneration(out storageGeneration), "identical storage snapshot is a no-op");
+
+            watcher.Feed(new BetterUnturnedExperience.Plugin.InventoryLifecycleSnapshot(true, true, false, 202, true));
+            Assert(tracker.TryGetActiveGeneration(out var swappedGeneration) && swappedGeneration == storageGeneration + 1, "swapping containers advances the generation exactly once");
+
+            watcher.Feed(new BetterUnturnedExperience.Plugin.InventoryLifecycleSnapshot(true, true, true, 202, true));
+            Assert(tracker.Kind == ContainerSessionKind.Trunk, "trunk snapshot switches kind");
+
+            watcher.Feed(new BetterUnturnedExperience.Plugin.InventoryLifecycleSnapshot(true, false, false, 0, true));
+            Assert(tracker.Kind == ContainerSessionKind.PlayerInventory, "dashboard after storage opens the player session");
+            Assert(tracker.TryGetActiveGeneration(out var playerAfterStorage) && playerAfterStorage > swappedGeneration, "storage-to-dashboard transition closes the old session before opening the new one");
+
+            watcher.Feed(new BetterUnturnedExperience.Plugin.InventoryLifecycleSnapshot(false, false, false, 0, true));
+            Assert(!tracker.HasActiveSession, "closing the dashboard ends the session");
+
+            watcher.Feed(new BetterUnturnedExperience.Plugin.InventoryLifecycleSnapshot(false, false, false, 0, false));
+            Assert(!tracker.HasActiveSession, "disconnect snapshot keeps no session");
+        }
+
+        // [DEV-16C] Seam gap: the PlayerUI.Update IL detour compiles only on
+        // the Mono game runtime (real-machine verified in R18); the polling
+        // hook itself is therefore verified on the real machine, while this
+        // host locks the gate, tracker and watcher semantics.
         private static void AssertManagementPanelConsumesRuntimeCatalog()
         {
             var runtime = BueRuntimeHost.CurrentRuntime;

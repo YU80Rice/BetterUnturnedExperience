@@ -26,6 +26,7 @@ namespace BetterUnturnedExperience.Plugin
         private BueRuntimePumpBehaviour runtimePumpBehaviour;
         private BuePluginUpdateDriver pluginUpdateDriver;
         private BueRuntimeCompletionBarrier completionBarrier;
+        private InventorySurfaceLifecycleAdapter inventoryLifecycleAdapter;
 
         private void Awake()
         {
@@ -57,6 +58,17 @@ namespace BetterUnturnedExperience.Plugin
                         nativeManagementPanel = new BueNativeManagementPanel(clientUiComposition.ManagementPanel, Logger, null, clientUiComposition.RefreshManagementPanel);
                         nativeManagementPanel.Initialize();
                         AttachRuntimePump();
+                        // [DEV-16C] Inventory lifecycle adapter: probes native
+                        // members, fails closed with structured diagnostics and
+                        // routes the projected surface into the composition.
+                        inventoryLifecycleAdapter = new InventorySurfaceLifecycleAdapter(Logger,
+                            surface => clientUiComposition.OpenInventory(surface),
+                            () => clientUiComposition.CloseInventory());
+                        inventoryLifecycleAdapter.Activate();
+                        if (inventoryLifecycleAdapter.HooksInstalled)
+                            Logger.LogInfo("BUE inventory lifecycle wiring enabled diagnosticId=BUE-INVENTORY-001");
+                        else
+                            Logger.LogWarning("BUE inventory lifecycle wiring disabled diagnosticId=BUE-INVENTORY-003 diagnostics=" + inventoryLifecycleAdapter.GateDiagnostics);
                         Logger.LogInfo("BUE client UI composition ready featureId=io.github.yu80rice.bue.better-item-interaction diagnosticId=BUE-CLIENTUI-002");
                     }
                 }

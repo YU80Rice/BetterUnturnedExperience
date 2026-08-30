@@ -37,6 +37,8 @@
     <Compile Include="BueManagementPanelRuntime.cs" />
     <Compile Include="LoadedPluginCatalogAdapter.cs" />
     <Compile Include="BueNativeManagementPanel.cs" />
+    <Compile Include="InventorySurfaceLifecycleAdapter.cs" />
+    <Compile Include="InventoryLifecycle.cs" />
     <Compile Include="..\BetterUnturnedExperience.ClientUi\ManagementPanel.cs"><Link>EmbeddedClientUi\ManagementPanel.cs</Link></Compile>
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />

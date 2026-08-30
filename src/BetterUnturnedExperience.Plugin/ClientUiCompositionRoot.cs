@@ -84,6 +84,16 @@ namespace BetterUnturnedExperience.Plugin
             return new BueFeatureManagementEntry(feature, feature.Value, "0.0.0", FeatureState.Running, presentation, default(FeatureSettingsSnapshot));
         }
 
+        internal void OpenInventory(IClientUiInventorySurface surface)
+        {
+            composition.OpenInventory(surface);
+        }
+
+        internal void CloseInventory()
+        {
+            composition.CloseInventory();
+        }
+
         internal void Destroy()
         {
             managementPanel.Destroy();
