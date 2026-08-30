@@ -19,6 +19,8 @@ namespace BetterUnturnedExperience.Plugin
         internal readonly ISleekElement element;
         private readonly ISleekBox box;
         private readonly ISleekImage image;
+        private ItemAssetIdentity boundAsset;
+        private int assetRequestToken;
 
         internal UnturnedVisualElement(ISleekElement element)
         {
@@ -54,9 +56,11 @@ namespace BetterUnturnedExperience.Plugin
 
         public ItemAssetIdentity BoundAsset
         {
-            get { return ItemAssetIdentity.FromItemId(0); }
+            get { return boundAsset; }
             set
             {
+                boundAsset = value;
+                var requestToken = ++assetRequestToken;
                 // Real texture path (DEV-16D): ItemTool.getIcon resolves the
                 // native icon asynchronously and the callback assigns the
                 // texture. Until the callback lands the element stays blank —
@@ -70,7 +74,11 @@ namespace BetterUnturnedExperience.Plugin
                 try
                 {
                     ItemTool.getIcon(value.ItemId, 0, Array.Empty<byte>(), asset,
-                        (handle, texture) => { image.Texture = texture; });
+                        (handle, texture) =>
+                        {
+                            if (requestToken == assetRequestToken && boundAsset == value)
+                                image.Texture = texture;
+                        });
                 }
                 catch (Exception)
                 {
@@ -165,6 +173,25 @@ namespace BetterUnturnedExperience.Plugin
         public float ScrollPixelsX { get { return 0f; } }
         public float ScrollPixelsY { get { return 0f; } }
         public IGridOccupancyView Occupancy { get { return occupancy; } }
+
+        // Sleek coordinates are local to the live inventory surface. Reading
+        // the normalized cursor from that same surface closes the coordinate
+        // space instead of treating PositionOffset as a screen origin.
+        internal bool TryGetLocalPointerPixels(out float x, out float y)
+        {
+            x = 0f;
+            y = 0f;
+            var native = (gridPanelContainer as UnturnedVisualContainer)?.element;
+            if (native == null || occupancy == null) return false;
+            var normalized = native.GetNormalizedCursorPosition();
+            if (float.IsNaN(normalized.x) || float.IsInfinity(normalized.x) ||
+                float.IsNaN(normalized.y) || float.IsInfinity(normalized.y)) return false;
+            if (normalized.x < 0f || normalized.x > 1f || normalized.y < 0f || normalized.y > 1f) return false;
+            x = normalized.x * occupancy.Width * CellPixelSize * UiScale;
+            y = normalized.y * occupancy.Height * CellPixelSize * UiScale;
+            return true;
+        }
+
     }
 
     /// <summary>
@@ -239,11 +266,25 @@ namespace BetterUnturnedExperience.Plugin
 
         internal static InventorySurfaceLifecycleAdapter ActiveAdapter { get; private set; }
 
+        internal static void ClearActive(InventorySurfaceLifecycleAdapter adapter)
+        {
+            if (ReferenceEquals(ActiveAdapter, adapter)) ActiveAdapter = null;
+        }
+
         internal static void PlayerUIUpdatePostfix()
         {
             var adapter = ActiveAdapter;
             if (adapter == null) return;
-            try { adapter.Poll(); } catch (Exception error) { LastPollDiagnostics = "poll failed: " + error.GetType().FullName + ": " + error.Message; }
+            try
+            {
+                adapter.Poll();
+                // GPT watermark: PlayerUI.Update is a proven, observed
+                // main-thread heartbeat in the runtime logs. Drive the drag
+                // preview from this same callback instead of relying solely
+                // on an unscheduled BUE/child Update method.
+                InventoryDragPreviewAdapter.ActiveAdapter?.Tick();
+            }
+            catch (Exception error) { LastPollDiagnostics = "poll failed: " + error.GetType().FullName + ": " + error.Message; }
         }
 
         internal void Poll()
@@ -317,20 +358,20 @@ namespace BetterUnturnedExperience.Plugin
             var gridPanel = new UnturnedVisualContainer(sleekItems);
             var topLevel = new UnturnedVisualContainer(sleekItems);
 
-            // Geometry via offset/size pairs only: SizeOffset_X is 0 for
-            // scale-anchored grids, so clip width stays 0 until the screen-
-            // space calibration lands (DEV-16D seam gap). Viewport.Contains
-            // no longer gates the evaluation, so a degenerate clip only means
-            // uncalibrated preview positioning, not a dead preview.
-            var viewport = new InventoryGridViewport(
-                sleekItems.PositionOffset_X, sleekItems.PositionOffset_Y,
-                (byte)dataItems.width, (byte)dataItems.height,
-                sleekItems.PositionOffset_X, sleekItems.PositionOffset_Y,
-                sleekItems.SizeOffset_X, sleekItems.SizeOffset_Y);
-
+            // Geometry is expressed in the live SleekItems local space. The
+            // previous implementation copied PositionOffset into a screen
+            // origin, which mixed parent and child coordinate systems and
+            // yielded OutsideGrid for every real pointer.
+            InventoryGridViewport viewport;
             float uiScale = 1f;
             try { uiScale = GraphicsSettings.userInterfaceScale; } catch (Exception) { uiScale = 1f; }
             if (uiScale <= 0f) uiScale = 1f;
+
+            viewport = new InventoryGridViewport(
+                0f, 0f,
+                (byte)dataItems.width, (byte)dataItems.height,
+                0f, 0f,
+                dataItems.width * 50f * uiScale, dataItems.height * 50f * uiScale);
 
             return new UnturnedInventorySurfaceContext(
                 new ContainerReference(MapKind(kind), page, generation),

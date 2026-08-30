@@ -33,7 +33,13 @@ namespace BetterUnturnedExperience.Plugin
         private System.Reflection.FieldInfo dragFromXField;
         private System.Reflection.FieldInfo dragFromYField;
         private System.Reflection.FieldInfo dragFromRotField;
+        private System.Reflection.FieldInfo dragPivotField;
         private NativeDragActions nativeActions;
+        private int lastPollFrame = -1;
+        private int lastDiagnosticTick;
+        private PlacementPreviewState lastDiagnosticState;
+        private PlacementReason lastDiagnosticReason;
+        private bool hasDiagnostic;
 
         internal bool Enabled { get { return enabled; } }
         internal string GateDiagnostics { get { return gateDiagnostics; } }
@@ -52,12 +58,14 @@ namespace BetterUnturnedExperience.Plugin
             dragFromXField = AccessTools.Field(typeof(PlayerDashboardInventoryUI), "dragFrom_x");
             dragFromYField = AccessTools.Field(typeof(PlayerDashboardInventoryUI), "dragFrom_y");
             dragFromRotField = AccessTools.Field(typeof(PlayerDashboardInventoryUI), "dragFromRot");
+            dragPivotField = AccessTools.Field(typeof(PlayerDashboardInventoryUI), "dragPivot");
 
             var missing = new System.Collections.Generic.List<string>();
             if (AccessTools.Method(typeof(PlayerDashboardInventoryUI), "onPlacedItem") == null) missing.Add("PlayerDashboardInventoryUI.onPlacedItem");
             if (AccessTools.Method(typeof(PlayerDashboardInventoryUI), "stopDrag") == null) missing.Add("PlayerDashboardInventoryUI.stopDrag");
             if (AccessTools.Field(typeof(PlayerDashboardInventoryUI), "dragJar") == null) missing.Add("PlayerDashboardInventoryUI.dragJar");
             if (AccessTools.Field(typeof(PlayerDashboardInventoryUI), "dragFromPage") == null) missing.Add("PlayerDashboardInventoryUI.dragFromPage");
+            if (AccessTools.Field(typeof(PlayerDashboardInventoryUI), "dragPivot") == null) missing.Add("PlayerDashboardInventoryUI.dragPivot");
             if (AccessTools.Method(typeof(PlayerDashboardInventoryUI), "updateDraggedItem") == null) missing.Add("PlayerDashboardInventoryUI.updateDraggedItem");
             if (missing.Count > 0)
             {
@@ -120,10 +128,27 @@ namespace BetterUnturnedExperience.Plugin
             // and re-entry here used to wrap our own wrapper, stacking
             // evaluation layers until a placement crashed the game.
             if (ReferenceEquals(sleek, attachedGrid) || ReferenceEquals(sleek.onPlacedItem?.Target, this)) return;
+            DetachGrid();
             attachedGrid = sleek;
             nativePlacedHandler = sleek.onPlacedItem;
             sleek.onPlacedItem = GridPlacedItemWrapper;
             log?.LogInfo("[BUE-DRAG] event=placed-item-delegate-rebound page=" + sleek.page + " diagnosticId=BUE-DRAG-001");
+        }
+
+        internal void DetachGrid()
+        {
+            if (attachedGrid == null) return;
+            try
+            {
+                if (ReferenceEquals(attachedGrid.onPlacedItem?.Target, this))
+                    attachedGrid.onPlacedItem = nativePlacedHandler;
+            }
+            catch (Exception error)
+            {
+                LastPollDiagnostics = "grid-detach-failed: " + error.GetType().FullName + ": " + error.Message;
+            }
+            attachedGrid = null;
+            nativePlacedHandler = null;
         }
 
         private void GridPlacedItemWrapper(byte page, byte x, byte y)
@@ -138,8 +163,7 @@ namespace BetterUnturnedExperience.Plugin
             if (adapter == null) return;
             try
             {
-                adapter.Poll();
-                adapter.component?.Tick((uint)Environment.TickCount);
+                adapter.Tick();
             }
             catch (Exception error)
             {
@@ -149,7 +173,23 @@ namespace BetterUnturnedExperience.Plugin
 
         internal static InventoryDragPreviewAdapter ActiveAdapter { get; private set; }
 
+        internal static void ClearActive(InventoryDragPreviewAdapter adapter)
+        {
+            if (ReferenceEquals(ActiveAdapter, adapter)) ActiveAdapter = null;
+        }
+
         internal static string LastPollDiagnostics { get; private set; }
+
+        // GPT watermark: reliable plugin-owned main-thread fallback, matching
+        // UPM's BaseUnityPlugin.Update driver; Harmony remains a fast path.
+        internal void Tick()
+        {
+            if (!enabled) return;
+            if (Time.frameCount == lastPollFrame) return;
+            lastPollFrame = Time.frameCount;
+            try { Poll(); component.Tick((uint)Environment.TickCount); }
+            catch (Exception error) { LastPollDiagnostics = "plugin-update poll failed: " + error.GetType().FullName + ": " + error.Message; }
+        }
 
         private void Poll()
         {
@@ -178,14 +218,77 @@ namespace BetterUnturnedExperience.Plugin
 
             if (isDragging)
             {
-                if (component.TryCreatePreviewInput(dragGeneration, ReadDragSource(), Input.mousePosition.x,
-                        Input.mousePosition.y, ReadDragWidth(), ReadDragHeight(), ReadDragRotation(),
-                        allowAutomaticRotation: true, grabOffsetX: 25f, grabOffsetY: 25f,
+                var sleekMouse = InventoryGridCoordinateAdapter.ToUiScreenCoordinates(Input.mousePosition.x,
+                    Input.mousePosition.y, Screen.height, ReadUiScale());
+                var localSurface = component.CurrentSurface as UnturnedInventorySurfaceContext;
+                if (localSurface != null)
+                {
+                    float localX;
+                    float localY;
+                    if (localSurface.TryGetLocalPointerPixels(out localX, out localY))
+                    {
+                        sleekMouse = new System.ValueTuple<float, float>(localX, localY);
+                    }
+                }
+                if (component.TryCreatePreviewInput(dragGeneration, ReadDragSource(), sleekMouse.Item1,
+                        sleekMouse.Item2, ReadDragWidth(), ReadDragHeight(), ReadDragRotation(),
+                        allowAutomaticRotation: true, grabOffsetX: ReadGrabOffsetX(), grabOffsetY: ReadGrabOffsetY(),
                         itemAsset: AssetIdentityOf(ReadDragJar()), out var input))
                 {
                     component.OnDragUpdated(input);
+                    var state = component.LastPreview.State;
+                    if (ShouldEmitDiagnostic(state, component.LastPreview.Reason))
+                    {
+                        LogPreviewInputReadout(input, Input.mousePosition.x, Input.mousePosition.y,
+                            sleekMouse.Item1, sleekMouse.Item2, state, component.LastPreview.Reason);
+                        log?.LogInfo("[BUE-DRAG] GPT-WATERMARK event=preview-evaluated generation=" + dragGeneration + " state=" + state + " diagnosticId=BUE-DRAG-001");
+                        if (state == PlacementPreviewState.Candidate || state == PlacementPreviewState.LocallyInvalid)
+                            log?.LogInfo("[BUE-DRAG] GPT-WATERMARK event=preview-visible generation=" + dragGeneration + " state=" + state + " diagnosticId=BUE-DRAG-001");
+                    }
+                }
+                else
+                {
+                    if (ShouldEmitDiagnostic(PlacementPreviewState.Hidden, PlacementReason.FeatureUnavailable))
+                        log?.LogInfo("[BUE-DRAG] GPT-WATERMARK event=preview-input-rejected generation=" + dragGeneration + " diagnosticId=BUE-DRAG-001");
                 }
             }
+        }
+
+        private bool ShouldEmitDiagnostic(PlacementPreviewState state, PlacementReason reason)
+        {
+            var now = Environment.TickCount;
+            if (!hasDiagnostic || state != lastDiagnosticState || reason != lastDiagnosticReason || now - lastDiagnosticTick >= 500)
+            {
+                hasDiagnostic = true;
+                lastDiagnosticState = state;
+                lastDiagnosticReason = reason;
+                lastDiagnosticTick = now;
+                return true;
+            }
+            return false;
+        }
+
+        private void LogPreviewInputReadout(InventoryPreviewInput input, float rawMouseX, float rawMouseY,
+            float uiX, float uiY, PlacementPreviewState state, PlacementReason reason)
+        {
+            var scaledCell = input.CellPixelSize * input.UiScale;
+            var gridX = scaledCell > 0f
+                ? (uiX - input.Viewport.OriginX + input.ScrollPixelsX) / scaledCell
+                : float.NaN;
+            var gridY = scaledCell > 0f
+                ? (uiY - input.Viewport.OriginY + input.ScrollPixelsY) / scaledCell
+                : float.NaN;
+            log?.LogInfo("[BUE-DRAG] GPT-WATERMARK event=preview-input-readout"
+                + " generation=" + input.DragGeneration
+                + " pointerScreen=" + rawMouseX.ToString("0.###") + "," + rawMouseY.ToString("0.###")
+                + " uiScale=" + input.UiScale.ToString("0.###")
+                + " uiCoordinates=" + uiX.ToString("0.###") + "," + uiY.ToString("0.###")
+                + " viewportOrigin=" + input.Viewport.OriginX.ToString("0.###") + "," + input.Viewport.OriginY.ToString("0.###")
+                + " pointerGrid=" + gridX.ToString("0.###") + "," + gridY.ToString("0.###")
+                + " grabOffset=" + input.GrabOffsetX.ToString("0.###") + "," + input.GrabOffsetY.ToString("0.###")
+                + " placementReason=" + reason
+                + " state=" + state
+                + " diagnosticId=BUE-DRAG-001");
         }
 
         // [DEV-16D] Native convergence feed: the three inventory events build
@@ -369,6 +472,31 @@ namespace BetterUnturnedExperience.Plugin
         {
             var jar = ActiveAdapter == null ? null : ActiveAdapter.ReadDragJar();
             return jar == null ? (byte)0 : jar.rot;
+        }
+
+        private float ReadGrabOffsetX()
+        {
+            var pivot = dragPivotField == null ? Vector2.zero : (Vector2)dragPivotField.GetValue(null);
+            return NativePivotToGrabOffset(pivot).x;
+        }
+
+        private float ReadGrabOffsetY()
+        {
+            var pivot = dragPivotField == null ? Vector2.zero : (Vector2)dragPivotField.GetValue(null);
+            return NativePivotToGrabOffset(pivot).y;
+        }
+
+        private static float ReadUiScale()
+        {
+            try { return GraphicsSettings.userInterfaceScale; } catch { return 1f; }
+        }
+
+        // GPT watermark: U3-SDK dragPivot is the negative pixel displacement
+        // from the cursor to the item origin; the pure-C# seam expects the
+        // positive cursor grab point in grid-cell units.
+        private static Vector2 NativePivotToGrabOffset(Vector2 pivot)
+        {
+            return new Vector2(-pivot.x / 50f, -pivot.y / 50f);
         }
 
         private static ItemAssetIdentity AssetIdentityOf(ItemJar jar)

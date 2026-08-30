@@ -71,7 +71,11 @@ namespace BetterUnturnedExperience.Plugin
                                 // rebuilt UI gets BUE's decision wrapper.
                                 inventoryDragAdapter?.AttachGrid(surface);
                             },
-                            () => clientUiComposition.CloseInventory());
+                            () =>
+                            {
+                                inventoryDragAdapter?.DetachGrid();
+                                clientUiComposition.CloseInventory();
+                            });
                         inventoryLifecycleAdapter.Activate();
                         if (inventoryLifecycleAdapter.HooksInstalled)
                             Logger.LogInfo("BUE inventory lifecycle wiring enabled diagnosticId=BUE-INVENTORY-001");
@@ -179,6 +183,9 @@ namespace BetterUnturnedExperience.Plugin
                 Logger.LogInfo("[BUE-UI-TRACE] plugin=io.github.yu80rice.betterunturnedexperience diagnosticId=BUE-MANAGEMENT-TRACE-001 event=plugin-update count=" + updateTickCount);
             }
             if (nativeManagementPanel != null) nativeManagementPanel.Dispatch(BueNativeManagementPanel.TickSource.Update);
+            // GPT watermark: drive DEV-16D from the guaranteed plugin Update;
+            // native Harmony callback is supplementary only.
+            inventoryDragAdapter?.Tick();
         }
 
         private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
@@ -286,6 +293,9 @@ namespace BetterUnturnedExperience.Plugin
                 DestroyRuntimePump();
                 if (pluginUpdateDriver != null) pluginUpdateDriver.Clear();
                 if (nativeManagementPanel != null) nativeManagementPanel.Destroy();
+                if (inventoryDragAdapter != null) inventoryDragAdapter.DetachGrid();
+                if (inventoryDragAdapter != null) InventoryDragPreviewAdapter.ClearActive(inventoryDragAdapter);
+                if (inventoryLifecycleAdapter != null) InventorySurfaceLifecycleAdapter.ClearActive(inventoryLifecycleAdapter);
                 if (clientUiComposition != null) clientUiComposition.Destroy();
             }
             catch (System.Exception error)

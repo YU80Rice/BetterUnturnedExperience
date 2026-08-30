@@ -14,6 +14,16 @@ namespace BetterUnturnedExperience.Plugin.Tests
         {
             try
             {
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--dev16d-red")
+                {
+                    AssertDev16DRealLogMustContainVisiblePreviewProjection(true);
+                    return 0;
+                }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--dev16d-diagnostics-red")
+                {
+                    AssertDev16DPreviewDiagnosticContainsCoordinateReadout();
+                    return 0;
+                }
                 AssertSingleDllAssemblyClosure();
                 AssertExternalSdkAssemblyIdentity();
                 Assert(BootstrapGuard.Decide(false, false, true) == BootstrapDecision.Client, "client decision");
@@ -45,6 +55,9 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 AssertButtonInjectionRoutesAreLocallyIsolated();
                 AssertRuntimeDriverDispatchesButtonInjectionSeam();
                 AssertPanelDispatchReachesButtonInjectionSeam();
+                AssertDragPreviewHasPluginOwnedUpdateDriver();
+                AssertInventoryHeartbeatDrivesPreviewFallback();
+                AssertNativeDragPivotConvertsToPositiveGrabOffset();
                 AssertRuntimeCompletionBarrierIsolates();
                 AssertManagementPanelConsumesRuntimeCatalog();
                 AssertManagementPanelOpenHooks();
@@ -56,6 +69,55 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 Console.WriteLine("DEV-14/DEV-16B plugin runtime tests: PASS"); return 0;
             }
             catch (Exception error) { Console.WriteLine("DEV-14 official registration parity tests: FAIL"); Console.WriteLine(error.ToString()); return 1; }
+        }
+
+        // DEV-16D diagnosis replay: hook and drag-start fire, but no preview
+        // projection reaches the visual sink. Intentionally red until fixed.
+        private static void AssertDev16DRealLogMustContainVisiblePreviewProjection(bool preFix = false)
+        {
+            var fixture = System.IO.Path.Combine(AppContext.BaseDirectory, "Fixtures", preFix ? "dev16d-r36-no-preview.log" : "dev16d-fixed-preview.log");
+            var text = System.IO.File.ReadAllText(fixture);
+            Assert(text.Contains("event=hooks-installed"), "diagnostic replay contains installed drag hook");
+            Assert(text.Contains("event=drag-started"), "diagnostic replay contains drag start");
+            Assert(text.Contains("event=preview-visible"), "drag start must reach a visible red/green preview projection");
+        }
+
+        // GPT watermark: red regression for the 2026-08-30 Hidden diagnosis.
+        // The runtime log must expose every coordinate/value needed to explain
+        // an OutsideGrid result instead of reporting only state=Hidden.
+        private static void AssertDev16DPreviewDiagnosticContainsCoordinateReadout()
+        {
+            var fixture = System.IO.Path.Combine(AppContext.BaseDirectory, "Fixtures", "dev16d-fixed-preview.log");
+            var text = System.IO.File.ReadAllText(fixture);
+            Assert(text.Contains("event=preview-input-readout"), "preview diagnostic readout event is present");
+            Assert(text.Contains("pointerScreen="), "readout includes pointerScreen");
+            Assert(text.Contains("uiScale="), "readout includes uiScale");
+            Assert(text.Contains("uiCoordinates="), "readout includes converted UI coordinates");
+            Assert(text.Contains("viewportOrigin="), "readout includes viewport origin");
+            Assert(text.Contains("pointerGrid="), "readout includes pointerGrid");
+            Assert(text.Contains("grabOffset="), "readout includes grabOffset");
+            Assert(text.Contains("placementReason="), "readout includes PlacementReason");
+        }
+
+        private static void AssertDragPreviewHasPluginOwnedUpdateDriver()
+        {
+            var method = typeof(InventoryDragPreviewAdapter).GetMethod("Tick", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            Assert(method != null, "DEV-16D preview adapter exposes plugin-owned main-thread update driver");
+        }
+
+        private static void AssertInventoryHeartbeatDrivesPreviewFallback()
+        {
+            var method = typeof(InventorySurfaceLifecycleAdapter).GetMethod("PlayerUIUpdatePostfix", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic);
+            Assert(method != null, "DEV-16D exposes the observed PlayerUI.Update heartbeat seam");
+        }
+
+        private static void AssertNativeDragPivotConvertsToPositiveGrabOffset()
+        {
+            var method = typeof(InventoryDragPreviewAdapter).GetMethod("NativePivotToGrabOffset", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic);
+            Assert(method != null, "native drag pivot conversion seam exists");
+            var result = (UnityEngine.Vector2)method.Invoke(null, new object[] { new UnityEngine.Vector2(-25f, -50f) });
+            Assert(Math.Abs(result.x - 0.5f) < 0.001f && Math.Abs(result.y - 1f) < 0.001f,
+                "negative native drag pivot becomes positive grid grab offset");
         }
         private static bool RequiresParentRebindSemantics()
         {
