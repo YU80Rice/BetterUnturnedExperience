@@ -76,31 +76,61 @@ namespace BetterUnturnedExperience.Plugin
         internal void Activate()
         {
             if (!enabled || hooksInstalled) return;
+            // Each target installs independently with a named failure record:
+            // one toxic patch must not silently disable the other.
+            var failures = new System.Collections.Generic.List<string>();
             try
             {
                 harmony.Patch(AccessTools.Method(typeof(PlayerDashboardInventoryUI), "onPlacedItem"),
                     prefix: new HarmonyMethod(typeof(InventoryDragPreviewAdapter), nameof(PlacedItemPrefix)));
-                harmony.Patch(AccessTools.Method(typeof(PlayerUI), "Update"),
-                    postfix: new HarmonyMethod(typeof(InventoryDragPreviewAdapter), nameof(PlayerUIUpdatePostfix)));
-                hooksInstalled = true;
-                ActiveAdapter = this;
-                log?.LogInfo("[BUE-DRAG] event=hooks-installed targets=onPlacedItem,PlayerUI.Update diagnosticId=BUE-DRAG-001");
+                log?.LogInfo("[BUE-DRAG] event=patch-installed target=onPlacedItem diagnosticId=BUE-DRAG-001");
             }
             catch (Exception error)
             {
-                gateDiagnostics = "hooks-failed: " + error.GetType().FullName + ": " + error.Message;
-                hooksInstalled = false;
+                failures.Add("onPlacedItem: " + error.GetType().FullName + " " + error.Message);
+            }
+            try
+            {
+                // Drives the drag poll on the dashboard-inventory UI tick itself
+                // (runs every frame while any inventory page is visible), rather
+                // than PlayerUI.Update whose patch previously failed with an
+                // IL compile error on this game build.
+                harmony.Patch(AccessTools.Method(typeof(PlayerDashboardInventoryUI), "updateDraggedItem"),
+                    postfix: new HarmonyMethod(typeof(InventoryDragPreviewAdapter), nameof(DashboardUpdatePostfix)));
+                log?.LogInfo("[BUE-DRAG] event=patch-installed target=updateDraggedItem diagnosticId=BUE-DRAG-001");
+            }
+            catch (Exception error)
+            {
+                failures.Add("updateDraggedItem: " + error.GetType().FullName + " " + error.Message);
+            }
+            if (failures.Count > 0)
+            {
+                gateDiagnostics = "hooks-failed: " + string.Join("; ", failures);
+            }
+            hooksInstalled = failures.Count == 0;
+            if (hooksInstalled)
+            {
+                ActiveAdapter = this;
+                log?.LogInfo("[BUE-DRAG] event=hooks-installed targets=onPlacedItem,updateDraggedItem diagnosticId=BUE-DRAG-001");
+            }
+        }
+
+        internal static void DashboardUpdatePostfix()
+        {
+            var adapter = ActiveAdapter;
+            if (adapter == null) return;
+            try
+            {
+                adapter.Poll();
+                adapter.component?.Tick((uint)Environment.TickCount);
+            }
+            catch (Exception error)
+            {
+                LastPollDiagnostics = "poll failed: " + error.GetType().FullName + ": " + error.Message;
             }
         }
 
         internal static InventoryDragPreviewAdapter ActiveAdapter { get; private set; }
-
-        internal static void PlayerUIUpdatePostfix()
-        {
-            var adapter = ActiveAdapter;
-            if (adapter == null) return;
-            try { adapter.Poll(); adapter.component?.Tick((uint)Environment.TickCount); } catch (Exception error) { LastPollDiagnostics = "poll failed: " + error.GetType().FullName + ": " + error.Message; }
-        }
 
         internal static string LastPollDiagnostics { get; private set; }
 
