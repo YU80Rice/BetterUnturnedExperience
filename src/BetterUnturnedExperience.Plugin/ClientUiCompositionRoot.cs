@@ -108,10 +108,14 @@ namespace BetterUnturnedExperience.Plugin
         private IClientUiFeatureComponent CreateOfficialComponent()
         {
             factoryInvocationCount++;
-            return new BetterItemInteractionUiComponent(
+            var component = new BetterItemInteractionUiComponent(
                 new InventoryPreviewPresenter(new InventoryDragPresenter(new PlacementCandidateEvaluator())),
                 new NativeInventoryInteractionAdapter(2, 8), settingsState);
+            OfficialComponent = component;
+            return component;
         }
+
+        internal BetterItemInteractionUiComponent OfficialComponent { get; private set; }
 
         private sealed class BueClientUiRoot : IClientUiRoot { }
     }

@@ -314,6 +314,8 @@ namespace BetterUnturnedExperience.ClientUi.Internal
         internal void BeginDrag(uint dragGeneration) { dragPresenter.BeginDrag(dragGeneration); }
         internal void EndDrag() { dragPresenter.EndDrag(); }
 
+        internal ItemPlacementPreview LastPreview { get; private set; }
+
         internal void Update(InventoryPreviewInput input, IInventoryPreviewSink sink)
         {
             if (sink == null) throw new ArgumentNullException(nameof(sink));
@@ -325,6 +327,7 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             }
 
             var preview = dragPresenter.Evaluate(candidateInput);
+            LastPreview = preview;
             if (preview.DragGeneration != input.DragGeneration || preview.State == PlacementPreviewState.Hidden ||
                 preview.State == PlacementPreviewState.PendingAuthoritativeProjection)
             {

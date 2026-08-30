@@ -27,6 +27,7 @@ namespace BetterUnturnedExperience.Plugin
         private BuePluginUpdateDriver pluginUpdateDriver;
         private BueRuntimeCompletionBarrier completionBarrier;
         private InventorySurfaceLifecycleAdapter inventoryLifecycleAdapter;
+        private InventoryDragPreviewAdapter inventoryDragAdapter;
 
         private void Awake()
         {
@@ -69,6 +70,14 @@ namespace BetterUnturnedExperience.Plugin
                             Logger.LogInfo("BUE inventory lifecycle wiring enabled diagnosticId=BUE-INVENTORY-001");
                         else
                             Logger.LogWarning("BUE inventory lifecycle wiring disabled diagnosticId=BUE-INVENTORY-003 diagnostics=" + inventoryLifecycleAdapter.GateDiagnostics);
+                        // [DEV-16D] Drag preview/commit adapter driven by the same
+                        // PlayerUI.Update tick; routes through the official UI
+                        // component's preview, release and projection seams.
+                        inventoryDragAdapter = new InventoryDragPreviewAdapter(Logger, clientUiComposition.OfficialComponent);
+                        inventoryDragAdapter.Activate();
+                        Logger.LogInfo(inventoryDragAdapter.HooksInstalled
+                            ? "BUE drag preview wiring enabled diagnosticId=BUE-DRAG-001"
+                            : "BUE drag preview wiring disabled diagnosticId=BUE-DRAG-003 diagnostics=" + inventoryDragAdapter.GateDiagnostics);
                         Logger.LogInfo("BUE client UI composition ready featureId=io.github.yu80rice.bue.better-item-interaction diagnosticId=BUE-CLIENTUI-002");
                     }
                 }

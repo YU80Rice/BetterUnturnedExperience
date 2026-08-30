@@ -55,6 +55,19 @@ namespace BetterUnturnedExperience.ClientUi.Internal
     }
 
     /// <summary>
+    /// DEV-16D awaiting-projection bridge: submitted placements enter the
+    /// visual-await state and converge when a native inventory snapshot
+    /// matches the binding; the 2000ms budget only affects the visual wait.
+    /// </summary>
+    internal interface IInventoryProjectionSink
+    {
+        void OnProjectionSubmitted(ProjectionBinding binding);
+        ProjectionConvergence OnNativeInventorySnapshot(NativeInventorySnapshot snapshot);
+        void OnProjectionTimedOut();
+        AwaitingProjectionState ProjectionState { get; }
+    }
+
+    /// <summary>
     /// High-performance, zero-allocation implementation of IInventoryPreviewSink.
     /// Pools frame and floating icon elements and manages visual lifecycle.
     /// </summary>
@@ -153,6 +166,9 @@ namespace BetterUnturnedExperience.ClientUi.Internal
         private readonly BetterItemInteractionSettingsState settingsState;
         private readonly BetterItemInteractionLifecycle lifecycle;
         private readonly BetterItemInteractionRuntime runtime;
+        private readonly AwaitingProjectionController awaitingProjection = new AwaitingProjectionController();
+        private IInventoryProjectionSink projectionSink;
+        private uint visualClockMs;
         private IInventorySurfaceContext currentSurface;
         private ContainerReference currentContainer;
         private uint currentSessionGeneration;
@@ -160,6 +176,19 @@ namespace BetterUnturnedExperience.ClientUi.Internal
         private bool isInventoryOpen;
         private bool satelliteAvailable = true;
         private bool headless;
+
+        internal IInventoryProjectionSink ProjectionSink { set { projectionSink = value; } }
+
+        internal void Tick(uint nowMilliseconds)
+        {
+            visualClockMs = nowMilliseconds;
+            if (awaitingProjection.Tick(nowMilliseconds) && projectionSink != null)
+            {
+                // Visual budget expired: the native projection may still land
+                // later, but the visual wait stops here. No fake rollback.
+                projectionSink.OnProjectionTimedOut();
+            }
+        }
 
         internal BetterItemInteractionUiComponent(
             InventoryPreviewPresenter previewPresenter,
@@ -282,6 +311,12 @@ namespace BetterUnturnedExperience.ClientUi.Internal
 
         internal void OnDragStarted(uint dragGeneration)
         {
+            OnDragStarted(dragGeneration, default(ItemAssetIdentity));
+        }
+
+        internal void OnDragStarted(uint dragGeneration, ItemAssetIdentity dragAsset)
+        {
+            currentDragAsset = dragAsset;
             runtime.BeginDrag(dragGeneration);
             if (runtime.EnhancedDragActive && previewSink == null && currentSurface != null && satelliteAvailable && !headless)
             {
@@ -291,6 +326,8 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             if (runtime.EnhancedDragActive) previewPresenter.BeginDrag(dragGeneration);
             else previewPresenter.EndDrag();
         }
+
+        private ItemAssetIdentity currentDragAsset;
 
         internal void OnDragUpdated(InventoryPreviewInput input)
         {
@@ -321,6 +358,8 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             }
         }
 
+        internal ItemPlacementPreview LastPreview { get { return previewPresenter.LastPreview; } }
+
         internal NativeDragAdapterOutcome OnDragReleased(NativeDragAdapterInput input, INativeInventoryDragActions nativeActions)
         {
             if (previewSink != null)
@@ -338,6 +377,12 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             {
                 var outcome = nativeAdapter.HandleRelease(input, nativeActions);
                 runtime.EndDrag();
+                if (outcome == NativeDragAdapterOutcome.Submitted)
+                {
+                    var fingerprint = new InventoryItemFingerprint(currentDragAsset, (byte)input.Preview.Width, (byte)input.Preview.Height, input.Preview.Candidate.Rotation);
+                    if (projectionSink != null)
+                        projectionSink.OnProjectionSubmitted(new ProjectionBinding(input.DragGeneration, currentContainer, fingerprint));
+                }
                 return outcome;
             }
             catch (Exception)
@@ -345,6 +390,18 @@ namespace BetterUnturnedExperience.ClientUi.Internal
                 runtime.Isolate();
                 return NativeDragAdapterOutcome.PassThrough;
             }
+        }
+
+        internal ProjectionConvergence OnNativeInventorySnapshot(NativeInventorySnapshot snapshot)
+        {
+            if (projectionSink == null) return ProjectionConvergence.Ignored;
+            var convergence = projectionSink.OnNativeInventorySnapshot(snapshot);
+            if (convergence == ProjectionConvergence.Converged)
+            {
+                // Native projection landed: the placement is authoritative now.
+                currentSessionGeneration = snapshot.Container.SessionGeneration;
+            }
+            return convergence;
         }
 
         internal void OnDragCancelled()
