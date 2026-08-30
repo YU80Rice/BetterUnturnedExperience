@@ -144,10 +144,16 @@ namespace BetterUnturnedExperience.ClientUi.Internal
         internal static bool TryCreateCandidateInput(InventoryPreviewInput input, out PlacementCandidateInput candidate)
         {
             candidate = default(PlacementCandidateInput);
+            // [R37] Viewport.Contains only gates when the grid reports a real
+            // clip: SizeOffset_X is 0 for scale-anchored grids, so a zero clip
+            // must not reject every pointer and keep LastPreview empty
+            // forever. The evaluator still hides out-of-bounds candidates
+            // through occupancy and bounds checks downstream.
+            var viewportHasClip = input.Viewport.ClipWidth > 0f && input.Viewport.ClipHeight > 0f;
             if (!IsFinite(input.PointerScreenX) || !IsFinite(input.PointerScreenY) || !IsFinite(input.CellPixelSize) ||
                 !IsFinite(input.UiScale) || !IsFinite(input.ScrollPixelsX) || !IsFinite(input.ScrollPixelsY) ||
                 input.CellPixelSize <= 0f || input.UiScale <= 0f || input.Occupancy == null ||
-                !input.Viewport.Contains(input.PointerScreenX, input.PointerScreenY))
+                (viewportHasClip && !input.Viewport.Contains(input.PointerScreenX, input.PointerScreenY)))
             {
                 return false;
             }

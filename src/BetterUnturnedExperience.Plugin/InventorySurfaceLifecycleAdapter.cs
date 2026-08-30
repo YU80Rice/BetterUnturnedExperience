@@ -317,9 +317,11 @@ namespace BetterUnturnedExperience.Plugin
             var gridPanel = new UnturnedVisualContainer(sleekItems);
             var topLevel = new UnturnedVisualContainer(sleekItems);
 
-            // Approximate geometry: element offsets stand in for the true
-            // screen-space origin and the scroll offsets are read as zero;
-            // both are calibrated on the real machine with DEV-16D.
+            // Geometry via offset/size pairs only: SizeOffset_X is 0 for
+            // scale-anchored grids, so clip width stays 0 until the screen-
+            // space calibration lands (DEV-16D seam gap). Viewport.Contains
+            // no longer gates the evaluation, so a degenerate clip only means
+            // uncalibrated preview positioning, not a dead preview.
             var viewport = new InventoryGridViewport(
                 sleekItems.PositionOffset_X, sleekItems.PositionOffset_Y,
                 (byte)dataItems.width, (byte)dataItems.height,
