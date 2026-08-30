@@ -413,3 +413,25 @@ R21 布局轮（dashboard 按钮 y=460 列尾、面板全屏动态适配、按�
 ### 正式产物
 
 `artifacts/DEV-16C-inventory-lifecycle-r22-20260830/BetterUnturnedExperience.dll`，SHA-256 `E8B6733C7F2BFE27C927A0D4A938ED0EB518E7F0F40DAEC046BEBC6B9121FE0`，**CaseId `DEV-16C-R22-20260830`**。**真机验证项**：进背包/开箱/车辆后备箱的 `container-session-open` 日志链与投影正确性（下轮 HITL）。
+
+## 20. DEV-16C 真机验证与 R24 追加（2026-08-30）
+
+### R23 真机读数（`UMM-诊断包_20260830_110256`）
+
+**生命周期链工作**：3 次 `surface-context-dispatched`（`kind=Storage g=2 grid=7x5`、`kind=Storage g=4`、`kind=Trunk g=6 grid=6x3`——**网格尺寸为真实读数**）、`host-destroyed state=preserved` 后事件持续、三路按钮注入成功。**问题**：`stale-container` ×44366（死引用每帧日志风暴，DEV-16B 遗留）；`PlayerInventory` 会话缺 dispatch（page=0 热键页越界）。
+
+### R24 修复（双轴复审 CLEAN）
+
+1. stale-container 日志删除（container-state 节流日志覆盖）。
+2. Player 页映射 `BACKPACK=3`（Player 背包会话可达）。
+3. `UnityEngine.InputLegacyModule` 引用补入（`Input.mousePosition` 需要，DLL 从游戏 Managed 目录拷入 Libs）。
+4. FieldInfo 缓存构造赋值（CS0649）。
+5. 读数溯源标注（`(approx)`/`(static)`/`scroll=0(approx)`）。
+
+**正式产物**：`artifacts/DEV-16C-inventory-lifecycle-r24-20260830/BetterUnturnedExperience.dll`，SHA-256 `9CE92796C6571DD9B309A1D5C13570280E95869B04692CB73132EC4AF1E2A969`→`B7A0100F6952B2E96D5FDDD8420E4BFCA9F3EDC078E0E92D08A301C4693D0104`（FieldInfo 缓存刷新），CaseId `DEV-16C-R24-20260830`。
+
+### R24 真机读数（`UMM-诊断包_20260830_114508`）——DEV-16C 全链验证通过
+
+**7 次 surface-context-dispatched**：`PlayerInventory page=3 g=1 grid=5x7` → `Storage g=2 grid=7x5` → `PlayerInventory g=3` → `Storage g=4` → `PlayerInventory g=5` → `Trunk g=6 grid=6x3` → `PlayerInventory g=7`——generation 1→7 单调递增、kind 随操作正确切换、**网格尺寸为真实读数**（背包 5x7、箱子 7x5、后备箱 6x3）、日志风暴消除（64 行）。**Player 页会话首次 dispatch**（R24 页映射修正生效）。**V1 范围澄清**：手持/装备页无会话日志为设计裁决（快捷槽与装备页保持原生 Pass-Through）。
+
+**DEV-16C 真机运行证据齐备**：工单 03 三项状态（生命周期/几何/代际）真机验证通过。

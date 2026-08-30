@@ -37,3 +37,12 @@
 - **R19 保活**：`host-destroyed state=preserved patches-kept=true` 后事件链持续工作（PlayerUI.Update postfix 驱动）。
 - **V1 范围澄清**：用户注意到的"手持/背心/上衣/裤子格子"无会话日志为**设计裁决**——`ContainerKind` V1 仅 PlayerInventory/Storage/Equipment，快捷槽与装备页按 spec-DEV-16 保持原生 Pass-Through（工单 02 L22 同源验收项）。
 - 状态：`resolved`（终版——静态实现、测试、真机生命周期全链证据齐备）。
+
+### 2026-08-30 R24 追加修复（agent，真机读数驱动）
+
+- **日志风暴**：`stale-container` 独立日志删除（真机 44366 条/会话——死引用每帧打）；`container-state` 节流日志保留覆盖。
+- **Player 页映射**：PlayerInventory 会话改用 `BACKPACK=3` 页（r23 的 page=0 是热键槽页越界导致 Player 会话从不 dispatch）；真机验证出现 `kind=PlayerInventory page=3 generation=1 grid=5x7` ✓。
+- **InputLegacyModule 引用**：`Input.mousePosition` 需要 `UnityEngine.InputLegacyModule.dll`（Libs 原缺，从游戏 Managed 目录补入并加 csproj 引用）。
+- **FieldInfo 缓存**：拖拽字段反射缓存的构造赋值补齐（CS0649）。
+- **正式产物**：`artifacts/DEV-16C-inventory-lifecycle-r24-20260830/BetterUnturnedExperience.dll`（SHA-256 `9CE92796…A969`→`B7A0100F…0104`（FieldInfo 缓存刷新），CaseId `DEV-16C-R24-20260830`）。
+- **真机验证**（`UMM-诊断包_20260830_114508`）：7 次 surface-context-dispatched 全链正确（Player/Storage/Trunk 切换、generation 1→7、网格真实尺寸 5x7/7x5/6x3）。
