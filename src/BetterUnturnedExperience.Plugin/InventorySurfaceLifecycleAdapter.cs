@@ -152,14 +152,18 @@ namespace BetterUnturnedExperience.Plugin
         internal static InventoryGridViewport ResolveViewport(bool hierarchyLive, UnityEngine.Vector2 scrollSize,
             byte gridWidth, byte gridHeight, float offsetX, float offsetY, float sizeX, float sizeY)
         {
-            if (hierarchyLive && scrollSize.x > 0f && scrollSize.y > 0f &&
-                !float.IsNaN(scrollSize.x) && !float.IsNaN(scrollSize.y))
-            {
-                return BuildLiveGridViewport(gridWidth, gridHeight, scrollSize.x, scrollSize.y);
-            }
-            return new InventoryGridViewport(offsetX, offsetY, gridWidth, gridHeight,
-                offsetX, offsetY, sizeX, sizeY);
+            // [R43] Single coordinate space: grid-local pixels, Y-down from
+            // the grid's top-left, clip exactly the grid's pixel size. The
+            // live hierarchy snapshot only decides trustworthiness; both
+            // branches share the same space so the cursor conversion and the
+            // clip can never disagree again.
+            var clipW = gridWidth * 50f;
+            var clipH = gridHeight * 50f;
+            // Degradation observability lives at the caller (BuildSurfaceContext logs the warning).
+            return new InventoryGridViewport(0f, 0f, gridWidth, gridHeight,
+                0f, 0f, clipW, clipH);
         }
+
 
         internal static readonly FieldInfo NativeScrollField = typeof(SleekItems).GetField("horizontalScrollView", BindingFlags.Instance | BindingFlags.NonPublic);
         internal static readonly FieldInfo NativeGridField = typeof(SleekItems).GetField("grid", BindingFlags.Instance | BindingFlags.NonPublic);

@@ -217,16 +217,24 @@ namespace BetterUnturnedExperience.Plugin
 
             if (isDragging)
             {
-                var sleekMouse = InventoryGridCoordinateAdapter.ToUiScreenCoordinates(Input.mousePosition.x,
-                    Input.mousePosition.y, Screen.height, ReadUiScale());
+                // [R43] Pointer in grid-local pixels via the native cursor API
+                // (normalized to this grid's size, Y-down from its top-left) -
+                // replaces the screen-vs-local coordinate mix that hid every
+                // backpack preview behind OutsideGrid.
+                var grid = attachedGrid;
+                if (grid == null) return;
+                var normalized = grid.GetNormalizedCursorPosition();
+                var localX = normalized.x * grid.width * 50f;
+                var localY = normalized.y * grid.height * 50f;
+                var sleekMouse = new System.ValueTuple<float, float>(localX, localY);
                 var localSurface = component.CurrentSurface as UnturnedInventorySurfaceContext;
-                if (localSurface != null)
+                if (false && localSurface != null)
                 {
-                    float localX;
-                    float localY;
-                    if (localSurface.TryGetLocalPointerPixels(out localX, out localY))
+                    float localX2;
+                    float localY2;
+                    if (localSurface.TryGetLocalPointerPixels(out localX2, out localY2))
                     {
-                        sleekMouse = new System.ValueTuple<float, float>(localX, localY);
+                        sleekMouse = new System.ValueTuple<float, float>(localX2, localY2);
                     }
                 }
                 if (component.TryCreatePreviewInput(dragGeneration, ReadDragSource(), sleekMouse.Item1,

@@ -532,25 +532,22 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 "out-of-bounds reads as empty");
         }
 
-        // [R41] Surface viewport degradation: hierarchy/scroll failure must
-        // fall back to the offset approximation instead of dropping the
-        // surface, and nativePanel==null must not throw.
+        // [R43] Single coordinate space: the viewport is always grid-local
+        // (origin 0,0, clip exactly grid pixels) so the native cursor
+        // conversion and the clip can never disagree; hierarchy/scroll state
+        // only affects degradation logging, never geometry.
         private static void AssertSurfaceViewportDegradation()
         {
-            var fallback = BetterUnturnedExperience.Plugin.UnturnedInventorySurfaceContext.ResolveViewport(
+            var degraded = BetterUnturnedExperience.Plugin.UnturnedInventorySurfaceContext.ResolveViewport(
                 false, new UnityEngine.Vector2(0f, 0f), 5, 7, 3f, 4f, 0f, 100f);
-            Assert(fallback.OriginX == 3f && fallback.OriginY == 4f && fallback.ClipWidth == 0f,
-                "degraded hierarchy uses the offset approximation viewport");
-
             var live = BetterUnturnedExperience.Plugin.UnturnedInventorySurfaceContext.ResolveViewport(
                 true, new UnityEngine.Vector2(400f, 500f), 5, 7, 3f, 4f, 0f, 100f);
-            Assert(live.ClipWidth == 400f && live.ClipHeight == 500f,
-                "valid live scroll size builds the live viewport");
-
-            var degradedScroll = BetterUnturnedExperience.Plugin.UnturnedInventorySurfaceContext.ResolveViewport(
-                true, new UnityEngine.Vector2(0f, -1f), 5, 7, 3f, 4f, 0f, 100f);
-            Assert(degradedScroll.OriginX == 3f && degradedScroll.ClipHeight == 100f,
-                "invalid live scroll size degrades to the approximation");
+            Assert(degraded.OriginX == 0f && degraded.OriginY == 0f && degraded.ClipWidth == 250f && degraded.ClipHeight == 350f,
+                "degraded hierarchy still yields the grid-local clip");
+            Assert(live.OriginX == 0f && live.ClipWidth == 250f && live.ClipHeight == 350f,
+                "live hierarchy yields the identical grid-local clip");
+            Assert(degraded.Contains(249f, 349f) && !degraded.Contains(251f, 10f),
+                "grid-local clip contains in-grid pointers and rejects out-of-grid ones");
         }
 
         private static void AssertManagementPanelConsumesRuntimeCatalog()
