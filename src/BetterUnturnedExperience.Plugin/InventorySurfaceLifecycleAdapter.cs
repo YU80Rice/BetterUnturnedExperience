@@ -146,6 +146,16 @@ namespace BetterUnturnedExperience.Plugin
     /// </summary>
     internal sealed class UnturnedInventorySurfaceContext : IInventorySurfaceContext
     {
+        internal static Vector2 MapNormalizedPointer(float nx, float ny, float width, float height)
+        {
+            return new Vector2(nx * width, ny * height);
+        }
+
+        internal static bool IsNativeHierarchyComplete(bool hasScroll, bool hasGrid, bool hasItemsPanel)
+        {
+            return hasScroll && hasGrid && hasItemsPanel;
+        }
+
         private readonly ContainerReference currentContainer;
         private readonly IVisualContainer topLevelContainer;
         private readonly IVisualContainer gridPanelContainer;

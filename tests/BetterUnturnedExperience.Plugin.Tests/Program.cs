@@ -59,6 +59,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 AssertInventoryHeartbeatDrivesPreviewFallback();
                 AssertNativeDragPivotConvertsToPositiveGrabOffset();
                 AssertInventorySurfaceHasRuntimeScrollReader();
+                AssertNativeLikeViewportScaleAndHierarchyBehavior();
                 AssertRuntimeCompletionBarrierIsolates();
                 AssertManagementPanelConsumesRuntimeCatalog();
                 AssertManagementPanelOpenHooks();
@@ -135,6 +136,17 @@ namespace BetterUnturnedExperience.Plugin.Tests
             Assert(Math.Abs(UnturnedInventorySurfaceContext.ComputeScrollPixels(1f, 0.5f, 600f) - 300f) < 0.001f, "bottom scroll maps to remaining pixels");
             Assert(Math.Abs(UnturnedInventorySurfaceContext.ComputeScrollPixels(1f, 1f, 600f)) < 0.001f, "fully visible content has no scroll range");
             Assert(Math.Abs(UnturnedInventorySurfaceContext.ComputeScrollPixels(float.NaN, 0.5f, 600f)) < 0.001f, "invalid scroll values fail closed");
+        }
+
+        private static void AssertNativeLikeViewportScaleAndHierarchyBehavior()
+        {
+            var mapped = UnturnedInventorySurfaceContext.MapNormalizedPointer(0.5f, 0.5f, 400f, 300f);
+            Assert(Math.Abs(mapped.x - 200f) < 0.001f && Math.Abs(mapped.y - 150f) < 0.001f,
+                "normalized pointer maps into the live grid viewport");
+            Assert(UnturnedInventorySurfaceContext.IsNativeHierarchyComplete(true, true, true),
+                "native-like SleekItems hierarchy is complete");
+            Assert(!UnturnedInventorySurfaceContext.IsNativeHierarchyComplete(true, false, true),
+                "incomplete native-like hierarchy fails closed");
         }
         private static bool RequiresParentRebindSemantics()
         {
