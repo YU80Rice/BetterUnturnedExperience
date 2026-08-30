@@ -179,8 +179,11 @@ namespace BetterUnturnedExperience.Plugin
         public InventoryGridViewport Viewport { get { return viewport; } }
         public float CellPixelSize { get { return 50f; } }
         public float UiScale { get { return uiScale; } }
-        public float ScrollPixelsX { get { return ReadScrollPixelsX(); } }
-        public float ScrollPixelsY { get { return ReadScrollPixelsY(); } }
+        // The pointer is measured from the live grid child's absolute rect;
+        // Glazier has already applied the scroll transform there. Returning
+        // zero prevents the evaluator from double-counting that same scroll.
+        public float ScrollPixelsX { get { return 0f; } }
+        public float ScrollPixelsY { get { return 0f; } }
         public IGridOccupancyView Occupancy { get { return occupancy; } }
 
         // Sleek coordinates are local to the live inventory surface. Reading
