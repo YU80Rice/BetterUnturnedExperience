@@ -152,7 +152,7 @@ namespace BetterUnturnedExperience.Plugin
         private readonly InventoryGridViewport viewport;
         private readonly float uiScale;
         private readonly IGridOccupancyView occupancy;
-        private readonly ISleekElement nativeGrid;
+        private readonly SleekItems nativeItems;
 
         internal UnturnedInventorySurfaceContext(ContainerReference currentContainer, IVisualContainer topLevelContainer,
             IVisualContainer gridPanelContainer, InventoryGridViewport viewport, float uiScale, IGridOccupancyView occupancy)
@@ -163,7 +163,7 @@ namespace BetterUnturnedExperience.Plugin
             this.viewport = viewport;
             this.uiScale = uiScale;
             this.occupancy = occupancy;
-            nativeGrid = (gridPanelContainer as UnturnedVisualContainer)?.element;
+            nativeItems = (gridPanelContainer as UnturnedVisualContainer)?.element as SleekItems;
         }
 
         public ContainerReference CurrentContainer { get { return currentContainer; } }
@@ -183,7 +183,7 @@ namespace BetterUnturnedExperience.Plugin
         {
             x = 0f;
             y = 0f;
-            var native = (gridPanelContainer as UnturnedVisualContainer)?.element;
+            var native = ResolveGrid();
             if (native == null || occupancy == null) return false;
             var normalized = native.GetNormalizedCursorPosition();
             if (float.IsNaN(normalized.x) || float.IsInfinity(normalized.x) ||
@@ -222,9 +222,23 @@ namespace BetterUnturnedExperience.Plugin
 
         private ISleekScrollView ResolveScrollView()
         {
-            if (nativeGrid == null) return null;
+            if (nativeItems == null) return null;
             var field = typeof(SleekItems).GetField("horizontalScrollView", BindingFlags.Instance | BindingFlags.NonPublic);
-            return field == null ? null : field.GetValue(nativeGrid) as ISleekScrollView;
+            return field == null ? null : field.GetValue(nativeItems) as ISleekScrollView;
+        }
+
+        internal ISleekElement ResolveItemsPanel()
+        {
+            if (nativeItems == null) return null;
+            var field = typeof(SleekItems).GetField("itemsPanel", BindingFlags.Instance | BindingFlags.NonPublic);
+            return field == null ? null : field.GetValue(nativeItems) as ISleekElement;
+        }
+
+        private ISleekElement ResolveGrid()
+        {
+            if (nativeItems == null) return null;
+            var field = typeof(SleekItems).GetField("grid", BindingFlags.Instance | BindingFlags.NonPublic);
+            return field == null ? null : field.GetValue(nativeItems) as ISleekElement;
         }
 
     }
@@ -365,7 +379,7 @@ namespace BetterUnturnedExperience.Plugin
                     + " grid=" + context.Viewport.GridWidth + "x" + context.Viewport.GridHeight
                     + " clip=" + context.Viewport.ClipWidth + "x" + context.Viewport.ClipHeight
                     + " uiScale=" + context.UiScale.ToString("0.##") + " cellPx=" + context.CellPixelSize + " (static)"
-                    + " scroll=0(approx)"
+                    + " scroll=" + context.ScrollPixelsX.ToString("0.###") + "," + context.ScrollPixelsY.ToString("0.###")
                     + " diagnosticId=BUE-INVENTORY-001");
             }
         }
@@ -390,7 +404,10 @@ namespace BetterUnturnedExperience.Plugin
 
             var dataItems = playerInventory.items[page];
 
-            var gridPanel = new UnturnedVisualContainer(sleekItems);
+            var nativePanelField = typeof(SleekItems).GetField("itemsPanel", BindingFlags.Instance | BindingFlags.NonPublic);
+            var nativePanel = nativePanelField == null ? null : nativePanelField.GetValue(sleekItems) as ISleekElement;
+            if (nativePanel == null) return null;
+            var gridPanel = new UnturnedVisualContainer(nativePanel);
             var topLevel = new UnturnedVisualContainer(PlayerUI.container);
 
             // Geometry is expressed in the live SleekItems local space. The

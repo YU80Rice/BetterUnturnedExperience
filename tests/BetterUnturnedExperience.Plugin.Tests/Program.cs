@@ -129,6 +129,8 @@ namespace BetterUnturnedExperience.Plugin.Tests
             Assert(method != null, "inventory surface must expose a runtime scroll reader");
             var horizontal = type.GetMethod("ReadScrollPixelsX", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
             Assert(horizontal != null, "inventory surface must expose an explicit horizontal scroll seam");
+            var itemsPanel = type.GetMethod("ResolveItemsPanel", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            Assert(itemsPanel != null, "inventory surface must resolve the native itemsPanel child");
         }
         private static bool RequiresParentRebindSemantics()
         {
