@@ -227,16 +227,6 @@ namespace BetterUnturnedExperience.Plugin
                 var localX = normalized.x * grid.width * 50f;
                 var localY = normalized.y * grid.height * 50f;
                 var sleekMouse = new System.ValueTuple<float, float>(localX, localY);
-                var localSurface = component.CurrentSurface as UnturnedInventorySurfaceContext;
-                if (false && localSurface != null)
-                {
-                    float localX2;
-                    float localY2;
-                    if (localSurface.TryGetLocalPointerPixels(out localX2, out localY2))
-                    {
-                        sleekMouse = new System.ValueTuple<float, float>(localX2, localY2);
-                    }
-                }
                 if (component.TryCreatePreviewInput(dragGeneration, ReadDragSource(), sleekMouse.Item1,
                         sleekMouse.Item2, ReadDragWidth(), ReadDragHeight(), ReadDragRotation(),
                         allowAutomaticRotation: true, grabOffsetX: ReadGrabOffsetX(), grabOffsetY: ReadGrabOffsetY(),
