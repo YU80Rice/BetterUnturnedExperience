@@ -49,6 +49,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 AssertContainerSessionTrackerLifecycle();
                 AssertInventoryLifecycleGateDecisions();
                 AssertInventoryLifecycleWatcherDiffing();
+                AssertSurfaceViewportDegradation();
                 AssertSwapFootprintGuardMatrix();
                 AssertDragPreviewAdapterActivatesStaticPump();
                 AssertRuntimePumpBridge();
@@ -529,6 +530,27 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 "footprint away from the occupied cell counts as empty");
             Assert(!BetterUnturnedExperience.Plugin.InventoryDragPreviewAdapter.FootprintOccupied(occupied, 3, 3, 3, 0, 2, 2),
                 "out-of-bounds reads as empty");
+        }
+
+        // [R41] Surface viewport degradation: hierarchy/scroll failure must
+        // fall back to the offset approximation instead of dropping the
+        // surface, and nativePanel==null must not throw.
+        private static void AssertSurfaceViewportDegradation()
+        {
+            var fallback = BetterUnturnedExperience.Plugin.UnturnedInventorySurfaceContext.ResolveViewport(
+                false, new UnityEngine.Vector2(0f, 0f), 5, 7, 3f, 4f, 0f, 100f);
+            Assert(fallback.OriginX == 3f && fallback.OriginY == 4f && fallback.ClipWidth == 0f,
+                "degraded hierarchy uses the offset approximation viewport");
+
+            var live = BetterUnturnedExperience.Plugin.UnturnedInventorySurfaceContext.ResolveViewport(
+                true, new UnityEngine.Vector2(400f, 500f), 5, 7, 3f, 4f, 0f, 100f);
+            Assert(live.ClipWidth == 400f && live.ClipHeight == 500f,
+                "valid live scroll size builds the live viewport");
+
+            var degradedScroll = BetterUnturnedExperience.Plugin.UnturnedInventorySurfaceContext.ResolveViewport(
+                true, new UnityEngine.Vector2(0f, -1f), 5, 7, 3f, 4f, 0f, 100f);
+            Assert(degradedScroll.OriginX == 3f && degradedScroll.ClipHeight == 100f,
+                "invalid live scroll size degrades to the approximation");
         }
 
         private static void AssertManagementPanelConsumesRuntimeCatalog()

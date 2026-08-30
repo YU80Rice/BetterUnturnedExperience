@@ -146,6 +146,21 @@ namespace BetterUnturnedExperience.Plugin
     /// </summary>
     internal sealed class UnturnedInventorySurfaceContext : IInventorySurfaceContext
     {
+        // [R41] Single authority for viewport selection: live geometry when
+        // the native hierarchy and scroll size are trustworthy, otherwise the
+        // offset/size approximation. Never null, never throws.
+        internal static InventoryGridViewport ResolveViewport(bool hierarchyLive, UnityEngine.Vector2 scrollSize,
+            byte gridWidth, byte gridHeight, float offsetX, float offsetY, float sizeX, float sizeY)
+        {
+            if (hierarchyLive && scrollSize.x > 0f && scrollSize.y > 0f &&
+                !float.IsNaN(scrollSize.x) && !float.IsNaN(scrollSize.y))
+            {
+                return BuildLiveGridViewport(gridWidth, gridHeight, scrollSize.x, scrollSize.y);
+            }
+            return new InventoryGridViewport(offsetX, offsetY, gridWidth, gridHeight,
+                offsetX, offsetY, sizeX, sizeY);
+        }
+
         internal static readonly FieldInfo NativeScrollField = typeof(SleekItems).GetField("horizontalScrollView", BindingFlags.Instance | BindingFlags.NonPublic);
         internal static readonly FieldInfo NativeGridField = typeof(SleekItems).GetField("grid", BindingFlags.Instance | BindingFlags.NonPublic);
         internal static readonly FieldInfo NativeItemsPanelField = typeof(SleekItems).GetField("itemsPanel", BindingFlags.Instance | BindingFlags.NonPublic);
@@ -526,7 +541,7 @@ namespace BetterUnturnedExperience.Plugin
             }
             if (PlayerUI.container == null) return null;
             var topLevel = new UnturnedVisualContainer(PlayerUI.container);
-            var gridPanel = new UnturnedVisualContainer(nativePanel);
+            var gridPanel = new UnturnedVisualContainer(nativePanel != null ? nativePanel : sleekItems);
 
             // Geometry is expressed in the live SleekItems local space. The
             // previous implementation copied PositionOffset into a screen
@@ -537,7 +552,6 @@ namespace BetterUnturnedExperience.Plugin
             try { uiScale = GraphicsSettings.userInterfaceScale; } catch (Exception) { uiScale = 1f; }
             if (uiScale <= 0f) uiScale = 1f;
 
-            var grid = nativeGrid;
             var scrollSize = Vector2.zero;
             if (hierarchyLive)
             {
@@ -548,19 +562,12 @@ namespace BetterUnturnedExperience.Plugin
                 // [R40 fail-open] Live scroll size unavailable: degrade to the
                 // offset/size approximation so the session still dispatches
                 // and the preview chain stays alive (calibration can follow).
-                viewport = new InventoryGridViewport(
-                    sleekItems.PositionOffset_X, sleekItems.PositionOffset_Y,
-                    (byte)dataItems.width, (byte)dataItems.height,
-                    sleekItems.PositionOffset_X, sleekItems.PositionOffset_Y,
-                    sleekItems.SizeOffset_X, sleekItems.SizeOffset_Y);
-                return new UnturnedInventorySurfaceContext(
-                    new ContainerReference(MapKind(kind), page, generation),
-                    topLevel, gridPanel, viewport, uiScale,
-                    new UnturnedGridOccupancyView(dataItems), sleekItems);
+                log?.LogWarning("[BUE-INVENTORY] event=scroll-size-degraded page=" + page + " diagnosticId=BUE-INVENTORY-003");
             }
-
-            viewport = UnturnedInventorySurfaceContext.BuildLiveGridViewport(
-                (byte)dataItems.width, (byte)dataItems.height, scrollSize.x, scrollSize.y);
+            viewport = UnturnedInventorySurfaceContext.ResolveViewport(hierarchyLive, scrollSize,
+                (byte)dataItems.width, (byte)dataItems.height,
+                sleekItems.PositionOffset_X, sleekItems.PositionOffset_Y,
+                sleekItems.SizeOffset_X, sleekItems.SizeOffset_Y);
 
             return new UnturnedInventorySurfaceContext(
                 new ContainerReference(MapKind(kind), page, generation),
