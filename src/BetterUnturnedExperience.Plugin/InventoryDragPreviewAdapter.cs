@@ -160,7 +160,11 @@ namespace BetterUnturnedExperience.Plugin
                 var jar = ReadDragJar();
                 var asset = jar == null ? ItemAssetIdentity.FromItemId(0) : AssetIdentityOf(jar);
                 component.OnDragStarted(dragGeneration, asset);
-                log?.LogInfo("[BUE-DRAG] event=drag-started generation=" + dragGeneration + " diagnosticId=BUE-DRAG-001");
+                log?.LogInfo("[BUE-DRAG] event=drag-started generation=" + dragGeneration
+                    + " enhanced=" + component.EnhancedDragActive
+                    + " canRun=" + component.LifecycleCanRun
+                    + " sinkBound=" + component.PreviewSinkBound
+                    + " diagnosticId=BUE-DRAG-001");
             }
             else if (!isDragging && wasDragging)
             {
@@ -251,9 +255,17 @@ namespace BetterUnturnedExperience.Plugin
             // [R34 fail-open] Enhanced interaction off, or no fresh preview
             // evaluation, means BUE cannot judge the placement: the native
             // path owns it. BUE never blocks what it cannot evaluate.
-            if (!component.EnhancedDragActive) return true;
+            if (!component.EnhancedDragActive)
+            {
+                log?.LogInfo("[BUE-DRAG] event=placement-passthrough reason=enhanced-off diagnosticId=BUE-DRAG-001");
+                return true;
+            }
             var preview = component.LastPreview;
-            if (preview.State == 0 || preview.DragGeneration != dragGeneration) return true;
+            if (preview.State == 0 || preview.DragGeneration != dragGeneration)
+            {
+                log?.LogInfo("[BUE-DRAG] event=placement-passthrough reason=preview-stale previewGen=" + preview.DragGeneration + " dragGen=" + dragGeneration + " diagnosticId=BUE-DRAG-001");
+                return true;
+            }
 
             var input = new NativeDragAdapterInput(
                 PlayerDashboardInventoryUI.isDragging, dragGeneration,

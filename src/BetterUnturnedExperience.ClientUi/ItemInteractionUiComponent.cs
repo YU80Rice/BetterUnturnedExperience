@@ -219,6 +219,8 @@ namespace BetterUnturnedExperience.ClientUi.Internal
         internal BetterItemInteractionLifecycle Lifecycle { get { return lifecycle; } }
         internal BetterItemInteractionSettingsState SettingsState { get { return settingsState; } }
         internal bool EnhancedDragActive { get { return runtime.EnhancedDragActive; } }
+        internal bool LifecycleCanRun { get { return lifecycle.CanRun; } }
+        internal bool PreviewSinkBound { get { return previewSink != null; } }
 
         internal void ApplySettingsSnapshot(FeatureSettingsSnapshot snapshot)
         {
