@@ -38,6 +38,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 AssertContainerSessionTrackerLifecycle();
                 AssertInventoryLifecycleGateDecisions();
                 AssertInventoryLifecycleWatcherDiffing();
+                AssertDragPreviewAdapterActivatesStaticPump();
                 AssertRuntimePumpBridge();
                 AssertPluginUpdateDriverForwardsButtonInjection();
                 AssertButtonInjectionRoutesAreLocallyIsolated();
@@ -311,6 +312,29 @@ namespace BetterUnturnedExperience.Plugin.Tests
         // the Mono game runtime (real-machine verified in R18); the polling
         // hook itself is therefore verified on the real machine, while this
         // host locks the gate, tracker and watcher semantics.
+        // [DEV-16D] The static postfix reads ActiveAdapter; activation must
+        // publish the adapter or the whole drag pipeline stays silent.
+        private static void AssertDragPreviewAdapterActivatesStaticPump()
+        {
+            var composition = new BueClientUiCompositionRoot();
+            Assert(composition.Initialize(false, false, true), "client composition initializes for the drag probe");
+            var adapter = new BetterUnturnedExperience.Plugin.InventoryDragPreviewAdapter(null, composition.OfficialComponent);
+            Assert(adapter.Enabled, "drag preview adapter enables with all native members present");
+            adapter.Activate();
+            // Environment-adaptive: on the Mono game runtime the hook installs
+            // and the adapter publishes itself to the static pump; on a pure
+            // .NET host the PlayerUI.Update IL detour fails to compile, so the
+            // adapter fails closed with diagnostics (no silent breakage).
+            if (adapter.HooksInstalled)
+            {
+                Assert(BetterUnturnedExperience.Plugin.InventoryDragPreviewAdapter.ActiveAdapter == adapter, "activation publishes the adapter to the static pump");
+            }
+            else
+            {
+                Assert(adapter.GateDiagnostics.Contains("hooks-failed"), "IL failure is recorded as structured diagnostics instead of passing silently");
+            }
+        }
+
         private static void AssertManagementPanelConsumesRuntimeCatalog()
         {
             var runtime = BueRuntimeHost.CurrentRuntime;
