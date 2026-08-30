@@ -435,3 +435,10 @@ R21 布局轮（dashboard 按钮 y=460 列尾、面板全屏动态适配、按�
 **7 次 surface-context-dispatched**：`PlayerInventory page=3 g=1 grid=5x7` → `Storage g=2 grid=7x5` → `PlayerInventory g=3` → `Storage g=4` → `PlayerInventory g=5` → `Trunk g=6 grid=6x3` → `PlayerInventory g=7`——generation 1→7 单调递增、kind 随操作正确切换、**网格尺寸为真实读数**（背包 5x7、箱子 7x5、后备箱 6x3）、日志风暴消除（64 行）。**Player 页会话首次 dispatch**（R24 页映射修正生效）。**V1 范围澄清**：手持/装备页无会话日志为设计裁决（快捷槽与装备页保持原生 Pass-Through）。
 
 **DEV-16C 真机运行证据齐备**：工单 03 三项状态（生命周期/几何/代际）真机验证通过。
+
+### DEV-16D 第 1 轮复审修复追加（2026-08-30）
+
+- **swap 放行**：PlacedItemPrefix 的 Cancelled 分支补 `IsSwapOntoOccupied`（同页占用格放行原生 sendSwapItem——R15 学到的 swap 分支回归防护）。
+- **真实图标**：BoundAsset setter 接 `ItemTool.getIcon`（异步回调设 Texture，近似 quality=0/state 空——审计标注）；资产解析 `Assets.find(EAssetType.ITEM, id) as ItemAsset`。
+- **收敛事件订阅**（Adapter 内，Player.LocalPlayer 非空时惰性挂接，player 引用变化时重挂）：`onInventoryAdded/Removed/Updated` → `NativeInventorySnapshot`（NativeRevision 静态递增）→ 组件 OnNativeInventorySnapshot → awaitingProjection.Apply 收敛。
+- 构建 0/0、7/7 PASS（tests-dev16c-*）、diff-check CLEAN。

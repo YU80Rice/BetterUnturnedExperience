@@ -57,9 +57,27 @@ namespace BetterUnturnedExperience.Plugin
             get { return ItemAssetIdentity.FromItemId(0); }
             set
             {
-                // Real texture rendering lands with DEV-16D; storing the asset
-                // id alone must never be reported as a rendered texture.
-                if (image != null && value.ItemId != 0) image.Texture = null;
+                // Real texture path (DEV-16D): ItemTool.getIcon resolves the
+                // native icon asynchronously and the callback assigns the
+                // texture. Until the callback lands the element stays blank —
+                // the pure-value binding is never reported as rendered.
+                if (image == null || value.ItemId == 0)
+                {
+                    if (image != null) image.Texture = null;
+                    return;
+                }
+                var asset = Assets.find(EAssetType.ITEM, value.ItemId) as ItemAsset;
+                try
+                {
+                    ItemTool.getIcon(value.ItemId, 0, Array.Empty<byte>(), asset,
+                        (handle, texture) => { image.Texture = texture; });
+                }
+                catch (Exception)
+                {
+                    // Icon resolution is best-effort; a blank texture keeps
+                    // the drag alive without faking a rendered icon.
+                    image.Texture = null;
+                }
             }
         }
     }
