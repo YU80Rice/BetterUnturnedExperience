@@ -262,6 +262,15 @@ namespace BetterUnturnedExperience.Plugin
                 openDispatcher(context);
                 surfaceDispatched = true;
                 dispatchedGeneration = generation;
+                // [DEV-16C] Geometry calibration readout for the real machine:
+                // these are the approximate viewport values DEV-16D consumes.
+                log?.LogInfo("[BUE-INVENTORY] event=surface-context-dispatched kind=" + kind + " page=" + page + " generation=" + generation
+                    + " viewportOrigin=" + context.Viewport.OriginX + "," + context.Viewport.OriginY + " (approx)"
+                    + " grid=" + context.Viewport.GridWidth + "x" + context.Viewport.GridHeight
+                    + " clip=" + context.Viewport.ClipWidth + "x" + context.Viewport.ClipHeight
+                    + " uiScale=" + context.UiScale.ToString("0.##") + " cellPx=" + context.CellPixelSize + " (static)"
+                    + " scroll=0(approx)"
+                    + " diagnosticId=BUE-INVENTORY-001");
             }
         }
 
