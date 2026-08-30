@@ -227,14 +227,42 @@ namespace BetterUnturnedExperience.Plugin
             return true;
         }
 
-        private static bool IsSwapOntoOccupied(byte page, byte x, byte y)
+        // [DEV-16D] Swap guard footprint semantics: a swap onto a cell covered
+        // by the dragged item's footprint is a native sendSwapItem operation,
+        // not a BUE-cancelled placement. Matches the native Items.findIndex
+        // coverage (any footprint cell occupied counts).
+        internal static bool FootprintOccupied(bool[,] occupancy, int gridW, int gridH, int originX, int originY, int itemW, int itemH)
+        {
+            for (var dy = 0; dy < itemH; dy++)
+            for (var dx = 0; dx < itemW; dx++)
+            {
+                var cx = originX + dx;
+                var cy = originY + dy;
+                if (cx < 0 || cy < 0 || cx >= gridW || cy >= gridH) continue;
+                if (occupancy[cx, cy]) return true;
+            }
+            return false;
+        }
+
+        private bool IsSwapOntoOccupied(byte page, byte x, byte y)
         {
             var player = Player.LocalPlayer;
             if (player == null || player.inventory == null) return false;
             var pageItems = player.inventory.items[page];
             if (pageItems == null) return false;
-            var index = y * pageItems.width + x;
-            return index >= 0 && index < pageItems.items.Count && pageItems.items[index] != null;
+            var jar = ReadDragJar();
+            var asset = jar == null ? null : jar.GetAsset();
+            var itemW = asset == null ? 1 : (int)asset.size_x;
+            var itemH = asset == null ? 1 : (int)asset.size_y;
+            var occupancy = new bool[pageItems.width, pageItems.height];
+            for (var index = 0; index < pageItems.items.Count && index < pageItems.width * pageItems.height; index++)
+            {
+                if (pageItems.items[index] == null) continue;
+                var px = index % pageItems.width;
+                var py = index / pageItems.width;
+                if (px < pageItems.width && py < pageItems.height) occupancy[px, py] = true;
+            }
+            return FootprintOccupied(occupancy, pageItems.width, pageItems.height, x, y, itemW, itemH);
         }
 
         private ItemJar ReadDragJar()

@@ -38,6 +38,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 AssertContainerSessionTrackerLifecycle();
                 AssertInventoryLifecycleGateDecisions();
                 AssertInventoryLifecycleWatcherDiffing();
+                AssertSwapFootprintGuardMatrix();
                 AssertDragPreviewAdapterActivatesStaticPump();
                 AssertRuntimePumpBridge();
                 AssertPluginUpdateDriverForwardsButtonInjection();
@@ -333,6 +334,25 @@ namespace BetterUnturnedExperience.Plugin.Tests
             {
                 Assert(adapter.GateDiagnostics.Contains("hooks-failed"), "IL failure is recorded as structured diagnostics instead of passing silently");
             }
+        }
+
+        // [DEV-16D] Swap guard footprint semantics: a swap onto a cell covered
+        // by the dragged item's footprint is a native sendSwapItem operation,
+        // not a BUE-cancelled placement.
+        private static void AssertSwapFootprintGuardMatrix()
+        {
+            var occupied = new bool[3, 3];
+            occupied[1, 1] = true;
+            Assert(BetterUnturnedExperience.Plugin.InventoryDragPreviewAdapter.FootprintOccupied(occupied, 3, 3, 1, 1, 2, 2),
+                "footprint origin covering the occupied cell counts as occupied");
+            Assert(!BetterUnturnedExperience.Plugin.InventoryDragPreviewAdapter.FootprintOccupied(occupied, 3, 3, 2, 2, 2, 2),
+                "footprint away from the occupied cell counts as empty");
+            Assert(BetterUnturnedExperience.Plugin.InventoryDragPreviewAdapter.FootprintOccupied(occupied, 3, 3, 0, 0, 2, 2),
+                "footprint touching the occupied cell at (1,1) counts as occupied");
+            Assert(!BetterUnturnedExperience.Plugin.InventoryDragPreviewAdapter.FootprintOccupied(occupied, 3, 3, 0, 2, 2, 2),
+                "footprint away from the occupied cell counts as empty");
+            Assert(!BetterUnturnedExperience.Plugin.InventoryDragPreviewAdapter.FootprintOccupied(occupied, 3, 3, 3, 0, 2, 2),
+                "out-of-bounds reads as empty");
         }
 
         private static void AssertManagementPanelConsumesRuntimeCatalog()
