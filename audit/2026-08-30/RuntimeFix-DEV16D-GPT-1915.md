@@ -32,11 +32,7 @@
 
 ## 产物
 
-- 文件：[BetterUnturnedExperience-DEV16D-1915.dll](./artifacts/BetterUnturnedExperience-DEV16D-1915.dll)
-- 大小：198,656 bytes
-- SHA-256：`9F93F3824CB1DCB1EA0220B51A35556506E85C5BD87DB3BA0A1DE5EF5D855C2E`
-- CandidateBuild：`DEV16D-GPT-20260830-1915`
-- CaseId：`DEV16D-20260830-51FBAFE`
+- 本报告所列 DLL、SHA-256、CandidateBuild 与 CaseId 均为中间调试记录，因双轴审查 `FAIL` 已作废；不得作为正式产物、部署输入或运行证据。
 
 ## 实机复测
 

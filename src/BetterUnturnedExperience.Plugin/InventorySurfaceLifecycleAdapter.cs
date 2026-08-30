@@ -146,6 +146,11 @@ namespace BetterUnturnedExperience.Plugin
     /// </summary>
     internal sealed class UnturnedInventorySurfaceContext : IInventorySurfaceContext
     {
+        internal enum PointerCoordinateMode
+        {
+            LiveGridAbsoluteIncludesScroll = 0
+        }
+
         internal static float NormalizeUiScale(float value)
         {
             return value > 0f && !float.IsNaN(value) && !float.IsInfinity(value) ? value : 1f;
@@ -170,6 +175,7 @@ namespace BetterUnturnedExperience.Plugin
         private readonly FieldInfo scrollViewField;
         private readonly FieldInfo gridField;
         private readonly FieldInfo itemsPanelField;
+        internal PointerCoordinateMode CoordinateMode { get { return PointerCoordinateMode.LiveGridAbsoluteIncludesScroll; } }
 
         internal UnturnedInventorySurfaceContext(ContainerReference currentContainer, IVisualContainer topLevelContainer,
             IVisualContainer gridPanelContainer, InventoryGridViewport viewport, float uiScale, IGridOccupancyView occupancy,
@@ -196,8 +202,8 @@ namespace BetterUnturnedExperience.Plugin
         // The pointer is measured from the live grid child's absolute rect;
         // Glazier has already applied the scroll transform there. Returning
         // zero prevents the evaluator from double-counting that same scroll.
-        public float ScrollPixelsX { get { return 0f; } }
-        public float ScrollPixelsY { get { return 0f; } }
+        public float ScrollPixelsX { get { return ResolveEffectiveScrollPixels(true, ReadScrollPixelsX()); } }
+        public float ScrollPixelsY { get { return ResolveEffectiveScrollPixels(true, ReadScrollPixelsY()); } }
         public IGridOccupancyView Occupancy { get { return occupancy; } }
 
         // Sleek coordinates are local to the live inventory surface. Reading
@@ -248,6 +254,13 @@ namespace BetterUnturnedExperience.Plugin
             // to the viewport width, so supported inventory surfaces have no
             // horizontal overflow. Keep the seam explicit and fail closed.
             return 0f;
+        }
+
+        internal static float ResolveEffectiveScrollPixels(bool pointerAlreadyIncludesScroll, float nativeScrollPixels)
+        {
+            if (pointerAlreadyIncludesScroll) return 0f;
+            return float.IsNaN(nativeScrollPixels) || float.IsInfinity(nativeScrollPixels)
+                ? 0f : Mathf.Max(0f, nativeScrollPixels);
         }
 
         private ISleekScrollView ResolveScrollView()
@@ -431,9 +444,13 @@ namespace BetterUnturnedExperience.Plugin
 
             var dataItems = playerInventory.items[page];
 
+            var scrollField = typeof(SleekItems).GetField("horizontalScrollView", BindingFlags.Instance | BindingFlags.NonPublic);
+            var gridField = typeof(SleekItems).GetField("grid", BindingFlags.Instance | BindingFlags.NonPublic);
             var nativePanelField = typeof(SleekItems).GetField("itemsPanel", BindingFlags.Instance | BindingFlags.NonPublic);
+            var nativeScroll = scrollField == null ? null : scrollField.GetValue(sleekItems) as ISleekScrollView;
+            var nativeGrid = gridField == null ? null : gridField.GetValue(sleekItems) as ISleekElement;
             var nativePanel = nativePanelField == null ? null : nativePanelField.GetValue(sleekItems) as ISleekElement;
-            if (nativePanel == null) return null;
+            if (!UnturnedInventorySurfaceContext.IsNativeHierarchyComplete(nativeScroll != null, nativeGrid != null, nativePanel != null)) return null;
             var gridPanel = new UnturnedVisualContainer(nativePanel);
             var topLevel = new UnturnedVisualContainer(PlayerUI.container);
 
@@ -446,7 +463,7 @@ namespace BetterUnturnedExperience.Plugin
             try { uiScale = GraphicsSettings.userInterfaceScale; } catch (Exception) { uiScale = 1f; }
             if (uiScale <= 0f) uiScale = 1f;
 
-            var grid = typeof(SleekItems).GetField("grid", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(sleekItems) as ISleekElement;
+            var grid = nativeGrid;
             var gridSize = Vector2.zero;
             try { if (grid != null) gridSize = grid.GetAbsoluteSize(); } catch (Exception) { gridSize = Vector2.zero; }
             var clipWidth = gridSize.x > 0f ? gridSize.x : dataItems.width * 50f * uiScale;

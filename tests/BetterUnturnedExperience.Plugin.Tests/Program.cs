@@ -60,6 +60,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 AssertNativeDragPivotConvertsToPositiveGrabOffset();
                 AssertInventorySurfaceHasRuntimeScrollReader();
                 AssertNativeLikeViewportScaleAndHierarchyBehavior();
+                AssertLiveGridScrollContract();
                 AssertRuntimeCompletionBarrierIsolates();
                 AssertManagementPanelConsumesRuntimeCatalog();
                 AssertManagementPanelOpenHooks();
@@ -151,6 +152,21 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 "non-default UI scale is preserved");
             Assert(Math.Abs(UnturnedInventorySurfaceContext.NormalizeUiScale(float.NaN) - 1f) < 0.001f,
                 "invalid UI scale fails closed to one");
+        }
+
+        // GPT watermark: native-like coordinate contract. A pointer sampled
+        // from SleekItems.grid already includes horizontalScrollView's live
+        // transform; feeding the same scroll a second time is forbidden.
+        private static void AssertLiveGridScrollContract()
+        {
+            Assert(UnturnedInventorySurfaceContext.ResolveEffectiveScrollPixels(true, 240f) == 0f,
+                "live grid pointer absorbs native scroll exactly once");
+            Assert(Math.Abs(UnturnedInventorySurfaceContext.ResolveEffectiveScrollPixels(false, 240f) - 240f) < 0.001f,
+                "screen-space pointer applies native scroll exactly once");
+            Assert(UnturnedInventorySurfaceContext.ResolveEffectiveScrollPixels(false, float.NaN) == 0f,
+                "invalid native scroll fails closed");
+            Assert((int)UnturnedInventorySurfaceContext.PointerCoordinateMode.LiveGridAbsoluteIncludesScroll == 0,
+                "surface advertises the live-grid coordinate mode");
         }
         private static bool RequiresParentRebindSemantics()
         {
