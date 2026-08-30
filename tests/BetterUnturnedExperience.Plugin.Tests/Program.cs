@@ -3,6 +3,7 @@ using BetterUnturnedExperience.Contracts;
 using BetterUnturnedExperience.Core.Registration;
 using BetterUnturnedExperience.NoOpFixture;
 using BetterUnturnedExperience.Plugin;
+using BetterUnturnedExperience.ClientUi.Internal;
 using HarmonyLib;
 using SDG.Unturned;
 
@@ -61,6 +62,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 AssertInventorySurfaceHasRuntimeScrollReader();
                 AssertNativeLikeViewportScaleAndHierarchyBehavior();
                 AssertLiveGridScrollContract();
+                AssertLiveGridPointerReachesCandidateSeam();
                 AssertRuntimeCompletionBarrierIsolates();
                 AssertManagementPanelConsumesRuntimeCatalog();
                 AssertManagementPanelOpenHooks();
@@ -192,6 +194,38 @@ namespace BetterUnturnedExperience.Plugin.Tests
             return !BueNativeManagementPanel.RequiresParentRebind(first, first)
                 && BueNativeManagementPanel.RequiresParentRebind(first, second)
                 && !BueNativeManagementPanel.RequiresParentRebind(first, null);
+        }
+
+        // GPT watermark: end-to-end coordinate regression. A live-grid
+        // pointer with non-default scale must reach the candidate seam; a
+        // clipped pointer must fail closed before preview projection.
+        private static void AssertLiveGridPointerReachesCandidateSeam()
+        {
+            var input = new InventoryPreviewInput(7, new ItemGridPosition(0, 0, 0, 0),
+                new ContainerReference(ContainerKind.PlayerInventory, 0, 7),
+                75f, 75f, new InventoryGridViewport(0f, 0f, 8, 6, 0f, 0f, 400f, 300f),
+                50f, 1.5f, 0f, 0f, 1, 1, 0, true, 0.5f, 0.5f,
+                new IGridOccupancyViewForTest(8, 6));
+            PlacementCandidateInput candidate;
+            Assert(InventoryGridCoordinateAdapter.TryCreateCandidateInput(input, out candidate),
+                "live-grid pointer reaches candidate seam at UI scale 1.5");
+            Assert(Math.Abs(candidate.CursorGridX - 1.0f) < 0.001f && Math.Abs(candidate.CursorGridY - 1.0f) < 0.001f,
+                "candidate center uses one scale application");
+
+            var outside = new InventoryPreviewInput(7, new ItemGridPosition(0, 0, 0, 0),
+                new ContainerReference(ContainerKind.PlayerInventory, 0, 7),
+                450f, 75f, input.Viewport, 50f, 1.5f, 0f, 0f, 1, 1, 0, true, 0.5f, 0.5f,
+                new IGridOccupancyViewForTest(8, 6));
+            Assert(!InventoryGridCoordinateAdapter.TryCreateCandidateInput(outside, out candidate),
+                "pointer outside live viewport fails closed");
+        }
+
+        private sealed class IGridOccupancyViewForTest : IGridOccupancyView
+        {
+            internal IGridOccupancyViewForTest(byte width, byte height) { Width = width; Height = height; }
+            public byte Width { get; }
+            public byte Height { get; }
+            public bool IsOccupied(byte x, byte y) { return false; }
         }
 
         private static void AssertRuntimePumpBridge()
