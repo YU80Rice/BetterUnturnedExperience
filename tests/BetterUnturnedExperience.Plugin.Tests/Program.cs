@@ -167,6 +167,11 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 "invalid native scroll fails closed");
             Assert((int)UnturnedInventorySurfaceContext.PointerCoordinateMode.LiveGridAbsoluteIncludesScroll == 0,
                 "surface advertises the live-grid coordinate mode");
+            var viewport = UnturnedInventorySurfaceContext.BuildLiveGridViewport(8, 12, 150f, 400f, 300f);
+            Assert(Math.Abs(viewport.OriginY - 150f) < 0.001f && Math.Abs(viewport.ClipY - 150f) < 0.001f,
+                "live content viewport begins at the native scroll offset");
+            Assert(Math.Abs(viewport.ClipWidth - 400f) < 0.001f && Math.Abs(viewport.ClipHeight - 300f) < 0.001f,
+                "live viewport clip comes from the scroll view size");
         }
         private static bool RequiresParentRebindSemantics()
         {

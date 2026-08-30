@@ -165,6 +165,16 @@ namespace BetterUnturnedExperience.Plugin
             return hasScroll && hasGrid && hasItemsPanel;
         }
 
+        internal static InventoryGridViewport BuildLiveGridViewport(byte gridWidth, byte gridHeight,
+            float scrollPixelsY, float viewportWidth, float viewportHeight)
+        {
+            if (float.IsNaN(scrollPixelsY) || float.IsInfinity(scrollPixelsY) || scrollPixelsY < 0f) scrollPixelsY = 0f;
+            if (float.IsNaN(viewportWidth) || float.IsInfinity(viewportWidth) || viewportWidth <= 0f) viewportWidth = gridWidth * 50f;
+            if (float.IsNaN(viewportHeight) || float.IsInfinity(viewportHeight) || viewportHeight <= 0f) viewportHeight = gridHeight * 50f;
+            return new InventoryGridViewport(0f, scrollPixelsY, gridWidth, gridHeight,
+                0f, scrollPixelsY, viewportWidth, viewportHeight);
+        }
+
         private readonly ContainerReference currentContainer;
         private readonly IVisualContainer topLevelContainer;
         private readonly IVisualContainer gridPanelContainer;
@@ -469,11 +479,17 @@ namespace BetterUnturnedExperience.Plugin
             var clipWidth = gridSize.x > 0f ? gridSize.x : dataItems.width * 50f * uiScale;
             var clipHeight = gridSize.y > 0f ? gridSize.y : dataItems.height * 50f * uiScale;
 
-            viewport = new InventoryGridViewport(
-                0f, 0f,
-                (byte)dataItems.width, (byte)dataItems.height,
-                0f, 0f,
-                clipWidth, clipHeight);
+            var liveScrollPixelsY = UnturnedInventorySurfaceContext.ComputeScrollPixels(
+                nativeScroll.NormalizedVerticalPosition,
+                nativeScroll.NormalizedViewportHeight,
+                dataItems.height * 50f * uiScale);
+            var liveViewportSize = Vector2.zero;
+            try { liveViewportSize = nativeScroll.GetAbsoluteSize(); } catch (Exception) { liveViewportSize = Vector2.zero; }
+            var liveClipWidth = liveViewportSize.x > 0f ? liveViewportSize.x : clipWidth;
+            var liveClipHeight = liveViewportSize.y > 0f ? liveViewportSize.y : clipHeight;
+            viewport = UnturnedInventorySurfaceContext.BuildLiveGridViewport(
+                (byte)dataItems.width, (byte)dataItems.height, liveScrollPixelsY,
+                liveClipWidth, liveClipHeight);
 
             return new UnturnedInventorySurfaceContext(
                 new ContainerReference(MapKind(kind), page, generation),
