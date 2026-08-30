@@ -512,9 +512,18 @@ namespace BetterUnturnedExperience.Plugin
             var nativeScroll = UnturnedInventorySurfaceContext.NativeScrollField == null ? null : UnturnedInventorySurfaceContext.NativeScrollField.GetValue(sleekItems) as ISleekScrollView;
             var nativeGrid = UnturnedInventorySurfaceContext.NativeGridField == null ? null : UnturnedInventorySurfaceContext.NativeGridField.GetValue(sleekItems) as ISleekElement;
             var nativePanel = UnturnedInventorySurfaceContext.NativeItemsPanelField == null ? null : UnturnedInventorySurfaceContext.NativeItemsPanelField.GetValue(sleekItems) as ISleekElement;
-            if (!UnturnedInventorySurfaceContext.IsNativeHierarchyComplete(nativeScroll != null, nativeGrid != null, nativePanel != null) ||
-                !UnturnedInventorySurfaceContext.IsNativeHierarchyConsistent(sleekItems, nativeScroll, nativeGrid, nativePanel,
-                    nativeScroll.Parent, nativeGrid.Parent, nativePanel.Parent)) return null;
+            // [R40 fail-open] The live hierarchy snapshot is an upgrade, not a
+            // gate: when it is incomplete or inconsistent we degrade to the
+            // offset/size approximation (R37 path) instead of dropping the
+            // whole surface, which left the preview chain dead on the real
+            // machine (214114 package: surface-context-dispatched == 0).
+            var hierarchyLive = UnturnedInventorySurfaceContext.IsNativeHierarchyComplete(nativeScroll != null, nativeGrid != null, nativePanel != null) &&
+                UnturnedInventorySurfaceContext.IsNativeHierarchyConsistent(sleekItems, nativeScroll, nativeGrid, nativePanel,
+                    nativeScroll?.Parent, nativeGrid?.Parent, nativePanel?.Parent);
+            if (!hierarchyLive)
+            {
+                log?.LogWarning("[BUE-INVENTORY] event=hierarchy-snapshot-degraded page=" + page + " diagnosticId=BUE-INVENTORY-003");
+            }
             if (PlayerUI.container == null) return null;
             var topLevel = new UnturnedVisualContainer(PlayerUI.container);
             var gridPanel = new UnturnedVisualContainer(nativePanel);
@@ -530,8 +539,25 @@ namespace BetterUnturnedExperience.Plugin
 
             var grid = nativeGrid;
             var scrollSize = Vector2.zero;
-            try { scrollSize = nativeScroll.GetAbsoluteSize(); } catch (Exception) { scrollSize = Vector2.zero; }
-            if (scrollSize.x <= 0f || scrollSize.y <= 0f || float.IsNaN(scrollSize.x) || float.IsNaN(scrollSize.y)) return null;
+            if (hierarchyLive)
+            {
+                try { scrollSize = nativeScroll.GetAbsoluteSize(); } catch (Exception) { scrollSize = Vector2.zero; }
+            }
+            if (scrollSize.x <= 0f || scrollSize.y <= 0f || float.IsNaN(scrollSize.x) || float.IsNaN(scrollSize.y))
+            {
+                // [R40 fail-open] Live scroll size unavailable: degrade to the
+                // offset/size approximation so the session still dispatches
+                // and the preview chain stays alive (calibration can follow).
+                viewport = new InventoryGridViewport(
+                    sleekItems.PositionOffset_X, sleekItems.PositionOffset_Y,
+                    (byte)dataItems.width, (byte)dataItems.height,
+                    sleekItems.PositionOffset_X, sleekItems.PositionOffset_Y,
+                    sleekItems.SizeOffset_X, sleekItems.SizeOffset_Y);
+                return new UnturnedInventorySurfaceContext(
+                    new ContainerReference(MapKind(kind), page, generation),
+                    topLevel, gridPanel, viewport, uiScale,
+                    new UnturnedGridOccupancyView(dataItems), sleekItems);
+            }
 
             viewport = UnturnedInventorySurfaceContext.BuildLiveGridViewport(
                 (byte)dataItems.width, (byte)dataItems.height, scrollSize.x, scrollSize.y);
