@@ -141,6 +141,12 @@ namespace BetterUnturnedExperience.ClientUi.Internal
 
     internal static class InventoryGridCoordinateAdapter
     {
+        internal static System.ValueTuple<float, float> ToUiScreenCoordinates(float mouseX, float mouseY, float screenHeight, float uiScale)
+        {
+            if (uiScale <= 0f) uiScale = 1f;
+            return new System.ValueTuple<float, float>(mouseX / uiScale, (screenHeight - mouseY) / uiScale);
+        }
+
         internal static bool TryCreateCandidateInput(InventoryPreviewInput input, out PlacementCandidateInput candidate)
         {
             candidate = default(PlacementCandidateInput);

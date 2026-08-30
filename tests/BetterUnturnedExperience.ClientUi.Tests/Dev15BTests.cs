@@ -28,6 +28,16 @@ namespace BetterUnturnedExperience.ClientUi.Tests
             BetterItemInteractionUiComponentRejectsStaleSessionGenerationAndSwitchedContainer();
             BetterItemInteractionUiComponentDestructionAndSafeModeCleansUpVisuals();
             SleekSinkHotPathZeroAllocationTest();
+            NativeMouseCoordinatesMatchSleekTopLeftSpace();
+        }
+
+        private static void NativeMouseCoordinatesMatchSleekTopLeftSpace()
+        {
+            var method = typeof(InventoryGridCoordinateAdapter).GetMethod("ToUiScreenCoordinates", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic);
+            Assert(method != null, "native mouse coordinate conversion seam exists");
+            var result = (System.ValueTuple<float, float>)method.Invoke(null, new object[] { 100f, 200f, 1000f, 2f });
+            Assert(Approximately(result.Item1, 50f) && Approximately(result.Item2, 400f),
+                "mouse coordinates invert Y and apply UI scale before Sleek projection");
         }
 
         private static void ConvertsScaledScrolledPointerUsingGrabOffset()
