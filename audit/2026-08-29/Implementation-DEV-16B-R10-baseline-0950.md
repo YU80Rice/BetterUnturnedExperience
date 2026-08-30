@@ -394,3 +394,22 @@ R20 双轴（Standards 0 硬违规 + 3 判断性 / Spec 1 项 status Scale_X）�
 ### 布局产物
 
 `artifacts/DEV-16B-management-panel-ui-layout-r21-20260829/BetterUnturnedExperience.dll`，SHA-256 `2917C3035A3984B21F87D2B018F359253AD322CE9391447ADC3E3E402B1881BF`，CaseId `DEV-16B-R21-20260829`。
+
+## 19. DEV-16C 库存生命周期接线（R21/R22 轮，2026-08-29/30）
+
+R21 布局轮（dashboard 按钮 y=460 列尾、面板全屏动态适配、按钮统一 200×50——取舍与参数见 §18 与工单注释）之后，按工单 03 实施 DEV-16C 原生库存生命周期接线。
+
+### 设计与实现
+
+- `InventoryLifecycle.cs`（新）：`ContainerSessionTracker`（会话代际状态机：open/swap 单调 ++、close/断线失效）、`InventoryLifecycleSnapshot/Watcher`（快照 diff 驱动）、`InventoryLifecycleProbe/Gate`（fail-closed 门禁+结构化诊断）。
+- `InventorySurfaceLifecycleAdapter.cs`（新）：`UnturnedInventorySurfaceContext : IInventorySurfaceContext`（纯值投影）+ `UnturnedGridOccupancyView`/`UnturnedVisualContainer`/`UnturnedVisualElement`（真实 UI 包装）+ `PlayerUI.Update` postfix 轮询驱动（R18 证其真机每帧命中且清场存活）。
+- 接线：Plugin.Awake Client 分支创建 Adapter → composition `OpenInventory/CloseInventory` 分发。
+- Headless：Adapter 仅在 Client 分支创建；Probe/Gate 在任何原生访问前 fail-closed。
+
+### 循环审查（output-review-loop）
+
+第 1 轮双轴（Standards 7 判断性 / Spec 5 项）→ 修复 → 第 2 轮复审（5 项：ActiveAdapter 赋值丢失【严重】、Awake 日志、seam 注释、哈希注释、几何注释）→ 修复 → 第 3 轮复审（注释 3 处待落盘）→ 第 4 轮终审 **CLEAN**（3/3 注释实证）。构建 0/0、7/7 测试 PASS（`audit/2026-08-30/tests-dev16c-*.log`）、`git diff --check` CLEAN。
+
+### 正式产物
+
+`artifacts/DEV-16C-inventory-lifecycle-r22-20260830/BetterUnturnedExperience.dll`，SHA-256 `E8B6733C7F2BFE27C927A0D4A938ED0EB518E7F0F40DAEC046BEBC6B9121FE0`，**CaseId `DEV-16C-R22-20260830`**。**真机验证项**：进背包/开箱/车辆后备箱的 `container-session-open` 日志链与投影正确性（下轮 HITL）。
