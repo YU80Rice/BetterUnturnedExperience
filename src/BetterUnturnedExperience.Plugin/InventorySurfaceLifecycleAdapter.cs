@@ -165,7 +165,7 @@ namespace BetterUnturnedExperience.Plugin
             this.topLevelContainer = topLevelContainer;
             this.gridPanelContainer = gridPanelContainer;
             this.viewport = viewport;
-            this.uiScale = 1f;
+            this.uiScale = uiScale > 0f && !float.IsNaN(uiScale) && !float.IsInfinity(uiScale) ? uiScale : 1f;
             this.occupancy = occupancy;
             this.nativeItems = nativeItems;
             scrollViewField = typeof(SleekItems).GetField("horizontalScrollView", BindingFlags.Instance | BindingFlags.NonPublic);
@@ -199,8 +199,10 @@ namespace BetterUnturnedExperience.Plugin
             if (float.IsNaN(normalized.x) || float.IsInfinity(normalized.x) ||
                 float.IsNaN(normalized.y) || float.IsInfinity(normalized.y)) return false;
             if (normalized.x < 0f || normalized.x > 1f || normalized.y < 0f || normalized.y > 1f) return false;
-            x = normalized.x * occupancy.Width * CellPixelSize;
-            y = normalized.y * occupancy.Height * CellPixelSize;
+            var size = native.GetAbsoluteSize();
+            if (size.x <= 0f || size.y <= 0f || float.IsNaN(size.x) || float.IsNaN(size.y)) return false;
+            x = normalized.x * size.x;
+            y = normalized.y * size.y;
             return true;
         }
 
@@ -430,15 +432,21 @@ namespace BetterUnturnedExperience.Plugin
             try { uiScale = GraphicsSettings.userInterfaceScale; } catch (Exception) { uiScale = 1f; }
             if (uiScale <= 0f) uiScale = 1f;
 
+            var grid = typeof(SleekItems).GetField("grid", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(sleekItems) as ISleekElement;
+            var gridSize = Vector2.zero;
+            try { if (grid != null) gridSize = grid.GetAbsoluteSize(); } catch (Exception) { gridSize = Vector2.zero; }
+            var clipWidth = gridSize.x > 0f ? gridSize.x : dataItems.width * 50f * uiScale;
+            var clipHeight = gridSize.y > 0f ? gridSize.y : dataItems.height * 50f * uiScale;
+
             viewport = new InventoryGridViewport(
                 0f, 0f,
                 (byte)dataItems.width, (byte)dataItems.height,
                 0f, 0f,
-                dataItems.width * 50f, dataItems.height * 50f);
+                clipWidth, clipHeight);
 
             return new UnturnedInventorySurfaceContext(
                 new ContainerReference(MapKind(kind), page, generation),
-                topLevel, gridPanel, viewport, 1f,
+                topLevel, gridPanel, viewport, uiScale,
                 new UnturnedGridOccupancyView(dataItems), sleekItems);
         }
 
