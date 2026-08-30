@@ -152,6 +152,7 @@ namespace BetterUnturnedExperience.Plugin
         private readonly InventoryGridViewport viewport;
         private readonly float uiScale;
         private readonly IGridOccupancyView occupancy;
+        private readonly ISleekElement nativeGrid;
 
         internal UnturnedInventorySurfaceContext(ContainerReference currentContainer, IVisualContainer topLevelContainer,
             IVisualContainer gridPanelContainer, InventoryGridViewport viewport, float uiScale, IGridOccupancyView occupancy)
@@ -162,6 +163,7 @@ namespace BetterUnturnedExperience.Plugin
             this.viewport = viewport;
             this.uiScale = uiScale;
             this.occupancy = occupancy;
+            nativeGrid = (gridPanelContainer as UnturnedVisualContainer)?.element;
         }
 
         public ContainerReference CurrentContainer { get { return currentContainer; } }
@@ -170,8 +172,8 @@ namespace BetterUnturnedExperience.Plugin
         public InventoryGridViewport Viewport { get { return viewport; } }
         public float CellPixelSize { get { return 50f; } }
         public float UiScale { get { return uiScale; } }
-        public float ScrollPixelsX { get { return 0f; } }
-        public float ScrollPixelsY { get { return 0f; } }
+        public float ScrollPixelsX { get { return ReadScrollPixelsX(); } }
+        public float ScrollPixelsY { get { return ReadScrollPixelsY(); } }
         public IGridOccupancyView Occupancy { get { return occupancy; } }
 
         // Sleek coordinates are local to the live inventory surface. Reading
@@ -190,6 +192,39 @@ namespace BetterUnturnedExperience.Plugin
             x = normalized.x * occupancy.Width * CellPixelSize * UiScale;
             y = normalized.y * occupancy.Height * CellPixelSize * UiScale;
             return true;
+        }
+
+        internal float ReadScrollPixelsY()
+        {
+            try
+            {
+                var scrollView = ResolveScrollView();
+                if (scrollView == null || occupancy == null || occupancy.Height == 0) return 0f;
+                var contentHeight = occupancy.Height * CellPixelSize * UiScale;
+                var viewportRatio = scrollView.NormalizedViewportHeight;
+                if (float.IsNaN(viewportRatio) || float.IsInfinity(viewportRatio)) return 0f;
+                viewportRatio = Mathf.Clamp01(viewportRatio);
+                var scrollable = contentHeight * (1f - viewportRatio);
+                var normalized = scrollView.NormalizedVerticalPosition;
+                if (float.IsNaN(normalized) || float.IsInfinity(normalized)) return 0f;
+                return Mathf.Clamp01(normalized) * Mathf.Max(0f, scrollable);
+            }
+            catch (Exception) { return 0f; }
+        }
+
+        internal float ReadScrollPixelsX()
+        {
+            // SleekItems disables horizontal wheel input and sizes its content
+            // to the viewport width, so supported inventory surfaces have no
+            // horizontal overflow. Keep the seam explicit and fail closed.
+            return 0f;
+        }
+
+        private ISleekScrollView ResolveScrollView()
+        {
+            if (nativeGrid == null) return null;
+            var field = typeof(SleekItems).GetField("horizontalScrollView", BindingFlags.Instance | BindingFlags.NonPublic);
+            return field == null ? null : field.GetValue(nativeGrid) as ISleekScrollView;
         }
 
     }
@@ -356,7 +391,7 @@ namespace BetterUnturnedExperience.Plugin
             var dataItems = playerInventory.items[page];
 
             var gridPanel = new UnturnedVisualContainer(sleekItems);
-            var topLevel = new UnturnedVisualContainer(sleekItems);
+            var topLevel = new UnturnedVisualContainer(PlayerUI.container);
 
             // Geometry is expressed in the live SleekItems local space. The
             // previous implementation copied PositionOffset into a screen

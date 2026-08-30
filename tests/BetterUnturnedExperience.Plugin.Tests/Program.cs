@@ -58,6 +58,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 AssertDragPreviewHasPluginOwnedUpdateDriver();
                 AssertInventoryHeartbeatDrivesPreviewFallback();
                 AssertNativeDragPivotConvertsToPositiveGrabOffset();
+                AssertInventorySurfaceHasRuntimeScrollReader();
                 AssertRuntimeCompletionBarrierIsolates();
                 AssertManagementPanelConsumesRuntimeCatalog();
                 AssertManagementPanelOpenHooks();
@@ -118,6 +119,16 @@ namespace BetterUnturnedExperience.Plugin.Tests
             var result = (UnityEngine.Vector2)method.Invoke(null, new object[] { new UnityEngine.Vector2(-25f, -50f) });
             Assert(Math.Abs(result.x - 0.5f) < 0.001f && Math.Abs(result.y - 1f) < 0.001f,
                 "negative native drag pivot becomes positive grid grab offset");
+        }
+
+        // GPT watermark: red regression for the remaining DEV-16D blocker.
+        private static void AssertInventorySurfaceHasRuntimeScrollReader()
+        {
+            var type = typeof(UnturnedInventorySurfaceContext);
+            var method = type.GetMethod("ReadScrollPixelsY", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            Assert(method != null, "inventory surface must expose a runtime scroll reader");
+            var horizontal = type.GetMethod("ReadScrollPixelsX", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            Assert(horizontal != null, "inventory surface must expose an explicit horizontal scroll seam");
         }
         private static bool RequiresParentRebindSemantics()
         {
