@@ -63,7 +63,14 @@ namespace BetterUnturnedExperience.Plugin
                         // members, fails closed with structured diagnostics and
                         // routes the projected surface into the composition.
                         inventoryLifecycleAdapter = new InventorySurfaceLifecycleAdapter(Logger,
-                            surface => clientUiComposition.OpenInventory(surface),
+                            surface =>
+                            {
+                                clientUiComposition.OpenInventory(surface);
+                                // [DEV-16D] Rebind the grid's placed-item
+                                // delegate on each fresh session dispatch so a
+                                // rebuilt UI gets BUE's decision wrapper.
+                                inventoryDragAdapter?.AttachGrid(surface);
+                            },
                             () => clientUiComposition.CloseInventory());
                         inventoryLifecycleAdapter.Activate();
                         if (inventoryLifecycleAdapter.HooksInstalled)

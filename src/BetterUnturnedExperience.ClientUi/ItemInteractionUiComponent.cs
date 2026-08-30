@@ -381,8 +381,16 @@ namespace BetterUnturnedExperience.ClientUi.Internal
                 if (outcome == NativeDragAdapterOutcome.Submitted)
                 {
                     var fingerprint = new InventoryItemFingerprint(currentDragAsset, (byte)input.Preview.Width, (byte)input.Preview.Height, input.Preview.Candidate.Rotation);
-                    if (projectionSink != null)
-                        projectionSink.OnProjectionSubmitted(new ProjectionBinding(input.DragGeneration, currentContainer, fingerprint));
+                    // No live session (SessionGeneration==0) means there is no
+                    // container to converge against; skip the awaiting state.
+                    if (currentContainer.SessionGeneration != 0)
+                    {
+                        var binding = new ProjectionBinding(input.DragGeneration, currentContainer, fingerprint);
+                        // The awaiting controller lives in this component; the sink
+                        // is observability only (it must never gate convergence).
+                        awaitingProjection.Begin(binding, visualClockMs);
+                        projectionSink?.OnProjectionSubmitted(binding);
+                    }
                 }
                 return outcome;
             }
@@ -395,8 +403,10 @@ namespace BetterUnturnedExperience.ClientUi.Internal
 
         internal ProjectionConvergence OnNativeInventorySnapshot(NativeInventorySnapshot snapshot)
         {
-            if (projectionSink == null) return ProjectionConvergence.Ignored;
-            var convergence = projectionSink.OnNativeInventorySnapshot(snapshot);
+            // The awaiting controller decides convergence; the sink only
+            // observes (its return value is ignored by design).
+            var convergence = awaitingProjection.Apply(snapshot);
+            projectionSink?.OnNativeInventorySnapshot(snapshot);
             if (convergence == ProjectionConvergence.Converged)
             {
                 // Native projection landed: the placement is authoritative now.

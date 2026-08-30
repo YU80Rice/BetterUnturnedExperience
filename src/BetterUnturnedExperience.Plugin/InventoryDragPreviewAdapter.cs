@@ -76,43 +76,52 @@ namespace BetterUnturnedExperience.Plugin
         internal void Activate()
         {
             if (!enabled || hooksInstalled) return;
-            // Each target installs independently with a named failure record:
-            // one toxic patch must not silently disable the other.
-            var failures = new System.Collections.Generic.List<string>();
-            try
-            {
-                harmony.Patch(AccessTools.Method(typeof(PlayerDashboardInventoryUI), "onPlacedItem"),
-                    prefix: new HarmonyMethod(typeof(InventoryDragPreviewAdapter), nameof(PlacedItemPrefix)));
-                log?.LogInfo("[BUE-DRAG] event=patch-installed target=onPlacedItem diagnosticId=BUE-DRAG-001");
-            }
-            catch (Exception error)
-            {
-                failures.Add("onPlacedItem: " + error.GetType().FullName + " " + error.Message);
-            }
             try
             {
                 // Drives the drag poll on the dashboard-inventory UI tick itself
-                // (runs every frame while any inventory page is visible), rather
-                // than PlayerUI.Update whose patch previously failed with an
-                // IL compile error on this game build.
+                // (runs every frame while any inventory page is visible). The
+                // onPlacedItem patch is NOT used: its 170-line method body
+                // fails Harmony's IL recompile on this game build. Placement
+                // interception instead rebinds the public SleekItems
+                // .onPlacedItem delegate per dispatch (see AttachGrid).
                 harmony.Patch(AccessTools.Method(typeof(PlayerDashboardInventoryUI), "updateDraggedItem"),
                     postfix: new HarmonyMethod(typeof(InventoryDragPreviewAdapter), nameof(DashboardUpdatePostfix)));
-                log?.LogInfo("[BUE-DRAG] event=patch-installed target=updateDraggedItem diagnosticId=BUE-DRAG-001");
+                hooksInstalled = true;
+                ActiveAdapter = this;
+                log?.LogInfo("[BUE-DRAG] event=hooks-installed targets=updateDraggedItem diagnosticId=BUE-DRAG-001");
             }
             catch (Exception error)
             {
-                failures.Add("updateDraggedItem: " + error.GetType().FullName + " " + error.Message);
+                gateDiagnostics = "hooks-failed: " + error.GetType().FullName + ": " + error.Message;
+                hooksInstalled = false;
             }
-            if (failures.Count > 0)
-            {
-                gateDiagnostics = "hooks-failed: " + string.Join("; ", failures);
-            }
-            hooksInstalled = failures.Count == 0;
-            if (hooksInstalled)
-            {
-                ActiveAdapter = this;
-                log?.LogInfo("[BUE-DRAG] event=hooks-installed targets=onPlacedItem,updateDraggedItem diagnosticId=BUE-DRAG-001");
-            }
+        }
+
+        // [DEV-16D] Placement interception without Harmony: each session
+        // dispatch rebinds the grid's public onPlacedItem delegate to a BUE
+        // wrapper that runs the take-over decision first and only forwards to
+        // the vanilla handler on pass-through. Rebinding re-runs per dispatch
+        // so a rebuilt UI gets fresh delegates.
+        private SleekItems attachedGrid;
+        private PlacedItem nativePlacedHandler;
+
+        internal void AttachGrid(IClientUiInventorySurface surface)
+        {
+            var context = surface as UnturnedInventorySurfaceContext;
+            var container = context?.GridPanelContainer as UnturnedVisualContainer;
+            var sleek = container?.element as SleekItems;
+            if (sleek == null) return;
+            if (ReferenceEquals(sleek, attachedGrid)) return;
+            attachedGrid = sleek;
+            nativePlacedHandler = sleek.onPlacedItem;
+            sleek.onPlacedItem = GridPlacedItemWrapper;
+            log?.LogInfo("[BUE-DRAG] event=placed-item-delegate-rebound page=" + sleek.page + " diagnosticId=BUE-DRAG-001");
+        }
+
+        private void GridPlacedItemWrapper(byte page, byte x, byte y)
+        {
+            if (!EvaluatePlacement(page, x, y)) return;
+            nativePlacedHandler?.Invoke(page, x, y);
         }
 
         internal static void DashboardUpdatePostfix()
@@ -205,13 +214,17 @@ namespace BetterUnturnedExperience.Plugin
                 if (lastSubmittedGeneration == 0) return;
                 var asset = jar == null || jar.item == null ? ItemAssetIdentity.FromItemId(0) : AssetIdentityOf(jar);
                 var assetInstance = jar == null ? null : jar.GetAsset();
-                var width = assetInstance == null ? (byte)1 : (byte)Mathf.Min(assetInstance.size_x, byte.MaxValue);
-                var fingerprint = new InventoryItemFingerprint(asset, width, (byte)Mathf.Min(assetInstance == null ? (byte)1 : (byte)Mathf.Min(assetInstance.size_y, byte.MaxValue), byte.MaxValue), jar == null ? (byte)0 : jar.rot);
+                var itemW = assetInstance == null ? (byte)1 : (byte)Mathf.Min(assetInstance.size_x, byte.MaxValue);
+                var itemH = assetInstance == null ? (byte)1 : (byte)Mathf.Min(assetInstance.size_y, byte.MaxValue);
+                var fingerprint = new InventoryItemFingerprint(asset, itemW, itemH, jar == null ? (byte)0 : jar.rot);
                 var container = component.LastDispatchedContainer;
                 if (container.SessionGeneration == 0) return;
+                var player = Player.LocalPlayer;
+                var pageItems = player == null || player.inventory == null ? null : player.inventory.items[page];
+                var pageWidth = pageItems == null ? (byte)1 : pageItems.width;
                 nativeRevision++;
                 var snapshot = new NativeInventorySnapshot(lastSubmittedGeneration, container, fingerprint,
-                    new ItemGridPosition(page, (byte)(index % Mathf.Max(width, (byte)1)), (byte)(index / Mathf.Max(width, (byte)1)), jar == null ? (byte)0 : jar.rot),
+                    new ItemGridPosition(page, (byte)(index % Mathf.Max(pageWidth, (byte)1)), (byte)(index / Mathf.Max(pageWidth, (byte)1)), jar == null ? (byte)0 : jar.rot),
                     nativeRevision);
                 component.OnNativeInventorySnapshot(snapshot);
             }
@@ -221,7 +234,7 @@ namespace BetterUnturnedExperience.Plugin
             }
         }
 
-        private bool PlacedItemPrefix(byte page, byte x, byte y)
+        private bool EvaluatePlacement(byte page, byte x, byte y)
         {
             // Returns false when BUE takes over the placement (legitimate grid
             // candidate or an invalid candidate the native path must not
