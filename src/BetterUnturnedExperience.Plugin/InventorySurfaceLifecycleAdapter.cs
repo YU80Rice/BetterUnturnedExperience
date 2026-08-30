@@ -146,6 +146,9 @@ namespace BetterUnturnedExperience.Plugin
     /// </summary>
     internal sealed class UnturnedInventorySurfaceContext : IInventorySurfaceContext
     {
+        internal static readonly FieldInfo NativeScrollField = typeof(SleekItems).GetField("horizontalScrollView", BindingFlags.Instance | BindingFlags.NonPublic);
+        internal static readonly FieldInfo NativeGridField = typeof(SleekItems).GetField("grid", BindingFlags.Instance | BindingFlags.NonPublic);
+        internal static readonly FieldInfo NativeItemsPanelField = typeof(SleekItems).GetField("itemsPanel", BindingFlags.Instance | BindingFlags.NonPublic);
         internal enum PointerCoordinateMode
         {
             LiveGridAbsoluteIncludesScroll = 0
@@ -214,9 +217,9 @@ namespace BetterUnturnedExperience.Plugin
             this.uiScale = NormalizeUiScale(uiScale);
             this.occupancy = occupancy;
             this.nativeItems = nativeItems;
-            scrollViewField = typeof(SleekItems).GetField("horizontalScrollView", BindingFlags.Instance | BindingFlags.NonPublic);
-            gridField = typeof(SleekItems).GetField("grid", BindingFlags.Instance | BindingFlags.NonPublic);
-            itemsPanelField = typeof(SleekItems).GetField("itemsPanel", BindingFlags.Instance | BindingFlags.NonPublic);
+            scrollViewField = NativeScrollField;
+            gridField = NativeGridField;
+            itemsPanelField = NativeItemsPanelField;
         }
 
         public ContainerReference CurrentContainer { get { return currentContainer; } }
@@ -471,12 +474,9 @@ namespace BetterUnturnedExperience.Plugin
 
             var dataItems = playerInventory.items[page];
 
-            var scrollField = typeof(SleekItems).GetField("horizontalScrollView", BindingFlags.Instance | BindingFlags.NonPublic);
-            var gridField = typeof(SleekItems).GetField("grid", BindingFlags.Instance | BindingFlags.NonPublic);
-            var nativePanelField = typeof(SleekItems).GetField("itemsPanel", BindingFlags.Instance | BindingFlags.NonPublic);
-            var nativeScroll = scrollField == null ? null : scrollField.GetValue(sleekItems) as ISleekScrollView;
-            var nativeGrid = gridField == null ? null : gridField.GetValue(sleekItems) as ISleekElement;
-            var nativePanel = nativePanelField == null ? null : nativePanelField.GetValue(sleekItems) as ISleekElement;
+            var nativeScroll = UnturnedInventorySurfaceContext.NativeScrollField == null ? null : UnturnedInventorySurfaceContext.NativeScrollField.GetValue(sleekItems) as ISleekScrollView;
+            var nativeGrid = UnturnedInventorySurfaceContext.NativeGridField == null ? null : UnturnedInventorySurfaceContext.NativeGridField.GetValue(sleekItems) as ISleekElement;
+            var nativePanel = UnturnedInventorySurfaceContext.NativeItemsPanelField == null ? null : UnturnedInventorySurfaceContext.NativeItemsPanelField.GetValue(sleekItems) as ISleekElement;
             if (!UnturnedInventorySurfaceContext.IsNativeHierarchyComplete(nativeScroll != null, nativeGrid != null, nativePanel != null) ||
                 !UnturnedInventorySurfaceContext.IsNativeHierarchyConsistent(sleekItems, nativeScroll, nativeGrid, nativePanel,
                     nativeScroll.Parent, nativeGrid.Parent, nativePanel.Parent)) return null;
