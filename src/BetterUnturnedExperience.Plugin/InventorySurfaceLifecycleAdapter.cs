@@ -149,6 +149,7 @@ namespace BetterUnturnedExperience.Plugin
         internal static readonly FieldInfo NativeScrollField = typeof(SleekItems).GetField("horizontalScrollView", BindingFlags.Instance | BindingFlags.NonPublic);
         internal static readonly FieldInfo NativeGridField = typeof(SleekItems).GetField("grid", BindingFlags.Instance | BindingFlags.NonPublic);
         internal static readonly FieldInfo NativeItemsPanelField = typeof(SleekItems).GetField("itemsPanel", BindingFlags.Instance | BindingFlags.NonPublic);
+        internal static readonly FieldInfo DashboardItemsField = typeof(PlayerDashboardInventoryUI).GetField("items", BindingFlags.Static | BindingFlags.NonPublic);
         internal enum PointerCoordinateMode
         {
             LiveGridAbsoluteIncludesScroll = 0
@@ -177,6 +178,44 @@ namespace BetterUnturnedExperience.Plugin
             return owner != null && scroll != null && grid != null && itemsPanel != null &&
                 ReferenceEquals(scrollParent, owner) && ReferenceEquals(gridParent, scroll) &&
                 ReferenceEquals(itemsPanelParent, grid);
+        }
+
+        internal readonly struct NativeInventoryHierarchySnapshot
+        {
+            internal readonly bool HasScroll;
+            internal readonly bool HasGrid;
+            internal readonly bool HasItemsPanel;
+            internal readonly bool ParentChainValid;
+            internal readonly Vector2 PointerNormalized;
+            internal readonly Vector2 GridSize;
+            internal readonly Vector2 ViewportSize;
+            internal readonly float ScrollPixelsY;
+            internal readonly float UiScale;
+
+            internal NativeInventoryHierarchySnapshot(bool hasScroll, bool hasGrid, bool hasItemsPanel,
+                bool parentChainValid, Vector2 pointerNormalized, Vector2 gridSize, Vector2 viewportSize,
+                float scrollPixelsY, float uiScale)
+            {
+                HasScroll = hasScroll; HasGrid = hasGrid; HasItemsPanel = hasItemsPanel;
+                ParentChainValid = parentChainValid; PointerNormalized = pointerNormalized;
+                GridSize = gridSize; ViewportSize = viewportSize; ScrollPixelsY = scrollPixelsY; UiScale = uiScale;
+            }
+        }
+
+        internal static bool TryBuildNativeGeometry(NativeInventoryHierarchySnapshot snapshot,
+            out InventoryGridViewport viewport, out Vector2 pointerPixels)
+        {
+            viewport = default(InventoryGridViewport);
+            pointerPixels = Vector2.zero;
+            if (!IsNativeHierarchyComplete(snapshot.HasScroll, snapshot.HasGrid, snapshot.HasItemsPanel) ||
+                !snapshot.ParentChainValid || snapshot.GridSize.x <= 0f || snapshot.GridSize.y <= 0f ||
+                snapshot.ViewportSize.x <= 0f || snapshot.ViewportSize.y <= 0f) return false;
+            var pointer = MapNormalizedPointer(snapshot.PointerNormalized.x, snapshot.PointerNormalized.y,
+                snapshot.GridSize.x, snapshot.GridSize.y);
+            if (pointer == Vector2.zero && (snapshot.PointerNormalized.x != 0f || snapshot.PointerNormalized.y != 0f)) return false;
+            viewport = BuildLiveGridViewport(0, 0, snapshot.ScrollPixelsY, snapshot.ViewportSize.x, snapshot.ViewportSize.y);
+            pointerPixels = pointer;
+            return true;
         }
 
         internal static InventoryGridViewport BuildLiveGridViewport(byte gridWidth, byte gridHeight,
@@ -463,9 +502,10 @@ namespace BetterUnturnedExperience.Plugin
             if (page >= PlayerInventory.PAGES || playerInventory.items[page] == null) return null;
 
             var dashboardFields = typeof(PlayerDashboardInventoryUI);
-            var dashboardItemsField = dashboardFields.GetField("items", BindingFlags.Static | BindingFlags.NonPublic);
-            if (dashboardItemsField == null) return null;
-            var dashboardItems = dashboardItemsField.GetValue(null) as Array;
+            if (UnturnedInventorySurfaceContext.DashboardItemsField == null) return null;
+            Array dashboardItems;
+            try { dashboardItems = UnturnedInventorySurfaceContext.DashboardItemsField.GetValue(null) as Array; }
+            catch (Exception) { return null; }
             var dashboardIndex = page - PlayerInventory.SLOTS;
             if (dashboardItems == null || dashboardIndex < 0 || dashboardIndex >= dashboardItems.Length) return null;
 

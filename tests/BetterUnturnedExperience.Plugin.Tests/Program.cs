@@ -186,6 +186,20 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 "fake native SleekItems hierarchy keeps scroll/grid/itemsPanel parent chain");
             Assert(!UnturnedInventorySurfaceContext.IsNativeHierarchyConsistent(owner, scroll, grid, panel, owner, owner, grid),
                 "broken native parent chain fails closed");
+            UnturnedInventorySurfaceContext.NativeInventoryHierarchySnapshot snapshot =
+                new UnturnedInventorySurfaceContext.NativeInventoryHierarchySnapshot(true, true, true, true,
+                    new UnityEngine.Vector2(0.5f, 0.5f), new UnityEngine.Vector2(600f, 900f),
+                    new UnityEngine.Vector2(400f, 300f), 240f, 1.5f);
+            UnityEngine.Vector2 pointer;
+            Assert(UnturnedInventorySurfaceContext.TryBuildNativeGeometry(snapshot, out viewport, out pointer),
+                "native hierarchy snapshot produces live viewport geometry");
+            Assert(Math.Abs(pointer.x - 300f) < 0.001f && Math.Abs(pointer.y - 450f) < 0.001f,
+                "pointer is mapped in the grid content coordinate space exactly once");
+            snapshot = new UnturnedInventorySurfaceContext.NativeInventoryHierarchySnapshot(true, true, false, true,
+                new UnityEngine.Vector2(0.5f, 0.5f), new UnityEngine.Vector2(600f, 900f),
+                new UnityEngine.Vector2(400f, 300f), 240f, 1.5f);
+            Assert(!UnturnedInventorySurfaceContext.TryBuildNativeGeometry(snapshot, out viewport, out pointer),
+                "incomplete native hierarchy fails closed before projection");
         }
         private static bool RequiresParentRebindSemantics()
         {
