@@ -117,11 +117,10 @@ namespace BetterUnturnedExperience.Plugin
         internal void AttachGrid(IClientUiInventorySurface surface)
         {
             var context = surface as UnturnedInventorySurfaceContext;
-            var container = context?.GridPanelContainer as UnturnedVisualContainer;
-            var sleek = container?.element as SleekItems;
+            var sleek = context?.NativeItems;
             if (sleek == null)
             {
-                log?.LogWarning("[BUE-DRAG] event=attach-grid-failed reason=grid-not-sleekitems diagnosticId=BUE-DRAG-003");
+                log?.LogWarning("[BUE-DRAG] event=attach-grid-failed reason=context-has-no-native-items diagnosticId=BUE-DRAG-003");
                 return;
             }
             // Idempotence: storage and trunk share one SleekItems (page 7),

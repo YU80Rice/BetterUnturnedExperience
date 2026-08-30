@@ -248,7 +248,8 @@ namespace BetterUnturnedExperience.Plugin
         private readonly InventoryGridViewport viewport;
         private readonly float uiScale;
         private readonly IGridOccupancyView occupancy;
-        private readonly SleekItems nativeItems;
+        internal SleekItems NativeItems { get; }
+
         private readonly FieldInfo scrollViewField;
         private readonly FieldInfo gridField;
         private readonly FieldInfo itemsPanelField;
@@ -266,7 +267,7 @@ namespace BetterUnturnedExperience.Plugin
             this.viewport = viewport;
             this.uiScale = NormalizeUiScale(uiScale);
             this.occupancy = occupancy;
-            this.nativeItems = nativeItems;
+            NativeItems = nativeItems;
             scrollViewField = NativeScrollField;
             gridField = NativeGridField;
             itemsPanelField = NativeItemsPanelField;
@@ -343,20 +344,20 @@ namespace BetterUnturnedExperience.Plugin
 
         private ISleekScrollView ResolveScrollView()
         {
-            if (nativeItems == null) return null;
-            return scrollViewField == null ? null : scrollViewField.GetValue(nativeItems) as ISleekScrollView;
+            if (NativeItems == null) return null;
+            return scrollViewField == null ? null : scrollViewField.GetValue(NativeItems) as ISleekScrollView;
         }
 
         internal ISleekElement ResolveItemsPanel()
         {
-            if (nativeItems == null) return null;
-            return itemsPanelField == null ? null : itemsPanelField.GetValue(nativeItems) as ISleekElement;
+            if (NativeItems == null) return null;
+            return itemsPanelField == null ? null : itemsPanelField.GetValue(NativeItems) as ISleekElement;
         }
 
         private ISleekElement ResolveGrid()
         {
-            if (nativeItems == null) return null;
-            return gridField == null ? null : gridField.GetValue(nativeItems) as ISleekElement;
+            if (NativeItems == null) return null;
+            return gridField == null ? null : gridField.GetValue(NativeItems) as ISleekElement;
         }
 
     }
