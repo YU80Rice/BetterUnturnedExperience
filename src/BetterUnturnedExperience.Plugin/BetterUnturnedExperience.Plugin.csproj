@@ -40,6 +40,7 @@
     <Compile Include="InventorySurfaceLifecycleAdapter.cs" />
     <Compile Include="InventoryLifecycle.cs" />
     <Compile Include="InventoryDragPreviewAdapter.cs" />
+    <Compile Include="InventoryProjectionSink.cs" />
     <Compile Include="..\BetterUnturnedExperience.ClientUi\ManagementPanel.cs"><Link>EmbeddedClientUi\ManagementPanel.cs</Link></Compile>
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />

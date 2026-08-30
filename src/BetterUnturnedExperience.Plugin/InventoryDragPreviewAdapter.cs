@@ -99,7 +99,7 @@ namespace BetterUnturnedExperience.Plugin
         {
             var adapter = ActiveAdapter;
             if (adapter == null) return;
-            try { adapter.Poll(); } catch (Exception error) { LastPollDiagnostics = "poll failed: " + error.GetType().FullName + ": " + error.Message; }
+            try { adapter.Poll(); adapter.component?.Tick((uint)Environment.TickCount); } catch (Exception error) { LastPollDiagnostics = "poll failed: " + error.GetType().FullName + ": " + error.Message; }
         }
 
         internal static string LastPollDiagnostics { get; private set; }
@@ -123,6 +123,8 @@ namespace BetterUnturnedExperience.Plugin
             }
             wasDragging = isDragging;
 
+            EnsureInventoryEventSubscription();
+
             if (isDragging)
             {
                 if (component.TryCreatePreviewInput(dragGeneration, ReadDragSource(), Input.mousePosition.x,
@@ -135,11 +137,67 @@ namespace BetterUnturnedExperience.Plugin
             }
         }
 
+        // [DEV-16D] Native convergence feed: the three inventory events build
+        // a NativeInventorySnapshot (monotonic NativeRevision) and feed the
+        // component's awaiting-projection bridge. Subscribed per-Player, with
+        // the subscription re-bound when Player.LocalPlayer changes.
+        private Player subscribedPlayer;
+        private uint nativeRevision;
+        private uint lastSubmittedGeneration;
+
+        internal void NotifyPlacementSubmitted(uint generation)
+        {
+            lastSubmittedGeneration = generation;
+        }
+
+        private void EnsureInventoryEventSubscription()
+        {
+            var player = Player.LocalPlayer;
+            if (ReferenceEquals(player, subscribedPlayer)) return;
+            if (subscribedPlayer != null)
+            {
+                subscribedPlayer.inventory.onInventoryAdded -= OnNativeInventoryEvent;
+                subscribedPlayer.inventory.onInventoryRemoved -= OnNativeInventoryEvent;
+                subscribedPlayer.inventory.onInventoryUpdated -= OnNativeInventoryEvent;
+            }
+            subscribedPlayer = player;
+            if (player == null) return;
+            player.inventory.onInventoryAdded += OnNativeInventoryEvent;
+            player.inventory.onInventoryRemoved += OnNativeInventoryEvent;
+            player.inventory.onInventoryUpdated += OnNativeInventoryEvent;
+            log?.LogInfo("[BUE-DRAG] event=inventory-events-subscribed diagnosticId=BUE-DRAG-001");
+        }
+
+        private void OnNativeInventoryEvent(byte page, byte index, ItemJar jar)
+        {
+            try
+            {
+                if (lastSubmittedGeneration == 0) return;
+                var asset = jar == null || jar.item == null ? ItemAssetIdentity.FromItemId(0) : AssetIdentityOf(jar);
+                var assetInstance = jar == null ? null : jar.GetAsset();
+                var width = assetInstance == null ? (byte)1 : (byte)Mathf.Min(assetInstance.size_x, byte.MaxValue);
+                var fingerprint = new InventoryItemFingerprint(asset, width, (byte)Mathf.Min(assetInstance == null ? (byte)1 : (byte)Mathf.Min(assetInstance.size_y, byte.MaxValue), byte.MaxValue), jar == null ? (byte)0 : jar.rot);
+                var container = component.LastDispatchedContainer;
+                if (container.SessionGeneration == 0) return;
+                nativeRevision++;
+                var snapshot = new NativeInventorySnapshot(lastSubmittedGeneration, container, fingerprint,
+                    new ItemGridPosition(page, (byte)(index % Mathf.Max(width, (byte)1)), (byte)(index / Mathf.Max(width, (byte)1)), jar == null ? (byte)0 : jar.rot),
+                    nativeRevision);
+                component.OnNativeInventorySnapshot(snapshot);
+            }
+            catch (Exception error)
+            {
+                LastPollDiagnostics = "convergence-event-failed: " + error.GetType().FullName + ": " + error.Message;
+            }
+        }
+
         private bool PlacedItemPrefix(byte page, byte x, byte y)
         {
             // Returns false when BUE takes over the placement (legitimate grid
             // candidate or an invalid candidate the native path must not
-            // execute); returns true for pass-through branches.
+            // execute); returns true for pass-through branches (slots, AREA,
+            // and swaps onto an occupied same-page cell, which the native
+            // onPlacedItem handles via sendSwapItem).
             if (!PlayerDashboardInventoryUI.isDragging) return true;
             var isOrdinaryGrid = page >= PlayerInventory.SLOTS && page != PlayerInventory.AREA;
             if (!isOrdinaryGrid) return true;
@@ -150,8 +208,16 @@ namespace BetterUnturnedExperience.Plugin
             var outcome = component.OnDragReleased(input, nativeActions);
             if (outcome == NativeDragAdapterOutcome.Submitted)
             {
+                lastSubmittedGeneration = dragGeneration;
                 PlayerDashboardInventoryUI.stopDrag();
                 return false;
+            }
+            if (outcome == NativeDragAdapterOutcome.Cancelled && IsSwapOntoOccupied(page, x, y))
+            {
+                // A swap onto an occupied same-page cell is a native operation:
+                // undo our stopDrag and let the vanilla path run.
+                PlayerDashboardInventoryUI.stopDrag();
+                return true;
             }
             if (outcome == NativeDragAdapterOutcome.Cancelled)
             {
@@ -159,6 +225,16 @@ namespace BetterUnturnedExperience.Plugin
                 return false;
             }
             return true;
+        }
+
+        private static bool IsSwapOntoOccupied(byte page, byte x, byte y)
+        {
+            var player = Player.LocalPlayer;
+            if (player == null || player.inventory == null) return false;
+            var pageItems = player.inventory.items[page];
+            if (pageItems == null) return false;
+            var index = y * pageItems.width + x;
+            return index >= 0 && index < pageItems.items.Count && pageItems.items[index] != null;
         }
 
         private ItemJar ReadDragJar()

@@ -212,6 +212,7 @@ namespace BetterUnturnedExperience.ClientUi.Internal
 
         internal bool IsInventoryOpen { get { return isInventoryOpen; } }
         internal ContainerReference CurrentContainer { get { return currentContainer; } }
+        internal ContainerReference LastDispatchedContainer { get { return currentContainer; } }
         internal uint CurrentSessionGeneration { get { return currentSessionGeneration; } }
         internal IInventorySurfaceContext CurrentSurface { get { return currentSurface; } }
         internal InventoryPreviewVisualSink PreviewSink { get { return previewSink; } }

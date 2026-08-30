@@ -75,6 +75,7 @@ namespace BetterUnturnedExperience.Plugin
                         // component's preview, release and projection seams.
                         inventoryDragAdapter = new InventoryDragPreviewAdapter(Logger, clientUiComposition.OfficialComponent);
                         inventoryDragAdapter.Activate();
+                        clientUiComposition.OfficialComponent.ProjectionSink = new LoggingInventoryProjectionSink(Logger);
                         Logger.LogInfo(inventoryDragAdapter.HooksInstalled
                             ? "BUE drag preview wiring enabled diagnosticId=BUE-DRAG-001"
                             : "BUE drag preview wiring disabled diagnosticId=BUE-DRAG-003 diagnostics=" + inventoryDragAdapter.GateDiagnostics);
