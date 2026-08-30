@@ -131,6 +131,10 @@ namespace BetterUnturnedExperience.Plugin.Tests
             Assert(horizontal != null, "inventory surface must expose an explicit horizontal scroll seam");
             var itemsPanel = type.GetMethod("ResolveItemsPanel", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
             Assert(itemsPanel != null, "inventory surface must resolve the native itemsPanel child");
+            Assert(Math.Abs(UnturnedInventorySurfaceContext.ComputeScrollPixels(0f, 0.5f, 600f)) < 0.001f, "top scroll maps to zero pixels");
+            Assert(Math.Abs(UnturnedInventorySurfaceContext.ComputeScrollPixels(1f, 0.5f, 600f) - 300f) < 0.001f, "bottom scroll maps to remaining pixels");
+            Assert(Math.Abs(UnturnedInventorySurfaceContext.ComputeScrollPixels(1f, 1f, 600f)) < 0.001f, "fully visible content has no scroll range");
+            Assert(Math.Abs(UnturnedInventorySurfaceContext.ComputeScrollPixels(float.NaN, 0.5f, 600f)) < 0.001f, "invalid scroll values fail closed");
         }
         private static bool RequiresParentRebindSemantics()
         {

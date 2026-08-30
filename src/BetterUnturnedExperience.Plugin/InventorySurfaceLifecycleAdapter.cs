@@ -153,17 +153,24 @@ namespace BetterUnturnedExperience.Plugin
         private readonly float uiScale;
         private readonly IGridOccupancyView occupancy;
         private readonly SleekItems nativeItems;
+        private readonly FieldInfo scrollViewField;
+        private readonly FieldInfo gridField;
+        private readonly FieldInfo itemsPanelField;
 
         internal UnturnedInventorySurfaceContext(ContainerReference currentContainer, IVisualContainer topLevelContainer,
-            IVisualContainer gridPanelContainer, InventoryGridViewport viewport, float uiScale, IGridOccupancyView occupancy)
+            IVisualContainer gridPanelContainer, InventoryGridViewport viewport, float uiScale, IGridOccupancyView occupancy,
+            SleekItems nativeItems)
         {
             this.currentContainer = currentContainer;
             this.topLevelContainer = topLevelContainer;
             this.gridPanelContainer = gridPanelContainer;
             this.viewport = viewport;
-            this.uiScale = uiScale;
+            this.uiScale = 1f;
             this.occupancy = occupancy;
-            nativeItems = (gridPanelContainer as UnturnedVisualContainer)?.element as SleekItems;
+            this.nativeItems = nativeItems;
+            scrollViewField = typeof(SleekItems).GetField("horizontalScrollView", BindingFlags.Instance | BindingFlags.NonPublic);
+            gridField = typeof(SleekItems).GetField("grid", BindingFlags.Instance | BindingFlags.NonPublic);
+            itemsPanelField = typeof(SleekItems).GetField("itemsPanel", BindingFlags.Instance | BindingFlags.NonPublic);
         }
 
         public ContainerReference CurrentContainer { get { return currentContainer; } }
@@ -189,8 +196,8 @@ namespace BetterUnturnedExperience.Plugin
             if (float.IsNaN(normalized.x) || float.IsInfinity(normalized.x) ||
                 float.IsNaN(normalized.y) || float.IsInfinity(normalized.y)) return false;
             if (normalized.x < 0f || normalized.x > 1f || normalized.y < 0f || normalized.y > 1f) return false;
-            x = normalized.x * occupancy.Width * CellPixelSize * UiScale;
-            y = normalized.y * occupancy.Height * CellPixelSize * UiScale;
+            x = normalized.x * occupancy.Width * CellPixelSize;
+            y = normalized.y * occupancy.Height * CellPixelSize;
             return true;
         }
 
@@ -201,15 +208,19 @@ namespace BetterUnturnedExperience.Plugin
                 var scrollView = ResolveScrollView();
                 if (scrollView == null || occupancy == null || occupancy.Height == 0) return 0f;
                 var contentHeight = occupancy.Height * CellPixelSize * UiScale;
-                var viewportRatio = scrollView.NormalizedViewportHeight;
-                if (float.IsNaN(viewportRatio) || float.IsInfinity(viewportRatio)) return 0f;
-                viewportRatio = Mathf.Clamp01(viewportRatio);
-                var scrollable = contentHeight * (1f - viewportRatio);
-                var normalized = scrollView.NormalizedVerticalPosition;
-                if (float.IsNaN(normalized) || float.IsInfinity(normalized)) return 0f;
-                return Mathf.Clamp01(normalized) * Mathf.Max(0f, scrollable);
+                return ComputeScrollPixels(scrollView.NormalizedVerticalPosition,
+                    scrollView.NormalizedViewportHeight, contentHeight);
             }
             catch (Exception) { return 0f; }
+        }
+
+        internal static float ComputeScrollPixels(float normalizedPosition, float viewportRatio, float contentPixels)
+        {
+            if (float.IsNaN(normalizedPosition) || float.IsInfinity(normalizedPosition) ||
+                float.IsNaN(viewportRatio) || float.IsInfinity(viewportRatio) ||
+                float.IsNaN(contentPixels) || float.IsInfinity(contentPixels)) return 0f;
+            var scrollable = Mathf.Max(0f, contentPixels) * (1f - Mathf.Clamp01(viewportRatio));
+            return Mathf.Clamp01(normalizedPosition) * scrollable;
         }
 
         internal float ReadScrollPixelsX()
@@ -223,22 +234,19 @@ namespace BetterUnturnedExperience.Plugin
         private ISleekScrollView ResolveScrollView()
         {
             if (nativeItems == null) return null;
-            var field = typeof(SleekItems).GetField("horizontalScrollView", BindingFlags.Instance | BindingFlags.NonPublic);
-            return field == null ? null : field.GetValue(nativeItems) as ISleekScrollView;
+            return scrollViewField == null ? null : scrollViewField.GetValue(nativeItems) as ISleekScrollView;
         }
 
         internal ISleekElement ResolveItemsPanel()
         {
             if (nativeItems == null) return null;
-            var field = typeof(SleekItems).GetField("itemsPanel", BindingFlags.Instance | BindingFlags.NonPublic);
-            return field == null ? null : field.GetValue(nativeItems) as ISleekElement;
+            return itemsPanelField == null ? null : itemsPanelField.GetValue(nativeItems) as ISleekElement;
         }
 
         private ISleekElement ResolveGrid()
         {
             if (nativeItems == null) return null;
-            var field = typeof(SleekItems).GetField("grid", BindingFlags.Instance | BindingFlags.NonPublic);
-            return field == null ? null : field.GetValue(nativeItems) as ISleekElement;
+            return gridField == null ? null : gridField.GetValue(nativeItems) as ISleekElement;
         }
 
     }
@@ -423,12 +431,12 @@ namespace BetterUnturnedExperience.Plugin
                 0f, 0f,
                 (byte)dataItems.width, (byte)dataItems.height,
                 0f, 0f,
-                dataItems.width * 50f * uiScale, dataItems.height * 50f * uiScale);
+                dataItems.width * 50f, dataItems.height * 50f);
 
             return new UnturnedInventorySurfaceContext(
                 new ContainerReference(MapKind(kind), page, generation),
-                topLevel, gridPanel, viewport, uiScale,
-                new UnturnedGridOccupancyView(dataItems));
+                topLevel, gridPanel, viewport, 1f,
+                new UnturnedGridOccupancyView(dataItems), sleekItems);
         }
 
         private static ContainerKind MapKind(ContainerSessionKind kind)
