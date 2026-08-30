@@ -144,6 +144,8 @@ namespace BetterUnturnedExperience.Plugin.Tests
             var mapped = UnturnedInventorySurfaceContext.MapNormalizedPointer(0.5f, 0.5f, 400f, 300f);
             Assert(Math.Abs(mapped.x - 200f) < 0.001f && Math.Abs(mapped.y - 150f) < 0.001f,
                 "normalized pointer maps into the live grid viewport");
+            Assert(UnturnedInventorySurfaceContext.MapNormalizedPointer(float.NaN, 0.5f, 400f, 300f) == UnityEngine.Vector2.zero,
+                "invalid normalized pointer fails closed");
             Assert(UnturnedInventorySurfaceContext.IsNativeHierarchyComplete(true, true, true),
                 "native-like SleekItems hierarchy is complete");
             Assert(!UnturnedInventorySurfaceContext.IsNativeHierarchyComplete(true, false, true),
@@ -167,11 +169,21 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 "invalid native scroll fails closed");
             Assert((int)UnturnedInventorySurfaceContext.PointerCoordinateMode.LiveGridAbsoluteIncludesScroll == 0,
                 "surface advertises the live-grid coordinate mode");
+            Assert(UnturnedInventorySurfaceContext.ResolveEffectiveScrollPixels(true, 240f) == 0f,
+                "native grid owns scroll application and evaluator receives no duplicate offset");
             var viewport = UnturnedInventorySurfaceContext.BuildLiveGridViewport(8, 12, 150f, 400f, 300f);
-            Assert(Math.Abs(viewport.OriginY - 150f) < 0.001f && Math.Abs(viewport.ClipY - 150f) < 0.001f,
-                "live content viewport begins at the native scroll offset");
+            Assert(Math.Abs(viewport.OriginY) < 0.001f && Math.Abs(viewport.ClipY) < 0.001f,
+                "live grid pointer and clip share one viewport-local origin");
             Assert(Math.Abs(viewport.ClipWidth - 400f) < 0.001f && Math.Abs(viewport.ClipHeight - 300f) < 0.001f,
                 "live viewport clip comes from the scroll view size");
+            var owner = new object();
+            var scroll = new object();
+            var grid = new object();
+            var panel = new object();
+            Assert(UnturnedInventorySurfaceContext.IsNativeHierarchyConsistent(owner, scroll, grid, panel),
+                "fake native SleekItems hierarchy keeps distinct scroll/grid/itemsPanel nodes");
+            Assert(!UnturnedInventorySurfaceContext.IsNativeHierarchyConsistent(owner, scroll, grid, owner),
+                "collapsed native hierarchy fails closed");
         }
         private static bool RequiresParentRebindSemantics()
         {

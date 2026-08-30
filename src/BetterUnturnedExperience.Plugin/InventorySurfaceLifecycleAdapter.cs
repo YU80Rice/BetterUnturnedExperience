@@ -157,6 +157,9 @@ namespace BetterUnturnedExperience.Plugin
         }
         internal static Vector2 MapNormalizedPointer(float nx, float ny, float width, float height)
         {
+            if (float.IsNaN(nx) || float.IsInfinity(nx) || float.IsNaN(ny) || float.IsInfinity(ny) ||
+                float.IsNaN(width) || float.IsInfinity(width) || float.IsNaN(height) || float.IsInfinity(height) ||
+                width <= 0f || height <= 0f || nx < 0f || nx > 1f || ny < 0f || ny > 1f) return Vector2.zero;
             return new Vector2(nx * width, ny * height);
         }
 
@@ -165,14 +168,24 @@ namespace BetterUnturnedExperience.Plugin
             return hasScroll && hasGrid && hasItemsPanel;
         }
 
+        internal static bool IsNativeHierarchyConsistent(object owner, object scroll, object grid, object itemsPanel)
+        {
+            return owner != null && scroll != null && grid != null && itemsPanel != null &&
+                !ReferenceEquals(owner, scroll) && !ReferenceEquals(owner, grid) &&
+                !ReferenceEquals(owner, itemsPanel);
+        }
+
         internal static InventoryGridViewport BuildLiveGridViewport(byte gridWidth, byte gridHeight,
             float scrollPixelsY, float viewportWidth, float viewportHeight)
         {
-            if (float.IsNaN(scrollPixelsY) || float.IsInfinity(scrollPixelsY) || scrollPixelsY < 0f) scrollPixelsY = 0f;
             if (float.IsNaN(viewportWidth) || float.IsInfinity(viewportWidth) || viewportWidth <= 0f) viewportWidth = gridWidth * 50f;
             if (float.IsNaN(viewportHeight) || float.IsInfinity(viewportHeight) || viewportHeight <= 0f) viewportHeight = gridHeight * 50f;
-            return new InventoryGridViewport(0f, scrollPixelsY, gridWidth, gridHeight,
-                0f, scrollPixelsY, viewportWidth, viewportHeight);
+            // GetNormalizedCursorPosition is measured against the grid's live
+            // transformed rect. The native scroll has therefore already been
+            // applied; the evaluator must see one coherent viewport-local
+            // coordinate space and must not add the scroll a second time.
+            return new InventoryGridViewport(0f, 0f, gridWidth, gridHeight,
+                0f, 0f, viewportWidth, viewportHeight);
         }
 
         private readonly ContainerReference currentContainer;
@@ -186,6 +199,8 @@ namespace BetterUnturnedExperience.Plugin
         private readonly FieldInfo gridField;
         private readonly FieldInfo itemsPanelField;
         internal PointerCoordinateMode CoordinateMode { get { return PointerCoordinateMode.LiveGridAbsoluteIncludesScroll; } }
+        internal bool ScrollAppliedByNativeGrid { get { return true; } }
+        internal float NativeScrollPixelsY { get { return ReadScrollPixelsY(); } }
 
         internal UnturnedInventorySurfaceContext(ContainerReference currentContainer, IVisualContainer topLevelContainer,
             IVisualContainer gridPanelContainer, InventoryGridViewport viewport, float uiScale, IGridOccupancyView occupancy,
@@ -430,6 +445,7 @@ namespace BetterUnturnedExperience.Plugin
                     + " clip=" + context.Viewport.ClipWidth + "x" + context.Viewport.ClipHeight
                     + " uiScale=" + context.UiScale.ToString("0.##") + " cellPx=" + context.CellPixelSize + " (static)"
                     + " scroll=" + context.ScrollPixelsX.ToString("0.###") + "," + context.ScrollPixelsY.ToString("0.###")
+                    + " nativeScrollY=" + context.NativeScrollPixelsY.ToString("0.###")
                     + " diagnosticId=BUE-INVENTORY-001");
             }
         }
@@ -460,9 +476,11 @@ namespace BetterUnturnedExperience.Plugin
             var nativeScroll = scrollField == null ? null : scrollField.GetValue(sleekItems) as ISleekScrollView;
             var nativeGrid = gridField == null ? null : gridField.GetValue(sleekItems) as ISleekElement;
             var nativePanel = nativePanelField == null ? null : nativePanelField.GetValue(sleekItems) as ISleekElement;
-            if (!UnturnedInventorySurfaceContext.IsNativeHierarchyComplete(nativeScroll != null, nativeGrid != null, nativePanel != null)) return null;
-            var gridPanel = new UnturnedVisualContainer(nativePanel);
+            if (!UnturnedInventorySurfaceContext.IsNativeHierarchyComplete(nativeScroll != null, nativeGrid != null, nativePanel != null) ||
+                !UnturnedInventorySurfaceContext.IsNativeHierarchyConsistent(sleekItems, nativeScroll, nativeGrid, nativePanel)) return null;
+            if (PlayerUI.container == null) return null;
             var topLevel = new UnturnedVisualContainer(PlayerUI.container);
+            var gridPanel = new UnturnedVisualContainer(nativePanel);
 
             // Geometry is expressed in the live SleekItems local space. The
             // previous implementation copied PositionOffset into a screen
@@ -483,13 +501,9 @@ namespace BetterUnturnedExperience.Plugin
                 nativeScroll.NormalizedVerticalPosition,
                 nativeScroll.NormalizedViewportHeight,
                 dataItems.height * 50f * uiScale);
-            var liveViewportSize = Vector2.zero;
-            try { liveViewportSize = nativeScroll.GetAbsoluteSize(); } catch (Exception) { liveViewportSize = Vector2.zero; }
-            var liveClipWidth = liveViewportSize.x > 0f ? liveViewportSize.x : clipWidth;
-            var liveClipHeight = liveViewportSize.y > 0f ? liveViewportSize.y : clipHeight;
             viewport = UnturnedInventorySurfaceContext.BuildLiveGridViewport(
                 (byte)dataItems.width, (byte)dataItems.height, liveScrollPixelsY,
-                liveClipWidth, liveClipHeight);
+                clipWidth, clipHeight);
 
             return new UnturnedInventorySurfaceContext(
                 new ContainerReference(MapKind(kind), page, generation),
