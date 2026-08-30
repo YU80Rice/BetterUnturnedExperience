@@ -9,7 +9,8 @@ namespace BetterUnturnedExperience.Plugin
 {
     /// <summary>
     /// DEV-16D drag preview/commit adapter. Driven by the vanilla
-    /// PlayerUI.Update tick (postfix) and the onPlacedItem prefix; reads only
+    /// PlayerDashboardInventoryUI.updateDraggedItem tick (postfix) and a
+    /// rebound SleekItems.onPlacedItem delegate; reads only
     /// public native state (isDragging/dragJar/dragFrom*) plus the private
     /// drag fields through cached FieldInfo kept inside this adapter file.
     /// Routes decisions through the composition's ItemInteractionUiComponent
@@ -57,7 +58,7 @@ namespace BetterUnturnedExperience.Plugin
             if (AccessTools.Method(typeof(PlayerDashboardInventoryUI), "stopDrag") == null) missing.Add("PlayerDashboardInventoryUI.stopDrag");
             if (AccessTools.Field(typeof(PlayerDashboardInventoryUI), "dragJar") == null) missing.Add("PlayerDashboardInventoryUI.dragJar");
             if (AccessTools.Field(typeof(PlayerDashboardInventoryUI), "dragFromPage") == null) missing.Add("PlayerDashboardInventoryUI.dragFromPage");
-            if (AccessTools.Method(typeof(PlayerUI), "Update") == null) missing.Add("PlayerUI.Update");
+            if (AccessTools.Method(typeof(PlayerDashboardInventoryUI), "updateDraggedItem") == null) missing.Add("PlayerDashboardInventoryUI.updateDraggedItem");
             if (missing.Count > 0)
             {
                 var diagnostics = new System.Text.StringBuilder("drag-preview-gate: native members missing, wiring disabled, native drag preserved -> ");
@@ -110,7 +111,11 @@ namespace BetterUnturnedExperience.Plugin
             var context = surface as UnturnedInventorySurfaceContext;
             var container = context?.GridPanelContainer as UnturnedVisualContainer;
             var sleek = container?.element as SleekItems;
-            if (sleek == null) return;
+            if (sleek == null)
+            {
+                log?.LogWarning("[BUE-DRAG] event=attach-grid-failed reason=grid-not-sleekitems diagnosticId=BUE-DRAG-003");
+                return;
+            }
             if (ReferenceEquals(sleek, attachedGrid)) return;
             attachedGrid = sleek;
             nativePlacedHandler = sleek.onPlacedItem;
@@ -184,10 +189,7 @@ namespace BetterUnturnedExperience.Plugin
         private uint nativeRevision;
         private uint lastSubmittedGeneration;
 
-        internal void NotifyPlacementSubmitted(uint generation)
-        {
-            lastSubmittedGeneration = generation;
-        }
+
 
         private void EnsureInventoryEventSubscription()
         {
@@ -219,12 +221,11 @@ namespace BetterUnturnedExperience.Plugin
                 var fingerprint = new InventoryItemFingerprint(asset, itemW, itemH, jar == null ? (byte)0 : jar.rot);
                 var container = component.LastDispatchedContainer;
                 if (container.SessionGeneration == 0) return;
-                var player = Player.LocalPlayer;
-                var pageItems = player == null || player.inventory == null ? null : player.inventory.items[page];
-                var pageWidth = pageItems == null ? (byte)1 : pageItems.width;
                 nativeRevision++;
+                // index is a list ordinal (compacted by RemoveAt), not a grid
+                // position; the jar carries its own authoritative cell.
                 var snapshot = new NativeInventorySnapshot(lastSubmittedGeneration, container, fingerprint,
-                    new ItemGridPosition(page, (byte)(index % Mathf.Max(pageWidth, (byte)1)), (byte)(index / Mathf.Max(pageWidth, (byte)1)), jar == null ? (byte)0 : jar.rot),
+                    new ItemGridPosition(page, jar == null ? (byte)0 : jar.x, jar == null ? (byte)0 : jar.y, jar == null ? (byte)0 : jar.rot),
                     nativeRevision);
                 component.OnNativeInventorySnapshot(snapshot);
             }
@@ -244,11 +245,19 @@ namespace BetterUnturnedExperience.Plugin
             if (!PlayerDashboardInventoryUI.isDragging) return true;
             var isOrdinaryGrid = page >= PlayerInventory.SLOTS && page != PlayerInventory.AREA;
             if (!isOrdinaryGrid) return true;
+            // [R34 fail-open] Enhanced interaction off, or no fresh preview
+            // evaluation, means BUE cannot judge the placement: the native
+            // path owns it. BUE never blocks what it cannot evaluate.
+            if (!component.EnhancedDragActive) return true;
+            var preview = component.LastPreview;
+            if (preview.State == 0 || preview.DragGeneration != dragGeneration) return true;
 
             var input = new NativeDragAdapterInput(
                 PlayerDashboardInventoryUI.isDragging, dragGeneration,
-                ReadDragSource(), component.LastPreview);
+                ReadDragSource(), preview);
             var outcome = component.OnDragReleased(input, nativeActions);
+            log?.LogInfo("[BUE-DRAG] event=placement-decision page=" + page + " x=" + x + " y=" + y
+                + " outcome=" + outcome + " diagnosticId=BUE-DRAG-001");
             if (outcome == NativeDragAdapterOutcome.Submitted)
             {
                 lastSubmittedGeneration = dragGeneration;
@@ -293,19 +302,24 @@ namespace BetterUnturnedExperience.Plugin
             if (player == null || player.inventory == null) return false;
             var pageItems = player.inventory.items[page];
             if (pageItems == null) return false;
-            var jar = ReadDragJar();
-            var asset = jar == null ? null : jar.GetAsset();
-            var itemW = asset == null ? 1 : (int)asset.size_x;
-            var itemH = asset == null ? 1 : (int)asset.size_y;
-            var occupancy = new bool[pageItems.width, pageItems.height];
-            for (var index = 0; index < pageItems.items.Count && index < pageItems.width * pageItems.height; index++)
+            // Occupy cells straight from each jar's own authoritative grid
+            // position and rotated footprint (matches native Items.findIndex
+            // coverage: rot%2 swaps the size axes).
+            for (var listIndex = 0; listIndex < pageItems.items.Count; listIndex++)
             {
-                if (pageItems.items[index] == null) continue;
-                var px = index % pageItems.width;
-                var py = index / pageItems.width;
-                if (px < pageItems.width && py < pageItems.height) occupancy[px, py] = true;
+                var cell = pageItems.items[listIndex];
+                if (cell == null) continue;
+                var cellAsset = cell.GetAsset();
+                if (cellAsset == null) continue;
+                var w = (cell.rot % 2 == 0) ? cellAsset.size_x : cellAsset.size_y;
+                var h = (cell.rot % 2 == 0) ? cellAsset.size_y : cellAsset.size_x;
+                for (var dy = 0; dy < h; dy++)
+                for (var dx = 0; dx < w; dx++)
+                {
+                    if (cell.x + dx == x && cell.y + dy == y) return true;
+                }
             }
-            return FootprintOccupied(occupancy, pageItems.width, pageItems.height, x, y, itemW, itemH);
+            return false;
         }
 
         private ItemJar ReadDragJar()
