@@ -116,7 +116,10 @@ namespace BetterUnturnedExperience.Plugin
                 log?.LogWarning("[BUE-DRAG] event=attach-grid-failed reason=grid-not-sleekitems diagnosticId=BUE-DRAG-003");
                 return;
             }
-            if (ReferenceEquals(sleek, attachedGrid)) return;
+            // Idempotence: storage and trunk share one SleekItems (page 7),
+            // and re-entry here used to wrap our own wrapper, stacking
+            // evaluation layers until a placement crashed the game.
+            if (ReferenceEquals(sleek, attachedGrid) || ReferenceEquals(sleek.onPlacedItem?.Target, this)) return;
             attachedGrid = sleek;
             nativePlacedHandler = sleek.onPlacedItem;
             sleek.onPlacedItem = GridPlacedItemWrapper;
