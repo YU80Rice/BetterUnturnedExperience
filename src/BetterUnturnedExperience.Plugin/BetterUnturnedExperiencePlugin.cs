@@ -75,7 +75,6 @@ namespace BetterUnturnedExperience.Plugin
                         // so the drag delegate is detached before the lifecycle
                         // heartbeat is removed.
                         inventoryDragAdapter = new InventoryDragPreviewAdapter(Logger, clientUiComposition.OfficialComponent);
-                        clientUiComposition.OfficialComponent.RegisterCleanupResult(() => inventoryDragAdapter.IsolateAndDetach(false));
 
                         inventoryLifecycleAdapter = new InventorySurfaceLifecycleAdapter(Logger,
                             surface =>
@@ -99,6 +98,7 @@ namespace BetterUnturnedExperience.Plugin
                                 clientUiComposition.CloseInventory();
                             });
                         clientUiComposition.OfficialComponent.RegisterCleanupResult(() => inventoryLifecycleAdapter.IsolateAndDetach());
+                        clientUiComposition.OfficialComponent.RegisterCleanupResult(() => inventoryDragAdapter.IsolateAndDetach(false));
                         inventoryLifecycleAdapter.Activate();
                         if (inventoryLifecycleAdapter.HooksInstalled)
                             Logger.LogInfo("BUE inventory lifecycle wiring enabled diagnosticId=BUE-INVENTORY-001");
