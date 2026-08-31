@@ -291,13 +291,14 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             cleanup.Add(action);
         }
 
-        internal void Isolate()
+        internal bool Isolate()
         {
-            if (safeMode) return;
+            if (safeMode) return !cleanupFailed;
             lifecycle.BeginIsolation();
             EndDrag();
             RunCleanupOnce();
             lifecycle.CompleteIsolation(!cleanupFailed);
+            return !cleanupFailed;
         }
 
         internal void EnterSafeMode()

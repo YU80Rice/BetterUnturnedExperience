@@ -290,7 +290,7 @@ namespace BetterUnturnedExperience.Plugin
             if (!hasOwner) return NativeHierarchyState.NotCreated;
             if (!membersAvailable) return NativeHierarchyState.Incompatible;
             if (!hasScroll || !hasGrid || !hasItemsPanel)
-                return NativeHierarchyState.NotCreated;
+                return NativeHierarchyState.Incompatible;
             if (!parentChainValid)
                 return NativeHierarchyState.Incompatible;
             return NativeHierarchyState.Ready;
@@ -639,7 +639,7 @@ namespace BetterUnturnedExperience.Plugin
         private readonly ContainerSessionTracker tracker;
         private readonly InventoryLifecycleWatcher watcher;
         private readonly bool enabled;
-        private readonly Action isolateDispatcher;
+        private readonly Func<bool> isolateDispatcher;
         private readonly Action hideDispatcher;
         private readonly Action guardedPoll;
         private string gateDiagnostics;
@@ -663,7 +663,7 @@ namespace BetterUnturnedExperience.Plugin
 
         internal InventorySurfaceLifecycleAdapter(BepInEx.Logging.ManualLogSource log,
             Action<IClientUiInventorySurface> openDispatcher, Action closeDispatcher,
-            Action isolateDispatcher = null, Action hideDispatcher = null)
+            Func<bool> isolateDispatcher = null, Action hideDispatcher = null)
         {
             this.log = log;
             this.openDispatcher = openDispatcher ?? throw new ArgumentNullException(nameof(openDispatcher));
@@ -748,18 +748,25 @@ namespace BetterUnturnedExperience.Plugin
             return !probeComplete;
         }
 
+        internal static bool ShouldIsolateOnHierarchyProbeFailure(UnturnedInventorySurfaceContext.NativeHierarchyState state)
+        {
+            return state == UnturnedInventorySurfaceContext.NativeHierarchyState.Incompatible;
+        }
+
         private bool IsolateAndDispatch()
         {
             var success = IsolateAndDetach();
             try
             {
-                isolateDispatcher?.Invoke();
+                if (isolateDispatcher != null && !isolateDispatcher()) success = false;
             }
             catch (Exception error)
             {
                 success = false;
                 InventoryDragPreviewAdapter.ReportCleanupFailure("inventory-isolate-dispatch", error);
             }
+            if (!success && string.IsNullOrEmpty(InventoryDragPreviewAdapter.LastCleanupDiagnostics))
+                InventoryDragPreviewAdapter.ReportCleanupIncomplete("inventory-isolate-dispatch");
             return success;
         }
 
@@ -894,7 +901,7 @@ namespace BetterUnturnedExperience.Plugin
             var hierarchyState = UnturnedInventorySurfaceContext.ProbeNativeHierarchy(liveNativeItems,
                 out liveScroll, out liveGrid, out liveItemsPanel);
             var liveSurfaceReady = hierarchyState == UnturnedInventorySurfaceContext.NativeHierarchyState.Ready;
-            if (hierarchyState == UnturnedInventorySurfaceContext.NativeHierarchyState.Incompatible &&
+            if (ShouldIsolateOnHierarchyProbeFailure(hierarchyState) &&
                 (dashboardActive || isStoring))
             {
                 gateDiagnostics = "featureId=io.github.yu80rice.bue.better-item-interaction"
@@ -966,15 +973,6 @@ namespace BetterUnturnedExperience.Plugin
             var dashboardIndex = page - PlayerInventory.SLOTS;
             if (dashboardItems == null || dashboardIndex < 0 || dashboardIndex >= dashboardItems.Length) return null;
             return dashboardItems.GetValue(dashboardIndex) as SleekItems;
-        }
-
-        private static bool IsNativeHierarchyReady(SleekItems sleekItems)
-        {
-            ISleekScrollView nativeScroll;
-            ISleekElement nativeGrid;
-            ISleekElement nativePanel;
-            return UnturnedInventorySurfaceContext.ProbeNativeHierarchy(sleekItems,
-                out nativeScroll, out nativeGrid, out nativePanel) == UnturnedInventorySurfaceContext.NativeHierarchyState.Ready;
         }
 
         private bool IsDispatchedSurfaceCurrent(SleekItems current)

@@ -218,7 +218,9 @@ namespace BetterUnturnedExperience.Plugin
             isolated = true;
             LastCleanupDiagnostics = null;
             var detachSucceeded = DetachAndDeactivate();
-            var previewSucceeded = FailClosedPreview(isolateComponent ? component.IsolatePreviewFailure : null, component.HidePreview);
+            var previewSucceeded = FailClosedPreviewResult(
+                isolateComponent ? new Func<bool>(() => component.IsolatePreviewFailureResult()) : null,
+                component.HidePreview);
             cleanupSucceeded = detachSucceeded && previewSucceeded;
             return cleanupSucceeded;
         }

@@ -311,8 +311,8 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 == UnturnedInventorySurfaceContext.NativeHierarchyState.NotCreated,
                 "missing SleekItems owner is retryable while the native surface is still being created");
             Assert(UnturnedInventorySurfaceContext.ClassifyNativeHierarchy(true, true, false, false, false, false)
-                == UnturnedInventorySurfaceContext.NativeHierarchyState.NotCreated,
-                "missing native children remain retryable during surface construction");
+                == UnturnedInventorySurfaceContext.NativeHierarchyState.Incompatible,
+                "an existing native owner with missing children enters compatibility isolation");
             Assert(UnturnedInventorySurfaceContext.ClassifyNativeHierarchy(true, false, true, true, true, true)
                 == UnturnedInventorySurfaceContext.NativeHierarchyState.Incompatible,
                 "missing reflection members are a stable compatibility failure");
@@ -322,6 +322,12 @@ namespace BetterUnturnedExperience.Plugin.Tests
             Assert(UnturnedInventorySurfaceContext.ClassifyNativeHierarchy(true, true, true, true, true, true)
                 == UnturnedInventorySurfaceContext.NativeHierarchyState.Ready,
                 "a complete native hierarchy is ready for projection");
+            Assert(InventorySurfaceLifecycleAdapter.ShouldIsolateOnHierarchyProbeFailure(
+                    UnturnedInventorySurfaceContext.NativeHierarchyState.Incompatible),
+                "the live poll isolates an incompatible native hierarchy state");
+            Assert(!InventorySurfaceLifecycleAdapter.ShouldIsolateOnHierarchyProbeFailure(
+                    UnturnedInventorySurfaceContext.NativeHierarchyState.NotCreated),
+                "the live poll may retry before the native surface owner is created");
 
             var guardResult = InventorySurfaceLifecycleAdapter.InvokePollGuarded(
                 () => { throw new InvalidOperationException("synthetic cleanup result propagation failure"); },
@@ -334,6 +340,15 @@ namespace BetterUnturnedExperience.Plugin.Tests
             try { UnturnedInventorySurfaceContext.NormalizeUiScale(float.NaN); }
             catch (InvalidOperationException) { invalidScaleRejected = true; }
             Assert(invalidScaleRejected, "invalid UI scale is rejected instead of silently normalized");
+
+            var cleanupComposition = new BueClientUiCompositionRoot();
+            Assert(cleanupComposition.Initialize(false, false, true), "cleanup propagation fixture initializes");
+            cleanupComposition.OfficialComponent.RegisterCleanupResult(() => false);
+            Assert(!cleanupComposition.OfficialComponent.IsolatePreviewFailureResult(),
+                "component isolation returns false when a registered cleanup fails");
+            Assert(cleanupComposition.OfficialComponent.Lifecycle.LastDiagnosticId == "BUE-DEV15D-CLEANUP-INCOMPLETE",
+                "component isolation preserves the canonical cleanup-incomplete diagnostic");
+            cleanupComposition.Destroy();
         }
         private static bool RequiresParentRebindSemantics()
         {

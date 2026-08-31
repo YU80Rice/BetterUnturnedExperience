@@ -269,9 +269,9 @@ namespace BetterUnturnedExperience.ClientUi.Internal
         // GPT watermark: all native preview read failures enter this one
         // feature-local isolation seam. Cleanup unmounts pooled visuals and
         // disables enhanced drag while vanilla input remains untouched.
-        internal void IsolatePreviewFailure()
+        internal bool IsolatePreviewFailureResult()
         {
-            runtime.Isolate();
+            var cleanupSucceeded = runtime.Isolate();
             // A native hook/geometry failure is a feature-local presentation
             // failure, not a headless runtime.  Project the degraded state
             // after isolation so the management surface cannot continue to
@@ -279,6 +279,12 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             // the active fallback.
             lifecycle.SetPresentationAvailable(false, headless);
             HidePreview();
+            return cleanupSucceeded;
+        }
+
+        internal void IsolatePreviewFailure()
+        {
+            IsolatePreviewFailureResult();
         }
 
         public void OnUiInitialized(IClientUiRoot root)
