@@ -104,6 +104,7 @@ namespace BetterUnturnedExperience.ClientUi.Internal
         public float NativeDragPivotX { get; }
         public float NativeDragPivotY { get; }
         public ItemAssetIdentity ItemAsset { get; }
+        public InventoryPointerCoordinateSpace PointerCoordinateSpace { get; }
         public IGridOccupancyView Occupancy { get; }
 
         internal InventoryPreviewInput(uint dragGeneration, ItemGridPosition source, ContainerReference targetContainer,
@@ -112,7 +113,8 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             bool allowAutomaticRotation, float grabOffsetX, float grabOffsetY, IGridOccupancyView occupancy)
             : this(dragGeneration, source, targetContainer, pointerScreenX, pointerScreenY, viewport, cellPixelSize, uiScale,
                 scrollPixelsX, scrollPixelsY, itemWidth, itemHeight, currentRotation, allowAutomaticRotation,
-                grabOffsetX, grabOffsetY, default(ItemAssetIdentity), float.NaN, float.NaN, float.NaN, float.NaN, occupancy)
+                grabOffsetX, grabOffsetY, default(ItemAssetIdentity), float.NaN, float.NaN, float.NaN, float.NaN,
+                InventoryPointerCoordinateSpace.Screen, occupancy)
         {
         }
 
@@ -123,7 +125,8 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             IGridOccupancyView occupancy)
             : this(dragGeneration, source, targetContainer, pointerScreenX, pointerScreenY, viewport, cellPixelSize, uiScale,
                 scrollPixelsX, scrollPixelsY, itemWidth, itemHeight, currentRotation, allowAutomaticRotation,
-                grabOffsetX, grabOffsetY, itemAsset, float.NaN, float.NaN, float.NaN, float.NaN, occupancy)
+                grabOffsetX, grabOffsetY, itemAsset, float.NaN, float.NaN, float.NaN, float.NaN,
+                InventoryPointerCoordinateSpace.Screen, occupancy)
         {
         }
 
@@ -133,6 +136,19 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             bool allowAutomaticRotation, float grabOffsetX, float grabOffsetY, ItemAssetIdentity itemAsset,
             float topLevelPointerScaleX, float topLevelPointerScaleY, float nativeDragPivotX, float nativeDragPivotY,
             IGridOccupancyView occupancy)
+            : this(dragGeneration, source, targetContainer, pointerScreenX, pointerScreenY, viewport, cellPixelSize,
+                uiScale, scrollPixelsX, scrollPixelsY, itemWidth, itemHeight, currentRotation, allowAutomaticRotation,
+                grabOffsetX, grabOffsetY, itemAsset, topLevelPointerScaleX, topLevelPointerScaleY, nativeDragPivotX,
+                nativeDragPivotY, InventoryPointerCoordinateSpace.Screen, occupancy)
+        {
+        }
+
+        internal InventoryPreviewInput(uint dragGeneration, ItemGridPosition source, ContainerReference targetContainer,
+            float pointerScreenX, float pointerScreenY, InventoryGridViewport viewport, float cellPixelSize, float uiScale,
+            float scrollPixelsX, float scrollPixelsY, byte itemWidth, byte itemHeight, byte currentRotation,
+            bool allowAutomaticRotation, float grabOffsetX, float grabOffsetY, ItemAssetIdentity itemAsset,
+            float topLevelPointerScaleX, float topLevelPointerScaleY, float nativeDragPivotX, float nativeDragPivotY,
+            InventoryPointerCoordinateSpace pointerCoordinateSpace, IGridOccupancyView occupancy)
         {
             DragGeneration = dragGeneration;
             Source = source;
@@ -155,8 +171,15 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             NativeDragPivotX = nativeDragPivotX;
             NativeDragPivotY = nativeDragPivotY;
             ItemAsset = itemAsset;
+            PointerCoordinateSpace = pointerCoordinateSpace;
             Occupancy = occupancy;
         }
+    }
+
+    internal enum InventoryPointerCoordinateSpace : byte
+    {
+        Screen = 0,
+        GridContentLocal = 1
     }
 
     internal static class InventoryGridCoordinateAdapter
@@ -221,6 +244,7 @@ namespace BetterUnturnedExperience.ClientUi.Internal
         {
             screenX = input.PointerScreenX;
             screenY = input.PointerScreenY;
+            if (input.PointerCoordinateSpace != InventoryPointerCoordinateSpace.Screen) return false;
             byte width;
             byte height;
             float grabX;
@@ -443,7 +467,8 @@ namespace BetterUnturnedExperience.ClientUi.Internal
                 {
                     sink.ShowIcon(nativeIcon);
                 }
-                else if (InventoryGridCoordinateAdapter.TryGetIconScreenPosition(input, preview.Candidate.Rotation, out iconX, out iconY))
+                else if (input.PointerCoordinateSpace == InventoryPointerCoordinateSpace.Screen &&
+                    InventoryGridCoordinateAdapter.TryGetIconScreenPosition(input, preview.Candidate.Rotation, out iconX, out iconY))
                 {
                     sink.ShowIcon(new PreviewIcon(iconX, iconY, preview.Candidate.Rotation, input.ItemAsset));
                 }

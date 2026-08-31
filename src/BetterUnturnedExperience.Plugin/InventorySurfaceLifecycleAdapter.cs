@@ -492,6 +492,9 @@ namespace BetterUnturnedExperience.Plugin
         private readonly ContainerSessionTracker tracker;
         private readonly InventoryLifecycleWatcher watcher;
         private readonly bool enabled;
+        private readonly Action isolateDispatcher;
+        private readonly Action hideDispatcher;
+        private readonly Action guardedPoll;
         private string gateDiagnostics;
         internal static string LastPollDiagnostics { get; private set; }
         private Harmony harmony;
@@ -505,14 +508,18 @@ namespace BetterUnturnedExperience.Plugin
         internal bool HooksInstalled { get { return hooksInstalled; } }
 
         internal InventorySurfaceLifecycleAdapter(BepInEx.Logging.ManualLogSource log,
-            Action<IClientUiInventorySurface> openDispatcher, Action closeDispatcher)
+            Action<IClientUiInventorySurface> openDispatcher, Action closeDispatcher,
+            Action isolateDispatcher = null, Action hideDispatcher = null)
         {
             this.log = log;
             this.openDispatcher = openDispatcher ?? throw new ArgumentNullException(nameof(openDispatcher));
             this.closeDispatcher = closeDispatcher ?? throw new ArgumentNullException(nameof(closeDispatcher));
+            this.isolateDispatcher = isolateDispatcher;
+            this.hideDispatcher = hideDispatcher;
             tracker = new ContainerSessionTracker();
             watcher = new InventoryLifecycleWatcher(tracker);
             harmony = new Harmony("io.github.yu80rice.bue.inventory-lifecycle");
+            guardedPoll = RunPollAndDragTick;
 
             var probe = new InventoryLifecycleProbe
             {
@@ -558,16 +565,46 @@ namespace BetterUnturnedExperience.Plugin
         {
             var adapter = ActiveAdapter;
             if (adapter == null) return;
-            try
+            adapter.RunGuardedPoll();
+        }
+
+        private void RunGuardedPoll()
+        {
+            if (!InvokePollGuarded(guardedPoll, isolateDispatcher, CloseAfterPollFailure))
             {
-                adapter.Poll();
-                // GPT watermark: PlayerUI.Update is a proven, observed
-                // main-thread heartbeat in the runtime logs. Drive the drag
-                // preview from this same callback instead of relying solely
-                // on an unscheduled BUE/child Update method.
-                InventoryDragPreviewAdapter.ActiveAdapter?.Tick();
+                surfaceDispatched = false;
+                dispatchedGeneration = 0;
             }
-            catch (Exception error) { LastPollDiagnostics = "poll failed: " + error.GetType().FullName + ": " + error.Message; }
+        }
+
+        private void CloseAfterPollFailure()
+        {
+            try { hideDispatcher?.Invoke(); }
+            finally { closeDispatcher(); }
+        }
+
+        private void RunPollAndDragTick()
+        {
+            Poll();
+            // GPT watermark: PlayerUI.Update is a proven, observed main-thread
+            // heartbeat in the runtime logs. Drive the drag preview from this
+            // same callback instead of relying solely on an unscheduled child
+            // Update method.
+            InventoryDragPreviewAdapter.ActiveAdapter?.Tick();
+        }
+
+        // GPT watermark: all surface reflection/geometry failures terminate at
+        // one guarded boundary, isolate only Better Item Interaction, and leave
+        // vanilla inventory input available.
+        internal static bool InvokePollGuarded(Action poll, Action isolate, Action hide)
+        {
+            try { poll?.Invoke(); return true; }
+            catch (Exception error)
+            {
+                LastPollDiagnostics = "poll failed: " + error.GetType().FullName + ": " + error.Message;
+                InventoryDragPreviewAdapter.FailClosedPreview(isolate, hide);
+                return false;
+            }
         }
 
         internal void Poll()

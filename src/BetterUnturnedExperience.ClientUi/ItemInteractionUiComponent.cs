@@ -478,7 +478,8 @@ namespace BetterUnturnedExperience.ClientUi.Internal
         {
             return TryCreatePreviewInputCore(dragGeneration, source, pointerScreenX, pointerScreenY, itemWidth, itemHeight,
                 currentRotation, allowAutomaticRotation, grabOffsetX, grabOffsetY, itemAsset,
-                false, float.NaN, float.NaN, float.NaN, float.NaN, out input);
+                false, float.NaN, float.NaN, float.NaN, float.NaN,
+                InventoryPointerCoordinateSpace.Screen, out input);
         }
 
         internal bool TryCreatePreviewInput(uint dragGeneration, ItemGridPosition source, float pointerScreenX, float pointerScreenY,
@@ -488,13 +489,28 @@ namespace BetterUnturnedExperience.ClientUi.Internal
         {
             return TryCreatePreviewInputCore(dragGeneration, source, pointerScreenX, pointerScreenY, itemWidth, itemHeight,
                 currentRotation, allowAutomaticRotation, grabOffsetX, grabOffsetY, itemAsset,
-                true, topLevelPointerScaleX, topLevelPointerScaleY, nativeDragPivotX, nativeDragPivotY, out input);
+                true, topLevelPointerScaleX, topLevelPointerScaleY, nativeDragPivotX, nativeDragPivotY,
+                InventoryPointerCoordinateSpace.GridContentLocal, out input);
+        }
+
+        internal bool TryCreatePreviewInput(uint dragGeneration, ItemGridPosition source, float pointerScreenX, float pointerScreenY,
+            byte itemWidth, byte itemHeight, byte currentRotation, bool allowAutomaticRotation, float grabOffsetX, float grabOffsetY,
+            ItemAssetIdentity itemAsset, float topLevelPointerScaleX, float topLevelPointerScaleY,
+            float nativeDragPivotX, float nativeDragPivotY, InventoryPointerCoordinateSpace pointerCoordinateSpace,
+            out InventoryPreviewInput input)
+        {
+            return TryCreatePreviewInputCore(dragGeneration, source, pointerScreenX, pointerScreenY, itemWidth, itemHeight,
+                currentRotation, allowAutomaticRotation, grabOffsetX, grabOffsetY, itemAsset,
+                pointerCoordinateSpace == InventoryPointerCoordinateSpace.Screen,
+                topLevelPointerScaleX, topLevelPointerScaleY, nativeDragPivotX, nativeDragPivotY,
+                pointerCoordinateSpace, out input);
         }
 
         private bool TryCreatePreviewInputCore(uint dragGeneration, ItemGridPosition source, float pointerScreenX, float pointerScreenY,
             byte itemWidth, byte itemHeight, byte currentRotation, bool allowAutomaticRotation, float grabOffsetX, float grabOffsetY,
             ItemAssetIdentity itemAsset, bool pointerAlreadyIncludesScroll, float topLevelPointerScaleX, float topLevelPointerScaleY,
-            float nativeDragPivotX, float nativeDragPivotY, out InventoryPreviewInput input)
+            float nativeDragPivotX, float nativeDragPivotY, InventoryPointerCoordinateSpace pointerCoordinateSpace,
+            out InventoryPreviewInput input)
         {
             input = default(InventoryPreviewInput);
             if (!isInventoryOpen || currentSurface == null) return false;
@@ -506,7 +522,7 @@ namespace BetterUnturnedExperience.ClientUi.Internal
                 scrollPixelsX, scrollPixelsY, itemWidth, itemHeight, currentRotation,
                 runtime.EnhancedDragActive && runtime.ActivePolicy.AutoRotate && allowAutomaticRotation,
                 grabOffsetX, grabOffsetY, itemAsset, topLevelPointerScaleX, topLevelPointerScaleY,
-                nativeDragPivotX, nativeDragPivotY, currentSurface.Occupancy);
+                nativeDragPivotX, nativeDragPivotY, pointerCoordinateSpace, currentSurface.Occupancy);
             return true;
         }
     }

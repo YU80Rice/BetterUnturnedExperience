@@ -30,6 +30,30 @@ namespace BetterUnturnedExperience.ClientUi.Tests
             BetterItemInteractionUiComponentDestructionAndSafeModeCleansUpVisuals();
             SleekSinkHotPathZeroAllocationTest();
             NativeMouseCoordinatesMatchSleekTopLeftSpace();
+            TopLevelIconFallbackRejectsGridLocalPointer();
+        }
+
+        // GPT watermark: R2 red regression. A pointer sampled from the native
+        // grid content must never be reused as a top-level screen coordinate
+        // when the native top-level anchor is unavailable.
+        private static void TopLevelIconFallbackRejectsGridLocalPointer()
+        {
+            var evaluator = new FixedEvaluator(new ItemPlacementPreview(31, PlacementPreviewState.Candidate,
+                new ItemGridPosition(2, 1, 0, 0), 1, 1, PlacementReason.None));
+            var presenter = new InventoryPreviewPresenter(new InventoryDragPresenter(evaluator));
+            var sink = new RecordingPreviewSink();
+            presenter.BeginDrag(31);
+            var input = new InventoryPreviewInput(31, new ItemGridPosition(0, 0, 0, 0),
+                new ContainerReference(ContainerKind.PlayerInventory, 3, 31),
+                75f, 50f, new InventoryGridViewport(0f, 0f, 8, 6, 0f, 0f, 400f, 300f),
+                50f, 1f, 0f, 0f, 1, 1, 0, true, 0.5f, 0.5f,
+                ItemAssetIdentity.FromItemId(363), float.NaN, float.NaN, float.NaN, float.NaN,
+                InventoryPointerCoordinateSpace.GridContentLocal, new TestGrid(8, 6));
+
+            presenter.Update(input, sink);
+
+            Assert(sink.FrameCount == 1, "candidate frame still renders when top-level icon anchor is unavailable");
+            Assert(sink.IconCount == 0, "grid-local pointer never falls back to a top-level icon coordinate");
         }
 
         private static void NativeMouseCoordinatesMatchSleekTopLeftSpace()

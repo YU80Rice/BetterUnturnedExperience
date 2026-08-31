@@ -163,8 +163,42 @@ namespace BetterUnturnedExperience.Plugin
 
         private void GridPlacedItemWrapper(byte page, byte x, byte y)
         {
-            if (!EvaluatePlacement(page, x, y)) return;
-            nativePlacedHandler?.Invoke(page, x, y);
+            var native = nativePlacedHandler;
+            InvokePlacedItemGuarded(
+                () => EvaluatePlacement(page, x, y),
+                () => native?.Invoke(page, x, y),
+                component.IsolatePreviewFailure,
+                component.HidePreview);
+        }
+
+        // GPT watermark: the U3-SDK invokes SleekItems.onPlacedItem directly
+        // without an exception boundary. Keep the BUE wrapper fail-closed while
+        // forwarding evaluation failures back to the vanilla callback.
+        internal static void InvokePlacedItemGuarded(Func<bool> evaluate, Action forward, Action isolate, Action hide)
+        {
+            bool passThrough;
+            try
+            {
+                passThrough = evaluate == null || evaluate();
+            }
+            catch (Exception error)
+            {
+                LastPollDiagnostics = "placed-item-evaluate-failed: " + error.GetType().FullName + ": " + error.Message;
+                FailClosedPreview(isolate, hide);
+                try { forward?.Invoke(); } catch (Exception nativeError)
+                {
+                    LastPollDiagnostics = "placed-item-native-fallback-failed: " + nativeError.GetType().FullName + ": " + nativeError.Message;
+                }
+                return;
+            }
+
+            if (!passThrough) return;
+            try { forward?.Invoke(); }
+            catch (Exception error)
+            {
+                LastPollDiagnostics = "placed-item-native-failed: " + error.GetType().FullName + ": " + error.Message;
+                FailClosedPreview(isolate, hide);
+            }
         }
 
         internal static void DashboardUpdatePostfix()

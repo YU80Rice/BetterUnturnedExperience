@@ -75,6 +75,13 @@ namespace BetterUnturnedExperience.Plugin
                             {
                                 inventoryDragAdapter?.DetachGrid();
                                 clientUiComposition.CloseInventory();
+                            },
+                            () => clientUiComposition.OfficialComponent?.IsolatePreviewFailure(),
+                            () =>
+                            {
+                                clientUiComposition.OfficialComponent?.HidePreview();
+                                inventoryDragAdapter?.DetachGrid();
+                                clientUiComposition.CloseInventory();
                             });
                         inventoryLifecycleAdapter.Activate();
                         if (inventoryLifecycleAdapter.HooksInstalled)

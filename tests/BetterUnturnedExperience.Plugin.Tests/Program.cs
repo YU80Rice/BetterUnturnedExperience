@@ -72,6 +72,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 AssertDev16DR44SymptomsReproduce();
                 AssertDynamicViewportTracksCurrentScroll();
                 AssertPreviewReadFailureRoutesThroughIsolation();
+                AssertNativeCallbackBoundariesAreGuarded();
                 AssertRuntimeCompletionBarrierIsolates();
                 AssertManagementPanelConsumesRuntimeCatalog();
                 AssertManagementPanelOpenHooks();
@@ -293,6 +294,40 @@ namespace BetterUnturnedExperience.Plugin.Tests
             var hideCount = 0;
             InventoryDragPreviewAdapter.FailClosedPreview(() => isolateCount++, () => hideCount++);
             Assert(isolateCount == 1 && hideCount == 1, "preview read failure isolates once and hides stale visuals");
+        }
+
+        // GPT watermark: R2 red regression. Native delegate and surface poll
+        // exceptions must not escape into U3-SDK callbacks; they isolate BUE,
+        // clear stale visuals, and preserve the native callback when evaluation
+        // itself fails.
+        private static void AssertNativeCallbackBoundariesAreGuarded()
+        {
+            var forwarded = 0;
+            var isolated = 0;
+            var hidden = 0;
+            InventoryDragPreviewAdapter.InvokePlacedItemGuarded(
+                () => { throw new InvalidOperationException("synthetic evaluate failure"); },
+                () => forwarded++, () => isolated++, () => hidden++);
+            Assert(forwarded == 1 && isolated == 1 && hidden == 1,
+                "placed-item evaluation failure isolates, hides, and preserves native fallback");
+
+            forwarded = 0;
+            isolated = 0;
+            hidden = 0;
+            InventoryDragPreviewAdapter.InvokePlacedItemGuarded(
+                () => true,
+                () => { throw new InvalidOperationException("synthetic native callback failure"); },
+                () => isolated++, () => hidden++);
+            Assert(forwarded == 0 && isolated == 1 && hidden == 1,
+                "native placed-item callback failure is contained and isolated");
+
+            isolated = 0;
+            hidden = 0;
+            InventorySurfaceLifecycleAdapter.InvokePollGuarded(
+                () => { throw new InvalidOperationException("synthetic viewport read failure"); },
+                () => isolated++, () => hidden++);
+            Assert(isolated == 1 && hidden == 1,
+                "surface poll/viewport failure enters the same feature isolation boundary");
         }
 
         private sealed class IGridOccupancyViewForTest : IGridOccupancyView
