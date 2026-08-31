@@ -173,6 +173,15 @@ namespace BetterUnturnedExperience.Plugin
     /// </summary>
     internal sealed class UnturnedInventorySurfaceContext : IInventorySurfaceContext
     {
+        internal enum PointerReadFailure : byte
+        {
+            None,
+            NotReady,
+            OutsideViewport,
+            InvalidGeometry,
+            ReadException
+        }
+
         // [R41] Single authority for viewport selection: live geometry when
         // the native hierarchy and scroll size are trustworthy, otherwise the
         // offset/size approximation. Never null, never throws.
@@ -319,8 +328,9 @@ namespace BetterUnturnedExperience.Plugin
             float contentWidth, float contentHeight, float viewportWidth, float viewportHeight,
             float normalizedScrollY, float viewportRatio)
         {
-            if (!IsFinitePositive(contentWidth)) contentWidth = gridWidth * 50f;
-            if (!IsFinitePositive(contentHeight)) contentHeight = gridHeight * 50f;
+            if (!IsFinitePositive(contentWidth) || !IsFinitePositive(contentHeight) ||
+                !IsFinitePositive(viewportWidth) || !IsFinitePositive(viewportHeight))
+                throw new InvalidOperationException("native inventory geometry is invalid");
             var clipY = ComputeScrollPixels(normalizedScrollY, viewportRatio, contentHeight);
             return BuildLiveGridViewport(gridWidth, gridHeight, viewportWidth, viewportHeight, 0f, clipY);
         }
@@ -377,33 +387,71 @@ namespace BetterUnturnedExperience.Plugin
         // space instead of treating PositionOffset as a screen origin.
         internal bool TryGetLocalPointerPixels(out float x, out float y)
         {
+            PointerReadFailure ignored;
+            return TryGetLocalPointerPixels(out x, out y, out ignored);
+        }
+
+        internal bool TryGetLocalPointerPixels(out float x, out float y, out PointerReadFailure failure)
+        {
             x = 0f;
             y = 0f;
-            var scroll = ResolveScrollView();
-            var native = ResolveGrid();
-            if (scroll == null || native == null || occupancy == null) return false;
-            var viewportNormalized = scroll.GetNormalizedCursorPosition();
-            if (float.IsNaN(viewportNormalized.x) || float.IsInfinity(viewportNormalized.x) ||
-                float.IsNaN(viewportNormalized.y) || float.IsInfinity(viewportNormalized.y) ||
-                viewportNormalized.x < 0f || viewportNormalized.x > 1f ||
-                viewportNormalized.y < 0f || viewportNormalized.y > 1f) return false;
-            var normalized = native.GetNormalizedCursorPosition();
-            if (float.IsNaN(normalized.x) || float.IsInfinity(normalized.x) ||
-                float.IsNaN(normalized.y) || float.IsInfinity(normalized.y)) return false;
-            if (normalized.x < 0f || normalized.x > 1f || normalized.y < 0f || normalized.y > 1f) return false;
-            var size = native.GetAbsoluteSize();
-            if (size.x <= 0f || size.y <= 0f || float.IsNaN(size.x) || float.IsNaN(size.y)) return false;
-            x = normalized.x * size.x;
-            y = normalized.y * size.y;
-            return true;
+            failure = PointerReadFailure.None;
+            try
+            {
+                var scroll = ResolveScrollView();
+                var native = ResolveGrid();
+                if (scroll == null || native == null || occupancy == null)
+                {
+                    failure = PointerReadFailure.NotReady;
+                    return false;
+                }
+                var viewportNormalized = scroll.GetNormalizedCursorPosition();
+                if (!IsFiniteUnit(viewportNormalized))
+                {
+                    failure = PointerReadFailure.InvalidGeometry;
+                    return false;
+                }
+                if (!IsUnitRange(viewportNormalized))
+                {
+                    failure = PointerReadFailure.OutsideViewport;
+                    return false;
+                }
+                var normalized = native.GetNormalizedCursorPosition();
+                if (!IsFinite(normalized))
+                {
+                    failure = PointerReadFailure.InvalidGeometry;
+                    return false;
+                }
+                if (!IsUnitRange(normalized))
+                {
+                    failure = PointerReadFailure.OutsideViewport;
+                    return false;
+                }
+                var size = native.GetAbsoluteSize();
+                if (!IsFinitePositive(size.x) || !IsFinitePositive(size.y))
+                {
+                    failure = PointerReadFailure.InvalidGeometry;
+                    return false;
+                }
+                x = normalized.x * size.x;
+                y = normalized.y * size.y;
+                return true;
+            }
+            catch (Exception)
+            {
+                failure = PointerReadFailure.ReadException;
+                return false;
+            }
         }
 
         internal float ReadScrollPixelsY()
         {
             var scrollView = ResolveScrollView();
-            if (scrollView == null || occupancy == null || occupancy.Height == 0) return 0f;
+            if (scrollView == null || occupancy == null || occupancy.Height == 0)
+                throw new InvalidOperationException("native inventory scroll hierarchy is unavailable");
             var contentHeight = ReadGridContentHeight();
-            if (!IsFinitePositive(contentHeight)) contentHeight = occupancy.Height * CellPixelSize * UiScale;
+            if (!IsFinitePositive(contentHeight))
+                throw new InvalidOperationException("native inventory content height is invalid");
             return ComputeScrollPixels(scrollView.NormalizedVerticalPosition,
                 scrollView.NormalizedViewportHeight, contentHeight);
         }
@@ -418,12 +466,17 @@ namespace BetterUnturnedExperience.Plugin
 
         private InventoryGridViewport ReadLiveViewport()
         {
-            if (!hierarchyLive) return viewport;
+            if (!hierarchyLive)
+                throw new InvalidOperationException("native inventory hierarchy is not ready");
             var scroll = ResolveScrollView();
             var grid = ResolveGrid();
-            if (scroll == null || grid == null) return viewport;
+            if (scroll == null || grid == null)
+                throw new InvalidOperationException("native inventory viewport hierarchy is unavailable");
             var scrollSize = scroll.GetAbsoluteSize();
             var contentSize = grid.GetAbsoluteSize();
+            if (!IsFinitePositive(scrollSize.x) || !IsFinitePositive(scrollSize.y) ||
+                !IsFinitePositive(contentSize.x) || !IsFinitePositive(contentSize.y))
+                throw new InvalidOperationException("native inventory viewport geometry is invalid");
             return BuildDynamicGridViewport(gridWidth, gridHeight,
                 contentSize.x, contentSize.y, scrollSize.x, scrollSize.y,
                 scroll.NormalizedVerticalPosition, scroll.NormalizedViewportHeight);
@@ -433,9 +486,28 @@ namespace BetterUnturnedExperience.Plugin
         {
             if (float.IsNaN(normalizedPosition) || float.IsInfinity(normalizedPosition) ||
                 float.IsNaN(viewportRatio) || float.IsInfinity(viewportRatio) ||
-                float.IsNaN(contentPixels) || float.IsInfinity(contentPixels)) return 0f;
-            var scrollable = Mathf.Max(0f, contentPixels) * (1f - Mathf.Clamp01(viewportRatio));
-            return Mathf.Clamp01(normalizedPosition) * scrollable;
+                float.IsNaN(contentPixels) || float.IsInfinity(contentPixels) ||
+                normalizedPosition < 0f || normalizedPosition > 1f ||
+                viewportRatio < 0f || viewportRatio > 1f || contentPixels <= 0f)
+                throw new InvalidOperationException("native inventory scroll values are invalid");
+            var scrollable = contentPixels * (1f - viewportRatio);
+            return normalizedPosition * scrollable;
+        }
+
+        private static bool IsFinite(Vector2 value)
+        {
+            return !float.IsNaN(value.x) && !float.IsInfinity(value.x) &&
+                !float.IsNaN(value.y) && !float.IsInfinity(value.y);
+        }
+
+        private static bool IsFiniteUnit(Vector2 value)
+        {
+            return IsFinite(value);
+        }
+
+        private static bool IsUnitRange(Vector2 value)
+        {
+            return value.x >= 0f && value.x <= 1f && value.y >= 0f && value.y <= 1f;
         }
 
         internal float ReadScrollPixelsX()
@@ -495,6 +567,8 @@ namespace BetterUnturnedExperience.Plugin
         internal static string LastPollDiagnostics { get; private set; }
         private Harmony harmony;
         private bool hooksInstalled;
+        private bool isolated;
+        private bool isolationSucceeded = true;
         private bool surfaceDispatched;
         private uint dispatchedGeneration;
 
@@ -533,7 +607,7 @@ namespace BetterUnturnedExperience.Plugin
 
         internal void Activate()
         {
-            if (!enabled || hooksInstalled) return;
+            if (!enabled || hooksInstalled || isolated) return;
             try
             {
                 var target = AccessTools.Method(typeof(PlayerUI), "Update");
@@ -557,6 +631,23 @@ namespace BetterUnturnedExperience.Plugin
             if (ReferenceEquals(ActiveAdapter, adapter)) ActiveAdapter = null;
         }
 
+        internal bool IsolateAndDetach()
+        {
+            if (isolated) return isolationSucceeded;
+            isolated = true;
+            isolationSucceeded = true;
+            try { harmony.UnpatchSelf(); }
+            catch (Exception error)
+            {
+                isolationSucceeded = false;
+                LastPollDiagnostics = "inventory-hook-unpatch-failed: " + error.GetType().FullName + ": " + error.Message;
+                InventoryDragPreviewAdapter.ReportCleanupFailure("inventory-hook-unpatch", error);
+            }
+            hooksInstalled = false;
+            ClearActive(this);
+            return isolationSucceeded;
+        }
+
         internal static void PlayerUIUpdatePostfix()
         {
             var adapter = ActiveAdapter;
@@ -566,7 +657,11 @@ namespace BetterUnturnedExperience.Plugin
 
         private void RunGuardedPoll()
         {
-            if (!InvokePollGuarded(guardedPoll, isolateDispatcher, CloseAfterPollFailure))
+            if (!InvokePollGuarded(guardedPoll, () =>
+            {
+                IsolateAndDetach();
+                isolateDispatcher?.Invoke();
+            }, CloseAfterPollFailure))
             {
                 surfaceDispatched = false;
                 dispatchedGeneration = 0;
@@ -603,6 +698,23 @@ namespace BetterUnturnedExperience.Plugin
             }
         }
 
+        // Test seam for validating native viewport/scroll rejection before the
+        // guarded poll consumes the geometry.
+        internal static bool TryComputeScrollPixels(float normalizedPosition, float viewportRatio,
+            float contentPixels, out float pixels)
+        {
+            try
+            {
+                pixels = UnturnedInventorySurfaceContext.ComputeScrollPixels(normalizedPosition, viewportRatio, contentPixels);
+                return true;
+            }
+            catch (Exception)
+            {
+                pixels = 0f;
+                return false;
+            }
+        }
+
         internal void Poll()
         {
             var player = Player.LocalPlayer;
@@ -635,7 +747,11 @@ namespace BetterUnturnedExperience.Plugin
                 // and trunk both live on the shared STORAGE page.
                 var page = kind == ContainerSessionKind.PlayerInventory ? (byte)PlayerInventory.BACKPACK : (byte)PlayerInventory.STORAGE;
                 var context = BuildSurfaceContext(kind, page, generation);
-                if (context == null) return;
+                if (context == null)
+                {
+                    log?.LogInfo("[BUE-INVENTORY] event=surface-not-ready page=" + page + " diagnosticId=BUE-INVENTORY-004");
+                    return;
+                }
                 openDispatcher(context);
                 surfaceDispatched = true;
                 dispatchedGeneration = generation;
@@ -674,21 +790,18 @@ namespace BetterUnturnedExperience.Plugin
             var nativeScroll = UnturnedInventorySurfaceContext.NativeScrollField == null ? null : UnturnedInventorySurfaceContext.NativeScrollField.GetValue(sleekItems) as ISleekScrollView;
             var nativeGrid = UnturnedInventorySurfaceContext.NativeGridField == null ? null : UnturnedInventorySurfaceContext.NativeGridField.GetValue(sleekItems) as ISleekElement;
             var nativePanel = UnturnedInventorySurfaceContext.NativeItemsPanelField == null ? null : UnturnedInventorySurfaceContext.NativeItemsPanelField.GetValue(sleekItems) as ISleekElement;
-            // [R40 fail-open] The live hierarchy snapshot is an upgrade, not a
-            // gate: when it is incomplete or inconsistent we degrade to the
-            // offset/size approximation (R37 path) instead of dropping the
-            // whole surface, which left the preview chain dead on the real
-            // machine (214114 package: surface-context-dispatched == 0).
             var hierarchyLive = UnturnedInventorySurfaceContext.IsNativeHierarchyComplete(nativeScroll != null, nativeGrid != null, nativePanel != null) &&
                 UnturnedInventorySurfaceContext.IsNativeHierarchyConsistent(sleekItems, nativeScroll, nativeGrid, nativePanel,
                     nativeScroll?.Parent, nativeGrid?.Parent, nativePanel?.Parent);
             if (!hierarchyLive)
             {
-                log?.LogWarning("[BUE-INVENTORY] event=hierarchy-snapshot-degraded page=" + page + " diagnosticId=BUE-INVENTORY-003");
+                log?.LogInfo("[BUE-INVENTORY] event=surface-not-ready reason=native-hierarchy-incomplete page=" + page + " diagnosticId=BUE-INVENTORY-004");
+                return null;
             }
             if (PlayerUI.container == null) return null;
             var topLevel = new UnturnedVisualContainer(PlayerUI.container);
-            if (nativePanel == null || nativeGrid == null || nativeScroll == null) return null;
+            if (nativePanel == null || nativeGrid == null || nativeScroll == null)
+                throw new InvalidOperationException("native inventory hierarchy disappeared during surface build");
             var gridPanel = new UnturnedVisualContainer(nativePanel);
 
             // Geometry is expressed in the live SleekItems local space. The
@@ -700,18 +813,9 @@ namespace BetterUnturnedExperience.Plugin
             uiScale = GraphicsSettings.userInterfaceScale;
             if (uiScale <= 0f) uiScale = 1f;
 
-            var scrollSize = Vector2.zero;
-            if (hierarchyLive)
-            {
-                scrollSize = nativeScroll.GetAbsoluteSize();
-            }
+            var scrollSize = nativeScroll.GetAbsoluteSize();
             if (scrollSize.x <= 0f || scrollSize.y <= 0f || float.IsNaN(scrollSize.x) || float.IsNaN(scrollSize.y))
-            {
-                // [R40 fail-open] Live scroll size unavailable: degrade to the
-                // offset/size approximation so the session still dispatches
-                // and the preview chain stays alive (calibration can follow).
-                log?.LogWarning("[BUE-INVENTORY] event=scroll-size-degraded page=" + page + " diagnosticId=BUE-INVENTORY-003");
-            }
+                throw new InvalidOperationException("native inventory scroll viewport size is invalid");
             var scrollPixelsX = 0f;
             var scrollPixelsY = 0f;
             if (nativeScroll != null)

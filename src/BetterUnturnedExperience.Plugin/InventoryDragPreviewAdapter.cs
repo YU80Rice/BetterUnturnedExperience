@@ -120,8 +120,20 @@ namespace BetterUnturnedExperience.Plugin
         private SleekItems attachedGrid;
         private PlacedItem nativePlacedHandler;
 
+        // Rebuilt native surfaces are only attachable while this adapter is
+        // live. Once isolation starts, no new delegate may be written.
+        internal static bool CanAttachGrid(bool isolated)
+        {
+            return !isolated;
+        }
+
         internal void AttachGrid(IClientUiInventorySurface surface)
         {
+            if (!CanAttachGrid(isolated))
+            {
+                LastPollDiagnostics = "grid-attach-rejected-isolated";
+                return;
+            }
             try
             {
                 var context = surface as UnturnedInventorySurfaceContext;
@@ -172,32 +184,48 @@ namespace BetterUnturnedExperience.Plugin
         // GPT watermark: detach every native callback and event subscription
         // before isolating the feature, so an exception cannot leave a stale
         // wrapper or static adapter receiving future frames.
-        internal void IsolateAndDetach()
+        internal bool IsolateAndDetach()
         {
-            isolated = true;
-            DetachAndDeactivate();
-            FailClosedPreview(component.IsolatePreviewFailure, component.HidePreview);
+            return IsolateAndDetach(true);
         }
 
-        private void DetachAndDeactivate()
+        internal bool IsolateAndDetach(bool isolateComponent)
         {
+            if (isolated)
+            {
+                return string.IsNullOrEmpty(LastCleanupDiagnostics);
+            }
+            isolated = true;
+            LastCleanupDiagnostics = null;
+            var detachSucceeded = DetachAndDeactivate();
+            var previewSucceeded = FailClosedPreview(isolateComponent ? component.IsolatePreviewFailure : null, component.HidePreview);
+            return detachSucceeded && previewSucceeded;
+        }
+
+        private bool DetachAndDeactivate()
+        {
+            var success = true;
             try { DetachGridCore(); }
             catch (Exception error)
             {
-                LastPollDiagnostics = "grid-detach-isolation-failed: " + error.GetType().FullName + ": " + error.Message;
+                success = false;
+                ReportCleanupFailure("grid-detach", error);
             }
             try { UnsubscribeInventoryEvents(); }
             catch (Exception error)
             {
-                LastPollDiagnostics = "inventory-unsubscribe-isolation-failed: " + error.GetType().FullName + ": " + error.Message;
+                success = false;
+                ReportCleanupFailure("inventory-unsubscribe", error);
             }
             try { harmony.UnpatchSelf(); }
             catch (Exception error)
             {
-                LastPollDiagnostics = "hook-unpatch-isolation-failed: " + error.GetType().FullName + ": " + error.Message;
+                success = false;
+                ReportCleanupFailure("hook-unpatch", error);
             }
             hooksInstalled = false;
             ClearActive(this);
+            return success;
         }
 
         private void GridPlacedItemWrapper(byte page, byte x, byte y)
@@ -208,7 +236,7 @@ namespace BetterUnturnedExperience.Plugin
                 () => native?.Invoke(page, x, y),
                 component.IsolatePreviewFailure,
                 component.HidePreview,
-                DetachAndDeactivate);
+                () => { IsolateAndDetach(); });
         }
 
         // GPT watermark: the U3-SDK invokes SleekItems.onPlacedItem directly
@@ -255,6 +283,14 @@ namespace BetterUnturnedExperience.Plugin
             {
                 LastPollDiagnostics = "placed-item-detach-failed: " + error.GetType().FullName + ": " + error.Message;
             }
+        }
+
+        internal static void ReportCleanupFailure(string stage, Exception error)
+        {
+            LastCleanupDiagnostics = "featureId=io.github.yu80rice.bue.better-item-interaction"
+                + " errorCode=CleanupIncomplete diagnosticId=BUE-DEV16D-CLEANUP-INCOMPLETE"
+                + " stage=" + stage + " errorType=" + error.GetType().FullName + " message=" + error.Message;
+            LastPollDiagnostics = stage + " cleanup failed: " + error.GetType().FullName + ": " + error.Message;
         }
 
         internal static void DashboardUpdatePostfix()
@@ -307,19 +343,18 @@ namespace BetterUnturnedExperience.Plugin
         // being cleared or re-enable the native fallback path.
         internal static bool FailClosedPreview(Action isolate, Action hide)
         {
-            LastCleanupDiagnostics = null;
             var success = true;
             try { isolate?.Invoke(); }
             catch (Exception error)
             {
                 success = false;
-                LastCleanupDiagnostics = "cleanup-isolate-failed: " + error.GetType().FullName + ": " + error.Message;
+                ReportCleanupFailure("preview-isolate", error);
             }
             try { hide?.Invoke(); }
             catch (Exception error)
             {
                 success = false;
-                LastCleanupDiagnostics = "cleanup-hide-failed: " + error.GetType().FullName + ": " + error.Message;
+                ReportCleanupFailure("preview-hide", error);
             }
             return success;
         }
@@ -357,8 +392,19 @@ namespace BetterUnturnedExperience.Plugin
                 // already includes the scroll transform; no second scroll is
                 // added by the pure-C# adapter.
                 var surface = component.CurrentSurface as UnturnedInventorySurfaceContext;
-                if (surface == null || !surface.TryGetLocalPointerPixels(out var localX, out var localY))
+                if (surface == null)
                 {
+                    component.HidePreview();
+                    if (ShouldEmitDiagnostic(PlacementPreviewState.Hidden, PlacementReason.OutsideGrid))
+                        log?.LogInfo("[BUE-DRAG] GPT-WATERMARK event=preview-hidden reason=outside-viewport generation=" + dragGeneration + " diagnosticId=BUE-DRAG-001");
+                    return;
+                }
+                UnturnedInventorySurfaceContext.PointerReadFailure pointerFailure;
+                if (!surface.TryGetLocalPointerPixels(out var localX, out var localY, out pointerFailure))
+                {
+                    if (pointerFailure == UnturnedInventorySurfaceContext.PointerReadFailure.InvalidGeometry ||
+                        pointerFailure == UnturnedInventorySurfaceContext.PointerReadFailure.ReadException)
+                        throw new InvalidOperationException("BUE-DEV16D-VIEWPORT-READ-FAILED failure=" + pointerFailure);
                     component.HidePreview();
                     if (ShouldEmitDiagnostic(PlacementPreviewState.Hidden, PlacementReason.OutsideGrid))
                         log?.LogInfo("[BUE-DRAG] GPT-WATERMARK event=preview-hidden reason=outside-viewport generation=" + dragGeneration + " diagnosticId=BUE-DRAG-001");

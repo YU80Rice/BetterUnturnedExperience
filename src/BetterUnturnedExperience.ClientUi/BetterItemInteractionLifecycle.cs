@@ -227,7 +227,7 @@ namespace BetterUnturnedExperience.ClientUi.Internal
     {
         private readonly BetterItemInteractionSettingsState settings;
         private readonly BetterItemInteractionLifecycle lifecycle;
-        private readonly List<Action> cleanup = new List<Action>();
+        private readonly List<Func<bool>> cleanup = new List<Func<bool>>();
         private BetterItemInteractionDragPolicy activePolicy;
         private bool enhancedDragActive;
         private bool cleanupFailed;
@@ -277,6 +277,17 @@ namespace BetterUnturnedExperience.ClientUi.Internal
         {
             if (action == null) throw new ArgumentNullException(nameof(action));
             if (cleanupCompleted) return;
+            cleanup.Add(() =>
+            {
+                action();
+                return true;
+            });
+        }
+
+        internal void RegisterCleanupResult(Func<bool> action)
+        {
+            if (action == null) throw new ArgumentNullException(nameof(action));
+            if (cleanupCompleted) return;
             cleanup.Add(action);
         }
 
@@ -312,8 +323,14 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             cleanupCompleted = true;
             for (var index = cleanup.Count - 1; index >= 0; index--)
             {
-                try { cleanup[index](); }
-                catch (Exception) { cleanupFailed = true; }
+                try
+                {
+                    if (!cleanup[index]()) cleanupFailed = true;
+                }
+                catch (Exception)
+                {
+                    cleanupFailed = true;
+                }
             }
         }
     }

@@ -73,6 +73,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 AssertDynamicViewportTracksCurrentScroll();
                 AssertPreviewReadFailureRoutesThroughIsolation();
                 AssertNativeCallbackBoundariesAreGuarded();
+                AssertDev16DR3IsolationAndGeometryContracts();
                 AssertRuntimeCompletionBarrierIsolates();
                 AssertManagementPanelConsumesRuntimeCatalog();
                 AssertManagementPanelOpenHooks();
@@ -177,7 +178,8 @@ namespace BetterUnturnedExperience.Plugin.Tests
             Assert(Math.Abs(UnturnedInventorySurfaceContext.ComputeScrollPixels(0f, 0.5f, 600f)) < 0.001f, "top scroll maps to zero pixels");
             Assert(Math.Abs(UnturnedInventorySurfaceContext.ComputeScrollPixels(1f, 0.5f, 600f) - 300f) < 0.001f, "bottom scroll maps to remaining pixels");
             Assert(Math.Abs(UnturnedInventorySurfaceContext.ComputeScrollPixels(1f, 1f, 600f)) < 0.001f, "fully visible content has no scroll range");
-            Assert(Math.Abs(UnturnedInventorySurfaceContext.ComputeScrollPixels(float.NaN, 0.5f, 600f)) < 0.001f, "invalid scroll values fail closed");
+            float invalidPixels;
+            Assert(!InventorySurfaceLifecycleAdapter.TryComputeScrollPixels(float.NaN, 0.5f, 600f, out invalidPixels), "invalid scroll values are rejected before projection");
         }
 
         private static void AssertNativeLikeViewportScaleAndHierarchyBehavior()
@@ -336,6 +338,40 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 () => isolated++, () => hidden++);
             Assert(isolated == 1 && hidden == 1,
                 "surface poll/viewport failure enters the same feature isolation boundary");
+        }
+
+        // GPT watermark: DEV-16D R3 red regressions for the independent
+        // Standards/Spec review blockers. These assertions must remain at the
+        // adapter/lifecycle seams rather than inspecting private implementation
+        // state from the test harness.
+        private static void AssertDev16DR3IsolationAndGeometryContracts()
+        {
+            Assert(!InventoryDragPreviewAdapter.CanAttachGrid(true),
+                "isolated drag adapter must reject a rebuilt surface re-attachment");
+            Assert(InventoryDragPreviewAdapter.CanAttachGrid(false),
+                "active drag adapter may attach a live surface");
+
+            var cleanupOk = InventoryDragPreviewAdapter.FailClosedPreview(
+                () => { throw new InvalidOperationException("synthetic isolate cleanup failure"); },
+                () => { throw new InvalidOperationException("synthetic hide cleanup failure"); });
+            Assert(!cleanupOk && InventoryDragPreviewAdapter.LastCleanupDiagnostics.Contains("BUE-DEV16D-CLEANUP-INCOMPLETE"),
+                "cleanup failure must publish the stable DEV-16D incomplete-cleanup diagnostic");
+
+            var settings = new BetterItemInteractionSettingsState();
+            var lifecycle = new BetterItemInteractionLifecycle();
+            var runtime = new BetterItemInteractionRuntime(settings, lifecycle);
+            runtime.Start(true, true);
+            runtime.RegisterCleanupResult(() => false);
+            runtime.Isolate();
+            Assert(runtime.CleanupFailed && lifecycle.LastDiagnosticId == "BUE-DEV15D-CLEANUP-INCOMPLETE",
+                "cleanup result failure must propagate to lifecycle isolation diagnostics");
+
+            float ignoredPixels;
+            Assert(!InventorySurfaceLifecycleAdapter.TryComputeScrollPixels(float.NaN, 0.5f, 600f, out ignoredPixels),
+                "invalid native viewport/scroll values must be rejected before projection");
+            Assert(InventorySurfaceLifecycleAdapter.TryComputeScrollPixels(1f, 0.5f, 600f, out ignoredPixels)
+                && Math.Abs(ignoredPixels - 300f) < 0.001f,
+                "valid native viewport/scroll values still map to pixels");
         }
 
         private sealed class IGridOccupancyViewForTest : IGridOccupancyView

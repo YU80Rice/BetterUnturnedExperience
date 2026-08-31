@@ -1,0 +1,14 @@
+ROOT=src\BetterUnturnedExperience.Contracts
+UI/native token scan PASS: 2 C# files
+ROOT=src\BetterUnturnedExperience.Core
+UI/native token scan PASS: 10 C# files
+ROOT=src\BetterUnturnedExperience.ClientUi
+UI/native token scan PASS: 11 C# files
+DIFF_CHECK
+warning: in the working copy of 'src/BetterUnturnedExperience.ClientUi/BetterItemInteractionLifecycle.cs', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/BetterUnturnedExperience.ClientUi/ItemInteractionUiComponent.cs', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/BetterUnturnedExperience.Plugin/BetterUnturnedExperiencePlugin.cs', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/BetterUnturnedExperience.Plugin/InventoryDragPreviewAdapter.cs', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/BetterUnturnedExperience.Plugin/InventorySurfaceLifecycleAdapter.cs', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/BetterUnturnedExperience.Plugin.Tests/Program.cs', LF will be replaced by CRLF the next time Git touches it
+FAILED_COUNT=0

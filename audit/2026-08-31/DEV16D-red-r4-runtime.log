@@ -1,0 +1,4 @@
+DEV-14 official registration parity tests: FAIL
+System.InvalidOperationException: isolated drag adapter must reject a rebuilt surface re-attachment
+   在 BetterUnturnedExperience.Plugin.Tests.Program.AssertDev16DR3IsolationAndGeometryContracts()
+   在 BetterUnturnedExperience.Plugin.Tests.Program.Main()

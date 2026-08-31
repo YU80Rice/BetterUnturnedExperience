@@ -83,6 +83,7 @@ namespace BetterUnturnedExperience.Plugin
                                 inventoryDragAdapter?.DetachGrid();
                                 clientUiComposition.CloseInventory();
                             });
+                        clientUiComposition.OfficialComponent.RegisterCleanupResult(() => inventoryLifecycleAdapter.IsolateAndDetach());
                         inventoryLifecycleAdapter.Activate();
                         if (inventoryLifecycleAdapter.HooksInstalled)
                             Logger.LogInfo("BUE inventory lifecycle wiring enabled diagnosticId=BUE-INVENTORY-001");
@@ -92,6 +93,7 @@ namespace BetterUnturnedExperience.Plugin
                         // PlayerUI.Update tick; routes through the official UI
                         // component's preview, release and projection seams.
                         inventoryDragAdapter = new InventoryDragPreviewAdapter(Logger, clientUiComposition.OfficialComponent);
+                        clientUiComposition.OfficialComponent.RegisterCleanupResult(() => inventoryDragAdapter.IsolateAndDetach(false));
                         inventoryDragAdapter.Activate();
                         clientUiComposition.OfficialComponent.ProjectionSink = new LoggingInventoryProjectionSink(Logger);
                         Logger.LogInfo(inventoryDragAdapter.HooksInstalled
@@ -301,7 +303,7 @@ namespace BetterUnturnedExperience.Plugin
                 if (pluginUpdateDriver != null) pluginUpdateDriver.Clear();
                 if (nativeManagementPanel != null) nativeManagementPanel.Destroy();
                 if (inventoryDragAdapter != null) inventoryDragAdapter.IsolateAndDetach();
-                if (inventoryLifecycleAdapter != null) InventorySurfaceLifecycleAdapter.ClearActive(inventoryLifecycleAdapter);
+                if (inventoryLifecycleAdapter != null) inventoryLifecycleAdapter.IsolateAndDetach();
                 if (clientUiComposition != null) clientUiComposition.Destroy();
             }
             catch (System.Exception error)
