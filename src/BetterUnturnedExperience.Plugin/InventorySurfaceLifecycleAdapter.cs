@@ -19,16 +19,22 @@ namespace BetterUnturnedExperience.Plugin
         internal readonly ISleekElement element;
         private readonly ISleekBox box;
         private readonly ISleekImage image;
+        private readonly SleekItemIcon itemIcon;
         private ItemAssetIdentity boundAsset;
-        private int assetRequestToken;
+        private byte rotation;
 
         internal UnturnedVisualElement(ISleekElement element)
         {
             this.element = element ?? throw new ArgumentNullException(nameof(element));
             box = element as ISleekBox;
             image = element as ISleekImage;
+            itemIcon = element as SleekItemIcon;
+            if (image != null) image.CanRotate = true;
+            if (itemIcon != null) itemIcon.isAngled = true;
         }
 
+        public float PositionScaleX { get { return element.PositionScale_X; } set { element.PositionScale_X = value; } }
+        public float PositionScaleY { get { return element.PositionScale_Y; } set { element.PositionScale_Y = value; } }
         public float PositionOffsetX { get { return element.PositionOffset_X; } set { element.PositionOffset_X = value; } }
         public float PositionOffsetY { get { return element.PositionOffset_Y; } set { element.PositionOffset_Y = value; } }
         public float SizeOffsetX { get { return element.SizeOffset_X; } set { element.SizeOffset_X = value; } }
@@ -36,8 +42,23 @@ namespace BetterUnturnedExperience.Plugin
 
         public byte RotationAngle
         {
-            get { return image == null ? (byte)0 : (byte)((int)Math.Round(Mathf.Repeat(image.RotationAngle, 360f) / 90f) % 4); }
-            set { if (image != null) image.RotationAngle = value * 90f; }
+            get { return rotation; }
+            set
+            {
+                rotation = (byte)(value & 3);
+                if (image != null) image.RotationAngle = rotation * 90f;
+                if (itemIcon != null) itemIcon.rot = rotation;
+            }
+        }
+
+        public bool CanRotate
+        {
+            get { return image != null && image.CanRotate || itemIcon != null; }
+            set
+            {
+                if (image != null) image.CanRotate = value;
+                if (itemIcon != null) itemIcon.isAngled = value;
+            }
         }
 
         public bool IsVisible { get { return element.IsVisible; } set { element.IsVisible = value; } }
@@ -59,32 +80,38 @@ namespace BetterUnturnedExperience.Plugin
             get { return boundAsset; }
             set
             {
+                if (boundAsset == value) return;
                 boundAsset = value;
-                var requestToken = ++assetRequestToken;
-                // Real texture path (DEV-16D): ItemTool.getIcon resolves the
-                // native icon asynchronously and the callback assigns the
-                // texture. Until the callback lands the element stays blank —
-                // the pure-value binding is never reported as rendered.
-                if (image == null || value.ItemId == 0)
+                if (value.ItemId == 0)
                 {
                     if (image != null) image.Texture = null;
+                    if (itemIcon != null) itemIcon.Clear();
                     return;
                 }
                 var asset = Assets.find(EAssetType.ITEM, value.ItemId) as ItemAsset;
+                if (asset == null)
+                {
+                    if (image != null) image.Texture = null;
+                    if (itemIcon != null) itemIcon.Clear();
+                    return;
+                }
                 try
                 {
-                    ItemTool.getIcon(value.ItemId, 0, Array.Empty<byte>(), asset,
-                        (handle, texture) =>
-                        {
-                            if (requestToken == assetRequestToken && boundAsset == value)
-                                image.Texture = texture;
-                        });
+                    if (itemIcon != null)
+                    {
+                        itemIcon.Refresh(value.ItemId, 100, asset.getState(), asset);
+                    }
+                    else if (image != null)
+                    {
+                        image.Texture = null;
+                        ItemTool.getIcon(value.ItemId, 100, asset.getState(), asset,
+                            (handle, texture) => image.Texture = texture);
+                    }
                 }
                 catch (Exception)
                 {
-                    // Icon resolution is best-effort; a blank texture keeps
-                    // the drag alive without faking a rendered icon.
-                    image.Texture = null;
+                    if (image != null) image.Texture = null;
+                    if (itemIcon != null) itemIcon.Clear();
                 }
             }
         }
@@ -104,7 +131,7 @@ namespace BetterUnturnedExperience.Plugin
         }
 
         public IVisualElement CreateBox() { return new UnturnedVisualElement(Glazier.Get().CreateBox()); }
-        public IVisualElement CreateImage() { return new UnturnedVisualElement(Glazier.Get().CreateImage()); }
+        public IVisualElement CreateImage() { return new UnturnedVisualElement(new SleekItemIcon()); }
         public void AddChild(IVisualElement child) { element.AddChild(Unwrap(child)); }
         public void RemoveChild(IVisualElement child) { element.RemoveChild(Unwrap(child)); }
 
@@ -152,16 +179,35 @@ namespace BetterUnturnedExperience.Plugin
         internal static InventoryGridViewport ResolveViewport(bool hierarchyLive, UnityEngine.Vector2 scrollSize,
             byte gridWidth, byte gridHeight, float offsetX, float offsetY, float sizeX, float sizeY)
         {
-            // [R43] Single coordinate space: grid-local pixels, Y-down from
-            // the grid's top-left, clip exactly the grid's pixel size. The
-            // live hierarchy snapshot only decides trustworthiness; both
-            // branches share the same space so the cursor conversion and the
-            // clip can never disagree again.
-            var clipW = gridWidth * 50f;
-            var clipH = gridHeight * 50f;
-            // Degradation observability lives at the caller (BuildSurfaceContext logs the warning).
+            return ResolveViewport(hierarchyLive, scrollSize, gridWidth, gridHeight, offsetX, offsetY, sizeX, sizeY, 0f, 0f);
+        }
+
+        internal static InventoryGridViewport ResolveViewport(bool hierarchyLive, UnityEngine.Vector2 scrollSize,
+            byte gridWidth, byte gridHeight, float offsetX, float offsetY, float sizeX, float sizeY,
+            float scrollPixelsX, float scrollPixelsY)
+        {
+            // Native SleekItems exposes the pointer relative to the grid's
+            // content, while the scroll view determines whether that content
+            // point is visible. Consume the real scroll viewport dimensions
+            // whenever they are available; the fallback remains bounded and
+            // does not import a parent PositionOffset into this local space.
+            var clipW = hierarchyLive && IsFinitePositive(scrollSize.x) ? scrollSize.x
+                : hierarchyLive && IsFinitePositive(sizeX) ? sizeX : gridWidth * 50f;
+            var clipH = hierarchyLive && IsFinitePositive(scrollSize.y) ? scrollSize.y
+                : hierarchyLive && IsFinitePositive(sizeY) ? sizeY : gridHeight * 50f;
             return new InventoryGridViewport(0f, 0f, gridWidth, gridHeight,
-                0f, 0f, clipW, clipH);
+                IsFiniteNonNegative(scrollPixelsX) ? scrollPixelsX : 0f,
+                IsFiniteNonNegative(scrollPixelsY) ? scrollPixelsY : 0f, clipW, clipH);
+        }
+
+        private static bool IsFinitePositive(float value)
+        {
+            return !float.IsNaN(value) && !float.IsInfinity(value) && value > 0f;
+        }
+
+        private static bool IsFiniteNonNegative(float value)
+        {
+            return !float.IsNaN(value) && !float.IsInfinity(value) && value >= 0f;
         }
 
 
@@ -171,7 +217,9 @@ namespace BetterUnturnedExperience.Plugin
         internal static readonly FieldInfo DashboardItemsField = typeof(PlayerDashboardInventoryUI).GetField("items", BindingFlags.Static | BindingFlags.NonPublic);
         internal enum PointerCoordinateMode
         {
-            ViewportLocalRequiresScroll = 0
+            GridContentIncludesScroll = 0,
+            ViewportLocalRequiresScroll = GridContentIncludesScroll,
+            ScreenRequiresScroll = 1
         }
 
         internal static float NormalizeUiScale(float value)
@@ -195,8 +243,17 @@ namespace BetterUnturnedExperience.Plugin
             object scrollParent, object gridParent, object itemsPanelParent)
         {
             return owner != null && scroll != null && grid != null && itemsPanel != null &&
-                ReferenceEquals(scrollParent, owner) && ReferenceEquals(gridParent, scroll) &&
-                ReferenceEquals(itemsPanelParent, grid);
+                SameNativeElement(scrollParent, owner) && SameNativeElement(gridParent, scroll) &&
+                SameNativeElement(itemsPanelParent, grid);
+        }
+
+        private static bool SameNativeElement(object left, object right)
+        {
+            if (ReferenceEquals(left, right)) return true;
+            var leftElement = left as ISleekElement;
+            var rightElement = right as ISleekElement;
+            if (leftElement == null || rightElement == null) return false;
+            return ReferenceEquals(leftElement.AttachmentRoot, rightElement.AttachmentRoot);
         }
 
         internal readonly struct NativeInventoryHierarchySnapshot
@@ -232,7 +289,8 @@ namespace BetterUnturnedExperience.Plugin
             var pointer = MapNormalizedPointer(snapshot.PointerNormalized.x, snapshot.PointerNormalized.y,
                 snapshot.GridSize.x, snapshot.GridSize.y);
             if (pointer == Vector2.zero && (snapshot.PointerNormalized.x != 0f || snapshot.PointerNormalized.y != 0f)) return false;
-            viewport = BuildLiveGridViewport(0, 0, snapshot.ViewportSize.x, snapshot.ViewportSize.y);
+            viewport = BuildLiveGridViewport(0, 0, snapshot.ViewportSize.x, snapshot.ViewportSize.y,
+                0f, Mathf.Max(0f, snapshot.ScrollPixelsY));
             pointerPixels = pointer;
             return true;
         }
@@ -240,10 +298,17 @@ namespace BetterUnturnedExperience.Plugin
         internal static InventoryGridViewport BuildLiveGridViewport(byte gridWidth, byte gridHeight,
             float viewportWidth, float viewportHeight)
         {
+            return BuildLiveGridViewport(gridWidth, gridHeight, viewportWidth, viewportHeight, 0f, 0f);
+        }
+
+        internal static InventoryGridViewport BuildLiveGridViewport(byte gridWidth, byte gridHeight,
+            float viewportWidth, float viewportHeight, float clipX, float clipY)
+        {
             if (float.IsNaN(viewportWidth) || float.IsInfinity(viewportWidth) || viewportWidth <= 0f) viewportWidth = gridWidth * 50f;
             if (float.IsNaN(viewportHeight) || float.IsInfinity(viewportHeight) || viewportHeight <= 0f) viewportHeight = gridHeight * 50f;
             return new InventoryGridViewport(0f, 0f, gridWidth, gridHeight,
-                0f, 0f, viewportWidth, viewportHeight);
+                IsFiniteNonNegative(clipX) ? clipX : 0f,
+                IsFiniteNonNegative(clipY) ? clipY : 0f, viewportWidth, viewportHeight);
         }
 
         private readonly ContainerReference currentContainer;
@@ -257,8 +322,8 @@ namespace BetterUnturnedExperience.Plugin
         private readonly FieldInfo scrollViewField;
         private readonly FieldInfo gridField;
         private readonly FieldInfo itemsPanelField;
-        internal PointerCoordinateMode CoordinateMode { get { return PointerCoordinateMode.ViewportLocalRequiresScroll; } }
-        internal bool ScrollAppliedByNativeGrid { get { return false; } }
+        internal PointerCoordinateMode CoordinateMode { get { return PointerCoordinateMode.GridContentIncludesScroll; } }
+        internal bool ScrollAppliedByNativeGrid { get { return true; } }
         internal float NativeScrollPixelsY { get { return ReadScrollPixelsY(); } }
 
         internal UnturnedInventorySurfaceContext(ContainerReference currentContainer, IVisualContainer topLevelContainer,
@@ -294,15 +359,19 @@ namespace BetterUnturnedExperience.Plugin
         {
             x = 0f;
             y = 0f;
+            var scroll = ResolveScrollView();
             var native = ResolveGrid();
-            if (native == null || occupancy == null) return false;
+            if (scroll == null || native == null || occupancy == null) return false;
+            var viewportNormalized = scroll.GetNormalizedCursorPosition();
+            if (float.IsNaN(viewportNormalized.x) || float.IsInfinity(viewportNormalized.x) ||
+                float.IsNaN(viewportNormalized.y) || float.IsInfinity(viewportNormalized.y) ||
+                viewportNormalized.x < 0f || viewportNormalized.x > 1f ||
+                viewportNormalized.y < 0f || viewportNormalized.y > 1f) return false;
             var normalized = native.GetNormalizedCursorPosition();
             if (float.IsNaN(normalized.x) || float.IsInfinity(normalized.x) ||
                 float.IsNaN(normalized.y) || float.IsInfinity(normalized.y)) return false;
             if (normalized.x < 0f || normalized.x > 1f || normalized.y < 0f || normalized.y > 1f) return false;
-            var scroll = ResolveScrollView();
-            if (scroll == null) return false;
-            var size = scroll.GetAbsoluteSize();
+            var size = native.GetAbsoluteSize();
             if (size.x <= 0f || size.y <= 0f || float.IsNaN(size.x) || float.IsNaN(size.y)) return false;
             x = normalized.x * size.x;
             y = normalized.y * size.y;
@@ -546,7 +615,8 @@ namespace BetterUnturnedExperience.Plugin
             }
             if (PlayerUI.container == null) return null;
             var topLevel = new UnturnedVisualContainer(PlayerUI.container);
-            var gridPanel = new UnturnedVisualContainer(nativePanel != null ? nativePanel : sleekItems);
+            if (nativePanel == null || nativeGrid == null || nativeScroll == null) return null;
+            var gridPanel = new UnturnedVisualContainer(nativePanel);
 
             // Geometry is expressed in the live SleekItems local space. The
             // previous implementation copied PositionOffset into a screen
@@ -569,10 +639,22 @@ namespace BetterUnturnedExperience.Plugin
                 // and the preview chain stays alive (calibration can follow).
                 log?.LogWarning("[BUE-INVENTORY] event=scroll-size-degraded page=" + page + " diagnosticId=BUE-INVENTORY-003");
             }
+            var scrollPixelsX = 0f;
+            var scrollPixelsY = 0f;
+            if (nativeScroll != null)
+            {
+                try
+                {
+                    scrollPixelsY = UnturnedInventorySurfaceContext.ComputeScrollPixels(
+                        nativeScroll.NormalizedVerticalPosition, nativeScroll.NormalizedViewportHeight,
+                        dataItems.height * 50f * uiScale);
+                }
+                catch (Exception) { scrollPixelsY = 0f; }
+            }
             viewport = UnturnedInventorySurfaceContext.ResolveViewport(hierarchyLive, scrollSize,
                 (byte)dataItems.width, (byte)dataItems.height,
                 sleekItems.PositionOffset_X, sleekItems.PositionOffset_Y,
-                sleekItems.SizeOffset_X, sleekItems.SizeOffset_Y);
+                sleekItems.SizeOffset_X, sleekItems.SizeOffset_Y, scrollPixelsX, scrollPixelsY);
 
             return new UnturnedInventorySurfaceContext(
                 new ContainerReference(MapKind(kind), page, generation),

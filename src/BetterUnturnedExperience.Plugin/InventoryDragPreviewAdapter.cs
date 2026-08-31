@@ -217,27 +217,31 @@ namespace BetterUnturnedExperience.Plugin
 
             if (isDragging)
             {
-                // [R43] Pointer in grid-local pixels via the native cursor API
-                // (normalized to this grid's size, Y-down from its top-left) -
-                // replaces the screen-vs-local coordinate mix that hid every
-                // backpack preview behind OutsideGrid.
-                var grid = attachedGrid;
-                if (grid == null) return;
-                var normalized = grid.GetNormalizedCursorPosition();
-                var localX = normalized.x * grid.width * 50f;
-                var localY = normalized.y * grid.height * 50f;
-                var sleekMouse = new System.ValueTuple<float, float>(localX, localY);
-                if (component.TryCreatePreviewInput(dragGeneration, ReadDragSource(), sleekMouse.Item1,
-                        sleekMouse.Item2, ReadDragWidth(), ReadDragHeight(), ReadDragRotation(),
-                        allowAutomaticRotation: true, grabOffsetX: ReadGrabOffsetX(), grabOffsetY: ReadGrabOffsetY(),
-                        itemAsset: AssetIdentityOf(ReadDragJar()), out var input))
+                // [R45] Read the same native grid/scroll hierarchy used by
+                // SleekItems.onClickedGrid. The grid-local content point
+                // already includes the scroll transform; no second scroll is
+                // added by the pure-C# adapter.
+                var surface = component.CurrentSurface as UnturnedInventorySurfaceContext;
+                if (surface == null || !surface.TryGetLocalPointerPixels(out var localX, out var localY))
+                {
+                    component.HidePreview();
+                    if (ShouldEmitDiagnostic(PlacementPreviewState.Hidden, PlacementReason.OutsideGrid))
+                        log?.LogInfo("[BUE-DRAG] GPT-WATERMARK event=preview-hidden reason=outside-viewport generation=" + dragGeneration + " diagnosticId=BUE-DRAG-001");
+                    return;
+                }
+                var topLevelPointer = ReadTopLevelPointerScale();
+                var nativePivot = ReadDragPivot();
+                if (component.TryCreatePreviewInput(dragGeneration, ReadDragSource(), localX,
+                        localY, ReadDragWidth(), ReadDragHeight(), ReadDragRotation(),
+                        true, ReadGrabOffsetX(), ReadGrabOffsetY(), AssetIdentityOf(ReadDragJar()),
+                        topLevelPointer.x, topLevelPointer.y, nativePivot.x, nativePivot.y, out var input))
                 {
                     component.OnDragUpdated(input);
                     var state = component.LastPreview.State;
                     if (ShouldEmitDiagnostic(state, component.LastPreview.Reason))
                     {
                         LogPreviewInputReadout(input, Input.mousePosition.x, Input.mousePosition.y,
-                            sleekMouse.Item1, sleekMouse.Item2, state, component.LastPreview.Reason);
+                            localX, localY, state, component.LastPreview.Reason);
                         log?.LogInfo("[BUE-DRAG] GPT-WATERMARK event=preview-evaluated generation=" + dragGeneration + " state=" + state + " diagnosticId=BUE-DRAG-001");
                         if (state == PlacementPreviewState.Candidate || state == PlacementPreviewState.LocallyInvalid)
                             log?.LogInfo("[BUE-DRAG] GPT-WATERMARK event=preview-visible generation=" + dragGeneration + " state=" + state + " diagnosticId=BUE-DRAG-001");
@@ -482,6 +486,25 @@ namespace BetterUnturnedExperience.Plugin
         {
             var pivot = dragPivotField == null ? Vector2.zero : (Vector2)dragPivotField.GetValue(null);
             return NativePivotToGrabOffset(pivot).y;
+        }
+
+        private Vector2 ReadDragPivot()
+        {
+            return dragPivotField == null ? Vector2.zero : (Vector2)dragPivotField.GetValue(null);
+        }
+
+        private static Vector2 ReadTopLevelPointerScale()
+        {
+            try
+            {
+                if (PlayerUI.container == null || Screen.width <= 0 || Screen.height <= 0)
+                    return new Vector2(float.NaN, float.NaN);
+                return PlayerUI.container.ViewportToNormalizedPosition(InputEx.NormalizedMousePosition);
+            }
+            catch (Exception)
+            {
+                return new Vector2(float.NaN, float.NaN);
+            }
         }
 
         private static float ReadUiScale()

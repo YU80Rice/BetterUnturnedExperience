@@ -99,6 +99,10 @@ namespace BetterUnturnedExperience.ClientUi.Internal
         public bool AllowAutomaticRotation { get; }
         public float GrabOffsetX { get; }
         public float GrabOffsetY { get; }
+        public float TopLevelPointerScaleX { get; }
+        public float TopLevelPointerScaleY { get; }
+        public float NativeDragPivotX { get; }
+        public float NativeDragPivotY { get; }
         public ItemAssetIdentity ItemAsset { get; }
         public IGridOccupancyView Occupancy { get; }
 
@@ -108,7 +112,7 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             bool allowAutomaticRotation, float grabOffsetX, float grabOffsetY, IGridOccupancyView occupancy)
             : this(dragGeneration, source, targetContainer, pointerScreenX, pointerScreenY, viewport, cellPixelSize, uiScale,
                 scrollPixelsX, scrollPixelsY, itemWidth, itemHeight, currentRotation, allowAutomaticRotation,
-                grabOffsetX, grabOffsetY, default(ItemAssetIdentity), occupancy)
+                grabOffsetX, grabOffsetY, default(ItemAssetIdentity), float.NaN, float.NaN, float.NaN, float.NaN, occupancy)
         {
         }
 
@@ -116,6 +120,18 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             float pointerScreenX, float pointerScreenY, InventoryGridViewport viewport, float cellPixelSize, float uiScale,
             float scrollPixelsX, float scrollPixelsY, byte itemWidth, byte itemHeight, byte currentRotation,
             bool allowAutomaticRotation, float grabOffsetX, float grabOffsetY, ItemAssetIdentity itemAsset,
+            IGridOccupancyView occupancy)
+            : this(dragGeneration, source, targetContainer, pointerScreenX, pointerScreenY, viewport, cellPixelSize, uiScale,
+                scrollPixelsX, scrollPixelsY, itemWidth, itemHeight, currentRotation, allowAutomaticRotation,
+                grabOffsetX, grabOffsetY, itemAsset, float.NaN, float.NaN, float.NaN, float.NaN, occupancy)
+        {
+        }
+
+        internal InventoryPreviewInput(uint dragGeneration, ItemGridPosition source, ContainerReference targetContainer,
+            float pointerScreenX, float pointerScreenY, InventoryGridViewport viewport, float cellPixelSize, float uiScale,
+            float scrollPixelsX, float scrollPixelsY, byte itemWidth, byte itemHeight, byte currentRotation,
+            bool allowAutomaticRotation, float grabOffsetX, float grabOffsetY, ItemAssetIdentity itemAsset,
+            float topLevelPointerScaleX, float topLevelPointerScaleY, float nativeDragPivotX, float nativeDragPivotY,
             IGridOccupancyView occupancy)
         {
             DragGeneration = dragGeneration;
@@ -134,6 +150,10 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             AllowAutomaticRotation = allowAutomaticRotation;
             GrabOffsetX = grabOffsetX;
             GrabOffsetY = grabOffsetY;
+            TopLevelPointerScaleX = topLevelPointerScaleX;
+            TopLevelPointerScaleY = topLevelPointerScaleY;
+            NativeDragPivotX = nativeDragPivotX;
+            NativeDragPivotY = nativeDragPivotY;
             ItemAsset = itemAsset;
             Occupancy = occupancy;
         }
@@ -224,6 +244,37 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             return IsFinite(screenX) && IsFinite(screenY);
         }
 
+        internal static bool TryGetNativeIconPlacement(InventoryPreviewInput input, byte targetRotation,
+            out PreviewIcon icon)
+        {
+            icon = default(PreviewIcon);
+            if (!IsFinite(input.TopLevelPointerScaleX) || !IsFinite(input.TopLevelPointerScaleY)) return false;
+
+            byte width;
+            byte height;
+            float grabX;
+            float grabY;
+            if (!TryRotateGrabOffset(input.ItemWidth, input.ItemHeight, input.GrabOffsetX, input.GrabOffsetY,
+                (byte)(targetRotation & 3), out width, out height, out grabX, out grabY)) return false;
+
+            var cellPixelSize = input.CellPixelSize;
+            if (!IsFinite(cellPixelSize) || cellPixelSize <= 0f) return false;
+
+            var currentRotation = (byte)(input.CurrentRotation & 3);
+            var offsetX = targetRotation == currentRotation && IsFinite(input.NativeDragPivotX)
+                ? input.NativeDragPivotX
+                : -grabX * cellPixelSize;
+            var offsetY = targetRotation == currentRotation && IsFinite(input.NativeDragPivotY)
+                ? input.NativeDragPivotY
+                : -grabY * cellPixelSize;
+            if (!IsFinite(offsetX) || !IsFinite(offsetY)) return false;
+
+            icon = new PreviewIcon(input.PointerScreenX, input.PointerScreenY, (byte)(targetRotation & 3), input.ItemAsset,
+                input.TopLevelPointerScaleX, input.TopLevelPointerScaleY, offsetX, offsetY,
+                width * cellPixelSize, height * cellPixelSize, true);
+            return true;
+        }
+
         private static bool TryRotateGrabOffset(byte baseWidth, byte baseHeight, float baseGrabX, float baseGrabY,
             byte rotation, out byte width, out byte height, out float grabX, out float grabY)
         {
@@ -291,13 +342,34 @@ namespace BetterUnturnedExperience.ClientUi.Internal
         public float ScreenY { get; }
         public byte Rotation { get; }
         public ItemAssetIdentity Asset { get; }
+        public float PositionScaleX { get; }
+        public float PositionScaleY { get; }
+        public float PositionOffsetX { get; }
+        public float PositionOffsetY { get; }
+        public float Width { get; }
+        public float Height { get; }
+        public bool UsesTopLevelAnchor { get; }
 
         internal PreviewIcon(float screenX, float screenY, byte rotation, ItemAssetIdentity asset)
+            : this(screenX, screenY, rotation, asset, float.NaN, float.NaN, screenX, screenY, 0f, 0f, false)
+        {
+        }
+
+        internal PreviewIcon(float screenX, float screenY, byte rotation, ItemAssetIdentity asset,
+            float positionScaleX, float positionScaleY, float positionOffsetX, float positionOffsetY,
+            float width, float height, bool usesTopLevelAnchor)
         {
             ScreenX = screenX;
             ScreenY = screenY;
             Rotation = rotation;
             Asset = asset;
+            PositionScaleX = positionScaleX;
+            PositionScaleY = positionScaleY;
+            PositionOffsetX = positionOffsetX;
+            PositionOffsetY = positionOffsetY;
+            Width = width;
+            Height = height;
+            UsesTopLevelAnchor = usesTopLevelAnchor;
         }
 
         internal PreviewIcon(float screenX, float screenY, byte rotation)
@@ -325,6 +397,7 @@ namespace BetterUnturnedExperience.ClientUi.Internal
 
         internal void BeginDrag(uint dragGeneration) { dragPresenter.BeginDrag(dragGeneration); }
         internal void EndDrag() { dragPresenter.EndDrag(); }
+        internal void HidePreview() { LastPreview = default(ItemPlacementPreview); }
 
         internal ItemPlacementPreview LastPreview { get; private set; }
 
@@ -348,7 +421,11 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             }
 
             var frameKind = preview.State == PlacementPreviewState.Candidate ? PreviewFrameKind.ValidGreen : PreviewFrameKind.InvalidRed;
-            var cellPixelSize = input.CellPixelSize * input.UiScale;
+            // Native UI PositionOffset/SizeOffset values are logical units;
+            // CanvasScaler applies UiScale once at render time. The pointer
+            // conversion above uses scaled pixels, but the sink must receive
+            // the native 50px cell unit to avoid double scaling the frame.
+            var cellPixelSize = input.CellPixelSize;
             if (!IsFinite(cellPixelSize) || cellPixelSize <= 0f)
             {
                 sink.Hide();
@@ -361,7 +438,12 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             {
                 float iconX;
                 float iconY;
-                if (InventoryGridCoordinateAdapter.TryGetIconScreenPosition(input, preview.Candidate.Rotation, out iconX, out iconY))
+                PreviewIcon nativeIcon;
+                if (InventoryGridCoordinateAdapter.TryGetNativeIconPlacement(input, preview.Candidate.Rotation, out nativeIcon))
+                {
+                    sink.ShowIcon(nativeIcon);
+                }
+                else if (InventoryGridCoordinateAdapter.TryGetIconScreenPosition(input, preview.Candidate.Rotation, out iconX, out iconY))
                 {
                     sink.ShowIcon(new PreviewIcon(iconX, iconY, preview.Candidate.Rotation, input.ItemAsset));
                 }

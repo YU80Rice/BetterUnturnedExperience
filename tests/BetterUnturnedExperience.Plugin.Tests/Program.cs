@@ -25,6 +25,11 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     AssertDev16DPreviewDiagnosticContainsCoordinateReadout();
                     return 0;
                 }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--dev16d-r44-red")
+                {
+                    AssertDev16DR44SymptomsReproduce();
+                    return 0;
+                }
                 AssertSingleDllAssemblyClosure();
                 AssertExternalSdkAssemblyIdentity();
                 Assert(BootstrapGuard.Decide(false, false, true) == BootstrapDecision.Client, "client decision");
@@ -103,6 +108,35 @@ namespace BetterUnturnedExperience.Plugin.Tests
             Assert(text.Contains("pointerGrid="), "readout includes pointerGrid");
             Assert(text.Contains("grabOffset="), "readout includes grabOffset");
             Assert(text.Contains("placementReason="), "readout includes PlacementReason");
+        }
+
+        // GPT watermark: red regression for the R44 real-machine symptoms.
+        // The live viewport must be the native scroll viewport (not the full
+        // content grid), and a floating icon must use native drag top-left
+        // anchoring rather than a center offset. Both assertions are derived
+        // from the U3-SDK PlayerDashboardInventoryUI drag path.
+        private static void AssertDev16DR44SymptomsReproduce()
+        {
+            var viewport = UnturnedInventorySurfaceContext.ResolveViewport(
+                true, new UnityEngine.Vector2(320f, 180f), 5, 7, 0f, 0f, 250f, 350f);
+            Assert(Math.Abs(viewport.ClipWidth - 320f) < 0.001f && Math.Abs(viewport.ClipHeight - 180f) < 0.001f,
+                "R44 regression: live preview clip must match the native scroll viewport");
+
+            var input = new InventoryPreviewInput(1, new ItemGridPosition(3, 0, 0, 0),
+                new ContainerReference(ContainerKind.PlayerInventory, 3, 1), 100f, 200f,
+                new InventoryGridViewport(0f, 0f, 5, 7, 0f, 0f, 320f, 180f),
+                50f, 1f, 0f, 0f, 2, 3, 0, true, 0.5f, 1.25f,
+                ItemAssetIdentity.FromItemId(363), 0.25f, 0.5f, -25f, -62.5f,
+                new IGridOccupancyViewForTest(5, 7));
+            PreviewIcon icon;
+            Assert(InventoryGridCoordinateAdapter.TryGetNativeIconPlacement(input, 0, out icon),
+                "R44 regression: native floating icon placement can be computed");
+            Assert(Math.Abs(icon.PositionScaleX - 0.25f) < 0.001f && Math.Abs(icon.PositionScaleY - 0.5f) < 0.001f,
+                "R44 regression: floating icon uses the native top-level pointer anchor");
+            Assert(Math.Abs(icon.PositionOffsetX + 25f) < 0.001f && Math.Abs(icon.PositionOffsetY + 62.5f) < 0.001f,
+                "R44 regression: floating icon follows native cursor-to-top-left grab offset");
+            Assert(Math.Abs(icon.Width - 100f) < 0.001f && Math.Abs(icon.Height - 150f) < 0.001f,
+                "R44 regression: floating icon carries the rotated footprint size");
         }
 
         private static void AssertDragPreviewHasPluginOwnedUpdateDriver()
@@ -195,7 +229,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
             Assert(UnturnedInventorySurfaceContext.TryBuildNativeGeometry(snapshot, out viewport, out pointer),
                 "native hierarchy snapshot produces live viewport geometry");
             Assert(Math.Abs(pointer.x - 300f) < 0.001f && Math.Abs(pointer.y - 450f) < 0.001f,
-                "pointer is mapped in the grid content coordinate space exactly once");
+                "pointer is mapped in the native grid content coordinate space exactly once");
             snapshot = new UnturnedInventorySurfaceContext.NativeInventoryHierarchySnapshot(true, true, false, true,
                 new UnityEngine.Vector2(0.5f, 0.5f), new UnityEngine.Vector2(600f, 900f),
                 new UnityEngine.Vector2(400f, 300f), 240f, 1.5f);
@@ -544,8 +578,8 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 true, new UnityEngine.Vector2(400f, 500f), 5, 7, 3f, 4f, 0f, 100f);
             Assert(degraded.OriginX == 0f && degraded.OriginY == 0f && degraded.ClipWidth == 250f && degraded.ClipHeight == 350f,
                 "degraded hierarchy still yields the grid-local clip");
-            Assert(live.OriginX == 0f && live.ClipWidth == 250f && live.ClipHeight == 350f,
-                "live hierarchy yields the identical grid-local clip");
+            Assert(live.OriginX == 0f && live.ClipWidth == 400f && live.ClipHeight == 500f,
+                "live hierarchy consumes the native scroll viewport clip");
             Assert(degraded.Contains(249f, 349f) && !degraded.Contains(251f, 10f),
                 "grid-local clip contains in-grid pointers and rejects out-of-grid ones");
         }

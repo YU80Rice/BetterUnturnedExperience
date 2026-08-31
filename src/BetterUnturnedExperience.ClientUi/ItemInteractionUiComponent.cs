@@ -9,11 +9,14 @@ namespace BetterUnturnedExperience.ClientUi.Internal
     /// </summary>
     internal interface IVisualElement
     {
+        float PositionScaleX { get; set; }
+        float PositionScaleY { get; set; }
         float PositionOffsetX { get; set; }
         float PositionOffsetY { get; set; }
         float SizeOffsetX { get; set; }
         float SizeOffsetY { get; set; }
         byte RotationAngle { get; set; }
+        bool CanRotate { get; set; }
         bool IsVisible { get; set; }
         PreviewFrameColor Color { get; set; }
         ItemAssetIdentity BoundAsset { get; set; }
@@ -99,6 +102,11 @@ namespace BetterUnturnedExperience.ClientUi.Internal
         internal float FrameHeight { get { return frameElement.SizeOffsetY; } }
         internal float IconX { get { return iconElement.PositionOffsetX; } }
         internal float IconY { get { return iconElement.PositionOffsetY; } }
+        internal float IconScaleX { get { return iconElement.PositionScaleX; } }
+        internal float IconScaleY { get { return iconElement.PositionScaleY; } }
+        internal float IconWidth { get { return iconElement.SizeOffsetX; } }
+        internal float IconHeight { get { return iconElement.SizeOffsetY; } }
+        internal bool IconCanRotate { get { return iconElement.CanRotate; } }
         internal byte IconRotation { get { return iconElement.RotationAngle; } }
 
         internal void Mount()
@@ -135,8 +143,16 @@ namespace BetterUnturnedExperience.ClientUi.Internal
         {
             if (!isMounted) Mount();
             iconElement.BoundAsset = icon.Asset;
-            iconElement.PositionOffsetX = icon.ScreenX;
-            iconElement.PositionOffsetY = icon.ScreenY;
+            iconElement.CanRotate = true;
+            iconElement.PositionScaleX = icon.UsesTopLevelAnchor ? icon.PositionScaleX : 0f;
+            iconElement.PositionScaleY = icon.UsesTopLevelAnchor ? icon.PositionScaleY : 0f;
+            iconElement.PositionOffsetX = icon.UsesTopLevelAnchor ? icon.PositionOffsetX : icon.ScreenX;
+            iconElement.PositionOffsetY = icon.UsesTopLevelAnchor ? icon.PositionOffsetY : icon.ScreenY;
+            if (icon.Width > 0f && icon.Height > 0f)
+            {
+                iconElement.SizeOffsetX = icon.Width;
+                iconElement.SizeOffsetY = icon.Height;
+            }
             iconElement.RotationAngle = icon.Rotation;
             iconElement.IsVisible = true;
         }
@@ -427,6 +443,12 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             previewPresenter.EndDrag();
         }
 
+        internal void HidePreview()
+        {
+            if (previewSink != null) previewSink.Hide();
+            previewPresenter.HidePreview();
+        }
+
         private void CleanupUiAndDrag()
         {
             if (previewSink != null)
@@ -445,14 +467,37 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             byte itemWidth, byte itemHeight, byte currentRotation, bool allowAutomaticRotation, float grabOffsetX, float grabOffsetY,
             ItemAssetIdentity itemAsset, out InventoryPreviewInput input)
         {
+            return TryCreatePreviewInputCore(dragGeneration, source, pointerScreenX, pointerScreenY, itemWidth, itemHeight,
+                currentRotation, allowAutomaticRotation, grabOffsetX, grabOffsetY, itemAsset,
+                false, float.NaN, float.NaN, float.NaN, float.NaN, out input);
+        }
+
+        internal bool TryCreatePreviewInput(uint dragGeneration, ItemGridPosition source, float pointerScreenX, float pointerScreenY,
+            byte itemWidth, byte itemHeight, byte currentRotation, bool allowAutomaticRotation, float grabOffsetX, float grabOffsetY,
+            ItemAssetIdentity itemAsset, float topLevelPointerScaleX, float topLevelPointerScaleY,
+            float nativeDragPivotX, float nativeDragPivotY, out InventoryPreviewInput input)
+        {
+            return TryCreatePreviewInputCore(dragGeneration, source, pointerScreenX, pointerScreenY, itemWidth, itemHeight,
+                currentRotation, allowAutomaticRotation, grabOffsetX, grabOffsetY, itemAsset,
+                true, topLevelPointerScaleX, topLevelPointerScaleY, nativeDragPivotX, nativeDragPivotY, out input);
+        }
+
+        private bool TryCreatePreviewInputCore(uint dragGeneration, ItemGridPosition source, float pointerScreenX, float pointerScreenY,
+            byte itemWidth, byte itemHeight, byte currentRotation, bool allowAutomaticRotation, float grabOffsetX, float grabOffsetY,
+            ItemAssetIdentity itemAsset, bool pointerAlreadyIncludesScroll, float topLevelPointerScaleX, float topLevelPointerScaleY,
+            float nativeDragPivotX, float nativeDragPivotY, out InventoryPreviewInput input)
+        {
             input = default(InventoryPreviewInput);
             if (!isInventoryOpen || currentSurface == null) return false;
 
+            var scrollPixelsX = pointerAlreadyIncludesScroll ? 0f : currentSurface.ScrollPixelsX;
+            var scrollPixelsY = pointerAlreadyIncludesScroll ? 0f : currentSurface.ScrollPixelsY;
             input = new InventoryPreviewInput(dragGeneration, source, currentContainer, pointerScreenX, pointerScreenY,
                 currentSurface.Viewport, currentSurface.CellPixelSize, currentSurface.UiScale,
-                currentSurface.ScrollPixelsX, currentSurface.ScrollPixelsY, itemWidth, itemHeight, currentRotation,
+                scrollPixelsX, scrollPixelsY, itemWidth, itemHeight, currentRotation,
                 runtime.EnhancedDragActive && runtime.ActivePolicy.AutoRotate && allowAutomaticRotation,
-                grabOffsetX, grabOffsetY, itemAsset, currentSurface.Occupancy);
+                grabOffsetX, grabOffsetY, itemAsset, topLevelPointerScaleX, topLevelPointerScaleY,
+                nativeDragPivotX, nativeDragPivotY, currentSurface.Occupancy);
             return true;
         }
     }

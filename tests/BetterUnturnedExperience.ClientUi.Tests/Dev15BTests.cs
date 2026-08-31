@@ -21,6 +21,7 @@ namespace BetterUnturnedExperience.ClientUi.Tests
             AppliesForwardGrabOffsetRotation();
             AnchorsIconUsingRotatedGrabOffset();
             SleekPreviewSinkShowsGreenFrameAndFloatingIcon();
+            SleekPreviewSinkUsesNativeTopLevelAnchorAndRotationGeometry();
             SleekPreviewSinkShowsRedFrameAndHidesIconOnInvalid();
             SleekPreviewSinkBindsItemAssetIdentityToVisualIcon();
             BetterItemInteractionUiComponentLifecycleAndDragFlow();
@@ -245,6 +246,26 @@ namespace BetterUnturnedExperience.ClientUi.Tests
             Assert(!sink.IsIconVisible, "icon is hidden on invalid placement");
             Assert(sink.CurrentFrameColor == PreviewFrameColor.InvalidRed, "frame color is invalid red");
             Assert(sink.BoundIconAsset == default(ItemAssetIdentity), "hidden icon clears asset");
+            sink.Unmount();
+        }
+
+        private static void SleekPreviewSinkUsesNativeTopLevelAnchorAndRotationGeometry()
+        {
+            var topLevel = new MockVisualContainer();
+            var gridPanel = new MockVisualContainer();
+            var sink = new InventoryPreviewVisualSink(topLevel, gridPanel);
+            sink.Mount();
+
+            sink.ShowIcon(new PreviewIcon(0f, 0f, 1, ItemAssetIdentity.FromItemId(363),
+                0.25f, 0.5f, -25f, -62.5f, 100f, 150f, true));
+
+            Assert(Approximately(sink.IconScaleX, 0.25f) && Approximately(sink.IconScaleY, 0.5f),
+                "native floating icon preserves the PlayerUI top-level scale anchor");
+            Assert(Approximately(sink.IconX, -25f) && Approximately(sink.IconY, -62.5f),
+                "native floating icon preserves the drag pivot offset");
+            Assert(Approximately(sink.IconWidth, 100f) && Approximately(sink.IconHeight, 150f),
+                "native floating icon receives its rotated footprint size");
+            Assert(sink.IconCanRotate, "native floating icon enables the Glazier rotation path");
             sink.Unmount();
         }
 
@@ -480,11 +501,14 @@ namespace BetterUnturnedExperience.ClientUi.Tests
 
         private sealed class MockVisualElement : IVisualElement
         {
+            public float PositionScaleX { get; set; }
+            public float PositionScaleY { get; set; }
             public float PositionOffsetX { get; set; }
             public float PositionOffsetY { get; set; }
             public float SizeOffsetX { get; set; }
             public float SizeOffsetY { get; set; }
             public byte RotationAngle { get; set; }
+            public bool CanRotate { get; set; }
             public bool IsVisible { get; set; }
             public PreviewFrameColor Color { get; set; }
             public ItemAssetIdentity BoundAsset { get; set; }
@@ -492,8 +516,10 @@ namespace BetterUnturnedExperience.ClientUi.Tests
 
         private sealed class MockVisualContainer : IVisualContainer
         {
-            public IVisualElement CreateBox() { return new MockVisualElement(); }
-            public IVisualElement CreateImage() { return new MockVisualElement(); }
+            internal IVisualElement LastBox { get; private set; }
+            internal IVisualElement LastImage { get; private set; }
+            public IVisualElement CreateBox() { return LastBox = new MockVisualElement(); }
+            public IVisualElement CreateImage() { return LastImage = new MockVisualElement(); }
             public void AddChild(IVisualElement child) { }
             public void RemoveChild(IVisualElement child) { }
         }
