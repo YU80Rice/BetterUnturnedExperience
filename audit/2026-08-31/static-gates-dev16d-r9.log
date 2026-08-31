@@ -1,0 +1,7 @@
+
+UI/native token scan PASS: 11 C# files
+UI/native token scan PASS: 2 C# files
+UI/native token scan PASS: 10 C# files
+warning: in the working copy of 'src/BetterUnturnedExperience.Plugin/InventoryDragPreviewAdapter.cs', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/BetterUnturnedExperience.Plugin.Tests/Program.cs', LF will be replaced by CRLF the next time Git touches it
+STATIC_EXIT=0

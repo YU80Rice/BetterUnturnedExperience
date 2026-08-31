@@ -1,0 +1,12 @@
+
+Test                                                                                                    ExitCode
+----                                                                                                    --------
+tests\BetterUnturnedExperience.Contracts.Tests\bin\Release\BetterUnturnedExperience.Contracts.Tests.exe        0
+tests\BetterUnturnedExperience.Settings.Tests\bin\Release\BetterUnturnedExperience.Settings.Tests.exe          0
+tests\BetterUnturnedExperience.Placement.Tests\bin\Release\BetterUnturnedExperience.Placement.Tests.exe        0
+tests\BetterUnturnedExperience.ClientUi.Tests\bin\Release\BetterUnturnedExperience.ClientUi.Tests.exe          0
+tests\BetterUnturnedExperience.Network.Tests\bin\Release\BetterUnturnedExperience.Network.Tests.exe            0
+tests\BetterUnturnedExperience.Release.Tests\bin\Release\BetterUnturnedExperience.Release.Tests.exe            0
+tests\BetterUnturnedExperience.Plugin.Tests\bin\Release\BetterUnturnedExperience.Plugin.Tests.exe              0
+
+

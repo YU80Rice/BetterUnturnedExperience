@@ -30,6 +30,11 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     AssertDev16DR44SymptomsReproduce();
                     return 0;
                 }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--dev16d-r9-red")
+                {
+                    AssertDev16DR9CleanupPropagationContracts();
+                    return 0;
+                }
                 AssertSingleDllAssemblyClosure();
                 AssertExternalSdkAssemblyIdentity();
                 Assert(BootstrapGuard.Decide(false, false, true) == BootstrapDecision.Client, "client decision");
@@ -77,6 +82,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 AssertNativeCallbackBoundariesAreGuarded();
                 AssertDev16DR3IsolationAndGeometryContracts();
                 AssertDev16DR4RebindAndFailureProjectionContracts();
+                AssertDev16DR9CleanupPropagationContracts();
                 AssertRuntimeCompletionBarrierIsolates();
                 AssertManagementPanelConsumesRuntimeCatalog();
                 AssertManagementPanelOpenHooks();
@@ -523,6 +529,41 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 "drag hook incompatibility enters feature isolation");
             Assert(InventorySurfaceLifecycleAdapter.ShouldIsolateOnHookFailure(false),
                 "inventory lifecycle hook incompatibility enters feature isolation");
+        }
+
+        // GPT watermark: DEV-16D R9 red regressions for the Spec blockers.
+        // The component cleanup callback must observe the already-known detach
+        // result, and placed-item isolation must preserve Func<bool> failure
+        // results instead of coercing them through a void Action seam.
+        private static void AssertDev16DR9CleanupPropagationContracts()
+        {
+            var observedDetachState = true;
+            var cleanupResult = InventoryDragPreviewAdapter.CompleteIsolationCleanup(
+                false,
+                state =>
+                {
+                    observedDetachState = state;
+                    return state;
+                },
+                () => { });
+            Assert(!observedDetachState && !cleanupResult,
+                "component isolation observes a failed detach before re-entrant cleanup");
+
+            var forwarded = 0;
+            var detached = 0;
+            InventoryDragPreviewAdapter.InvokePlacedItemGuarded(
+                () => { throw new InvalidOperationException("synthetic placed-item failure"); },
+                () => forwarded++,
+                () => false,
+                () => { },
+                () =>
+                {
+                    detached++;
+                    return false;
+                });
+            Assert(forwarded == 1 && detached == 1 &&
+                InventoryDragPreviewAdapter.LastCleanupDiagnostics.Contains("BUE-DEV15D-CLEANUP-INCOMPLETE"),
+                "placed-item isolation preserves both detach and component cleanup failures");
         }
 
         private sealed class IGridOccupancyViewForTest : IGridOccupancyView

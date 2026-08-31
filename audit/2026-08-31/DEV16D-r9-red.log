@@ -1,0 +1,7 @@
+适用于 .NET Framework MSBuild 版本 18.9.1+a81b43525
+
+  BetterUnturnedExperience.Plugin -> D:\Agent-工作目录\DevelopMyUNMultiplayerModAndModloader\更好的UN体验\src\BetterUnturnedExperience.Plugin\bin\Release\BetterUnturnedExperience.dll
+  BetterUnturnedExperience.NoOpFixture -> D:\Agent-工作目录\DevelopMyUNMultiplayerModAndModloader\更好的UN体验\src\BetterUnturnedExperience.NoOpFixture\bin\Release\BetterUnturnedExperience.NoOpFixture.dll
+D:\Agent-工作目录\DevelopMyUNMultiplayerModAndModloader\更好的UN体验\tests\BetterUnturnedExperience.Plugin.Tests\Program.cs(540,61): error CS0117: “InventoryDragPreviewAdapter”未包含“CompleteIsolationCleanup”的定义 [D:\Agent-工作目录\DevelopMyUNMultiplayerModAndModloader\更好的UN体验\tests\BetterUnturnedExperience.Plugin.Tests\BetterUnturnedExperience.Plugin.Tests.csproj]
+D:\Agent-工作目录\DevelopMyUNMultiplayerModAndModloader\更好的UN体验\tests\BetterUnturnedExperience.Plugin.Tests\Program.cs(556,23): error CS0201: 只有 assignment、call、increment、decrement 和 new 对象表达式可用作语句 [D:\Agent-工作目录\DevelopMyUNMultiplayerModAndModloader\更好的UN体验\tests\BetterUnturnedExperience.Plugin.Tests\BetterUnturnedExperience.Plugin.Tests.csproj]
+D:\Agent-工作目录\DevelopMyUNMultiplayerModAndModloader\更好的UN体验\tests\BetterUnturnedExperience.Plugin.Tests\Program.cs(561,21): error CS8030: 转换为 void 返回委托的匿名函数不能返回值 [D:\Agent-工作目录\DevelopMyUNMultiplayerModAndModloader\更好的UN体验\tests\BetterUnturnedExperience.Plugin.Tests\BetterUnturnedExperience.Plugin.Tests.csproj]

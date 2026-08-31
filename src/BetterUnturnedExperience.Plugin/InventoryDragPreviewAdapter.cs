@@ -218,11 +218,30 @@ namespace BetterUnturnedExperience.Plugin
             isolated = true;
             LastCleanupDiagnostics = null;
             var detachSucceeded = DetachAndDeactivate();
-            var previewSucceeded = FailClosedPreviewResult(
-                isolateComponent ? new Func<bool>(() => component.IsolatePreviewFailureResult()) : null,
+            // Lock the detach result before entering component isolation.  The
+            // component's registered cleanup includes a re-entrant
+            // IsolateAndDetach(false) callback; it must observe a failed
+            // detach instead of the field's default true value.
+            cleanupSucceeded = detachSucceeded;
+            cleanupSucceeded = CompleteIsolationCleanup(
+                cleanupSucceeded,
+                isolateComponent ? new Func<bool, bool>(_ => component.IsolatePreviewFailureResult()) : null,
                 component.HidePreview);
-            cleanupSucceeded = detachSucceeded && previewSucceeded;
             return cleanupSucceeded;
+        }
+
+        // GPT watermark: the detach result is seeded before the component
+        // callback runs, making nested cleanup observe the real failure state.
+        internal static bool CompleteIsolationCleanup(
+            bool detachSucceeded,
+            Func<bool, bool> isolateComponent,
+            Action hide)
+        {
+            var cleanupSucceeded = detachSucceeded;
+            var previewSucceeded = FailClosedPreviewResult(
+                isolateComponent == null ? null : new Func<bool>(() => isolateComponent(cleanupSucceeded)),
+                hide);
+            return cleanupSucceeded && previewSucceeded;
         }
 
         private bool DetachAndDeactivate()
@@ -257,9 +276,9 @@ namespace BetterUnturnedExperience.Plugin
             InvokePlacedItemGuarded(
                 () => EvaluatePlacement(page, x, y),
                 () => native?.Invoke(page, x, y),
-                component.IsolatePreviewFailure,
+                component.IsolatePreviewFailureResult,
                 component.HidePreview,
-                () => { IsolateAndDetach(); });
+                () => IsolateAndDetach());
         }
 
         // GPT watermark: the U3-SDK invokes SleekItems.onPlacedItem directly
@@ -272,6 +291,28 @@ namespace BetterUnturnedExperience.Plugin
 
         internal static void InvokePlacedItemGuarded(Func<bool> evaluate, Action forward, Action isolate, Action hide, Action detach)
         {
+            InvokePlacedItemGuarded(
+                evaluate,
+                forward,
+                isolate == null ? null : new Func<bool>(() =>
+                {
+                    isolate();
+                    return true;
+                }),
+                hide,
+                detach == null ? null : new Func<bool>(() =>
+                {
+                    detach();
+                    return true;
+                }));
+        }
+
+        // GPT watermark: placed-item failure handling keeps result-bearing
+        // isolation and detach callbacks intact, so CleanupIncomplete can
+        // reach the lifecycle instead of being coerced to success.
+        internal static void InvokePlacedItemGuarded(Func<bool> evaluate, Action forward,
+            Func<bool> isolate, Action hide, Func<bool> detach)
+        {
             bool passThrough;
             try
             {
@@ -280,8 +321,10 @@ namespace BetterUnturnedExperience.Plugin
             catch (Exception error)
             {
                 LastPollDiagnostics = "placed-item-evaluate-failed: " + error.GetType().FullName + ": " + error.Message;
-                TryDetach(detach);
-                FailClosedPreview(isolate, hide);
+                var detachSucceeded = TryDetachResult(detach);
+                var previewSucceeded = FailClosedPreviewResult(isolate, hide);
+                if (!detachSucceeded || !previewSucceeded)
+                    ReportCleanupIncomplete("placed-item");
                 try { forward?.Invoke(); } catch (Exception nativeError)
                 {
                     LastPollDiagnostics = "placed-item-native-fallback-failed: " + nativeError.GetType().FullName + ": " + nativeError.Message;
@@ -294,17 +337,27 @@ namespace BetterUnturnedExperience.Plugin
             catch (Exception error)
             {
                 LastPollDiagnostics = "placed-item-native-failed: " + error.GetType().FullName + ": " + error.Message;
-                TryDetach(detach);
-                FailClosedPreview(isolate, hide);
+                var detachSucceeded = TryDetachResult(detach);
+                var previewSucceeded = FailClosedPreviewResult(isolate, hide);
+                if (!detachSucceeded || !previewSucceeded)
+                    ReportCleanupIncomplete("placed-item");
             }
         }
 
-        private static void TryDetach(Action detach)
+        private static bool TryDetachResult(Func<bool> detach)
         {
-            try { detach?.Invoke(); }
+            if (detach == null) return true;
+            try
+            {
+                if (detach()) return true;
+                ReportCleanupIncomplete("placed-item-detach");
+                return false;
+            }
             catch (Exception error)
             {
                 LastPollDiagnostics = "placed-item-detach-failed: " + error.GetType().FullName + ": " + error.Message;
+                ReportCleanupFailure("placed-item-detach", error);
+                return false;
             }
         }
 
