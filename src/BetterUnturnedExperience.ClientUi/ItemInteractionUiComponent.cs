@@ -272,6 +272,12 @@ namespace BetterUnturnedExperience.ClientUi.Internal
         internal void IsolatePreviewFailure()
         {
             runtime.Isolate();
+            // A native hook/geometry failure is a feature-local presentation
+            // failure, not a headless runtime.  Project the degraded state
+            // after isolation so the management surface cannot continue to
+            // advertise the preview as available while vanilla drag remains
+            // the active fallback.
+            lifecycle.SetPresentationAvailable(false, headless);
             HidePreview();
         }
 

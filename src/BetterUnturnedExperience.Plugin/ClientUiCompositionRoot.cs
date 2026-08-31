@@ -70,8 +70,13 @@ namespace BetterUnturnedExperience.Plugin
         private BueFeatureManagementEntry OfficialManagementEntry()
         {
             var feature = BetterItemInteractionSettingsState.Feature;
-            return new BueFeatureManagementEntry(feature, "Better Item Interaction", "1.0.0", FeatureState.Running,
-                new FeaturePresentationView(feature, FeaturePresentationState.Available, string.Empty, 1), settingsState.GetSnapshot());
+            var component = OfficialComponent;
+            var state = component == null ? FeatureState.Running : component.Lifecycle.State;
+            var presentation = component == null
+                ? new FeaturePresentationView(feature, FeaturePresentationState.Available, string.Empty, 1)
+                : component.Lifecycle.Presentation;
+            return new BueFeatureManagementEntry(feature, "Better Item Interaction", "1.0.0", state,
+                presentation, settingsState.GetSnapshot());
         }
 
         private BueFeatureManagementEntry ToManagementEntry(FeatureRegistrationEntry entry)

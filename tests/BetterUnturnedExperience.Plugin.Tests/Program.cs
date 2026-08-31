@@ -68,12 +68,14 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 AssertInventorySurfaceHasRuntimeScrollReader();
                 AssertNativeLikeViewportScaleAndHierarchyBehavior();
                 AssertLiveGridScrollContract();
+                AssertStrictNativeGeometryRejectsInvalidValues();
                 AssertLiveGridPointerReachesCandidateSeam();
                 AssertDev16DR44SymptomsReproduce();
                 AssertDynamicViewportTracksCurrentScroll();
                 AssertPreviewReadFailureRoutesThroughIsolation();
                 AssertNativeCallbackBoundariesAreGuarded();
                 AssertDev16DR3IsolationAndGeometryContracts();
+                AssertDev16DR4RebindAndFailureProjectionContracts();
                 AssertRuntimeCompletionBarrierIsolates();
                 AssertManagementPanelConsumesRuntimeCatalog();
                 AssertManagementPanelOpenHooks();
@@ -208,8 +210,10 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 "live grid pointer absorbs native scroll exactly once");
             Assert(Math.Abs(UnturnedInventorySurfaceContext.ResolveEffectiveScrollPixels(false, 240f) - 240f) < 0.001f,
                 "screen-space pointer applies native scroll exactly once");
-            Assert(UnturnedInventorySurfaceContext.ResolveEffectiveScrollPixels(false, float.NaN) == 0f,
-                "invalid native scroll fails closed");
+            var invalidScrollRejected = false;
+            try { UnturnedInventorySurfaceContext.ResolveEffectiveScrollPixels(false, float.NaN); }
+            catch (InvalidOperationException) { invalidScrollRejected = true; }
+            Assert(invalidScrollRejected, "invalid native scroll is rejected before projection");
             Assert((int)UnturnedInventorySurfaceContext.PointerCoordinateMode.ViewportLocalRequiresScroll == 0,
                 "surface advertises the viewport-local coordinate mode");
             Assert(Math.Abs(UnturnedInventorySurfaceContext.ResolveEffectiveScrollPixels(false, 240f) - 240f) < 0.001f,
@@ -241,6 +245,46 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 new UnityEngine.Vector2(400f, 300f), 240f, 1.5f);
             Assert(!UnturnedInventorySurfaceContext.TryBuildNativeGeometry(snapshot, out viewport, out pointer),
                 "incomplete native hierarchy fails closed before projection");
+        }
+
+        // GPT watermark: strict native geometry regression. Invalid viewport,
+        // scroll, or NaN/Infinity snapshots must not silently turn into a
+        // default clip/zero scroll that can produce a false Hidden preview.
+        private static void AssertStrictNativeGeometryRejectsInvalidValues()
+        {
+            var viewportRejected = false;
+            try
+            {
+                UnturnedInventorySurfaceContext.ResolveViewport(true,
+                    new UnityEngine.Vector2(float.NaN, 180f), 5, 7, 0f, 0f, 250f, 350f);
+            }
+            catch (InvalidOperationException) { viewportRejected = true; }
+            Assert(viewportRejected, "invalid native viewport dimensions are rejected instead of falling back");
+
+            var liveViewportRejected = false;
+            try { UnturnedInventorySurfaceContext.BuildLiveGridViewport(8, 12, float.PositiveInfinity, 300f); }
+            catch (InvalidOperationException) { liveViewportRejected = true; }
+            Assert(liveViewportRejected, "invalid live viewport size is rejected instead of using grid defaults");
+
+            var snapshot = new UnturnedInventorySurfaceContext.NativeInventoryHierarchySnapshot(
+                true, true, true, true, new UnityEngine.Vector2(0.5f, 0.5f),
+                new UnityEngine.Vector2(float.NaN, 900f), new UnityEngine.Vector2(400f, 300f), 240f, 1.5f);
+            UnityEngine.Vector2 pointer;
+            InventoryGridViewport viewport;
+            Assert(!UnturnedInventorySurfaceContext.TryBuildNativeGeometry(snapshot, out viewport, out pointer),
+                "NaN grid dimensions reject native geometry before projection");
+
+            snapshot = new UnturnedInventorySurfaceContext.NativeInventoryHierarchySnapshot(
+                true, true, true, true, new UnityEngine.Vector2(0.5f, 0.5f),
+                new UnityEngine.Vector2(600f, 900f), new UnityEngine.Vector2(float.PositiveInfinity, 300f), 240f, 1.5f);
+            Assert(!UnturnedInventorySurfaceContext.TryBuildNativeGeometry(snapshot, out viewport, out pointer),
+                "infinite viewport dimensions reject native geometry before projection");
+
+            snapshot = new UnturnedInventorySurfaceContext.NativeInventoryHierarchySnapshot(
+                true, true, true, true, new UnityEngine.Vector2(0.5f, 0.5f),
+                new UnityEngine.Vector2(600f, 900f), new UnityEngine.Vector2(400f, 300f), float.NaN, 1.5f);
+            Assert(!UnturnedInventorySurfaceContext.TryBuildNativeGeometry(snapshot, out viewport, out pointer),
+                "NaN native scroll rejects geometry before projection");
         }
         private static bool RequiresParentRebindSemantics()
         {
@@ -338,6 +382,13 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 () => isolated++, () => hidden++);
             Assert(isolated == 1 && hidden == 1,
                 "surface poll/viewport failure enters the same feature isolation boundary");
+
+            var propagated = InventorySurfaceLifecycleAdapter.InvokePollGuarded(
+                () => { throw new InvalidOperationException("synthetic cleanup propagation failure"); },
+                () => { }, () => { throw new InvalidOperationException("synthetic cleanup hide failure"); });
+            Assert(!propagated &&
+                InventorySurfaceLifecycleAdapter.LastPollDiagnostics.Contains("BUE-DEV15D-CLEANUP-INCOMPLETE"),
+                "poll guard propagates the canonical cleanup-incomplete diagnostic instead of dropping the cleanup result");
         }
 
         // GPT watermark: DEV-16D R3 red regressions for the independent
@@ -354,7 +405,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
             var cleanupOk = InventoryDragPreviewAdapter.FailClosedPreview(
                 () => { throw new InvalidOperationException("synthetic isolate cleanup failure"); },
                 () => { throw new InvalidOperationException("synthetic hide cleanup failure"); });
-            Assert(!cleanupOk && InventoryDragPreviewAdapter.LastCleanupDiagnostics.Contains("BUE-DEV16D-CLEANUP-INCOMPLETE"),
+            Assert(!cleanupOk && InventoryDragPreviewAdapter.LastCleanupDiagnostics.Contains("BUE-DEV15D-CLEANUP-INCOMPLETE"),
                 "cleanup failure must publish the stable DEV-16D incomplete-cleanup diagnostic");
 
             var settings = new BetterItemInteractionSettingsState();
@@ -372,6 +423,42 @@ namespace BetterUnturnedExperience.Plugin.Tests
             Assert(InventorySurfaceLifecycleAdapter.TryComputeScrollPixels(1f, 0.5f, 600f, out ignoredPixels)
                 && Math.Abs(ignoredPixels - 300f) < 0.001f,
                 "valid native viewport/scroll values still map to pixels");
+        }
+
+        // GPT watermark: DEV-16D R4 red regressions for rebind invalidation,
+        // hierarchy disappearance and native-hook compatibility projection.
+        private static void AssertDev16DR4RebindAndFailureProjectionContracts()
+        {
+            Assert(!InventoryDragPreviewAdapter.CanContinueGridAttach(false, true),
+                "a failed detach must stop the attach path even before isolated state is observed");
+            Assert(!InventoryDragPreviewAdapter.CanContinueGridAttach(true, true),
+                "an isolated adapter must never continue a grid attach");
+            Assert(InventoryDragPreviewAdapter.CanContinueGridAttach(true, false),
+                "a successful detach on a live adapter may continue the attach path");
+
+            var firstSurface = new object();
+            var rebuiltSurface = new object();
+            Assert(InventorySurfaceLifecycleAdapter.RequiresSurfaceRebind(firstSurface, rebuiltSurface),
+                "same-generation native UI rebuild is detected by surface identity");
+            Assert(!InventorySurfaceLifecycleAdapter.RequiresSurfaceRebind(firstSurface, firstSurface),
+                "unchanged native surface does not trigger a redundant rebind");
+            Assert(InventorySurfaceLifecycleAdapter.ShouldDiscardSurface(true, false),
+                "a dispatched surface is discarded when native hierarchy is temporarily unavailable");
+            Assert(!InventorySurfaceLifecycleAdapter.ShouldDiscardSurface(false, false),
+                "an undispatched unavailable surface does not emit a duplicate close");
+
+            var composition = new BueClientUiCompositionRoot();
+            Assert(composition.Initialize(false, false, true), "composition initializes for failure projection");
+            composition.OfficialComponent.IsolatePreviewFailure();
+            Assert(composition.OfficialComponent.Lifecycle.State == FeatureState.Isolated &&
+                composition.OfficialComponent.Lifecycle.Presentation.State == FeaturePresentationState.PresentationDegraded,
+                "native hook/geometry failure isolates the feature and projects degraded presentation");
+            composition.Destroy();
+
+            Assert(InventoryDragPreviewAdapter.ShouldIsolateOnHookFailure(false),
+                "drag hook incompatibility enters feature isolation");
+            Assert(InventorySurfaceLifecycleAdapter.ShouldIsolateOnHookFailure(false),
+                "inventory lifecycle hook incompatibility enters feature isolation");
         }
 
         private sealed class IGridOccupancyViewForTest : IGridOccupancyView
@@ -678,9 +765,9 @@ namespace BetterUnturnedExperience.Plugin.Tests
         private static void AssertSurfaceViewportDegradation()
         {
             var degraded = BetterUnturnedExperience.Plugin.UnturnedInventorySurfaceContext.ResolveViewport(
-                false, new UnityEngine.Vector2(0f, 0f), 5, 7, 3f, 4f, 0f, 100f);
+                false, new UnityEngine.Vector2(0f, 0f), 5, 7, 3f, 4f, 250f, 350f);
             var live = BetterUnturnedExperience.Plugin.UnturnedInventorySurfaceContext.ResolveViewport(
-                true, new UnityEngine.Vector2(400f, 500f), 5, 7, 3f, 4f, 0f, 100f);
+                true, new UnityEngine.Vector2(400f, 500f), 5, 7, 3f, 4f, 250f, 350f);
             Assert(degraded.OriginX == 0f && degraded.OriginY == 0f && degraded.ClipWidth == 250f && degraded.ClipHeight == 350f,
                 "degraded hierarchy still yields the grid-local clip");
             Assert(live.OriginX == 0f && live.ClipWidth == 400f && live.ClipHeight == 500f,

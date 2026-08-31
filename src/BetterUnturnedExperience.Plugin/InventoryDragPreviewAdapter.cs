@@ -28,6 +28,7 @@ namespace BetterUnturnedExperience.Plugin
         private BetterItemInteractionUiComponent component;
         private bool hooksInstalled;
         private bool isolated;
+        private bool cleanupSucceeded = true;
         private bool wasDragging;
         private uint dragGeneration;
         private System.Reflection.FieldInfo dragJarField;
@@ -90,7 +91,12 @@ namespace BetterUnturnedExperience.Plugin
 
         internal void Activate()
         {
-            if (!enabled || hooksInstalled || isolated) return;
+            if (!enabled)
+            {
+                component.IsolatePreviewFailure();
+                return;
+            }
+            if (hooksInstalled || isolated) return;
             try
             {
                 // Drives the drag poll on the dashboard-inventory UI tick itself
@@ -109,6 +115,7 @@ namespace BetterUnturnedExperience.Plugin
             {
                 gateDiagnostics = "hooks-failed: " + error.GetType().FullName + ": " + error.Message;
                 hooksInstalled = false;
+                component.IsolatePreviewFailure();
             }
         }
 
@@ -125,6 +132,16 @@ namespace BetterUnturnedExperience.Plugin
         internal static bool CanAttachGrid(bool isolated)
         {
             return !isolated;
+        }
+
+        internal static bool CanContinueGridAttach(bool detachSucceeded, bool isolated)
+        {
+            return detachSucceeded && !isolated;
+        }
+
+        internal static bool ShouldIsolateOnHookFailure(bool hookInstalled)
+        {
+            return !hookInstalled;
         }
 
         internal void AttachGrid(IClientUiInventorySurface surface)
@@ -144,7 +161,8 @@ namespace BetterUnturnedExperience.Plugin
                 // and re-entry here used to wrap our own wrapper, stacking
                 // evaluation layers until a placement crashed the game.
                 if (ReferenceEquals(sleek, attachedGrid) || ReferenceEquals(sleek.onPlacedItem?.Target, this)) return;
-                DetachGrid();
+                var detachSucceeded = DetachGrid();
+                if (!CanContinueGridAttach(detachSucceeded, isolated)) return;
                 attachedGrid = sleek;
                 nativePlacedHandler = sleek.onPlacedItem;
                 sleek.onPlacedItem = GridPlacedItemWrapper;
@@ -158,17 +176,19 @@ namespace BetterUnturnedExperience.Plugin
             }
         }
 
-        internal void DetachGrid()
+        internal bool DetachGrid()
         {
-            if (attachedGrid == null) return;
+            if (attachedGrid == null) return true;
             try
             {
                 DetachGridCore();
+                return true;
             }
             catch (Exception error)
             {
                 LastPollDiagnostics = "grid-detach-failed: " + error.GetType().FullName + ": " + error.Message;
                 IsolateAndDetach();
+                return false;
             }
         }
 
@@ -193,13 +213,14 @@ namespace BetterUnturnedExperience.Plugin
         {
             if (isolated)
             {
-                return string.IsNullOrEmpty(LastCleanupDiagnostics);
+                return cleanupSucceeded;
             }
             isolated = true;
             LastCleanupDiagnostics = null;
             var detachSucceeded = DetachAndDeactivate();
             var previewSucceeded = FailClosedPreview(isolateComponent ? component.IsolatePreviewFailure : null, component.HidePreview);
-            return detachSucceeded && previewSucceeded;
+            cleanupSucceeded = detachSucceeded && previewSucceeded;
+            return cleanupSucceeded;
         }
 
         private bool DetachAndDeactivate()
@@ -288,7 +309,7 @@ namespace BetterUnturnedExperience.Plugin
         internal static void ReportCleanupFailure(string stage, Exception error)
         {
             LastCleanupDiagnostics = "featureId=io.github.yu80rice.bue.better-item-interaction"
-                + " errorCode=CleanupIncomplete diagnosticId=BUE-DEV16D-CLEANUP-INCOMPLETE"
+                + " errorCode=CleanupIncomplete diagnosticId=BUE-DEV15D-CLEANUP-INCOMPLETE"
                 + " stage=" + stage + " errorType=" + error.GetType().FullName + " message=" + error.Message;
             LastPollDiagnostics = stage + " cleanup failed: " + error.GetType().FullName + ": " + error.Message;
         }
