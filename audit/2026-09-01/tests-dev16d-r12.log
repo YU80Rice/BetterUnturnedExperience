@@ -1,0 +1,14 @@
+[BetterUnturnedExperience.ClientUi.Tests.exe] exit=0
+DEV-05/DEV-15A/DEV-15B/DEV-15C/DEV-15D/DEV-16B ClientUi tests: PASS
+[BetterUnturnedExperience.Contracts.Tests.exe] exit=0
+DEV-10 registration runtime tests: PASS
+[BetterUnturnedExperience.Network.Tests.exe] exit=0
+DEV-06 network tests: PASS
+[BetterUnturnedExperience.Placement.Tests.exe] exit=0
+DEV-04 placement evaluator tests: PASS
+[BetterUnturnedExperience.Plugin.Tests.exe] exit=0
+DEV-14/DEV-16B plugin runtime tests: PASS
+[BetterUnturnedExperience.Release.Tests.exe] exit=0
+DEV-15E qualification evidence tests: PASS
+[BetterUnturnedExperience.Settings.Tests.exe] exit=0
+DEV-03 settings runtime tests: PASS

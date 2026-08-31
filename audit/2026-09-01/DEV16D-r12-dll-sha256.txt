@@ -1,0 +1,5 @@
+CandidateBuild: DEV-16D-R12-CLEAN-20260901
+CaseId: DEV-16D-R12-20260901
+Path: src/BetterUnturnedExperience.Plugin/bin/Release/BetterUnturnedExperience.dll
+SHA-256: 142AC39F769EF23EE75406F3DE84F21B59597B8F1BA72191650B128CF624C5E4
+Size: 222720 bytes

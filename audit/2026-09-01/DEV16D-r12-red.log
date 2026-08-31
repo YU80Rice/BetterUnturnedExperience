@@ -1,0 +1,9 @@
+DEV-16D R12 red regression (captured before commit b698562)
+Command: & '.\tests\BetterUnturnedExperience.ClientUi.Tests\bin\Release\BetterUnturnedExperience.ClientUi.Tests.exe'
+Expected pre-fix result: FAIL
+Observed assertion:
+surface arrival preserves the active presenter drag and renders a preview
+
+Failure meaning: OnDragStarted ran before the first inventory surface arrived;
+OnInventoryOpened called CleanupUiAndDrag and ended the presenter drag, so the
+subsequent OnDragUpdated could not produce a visible frame.

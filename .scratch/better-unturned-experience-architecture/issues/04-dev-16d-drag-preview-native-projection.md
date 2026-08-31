@@ -7,7 +7,7 @@
 - 02：DEV-16B BUE 内置插件管理面板与设置编辑
 - 03：DEV-16C 原生库存 UI 生命周期与容器上下文接线
 
-**Status:** in-progress
+**Status:** ready-for-human
 
 > 2026-08-30 认领（agent）：前置 02（DEV-16B resolved）、03（DEV-16C resolved，`IInventorySurfaceContext` 真实投影与 `PlayerUI.Update` 轮询驱动已交付）。实施遵循 AGENTS.md Output review loop。
 
@@ -28,3 +28,13 @@
 - **修复**：r24 目录产物刷新为含修复构建（SHA-256 `D57423E4…D696`，与源码 HEAD 一致）；全套 7/7 PASS。
 - **交互模式澄清（用户）**：Unturned 为**左键点击选中后图标随鼠标**（非按住拖动）——BUE 的 isDragging 边沿检测（false→true=选中）与该模式吻合，无需改交互模型。
 - 状态：`in-progress`——**请部署刷新后的 r24 产物**（哈希 `D57423E4…D696`）并重复拖拽测试。
+
+### 2026-09-01 R12 修复与双轴审查
+
+- **提交**：`b698562f5d3fb4cff56b1eecd665b28a4548269f`（基线 `43d05ef91bf61f87dcba38774f78dcc9b4b60bc3`）。
+- **修复**：`GridContentLocal` 不重复加滚动；surface 未就绪时保留拖拽帧；surface 晚到时保存并恢复 Presenter 拖拽代际；关闭/释放/取消清零代际。
+- **红测→绿测**：R12 surface-late-drag 回归测试由失败转绿；R10/R11 回归与默认 7 项测试全部 PASS。
+- **Release/门禁**：0 errors / 0 warnings；Contracts 2、Core 10、ClientUi 11 个 C# 文件 UI/native token 门禁 PASS；`git diff --check` PASS。
+- **双轴审查**：Standards `CLEAN`；Spec `CLEAN`；无阻断项。
+- **正式候选**：`audit/2026-09-01/artifacts/BetterUnturnedExperience.dll`，SHA-256 `142AC39F769EF23EE75406F3DE84F21B59597B8F1BA72191650B128CF624C5E4`，CandidateBuild `DEV-16D-R12-CLEAN-20260901`，CaseId `DEV-16D-R12-20260901`。
+- **下一步**：人工单人实机复测；真实客户端/P2P/U3DS 资格证据仍不继承静态审查结果。
