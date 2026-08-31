@@ -29,6 +29,14 @@ namespace BetterUnturnedExperience.Plugin
         private InventorySurfaceLifecycleAdapter inventoryLifecycleAdapter;
         private InventoryDragPreviewAdapter inventoryDragAdapter;
 
+        // DEV-16D R5: the drag adapter depends on the inventory lifecycle
+        // heartbeat.  Keep the activation decision at one host-testable seam so
+        // a failed lifecycle hook can never leave a dependent Harmony hook live.
+        internal static bool ShouldActivateDragPreview(bool lifecycleHooksInstalled, bool lifecycleIsolated)
+        {
+            return lifecycleHooksInstalled && !lifecycleIsolated;
+        }
+
         private void Awake()
         {
             // [R19] Subscribe before anything can fail: the quit flag decides
@@ -62,6 +70,13 @@ namespace BetterUnturnedExperience.Plugin
                         // [DEV-16C] Inventory lifecycle adapter: probes native
                         // members, fails closed with structured diagnostics and
                         // routes the projected surface into the composition.
+                        // Create and register both adapters before either one is
+                        // activated.  Cleanup runs in reverse registration order,
+                        // so the drag delegate is detached before the lifecycle
+                        // heartbeat is removed.
+                        inventoryDragAdapter = new InventoryDragPreviewAdapter(Logger, clientUiComposition.OfficialComponent);
+                        clientUiComposition.OfficialComponent.RegisterCleanupResult(() => inventoryDragAdapter.IsolateAndDetach(false));
+
                         inventoryLifecycleAdapter = new InventorySurfaceLifecycleAdapter(Logger,
                             surface =>
                             {
@@ -90,11 +105,17 @@ namespace BetterUnturnedExperience.Plugin
                         else
                             Logger.LogWarning("BUE inventory lifecycle wiring disabled diagnosticId=BUE-INVENTORY-003 diagnostics=" + inventoryLifecycleAdapter.GateDiagnostics);
                         // [DEV-16D] Drag preview/commit adapter driven by the same
-                        // PlayerUI.Update tick; routes through the official UI
-                        // component's preview, release and projection seams.
-                        inventoryDragAdapter = new InventoryDragPreviewAdapter(Logger, clientUiComposition.OfficialComponent);
-                        clientUiComposition.OfficialComponent.RegisterCleanupResult(() => inventoryDragAdapter.IsolateAndDetach(false));
-                        inventoryDragAdapter.Activate();
+                        // PlayerUI.Update tick; it is activated only after the
+                        // lifecycle heartbeat has installed successfully.
+                        if (ShouldActivateDragPreview(inventoryLifecycleAdapter.HooksInstalled, inventoryLifecycleAdapter.Isolated))
+                        {
+                            inventoryDragAdapter.Activate();
+                        }
+                        else
+                        {
+                            inventoryDragAdapter.IsolateAndDetach(false);
+                            Logger.LogWarning("BUE drag preview wiring disabled because inventory lifecycle is unavailable diagnosticId=BUE-DRAG-003");
+                        }
                         clientUiComposition.OfficialComponent.ProjectionSink = new LoggingInventoryProjectionSink(Logger);
                         Logger.LogInfo(inventoryDragAdapter.HooksInstalled
                             ? "BUE drag preview wiring enabled diagnosticId=BUE-DRAG-001"

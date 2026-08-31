@@ -69,6 +69,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 AssertNativeLikeViewportScaleAndHierarchyBehavior();
                 AssertLiveGridScrollContract();
                 AssertStrictNativeGeometryRejectsInvalidValues();
+                AssertDev16DR5ActivationAndCleanupContracts();
                 AssertLiveGridPointerReachesCandidateSeam();
                 AssertDev16DR44SymptomsReproduce();
                 AssertDynamicViewportTracksCurrentScroll();
@@ -197,8 +198,10 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 "incomplete native-like hierarchy fails closed");
             Assert(Math.Abs(UnturnedInventorySurfaceContext.NormalizeUiScale(1.5f) - 1.5f) < 0.001f,
                 "non-default UI scale is preserved");
-            Assert(Math.Abs(UnturnedInventorySurfaceContext.NormalizeUiScale(float.NaN) - 1f) < 0.001f,
-                "invalid UI scale fails closed to one");
+            var invalidScaleRejected = false;
+            try { UnturnedInventorySurfaceContext.NormalizeUiScale(float.NaN); }
+            catch (InvalidOperationException) { invalidScaleRejected = true; }
+            Assert(invalidScaleRejected, "invalid UI scale is rejected before geometry projection");
         }
 
         // GPT watermark: native-like coordinate contract. A pointer sampled
@@ -285,6 +288,52 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 new UnityEngine.Vector2(600f, 900f), new UnityEngine.Vector2(400f, 300f), float.NaN, 1.5f);
             Assert(!UnturnedInventorySurfaceContext.TryBuildNativeGeometry(snapshot, out viewport, out pointer),
                 "NaN native scroll rejects geometry before projection");
+        }
+
+        // GPT watermark: R5 review regressions. Dependent drag hooks may only
+        // activate after the lifecycle heartbeat is live; hierarchy probe
+        // failures isolate the feature; cleanup bools must reach the poll
+        // diagnostic boundary; and invalid UI scale cannot be normalized.
+        private static void AssertDev16DR5ActivationAndCleanupContracts()
+        {
+            Assert(!BetterUnturnedExperiencePlugin.ShouldActivateDragPreview(false, false),
+                "drag preview cannot activate before the inventory lifecycle heartbeat is installed");
+            Assert(!BetterUnturnedExperiencePlugin.ShouldActivateDragPreview(true, true),
+                "drag preview cannot activate after lifecycle isolation");
+            Assert(BetterUnturnedExperiencePlugin.ShouldActivateDragPreview(true, false),
+                "drag preview may activate only on a live inventory lifecycle adapter");
+
+            Assert(InventorySurfaceLifecycleAdapter.ShouldIsolateOnHierarchyProbeFailure(false),
+                "native hierarchy probe failure enters feature isolation");
+            Assert(!InventorySurfaceLifecycleAdapter.ShouldIsolateOnHierarchyProbeFailure(true),
+                "complete native hierarchy probe does not force isolation");
+            Assert(UnturnedInventorySurfaceContext.ClassifyNativeHierarchy(false, true, false, false, false, false)
+                == UnturnedInventorySurfaceContext.NativeHierarchyState.NotCreated,
+                "missing SleekItems owner is retryable while the native surface is still being created");
+            Assert(UnturnedInventorySurfaceContext.ClassifyNativeHierarchy(true, true, false, false, false, false)
+                == UnturnedInventorySurfaceContext.NativeHierarchyState.NotCreated,
+                "missing native children remain retryable during surface construction");
+            Assert(UnturnedInventorySurfaceContext.ClassifyNativeHierarchy(true, false, true, true, true, true)
+                == UnturnedInventorySurfaceContext.NativeHierarchyState.Incompatible,
+                "missing reflection members are a stable compatibility failure");
+            Assert(UnturnedInventorySurfaceContext.ClassifyNativeHierarchy(true, true, true, true, true, false)
+                == UnturnedInventorySurfaceContext.NativeHierarchyState.Incompatible,
+                "an invalid native parent chain is a stable compatibility failure");
+            Assert(UnturnedInventorySurfaceContext.ClassifyNativeHierarchy(true, true, true, true, true, true)
+                == UnturnedInventorySurfaceContext.NativeHierarchyState.Ready,
+                "a complete native hierarchy is ready for projection");
+
+            var guardResult = InventorySurfaceLifecycleAdapter.InvokePollGuarded(
+                () => { throw new InvalidOperationException("synthetic cleanup result propagation failure"); },
+                () => false, () => { });
+            Assert(!guardResult &&
+                InventorySurfaceLifecycleAdapter.LastPollDiagnostics.Contains("BUE-DEV15D-CLEANUP-INCOMPLETE"),
+                "poll guard carries a false IsolateAndDetach result into the canonical cleanup diagnostic");
+
+            var invalidScaleRejected = false;
+            try { UnturnedInventorySurfaceContext.NormalizeUiScale(float.NaN); }
+            catch (InvalidOperationException) { invalidScaleRejected = true; }
+            Assert(invalidScaleRejected, "invalid UI scale is rejected instead of silently normalized");
         }
         private static bool RequiresParentRebindSemantics()
         {

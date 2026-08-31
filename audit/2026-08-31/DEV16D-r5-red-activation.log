@@ -1,0 +1,11 @@
+DEV-16D R5 red regression (GPT)
+Command:
+& 'C:\Program Files\Microsoft Visual Studio\18\Insiders\MSBuild\Current\Bin\MSBuild.exe' 'tests\BetterUnturnedExperience.Plugin.Tests\BetterUnturnedExperience.Plugin.Tests.csproj' /t:Rebuild /p:Configuration=Release /v:minimal
+
+Result: FAIL (exit code 1)
+Observed failure:
+Program.cs(299,52): error CS0117: “BetterUnturnedExperiencePlugin”未包含“ShouldActivateDragPreview”的定义
+Program.cs(301,52): error CS0117: “BetterUnturnedExperiencePlugin”未包含“ShouldActivateDragPreview”的定义
+Program.cs(303,51): error CS0117: “BetterUnturnedExperiencePlugin”未包含“ShouldActivateDragPreview”的定义
+
+The red test captured the R5 lifecycle activation-order blocker before the seam implementation.

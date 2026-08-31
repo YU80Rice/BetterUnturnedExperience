@@ -308,10 +308,21 @@ namespace BetterUnturnedExperience.Plugin
 
         internal static void ReportCleanupFailure(string stage, Exception error)
         {
-            LastCleanupDiagnostics = "featureId=io.github.yu80rice.bue.better-item-interaction"
-                + " errorCode=CleanupIncomplete diagnosticId=BUE-DEV15D-CLEANUP-INCOMPLETE"
-                + " stage=" + stage + " errorType=" + error.GetType().FullName + " message=" + error.Message;
+            LastCleanupDiagnostics = BuildCleanupIncompleteDiagnostics(stage,
+                "errorType=" + error.GetType().FullName + " message=" + error.Message);
             LastPollDiagnostics = stage + " cleanup failed: " + error.GetType().FullName + ": " + error.Message;
+        }
+
+        internal static void ReportCleanupIncomplete(string stage)
+        {
+            LastCleanupDiagnostics = BuildCleanupIncompleteDiagnostics(stage, "result=false");
+        }
+
+        private static string BuildCleanupIncompleteDiagnostics(string stage, string detail)
+        {
+            return "featureId=io.github.yu80rice.bue.better-item-interaction"
+                + " errorCode=CleanupIncomplete diagnosticId=BUE-DEV15D-CLEANUP-INCOMPLETE"
+                + " stage=" + stage + " " + detail;
         }
 
         internal static void DashboardUpdatePostfix()
@@ -364,8 +375,24 @@ namespace BetterUnturnedExperience.Plugin
         // being cleared or re-enable the native fallback path.
         internal static bool FailClosedPreview(Action isolate, Action hide)
         {
+            return FailClosedPreviewResult(isolate == null ? null : new Func<bool>(() =>
+            {
+                isolate();
+                return true;
+            }), hide);
+        }
+
+        internal static bool FailClosedPreviewResult(Func<bool> isolate, Action hide)
+        {
             var success = true;
-            try { isolate?.Invoke(); }
+            try
+            {
+                if (isolate != null && !isolate())
+                {
+                    success = false;
+                    ReportCleanupIncomplete("preview-isolate");
+                }
+            }
             catch (Exception error)
             {
                 success = false;

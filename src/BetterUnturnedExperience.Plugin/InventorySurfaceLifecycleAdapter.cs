@@ -252,7 +252,9 @@ namespace BetterUnturnedExperience.Plugin
 
         internal static float NormalizeUiScale(float value)
         {
-            return value > 0f && !float.IsNaN(value) && !float.IsInfinity(value) ? value : 1f;
+            if (!IsFinitePositive(value))
+                throw new InvalidOperationException("native inventory UI scale is invalid");
+            return value;
         }
         internal static Vector2 MapNormalizedPointer(float nx, float ny, float width, float height)
         {
@@ -273,6 +275,55 @@ namespace BetterUnturnedExperience.Plugin
             return owner != null && scroll != null && grid != null && itemsPanel != null &&
                 SameNativeElement(scrollParent, owner) && SameNativeElement(gridParent, scroll) &&
                 SameNativeElement(itemsPanelParent, grid);
+        }
+
+        internal enum NativeHierarchyState : byte
+        {
+            NotCreated,
+            Ready,
+            Incompatible
+        }
+
+        internal static NativeHierarchyState ClassifyNativeHierarchy(bool hasOwner, bool membersAvailable,
+            bool hasScroll, bool hasGrid, bool hasItemsPanel, bool parentChainValid)
+        {
+            if (!hasOwner) return NativeHierarchyState.NotCreated;
+            if (!membersAvailable) return NativeHierarchyState.Incompatible;
+            if (!hasScroll || !hasGrid || !hasItemsPanel)
+                return NativeHierarchyState.NotCreated;
+            if (!parentChainValid)
+                return NativeHierarchyState.Incompatible;
+            return NativeHierarchyState.Ready;
+        }
+
+        // A null SleekItems means the native surface has not been created yet
+        // and is retryable. Once a SleekItems owner exists, missing children or
+        // a broken parent chain is a compatibility failure and must isolate the
+        // feature instead of spinning forever in "not ready".
+        internal static NativeHierarchyState ProbeNativeHierarchy(SleekItems sleekItems,
+            out ISleekScrollView scroll, out ISleekElement grid, out ISleekElement itemsPanel)
+        {
+            scroll = null;
+            grid = null;
+            itemsPanel = null;
+            if (sleekItems == null) return NativeHierarchyState.NotCreated;
+            if (NativeScrollField == null || NativeGridField == null || NativeItemsPanelField == null)
+                return NativeHierarchyState.Incompatible;
+            try
+            {
+                scroll = NativeScrollField.GetValue(sleekItems) as ISleekScrollView;
+                grid = NativeGridField.GetValue(sleekItems) as ISleekElement;
+                itemsPanel = NativeItemsPanelField.GetValue(sleekItems) as ISleekElement;
+            }
+            catch (Exception)
+            {
+                return NativeHierarchyState.Incompatible;
+            }
+            var parentChainValid = scroll != null && grid != null && itemsPanel != null &&
+                IsNativeHierarchyConsistent(sleekItems, scroll, grid, itemsPanel,
+                    scroll.Parent, grid.Parent, itemsPanel.Parent);
+            return ClassifyNativeHierarchy(true, true, scroll != null, grid != null,
+                itemsPanel != null, parentChainValid);
         }
 
         private static bool SameNativeElement(object left, object right)
@@ -608,6 +659,7 @@ namespace BetterUnturnedExperience.Plugin
         internal bool Enabled { get { return enabled; } }
         internal string GateDiagnostics { get { return gateDiagnostics; } }
         internal bool HooksInstalled { get { return hooksInstalled; } }
+        internal bool Isolated { get { return isolated; } }
 
         internal InventorySurfaceLifecycleAdapter(BepInEx.Logging.ManualLogSource log,
             Action<IClientUiInventorySurface> openDispatcher, Action closeDispatcher,
@@ -633,16 +685,22 @@ namespace BetterUnturnedExperience.Plugin
                 LocalPlayerProperty = AccessTools.Property(typeof(Player), "LocalPlayer") != null
             };
             var result = InventoryLifecycleGate.Evaluate(isClientBranch: true, probe: probe);
-            enabled = result.Enabled;
-            gateDiagnostics = result.Diagnostics;
+            var hierarchyProbeComplete = UnturnedInventorySurfaceContext.NativeScrollField != null &&
+                UnturnedInventorySurfaceContext.NativeGridField != null &&
+                UnturnedInventorySurfaceContext.NativeItemsPanelField != null &&
+                UnturnedInventorySurfaceContext.DashboardItemsField != null;
+            enabled = result.Enabled && hierarchyProbeComplete;
+            gateDiagnostics = hierarchyProbeComplete ? result.Diagnostics
+                : "featureId=io.github.yu80rice.bue.better-item-interaction"
+                    + " errorCode=NativeHierarchyIncompatible diagnosticId=BUE-INVENTORY-003"
+                    + " reason=reflection-members-missing native inventory preserved";
         }
 
         internal void Activate()
         {
             if (!enabled)
             {
-                IsolateAndDetach();
-                isolateDispatcher?.Invoke();
+                IsolateAndDispatch();
                 return;
             }
             if (hooksInstalled || isolated) return;
@@ -658,8 +716,7 @@ namespace BetterUnturnedExperience.Plugin
             {
                 gateDiagnostics = "polling-hook-failed: " + error.GetType().FullName + ": " + error.Message;
                 hooksInstalled = false;
-                IsolateAndDetach();
-                isolateDispatcher?.Invoke();
+                IsolateAndDispatch();
             }
         }
 
@@ -684,6 +741,26 @@ namespace BetterUnturnedExperience.Plugin
         internal static bool ShouldIsolateOnHookFailure(bool hookInstalled)
         {
             return !hookInstalled;
+        }
+
+        internal static bool ShouldIsolateOnHierarchyProbeFailure(bool probeComplete)
+        {
+            return !probeComplete;
+        }
+
+        private bool IsolateAndDispatch()
+        {
+            var success = IsolateAndDetach();
+            try
+            {
+                isolateDispatcher?.Invoke();
+            }
+            catch (Exception error)
+            {
+                success = false;
+                InventoryDragPreviewAdapter.ReportCleanupFailure("inventory-isolate-dispatch", error);
+            }
+            return success;
         }
 
         internal bool IsolateAndDetach()
@@ -712,11 +789,7 @@ namespace BetterUnturnedExperience.Plugin
 
         private void RunGuardedPoll()
         {
-            if (!InvokePollGuarded(guardedPoll, () =>
-            {
-                IsolateAndDetach();
-                isolateDispatcher?.Invoke();
-            }, CloseAfterPollFailure))
+            if (!InvokePollGuarded(guardedPoll, IsolateAndDispatch, CloseAfterPollFailure))
             {
                 surfaceDispatched = false;
                 dispatchedGeneration = 0;
@@ -744,11 +817,20 @@ namespace BetterUnturnedExperience.Plugin
         // vanilla inventory input available.
         internal static bool InvokePollGuarded(Action poll, Action isolate, Action hide)
         {
+            return InvokePollGuarded(poll, isolate == null ? null : new Func<bool>(() =>
+            {
+                isolate();
+                return true;
+            }), hide);
+        }
+
+        internal static bool InvokePollGuarded(Action poll, Func<bool> isolate, Action hide)
+        {
             try { poll?.Invoke(); return true; }
             catch (Exception error)
             {
                 LastPollDiagnostics = "poll failed: " + error.GetType().FullName + ": " + error.Message;
-                var cleanupSucceeded = InventoryDragPreviewAdapter.FailClosedPreview(isolate, hide);
+                var cleanupSucceeded = InventoryDragPreviewAdapter.FailClosedPreviewResult(isolate, hide);
                 if (!cleanupSucceeded && !string.IsNullOrEmpty(InventoryDragPreviewAdapter.LastCleanupDiagnostics))
                 {
                     // Preserve the canonical FeatureId/ErrorCode/DiagnosticId
@@ -806,7 +888,23 @@ namespace BetterUnturnedExperience.Plugin
             var pageForSurface = kindForSurface == ContainerSessionKind.PlayerInventory
                 ? (byte)PlayerInventory.BACKPACK : (byte)PlayerInventory.STORAGE;
             var liveNativeItems = ReadDashboardSleekItems(pageForSurface);
-            var liveSurfaceReady = IsNativeHierarchyReady(liveNativeItems);
+            ISleekScrollView liveScroll;
+            ISleekElement liveGrid;
+            ISleekElement liveItemsPanel;
+            var hierarchyState = UnturnedInventorySurfaceContext.ProbeNativeHierarchy(liveNativeItems,
+                out liveScroll, out liveGrid, out liveItemsPanel);
+            var liveSurfaceReady = hierarchyState == UnturnedInventorySurfaceContext.NativeHierarchyState.Ready;
+            if (hierarchyState == UnturnedInventorySurfaceContext.NativeHierarchyState.Incompatible &&
+                (dashboardActive || isStoring))
+            {
+                gateDiagnostics = "featureId=io.github.yu80rice.bue.better-item-interaction"
+                    + " errorCode=NativeHierarchyIncompatible diagnosticId=BUE-INVENTORY-003"
+                    + " reason=live-parent-chain-invalid page=" + pageForSurface;
+                LastPollDiagnostics = gateDiagnostics;
+                if (surfaceDispatched) DiscardDispatchedSurface("native-hierarchy-incompatible");
+                IsolateAndDispatch();
+                return;
+            }
             if (ShouldDiscardSurface(surfaceDispatched, liveSurfaceReady) ||
                 (surfaceDispatched && !IsDispatchedSurfaceCurrent(liveNativeItems)))
             {
@@ -872,13 +970,11 @@ namespace BetterUnturnedExperience.Plugin
 
         private static bool IsNativeHierarchyReady(SleekItems sleekItems)
         {
-            if (sleekItems == null) return false;
-            var nativeScroll = UnturnedInventorySurfaceContext.NativeScrollField == null ? null : UnturnedInventorySurfaceContext.NativeScrollField.GetValue(sleekItems) as ISleekScrollView;
-            var nativeGrid = UnturnedInventorySurfaceContext.NativeGridField == null ? null : UnturnedInventorySurfaceContext.NativeGridField.GetValue(sleekItems) as ISleekElement;
-            var nativePanel = UnturnedInventorySurfaceContext.NativeItemsPanelField == null ? null : UnturnedInventorySurfaceContext.NativeItemsPanelField.GetValue(sleekItems) as ISleekElement;
-            return UnturnedInventorySurfaceContext.IsNativeHierarchyComplete(nativeScroll != null, nativeGrid != null, nativePanel != null) &&
-                UnturnedInventorySurfaceContext.IsNativeHierarchyConsistent(sleekItems, nativeScroll, nativeGrid, nativePanel,
-                    nativeScroll?.Parent, nativeGrid?.Parent, nativePanel?.Parent);
+            ISleekScrollView nativeScroll;
+            ISleekElement nativeGrid;
+            ISleekElement nativePanel;
+            return UnturnedInventorySurfaceContext.ProbeNativeHierarchy(sleekItems,
+                out nativeScroll, out nativeGrid, out nativePanel) == UnturnedInventorySurfaceContext.NativeHierarchyState.Ready;
         }
 
         private bool IsDispatchedSurfaceCurrent(SleekItems current)
@@ -934,9 +1030,7 @@ namespace BetterUnturnedExperience.Plugin
             // origin, which mixed parent and child coordinate systems and
             // yielded OutsideGrid for every real pointer.
             InventoryGridViewport viewport;
-            float uiScale = 1f;
-            uiScale = GraphicsSettings.userInterfaceScale;
-            if (uiScale <= 0f) uiScale = 1f;
+            var uiScale = UnturnedInventorySurfaceContext.NormalizeUiScale(GraphicsSettings.userInterfaceScale);
 
             var scrollSize = nativeScroll.GetAbsoluteSize();
             if (scrollSize.x <= 0f || scrollSize.y <= 0f || float.IsNaN(scrollSize.x) || float.IsNaN(scrollSize.y))
