@@ -261,6 +261,15 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             runtime.EnterSafeMode();
         }
 
+        // GPT watermark: all native preview read failures enter this one
+        // feature-local isolation seam. Cleanup unmounts pooled visuals and
+        // disables enhanced drag while vanilla input remains untouched.
+        internal void IsolatePreviewFailure()
+        {
+            runtime.Isolate();
+            HidePreview();
+        }
+
         public void OnUiInitialized(IClientUiRoot root)
         {
             OnUiInitialized(root, true, false);

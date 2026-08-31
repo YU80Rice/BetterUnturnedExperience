@@ -7,6 +7,7 @@ namespace BetterUnturnedExperience.ClientUi.Internal
     {
         void StopDrag();
         void SendDragItem(ItemGridPosition source, ItemGridPosition target);
+        void TakeGroundItem(ItemGridPosition target);
     }
 
     internal readonly struct NativeDragAdapterInput
@@ -64,7 +65,10 @@ namespace BetterUnturnedExperience.ClientUi.Internal
 
             if (input.Preview.State != PlacementPreviewState.Candidate)
             {
-                native.StopDrag();
+                // The plugin caller must still be able to hand an occupied
+                // target back to vanilla while isDragging remains true so the
+                // native swap branch can run. Non-swap callers stop the drag
+                // after this outcome is returned.
                 return NativeDragAdapterOutcome.Cancelled;
             }
 
@@ -73,7 +77,14 @@ namespace BetterUnturnedExperience.ClientUi.Internal
                 return NativeDragAdapterOutcome.PassThrough;
             }
 
-            native.SendDragItem(input.Source, target);
+            if (input.Source.Page == areaPage)
+            {
+                native.TakeGroundItem(target);
+            }
+            else
+            {
+                native.SendDragItem(input.Source, target);
+            }
             native.StopDrag();
             return NativeDragAdapterOutcome.Submitted;
         }

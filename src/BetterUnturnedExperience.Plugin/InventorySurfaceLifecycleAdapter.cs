@@ -311,12 +311,29 @@ namespace BetterUnturnedExperience.Plugin
                 IsFiniteNonNegative(clipY) ? clipY : 0f, viewportWidth, viewportHeight);
         }
 
+        // GPT watermark: the pointer sampled from SleekItems.grid is in the
+        // moving content coordinate space. The clip therefore has to be
+        // rebuilt from the current scroll position on every read, rather than
+        // being frozen when the inventory surface is first opened.
+        internal static InventoryGridViewport BuildDynamicGridViewport(byte gridWidth, byte gridHeight,
+            float contentWidth, float contentHeight, float viewportWidth, float viewportHeight,
+            float normalizedScrollY, float viewportRatio)
+        {
+            if (!IsFinitePositive(contentWidth)) contentWidth = gridWidth * 50f;
+            if (!IsFinitePositive(contentHeight)) contentHeight = gridHeight * 50f;
+            var clipY = ComputeScrollPixels(normalizedScrollY, viewportRatio, contentHeight);
+            return BuildLiveGridViewport(gridWidth, gridHeight, viewportWidth, viewportHeight, 0f, clipY);
+        }
+
         private readonly ContainerReference currentContainer;
         private readonly IVisualContainer topLevelContainer;
         private readonly IVisualContainer gridPanelContainer;
         private readonly InventoryGridViewport viewport;
         private readonly float uiScale;
         private readonly IGridOccupancyView occupancy;
+        private readonly bool hierarchyLive;
+        private readonly byte gridWidth;
+        private readonly byte gridHeight;
         internal SleekItems NativeItems { get; }
 
         private readonly FieldInfo scrollViewField;
@@ -328,7 +345,7 @@ namespace BetterUnturnedExperience.Plugin
 
         internal UnturnedInventorySurfaceContext(ContainerReference currentContainer, IVisualContainer topLevelContainer,
             IVisualContainer gridPanelContainer, InventoryGridViewport viewport, float uiScale, IGridOccupancyView occupancy,
-            SleekItems nativeItems)
+            SleekItems nativeItems, bool hierarchyLive)
         {
             this.currentContainer = currentContainer;
             this.topLevelContainer = topLevelContainer;
@@ -336,6 +353,9 @@ namespace BetterUnturnedExperience.Plugin
             this.viewport = viewport;
             this.uiScale = NormalizeUiScale(uiScale);
             this.occupancy = occupancy;
+            this.hierarchyLive = hierarchyLive;
+            gridWidth = occupancy == null ? (byte)0 : occupancy.Width;
+            gridHeight = occupancy == null ? (byte)0 : occupancy.Height;
             NativeItems = nativeItems;
             scrollViewField = NativeScrollField;
             gridField = NativeGridField;
@@ -345,7 +365,7 @@ namespace BetterUnturnedExperience.Plugin
         public ContainerReference CurrentContainer { get { return currentContainer; } }
         public IVisualContainer TopLevelContainer { get { return topLevelContainer; } }
         public IVisualContainer GridPanelContainer { get { return gridPanelContainer; } }
-        public InventoryGridViewport Viewport { get { return viewport; } }
+        public InventoryGridViewport Viewport { get { return ReadLiveViewport(); } }
         public float CellPixelSize { get { return 50f; } }
         public float UiScale { get { return uiScale; } }
         public float ScrollPixelsX { get { return ReadScrollPixelsX(); } }
@@ -384,11 +404,33 @@ namespace BetterUnturnedExperience.Plugin
             {
                 var scrollView = ResolveScrollView();
                 if (scrollView == null || occupancy == null || occupancy.Height == 0) return 0f;
-                var contentHeight = occupancy.Height * CellPixelSize * UiScale;
+                var contentHeight = ReadGridContentHeight();
+                if (!IsFinitePositive(contentHeight)) contentHeight = occupancy.Height * CellPixelSize * UiScale;
                 return ComputeScrollPixels(scrollView.NormalizedVerticalPosition,
                     scrollView.NormalizedViewportHeight, contentHeight);
             }
             catch (Exception) { return 0f; }
+        }
+
+        private float ReadGridContentHeight()
+        {
+            var grid = ResolveGrid();
+            if (grid == null) return 0f;
+            var size = grid.GetAbsoluteSize();
+            return size.y;
+        }
+
+        private InventoryGridViewport ReadLiveViewport()
+        {
+            if (!hierarchyLive) return viewport;
+            var scroll = ResolveScrollView();
+            var grid = ResolveGrid();
+            if (scroll == null || grid == null) return viewport;
+            var scrollSize = scroll.GetAbsoluteSize();
+            var contentSize = grid.GetAbsoluteSize();
+            return BuildDynamicGridViewport(gridWidth, gridHeight,
+                contentSize.x, contentSize.y, scrollSize.x, scrollSize.y,
+                scroll.NormalizedVerticalPosition, scroll.NormalizedViewportHeight);
         }
 
         internal static float ComputeScrollPixels(float normalizedPosition, float viewportRatio, float contentPixels)
@@ -658,8 +700,8 @@ namespace BetterUnturnedExperience.Plugin
 
             return new UnturnedInventorySurfaceContext(
                 new ContainerReference(MapKind(kind), page, generation),
-                topLevel, gridPanel, viewport, uiScale,
-                new UnturnedGridOccupancyView(dataItems), sleekItems);
+                 topLevel, gridPanel, viewport, uiScale,
+                 new UnturnedGridOccupancyView(dataItems), sleekItems, hierarchyLive);
         }
 
         private static ContainerKind MapKind(ContainerSessionKind kind)

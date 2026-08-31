@@ -179,8 +179,10 @@ namespace BetterUnturnedExperience.ClientUi.Tests
         {
             internal int SendCount;
             internal int StopCount;
+            internal int GroundTakeCount;
             public void SendDragItem(ItemGridPosition source, ItemGridPosition target) { SendCount++; }
             public void StopDrag() { StopCount++; }
+            public void TakeGroundItem(ItemGridPosition target) { GroundTakeCount++; }
         }
 
         private static FeatureSettingsSnapshot Snapshot(bool enabled, bool autoRotate, uint revision)

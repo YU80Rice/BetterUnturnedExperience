@@ -1,4 +1,5 @@
 using System;
+using Action = System.Action;
 using BetterUnturnedExperience.ClientUi.Internal;
 using BetterUnturnedExperience.Contracts;
 using HarmonyLib;
@@ -34,6 +35,7 @@ namespace BetterUnturnedExperience.Plugin
         private System.Reflection.FieldInfo dragFromYField;
         private System.Reflection.FieldInfo dragFromRotField;
         private System.Reflection.FieldInfo dragPivotField;
+        private System.Reflection.FieldInfo dragItemField;
         private NativeDragActions nativeActions;
         private int lastPollFrame = -1;
         private int lastDiagnosticTick;
@@ -59,6 +61,7 @@ namespace BetterUnturnedExperience.Plugin
             dragFromYField = AccessTools.Field(typeof(PlayerDashboardInventoryUI), "dragFrom_y");
             dragFromRotField = AccessTools.Field(typeof(PlayerDashboardInventoryUI), "dragFromRot");
             dragPivotField = AccessTools.Field(typeof(PlayerDashboardInventoryUI), "dragPivot");
+            dragItemField = AccessTools.Field(typeof(PlayerDashboardInventoryUI), "dragItem");
 
             var missing = new System.Collections.Generic.List<string>();
             if (AccessTools.Method(typeof(PlayerDashboardInventoryUI), "onPlacedItem") == null) missing.Add("PlayerDashboardInventoryUI.onPlacedItem");
@@ -66,6 +69,7 @@ namespace BetterUnturnedExperience.Plugin
             if (AccessTools.Field(typeof(PlayerDashboardInventoryUI), "dragJar") == null) missing.Add("PlayerDashboardInventoryUI.dragJar");
             if (AccessTools.Field(typeof(PlayerDashboardInventoryUI), "dragFromPage") == null) missing.Add("PlayerDashboardInventoryUI.dragFromPage");
             if (AccessTools.Field(typeof(PlayerDashboardInventoryUI), "dragPivot") == null) missing.Add("PlayerDashboardInventoryUI.dragPivot");
+            if (AccessTools.Field(typeof(PlayerDashboardInventoryUI), "dragItem") == null) missing.Add("PlayerDashboardInventoryUI.dragItem");
             if (AccessTools.Method(typeof(PlayerDashboardInventoryUI), "updateDraggedItem") == null) missing.Add("PlayerDashboardInventoryUI.updateDraggedItem");
             if (missing.Count > 0)
             {
@@ -116,22 +120,28 @@ namespace BetterUnturnedExperience.Plugin
 
         internal void AttachGrid(IClientUiInventorySurface surface)
         {
-            var context = surface as UnturnedInventorySurfaceContext;
-            var sleek = context?.NativeItems;
-            if (sleek == null)
+            try
             {
-                log?.LogWarning("[BUE-DRAG] event=attach-grid-failed reason=context-has-no-native-items diagnosticId=BUE-DRAG-003");
-                return;
+                var context = surface as UnturnedInventorySurfaceContext;
+                var sleek = context?.NativeItems;
+                if (sleek == null)
+                    throw new InvalidOperationException("context has no native SleekItems");
+                // Idempotence: storage and trunk share one SleekItems (page 7),
+                // and re-entry here used to wrap our own wrapper, stacking
+                // evaluation layers until a placement crashed the game.
+                if (ReferenceEquals(sleek, attachedGrid) || ReferenceEquals(sleek.onPlacedItem?.Target, this)) return;
+                DetachGrid();
+                attachedGrid = sleek;
+                nativePlacedHandler = sleek.onPlacedItem;
+                sleek.onPlacedItem = GridPlacedItemWrapper;
+                log?.LogInfo("[BUE-DRAG] event=placed-item-delegate-rebound page=" + sleek.page + " diagnosticId=BUE-DRAG-001");
             }
-            // Idempotence: storage and trunk share one SleekItems (page 7),
-            // and re-entry here used to wrap our own wrapper, stacking
-            // evaluation layers until a placement crashed the game.
-            if (ReferenceEquals(sleek, attachedGrid) || ReferenceEquals(sleek.onPlacedItem?.Target, this)) return;
-            DetachGrid();
-            attachedGrid = sleek;
-            nativePlacedHandler = sleek.onPlacedItem;
-            sleek.onPlacedItem = GridPlacedItemWrapper;
-            log?.LogInfo("[BUE-DRAG] event=placed-item-delegate-rebound page=" + sleek.page + " diagnosticId=BUE-DRAG-001");
+            catch (Exception error)
+            {
+                LastPollDiagnostics = "grid-attach-failed: " + error.GetType().FullName + ": " + error.Message;
+                log?.LogWarning("[BUE-DRAG] event=attach-grid-failed diagnosticId=BUE-DRAG-003");
+                FailClosedPreview(component.IsolatePreviewFailure, component.HidePreview);
+            }
         }
 
         internal void DetachGrid()
@@ -145,6 +155,7 @@ namespace BetterUnturnedExperience.Plugin
             catch (Exception error)
             {
                 LastPollDiagnostics = "grid-detach-failed: " + error.GetType().FullName + ": " + error.Message;
+                FailClosedPreview(component.IsolatePreviewFailure, component.HidePreview);
             }
             attachedGrid = null;
             nativePlacedHandler = null;
@@ -167,6 +178,7 @@ namespace BetterUnturnedExperience.Plugin
             catch (Exception error)
             {
                 LastPollDiagnostics = "poll failed: " + error.GetType().FullName + ": " + error.Message;
+                FailClosedPreview(adapter.component.IsolatePreviewFailure, adapter.component.HidePreview);
             }
         }
 
@@ -184,14 +196,33 @@ namespace BetterUnturnedExperience.Plugin
         internal void Tick()
         {
             if (!enabled) return;
+            if (!component.LifecycleCanRun && !component.EnhancedDragActive)
+            {
+                component.HidePreview();
+                return;
+            }
             if (Time.frameCount == lastPollFrame) return;
             lastPollFrame = Time.frameCount;
             try { Poll(); component.Tick((uint)Environment.TickCount); }
-            catch (Exception error) { LastPollDiagnostics = "plugin-update poll failed: " + error.GetType().FullName + ": " + error.Message; }
+            catch (Exception error)
+            {
+                LastPollDiagnostics = "plugin-update poll failed: " + error.GetType().FullName + ": " + error.Message;
+                FailClosedPreview(component.IsolatePreviewFailure, component.HidePreview);
+            }
+        }
+
+        // GPT watermark: isolate and hide are deliberately separate guarded
+        // callbacks so a cleanup exception cannot prevent stale visuals from
+        // being cleared or re-enable the native fallback path.
+        internal static void FailClosedPreview(Action isolate, Action hide)
+        {
+            try { isolate?.Invoke(); } catch (Exception) { }
+            try { hide?.Invoke(); } catch (Exception) { }
         }
 
         private void Poll()
         {
+            if (!component.LifecycleCanRun && !component.EnhancedDragActive) return;
             var isDragging = PlayerDashboardInventoryUI.isDragging;
             if (isDragging && !wasDragging)
             {
@@ -343,6 +374,7 @@ namespace BetterUnturnedExperience.Plugin
             catch (Exception error)
             {
                 LastPollDiagnostics = "convergence-event-failed: " + error.GetType().FullName + ": " + error.Message;
+                FailClosedPreview(component.IsolatePreviewFailure, component.HidePreview);
             }
         }
 
@@ -371,6 +403,18 @@ namespace BetterUnturnedExperience.Plugin
                 return true;
             }
 
+            // Vanilla performs swaps inside onPlacedItem while isDragging is
+            // still true. Only an invalid occupied preview is handed back to
+            // vanilla; a valid preview may intentionally choose a nearby free
+            // cell and must remain BUE-owned.
+            if (preview.State == PlacementPreviewState.LocallyInvalid &&
+                preview.Reason == PlacementReason.Occupied && IsSwapOntoOccupied(page, x, y))
+            {
+                component.HidePreview();
+                log?.LogInfo("[BUE-DRAG] event=placement-passthrough reason=native-swap diagnosticId=BUE-DRAG-001");
+                return true;
+            }
+
             var input = new NativeDragAdapterInput(
                 PlayerDashboardInventoryUI.isDragging, dragGeneration,
                 ReadDragSource(), preview);
@@ -382,14 +426,6 @@ namespace BetterUnturnedExperience.Plugin
                 lastSubmittedGeneration = dragGeneration;
                 PlayerDashboardInventoryUI.stopDrag();
                 return false;
-            }
-            if (outcome == NativeDragAdapterOutcome.Cancelled && IsSwapOntoOccupied(page, x, y))
-            {
-                // A swap onto an occupied same-page cell is a native operation:
-                // BUE declines to act (no stopDrag - the vanilla swap branch
-                // requires isDragging to still be true) and lets the vanilla
-                // path run with the drag state untouched.
-                return true;
             }
             if (outcome == NativeDragAdapterOutcome.Cancelled)
             {
@@ -493,6 +529,11 @@ namespace BetterUnturnedExperience.Plugin
             return dragPivotField == null ? Vector2.zero : (Vector2)dragPivotField.GetValue(null);
         }
 
+        private SleekItem ReadDragItem()
+        {
+            return dragItemField == null ? null : dragItemField.GetValue(null) as SleekItem;
+        }
+
         private static Vector2 ReadTopLevelPointerScale()
         {
             try
@@ -537,6 +578,16 @@ namespace BetterUnturnedExperience.Plugin
                 if (player == null || player.inventory == null) return;
                 player.inventory.sendDragItem(source.Page, source.X, source.Y,
                     target.Page, target.X, target.Y, target.Rotation);
+            }
+
+            public void TakeGroundItem(ItemGridPosition target)
+            {
+                var adapter = ActiveAdapter;
+                var dragItem = adapter == null ? null : adapter.ReadDragItem();
+                var interactable = dragItem == null || dragItem.jar == null ? null : dragItem.jar.interactableItem;
+                if (interactable == null || interactable.transform == null || interactable.transform.parent == null)
+                    throw new InvalidOperationException("native ground item is no longer available");
+                ItemManager.takeItem(interactable.transform.parent, target.X, target.Y, target.Rotation, target.Page);
             }
         }
     }

@@ -89,7 +89,7 @@ namespace BetterUnturnedExperience.ClientUi.Tests
         {
             var adapter = new NativeInventoryInteractionAdapter(2, 8);
             var native = new RecordingNativeDragActions();
-            var source = new ItemGridPosition(8, 1, 2, 0);
+            var source = new ItemGridPosition(7, 1, 2, 0);
             var target = new ItemGridPosition(7, 3, 4, 1);
             var candidate = new ItemPlacementPreview(12, PlacementPreviewState.Candidate, target, 2, 3, PlacementReason.None);
             var input = new NativeDragAdapterInput(true, 12, source, candidate);
@@ -97,13 +97,15 @@ namespace BetterUnturnedExperience.ClientUi.Tests
             Assert(adapter.HandleRelease(input, native) == NativeDragAdapterOutcome.Submitted, "ordinary grid candidate submits through native port");
             Assert(native.StopCount == 1 && native.SendCount == 1, "ordinary candidate submits and then clears the native drag");
             Assert(native.OperationOrder == "send>stop", "ordinary candidate sends before stopping the native drag");
-            Assert(native.LastSource.Page == 8 && native.LastTarget.Page == 7 && native.LastTarget.Rotation == 1, "native submission preserves source and candidate coordinates");
+            Assert(native.LastSource.Page == 7 && native.LastTarget.Page == 7 && native.LastTarget.Rotation == 1, "native submission preserves source and candidate coordinates");
 
             native.Reset();
             var groundSource = new ItemGridPosition(8, 0, 0, 0);
             var groundInput = new NativeDragAdapterInput(true, 13, groundSource,
                 new ItemPlacementPreview(13, PlacementPreviewState.Candidate, new ItemGridPosition(7, 0, 0, 0), 1, 1, PlacementReason.None));
             Assert(adapter.HandleRelease(groundInput, native) == NativeDragAdapterOutcome.Submitted, "ground source to ordinary grid is enhanced");
+            Assert(native.GroundTakeCount == 1 && native.SendCount == 0 && native.StopCount == 1,
+                "ground source uses native ItemManager.takeItem semantics and never sends AREA through sendDragItem");
 
             native.Reset();
             var equipmentTarget = new ItemPlacementPreview(14, PlacementPreviewState.Candidate, new ItemGridPosition(1, 0, 0, 0), 1, 1, PlacementReason.None);
@@ -123,7 +125,7 @@ namespace BetterUnturnedExperience.ClientUi.Tests
             native.Reset();
             var invalid = new ItemPlacementPreview(16, PlacementPreviewState.LocallyInvalid, new ItemGridPosition(7, 3, 4, 1), 2, 3, PlacementReason.Occupied);
             Assert(adapter.HandleRelease(new NativeDragAdapterInput(true, 16, source, invalid), native) == NativeDragAdapterOutcome.Cancelled, "invalid ordinary candidate cancels enhanced drag");
-            Assert(native.StopCount == 1 && native.SendCount == 0, "invalid ordinary candidate stops without native submission");
+            Assert(native.StopCount == 0 && native.SendCount == 0, "invalid ordinary candidate leaves native drag live for swap/pass-through decision");
 
             native.Reset();
             Assert(adapter.HandleRelease(new NativeDragAdapterInput(false, 17, source, candidate), native) == NativeDragAdapterOutcome.PassThrough, "ended drag is native pass-through");
@@ -142,7 +144,8 @@ namespace BetterUnturnedExperience.ClientUi.Tests
             var ordinarySource = new ItemGridPosition(7, 3, 4, 0);
             var sameInvalid = new ItemPlacementPreview(22, PlacementPreviewState.LocallyInvalid, new ItemGridPosition(7, 3, 4, 0), 1, 1, PlacementReason.Occupied);
             Assert(adapter.HandleRelease(new NativeDragAdapterInput(true, 22, ordinarySource, sameInvalid), native) == NativeDragAdapterOutcome.Cancelled, "same placement with invalid preview cancels enhanced drag");
-            Assert(native.StopCount == 1 && native.SendCount == 0, "same placement invalid preview stops without submission");
+            Assert(native.StopCount == 0 && native.SendCount == 0, "same placement invalid preview keeps native drag live for vanilla swap handling");
+
         }
 
         private static void Assert(bool condition, string message) { if (!condition) throw new InvalidOperationException(message); }
@@ -180,6 +183,7 @@ namespace BetterUnturnedExperience.ClientUi.Tests
         {
             public int StopCount { get; private set; }
             public int SendCount { get; private set; }
+            public int GroundTakeCount { get; private set; }
             public ItemGridPosition LastSource { get; private set; }
             public ItemGridPosition LastTarget { get; private set; }
             public string OperationOrder { get; private set; }
@@ -194,10 +198,18 @@ namespace BetterUnturnedExperience.ClientUi.Tests
                 OperationOrder += "send";
             }
 
+            public void TakeGroundItem(ItemGridPosition target)
+            {
+                GroundTakeCount++;
+                LastTarget = target;
+                OperationOrder += "ground";
+            }
+
             public void Reset()
             {
                 StopCount = 0;
                 SendCount = 0;
+                GroundTakeCount = 0;
                 LastSource = default(ItemGridPosition);
                 LastTarget = default(ItemGridPosition);
                 OperationOrder = string.Empty;

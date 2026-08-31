@@ -69,6 +69,9 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 AssertNativeLikeViewportScaleAndHierarchyBehavior();
                 AssertLiveGridScrollContract();
                 AssertLiveGridPointerReachesCandidateSeam();
+                AssertDev16DR44SymptomsReproduce();
+                AssertDynamicViewportTracksCurrentScroll();
+                AssertPreviewReadFailureRoutesThroughIsolation();
                 AssertRuntimeCompletionBarrierIsolates();
                 AssertManagementPanelConsumesRuntimeCatalog();
                 AssertManagementPanelOpenHooks();
@@ -267,6 +270,29 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 new IGridOccupancyViewForTest(8, 6));
             Assert(!InventoryGridCoordinateAdapter.TryCreateCandidateInput(outside, out candidate),
                 "pointer outside live viewport fails closed");
+        }
+
+        // GPT watermark: R1 red regression. A surface opened at scroll=0 must
+        // expose a live viewport whose content clip follows the same native
+        // scroll position after the user scrolls to the bottom.
+        private static void AssertDynamicViewportTracksCurrentScroll()
+        {
+            var top = UnturnedInventorySurfaceContext.BuildDynamicGridViewport(8, 12, 400f, 600f, 400f, 300f, 0f, 0.5f);
+            var bottom = UnturnedInventorySurfaceContext.BuildDynamicGridViewport(8, 12, 400f, 600f, 400f, 300f, 1f, 0.5f);
+            Assert(Math.Abs(top.ClipY) < 0.001f, "top scroll starts at content clip origin");
+            Assert(Math.Abs(bottom.ClipY - 300f) < 0.001f, "bottom scroll advances content clip by the live scroll range");
+            Assert(Math.Abs(bottom.ClipHeight - 300f) < 0.001f, "dynamic viewport keeps native viewport height");
+        }
+
+        // GPT watermark: R1 red regression. Native reflection/geometry errors
+        // must enter one fail-closed seam that isolates the feature and hides
+        // any stale projection instead of merely recording a diagnostic.
+        private static void AssertPreviewReadFailureRoutesThroughIsolation()
+        {
+            var isolateCount = 0;
+            var hideCount = 0;
+            InventoryDragPreviewAdapter.FailClosedPreview(() => isolateCount++, () => hideCount++);
+            Assert(isolateCount == 1 && hideCount == 1, "preview read failure isolates once and hides stale visuals");
         }
 
         private sealed class IGridOccupancyViewForTest : IGridOccupancyView
