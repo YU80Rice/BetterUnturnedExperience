@@ -35,6 +35,16 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     AssertDev16DR9CleanupPropagationContracts();
                     return 0;
                 }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--dev16d-r10-red")
+                {
+                    AssertGridContentPointerDoesNotDoubleApplyScroll();
+                    return 0;
+                }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--dev16d-r11-red")
+                {
+                    AssertDragTickDefersFrameCommitUntilSurfaceReady();
+                    return 0;
+                }
                 AssertSingleDllAssemblyClosure();
                 AssertExternalSdkAssemblyIdentity();
                 Assert(BootstrapGuard.Decide(false, false, true) == BootstrapDecision.Client, "client decision");
@@ -76,6 +86,8 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 AssertStrictNativeGeometryRejectsInvalidValues();
                 AssertDev16DR5ActivationAndCleanupContracts();
                 AssertLiveGridPointerReachesCandidateSeam();
+                AssertGridContentPointerDoesNotDoubleApplyScroll();
+                AssertDragTickDefersFrameCommitUntilSurfaceReady();
                 AssertDev16DR44SymptomsReproduce();
                 AssertDynamicViewportTracksCurrentScroll();
                 AssertPreviewReadFailureRoutesThroughIsolation();
@@ -387,6 +399,47 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 new IGridOccupancyViewForTest(8, 6));
             Assert(!InventoryGridCoordinateAdapter.TryCreateCandidateInput(outside, out candidate),
                 "pointer outside live viewport fails closed");
+        }
+
+        // GPT watermark: DEV-16D R10 red regression. U3-SDK's
+        // SleekItems.grid.GetNormalizedCursorPosition() reports a pointer in
+        // the scrolled grid-content coordinate space. The candidate adapter
+        // must therefore not add the scroll offset a second time.
+        private static void AssertGridContentPointerDoesNotDoubleApplyScroll()
+        {
+            var input = new InventoryPreviewInput(
+                10,
+                new ItemGridPosition(3, 0, 0, 0),
+                new ContainerReference(ContainerKind.PlayerInventory, 3, 10),
+                125f, 125f,
+                new InventoryGridViewport(0f, 0f, 5, 8, 0f, 100f, 250f, 300f),
+                50f, 1f, 0f, 100f,
+                1, 1, 0, false, 0.5f, 0.5f,
+                ItemAssetIdentity.FromItemId(363),
+                float.NaN, float.NaN, float.NaN, float.NaN,
+                InventoryPointerCoordinateSpace.GridContentLocal,
+                new IGridOccupancyViewForTest(5, 8));
+            PlacementCandidateInput candidate;
+            Assert(InventoryGridCoordinateAdapter.TryCreateCandidateInput(input, out candidate),
+                "scrolled native grid-content pointer reaches the candidate seam");
+            Assert(Math.Abs(candidate.CursorGridX - 2.5f) < 0.001f &&
+                   Math.Abs(candidate.CursorGridY - 2.5f) < 0.001f,
+                "grid-content pointer consumes native scroll exactly once");
+        }
+
+        // GPT watermark: DEV-16D R11 red regression. The native
+        // updateDraggedItem fast path can run before PlayerUI.Update's
+        // lifecycle poll dispatches the first inventory surface. A dragging
+        // frame without a surface must remain retryable so the later same
+        // frame dispatch can evaluate and render the preview.
+        private static void AssertDragTickDefersFrameCommitUntilSurfaceReady()
+        {
+            Assert(!InventoryDragPreviewAdapter.ShouldCommitPollFrame(true, false),
+                "drag tick does not consume a frame before the inventory surface is ready");
+            Assert(InventoryDragPreviewAdapter.ShouldCommitPollFrame(true, true),
+                "drag tick commits a frame after the inventory surface is ready");
+            Assert(InventoryDragPreviewAdapter.ShouldCommitPollFrame(false, false),
+                "idle tick remains frame-deduplicated without an inventory surface");
         }
 
         // GPT watermark: R1 red regression. A surface opened at scroll=0 must

@@ -224,8 +224,15 @@ namespace BetterUnturnedExperience.ClientUi.Internal
                 return false;
             }
 
-            var pointerGridX = (input.PointerScreenX - input.Viewport.OriginX + input.ScrollPixelsX) / scaledCellSize;
-            var pointerGridY = (input.PointerScreenY - input.Viewport.OriginY + input.ScrollPixelsY) / scaledCellSize;
+            // A pointer sampled from the native grid is already in the
+            // scrolled content coordinate space. Screen/viewport-local input
+            // still needs the native scroll offset exactly once.
+            var effectiveScrollX = input.PointerCoordinateSpace == InventoryPointerCoordinateSpace.GridContentLocal
+                ? 0f : input.ScrollPixelsX;
+            var effectiveScrollY = input.PointerCoordinateSpace == InventoryPointerCoordinateSpace.GridContentLocal
+                ? 0f : input.ScrollPixelsY;
+            var pointerGridX = (input.PointerScreenX - input.Viewport.OriginX + effectiveScrollX) / scaledCellSize;
+            var pointerGridY = (input.PointerScreenY - input.Viewport.OriginY + effectiveScrollY) / scaledCellSize;
             var intendedCenterX = pointerGridX + width / 2f - grabX;
             var intendedCenterY = pointerGridY + height / 2f - grabY;
             if (!IsFinite(intendedCenterX) || !IsFinite(intendedCenterY))

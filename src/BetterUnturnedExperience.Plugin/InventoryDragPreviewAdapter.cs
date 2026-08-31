@@ -405,6 +405,16 @@ namespace BetterUnturnedExperience.Plugin
         internal static string LastPollDiagnostics { get; private set; }
         internal static string LastCleanupDiagnostics { get; private set; }
 
+        // GPT watermark: the updateDraggedItem postfix can run before the
+        // PlayerUI.Update lifecycle poll has published the first surface for a
+        // newly opened inventory. Do not consume that frame while a drag is in
+        // progress and no surface exists; the later same-frame lifecycle tick
+        // must remain able to evaluate the preview.
+        internal static bool ShouldCommitPollFrame(bool isDragging, bool hasSurface)
+        {
+            return !isDragging || hasSurface;
+        }
+
         // GPT watermark: reliable plugin-owned main-thread fallback, matching
         // UPM's BaseUnityPlugin.Update driver; Harmony remains a fast path.
         internal void Tick()
@@ -415,9 +425,16 @@ namespace BetterUnturnedExperience.Plugin
                 component.HidePreview();
                 return;
             }
-            if (Time.frameCount == lastPollFrame) return;
-            lastPollFrame = Time.frameCount;
-            try { Poll(); component.Tick((uint)Environment.TickCount); }
+            var frame = Time.frameCount;
+            if (frame == lastPollFrame) return;
+            var isDragging = PlayerDashboardInventoryUI.isDragging;
+            try
+            {
+                Poll();
+                component.Tick((uint)Environment.TickCount);
+                if (ShouldCommitPollFrame(isDragging, component.CurrentSurface != null))
+                    lastPollFrame = frame;
+            }
             catch (Exception error)
             {
                 LastPollDiagnostics = "plugin-update poll failed: " + error.GetType().FullName + ": " + error.Message;

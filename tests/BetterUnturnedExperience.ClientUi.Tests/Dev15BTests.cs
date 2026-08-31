@@ -27,6 +27,7 @@ namespace BetterUnturnedExperience.ClientUi.Tests
             BetterItemInteractionUiComponentLifecycleAndDragFlow();
             BetterItemInteractionUiComponentBindsSurfaceContextAndCreatesInput();
             BetterItemInteractionUiComponentRejectsStaleSessionGenerationAndSwitchedContainer();
+            BetterItemInteractionUiComponentRearmsDragWhenSurfaceArrivesAfterDragStart();
             BetterItemInteractionUiComponentDestructionAndSafeModeCleansUpVisuals();
             SleekSinkHotPathZeroAllocationTest();
             NativeMouseCoordinatesMatchSleekTopLeftSpace();
@@ -426,6 +427,39 @@ namespace BetterUnturnedExperience.ClientUi.Tests
             Assert(component.CurrentSessionGeneration == 302, "session generation updated to new container");
             Assert(component.CurrentContainer.Page == 4, "container page updated to new container");
 
+            component.OnInventoryClosed();
+        }
+
+        // GPT watermark: DEV-16D R12 red regression. The native
+        // updateDraggedItem callback can observe isDragging before the
+        // lifecycle poll publishes its first surface. Opening that surface
+        // must not end the active presenter drag, or all later updates remain
+        // stale and no preview can become visible.
+        private static void BetterItemInteractionUiComponentRearmsDragWhenSurfaceArrivesAfterDragStart()
+        {
+            var evaluator = new FixedEvaluator(new ItemPlacementPreview(41, PlacementPreviewState.Candidate,
+                new ItemGridPosition(3, 1, 0, 0), 1, 1, PlacementReason.None));
+            var component = new BetterItemInteractionUiComponent(
+                new InventoryPreviewPresenter(new InventoryDragPresenter(evaluator)),
+                new NativeInventoryInteractionAdapter(2, 8));
+            component.OnUiInitialized(new Program.TestRoot());
+            component.OnDragStarted(41, ItemAssetIdentity.FromItemId(363));
+
+            var surface = new MockInventorySurfaceContext(
+                new ContainerReference(ContainerKind.PlayerInventory, 3, 501),
+                new MockVisualContainer(), new MockVisualContainer(),
+                new InventoryGridViewport(0f, 0f, 8, 6, 0f, 0f, 400f, 300f),
+                50f, 1f, 0f, 0f, new TestGrid(8, 6));
+            component.OnInventoryOpened(surface);
+
+            InventoryPreviewInput input;
+            Assert(component.TryCreatePreviewInput(41, new ItemGridPosition(8, 0, 0, 0),
+                125f, 125f, 1, 1, 0, true, 0.5f, 0.5f,
+                ItemAssetIdentity.FromItemId(363), out input),
+                "surface arrival during an active drag creates a preview input");
+            component.OnDragUpdated(input);
+            Assert(component.PreviewSink != null && component.PreviewSink.IsFrameVisible,
+                "surface arrival preserves the active presenter drag and renders a preview");
             component.OnInventoryClosed();
         }
 

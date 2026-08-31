@@ -188,6 +188,7 @@ namespace BetterUnturnedExperience.ClientUi.Internal
         private IInventorySurfaceContext currentSurface;
         private ContainerReference currentContainer;
         private uint currentSessionGeneration;
+        private uint currentDragGeneration;
         private InventoryPreviewVisualSink previewSink;
         private bool isInventoryOpen;
         private bool satelliteAvailable = true;
@@ -303,6 +304,8 @@ namespace BetterUnturnedExperience.ClientUi.Internal
         public void OnInventoryOpened(IClientUiInventorySurface inventory)
         {
             if (lifecycle.State == FeatureState.Discovered) runtime.Start(true, satelliteAvailable);
+            var rearmDrag = runtime.EnhancedDragActive;
+            var rearmGeneration = currentDragGeneration;
             CleanupUiAndDrag();
             if (lifecycle.SafeMode || !lifecycle.CanRun || !satelliteAvailable || headless)
             {
@@ -316,6 +319,10 @@ namespace BetterUnturnedExperience.ClientUi.Internal
                 currentContainer = surfaceContext.CurrentContainer;
                 currentSessionGeneration = surfaceContext.CurrentContainer.SessionGeneration;
                 BindVisualSink(surfaceContext.TopLevelContainer, surfaceContext.GridPanelContainer);
+                if (rearmDrag && rearmGeneration != 0)
+                {
+                    previewPresenter.BeginDrag(rearmGeneration);
+                }
             }
             else
             {
@@ -336,6 +343,7 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             }
             runtime.EndDrag();
             previewPresenter.EndDrag();
+            currentDragGeneration = 0;
         }
 
         public void OnUiDestroyed()
@@ -361,6 +369,7 @@ namespace BetterUnturnedExperience.ClientUi.Internal
 
         internal void OnDragStarted(uint dragGeneration, ItemAssetIdentity dragAsset)
         {
+            currentDragGeneration = dragGeneration;
             currentDragAsset = dragAsset;
             runtime.BeginDrag(dragGeneration);
             if (runtime.EnhancedDragActive && previewSink == null && currentSurface != null && satelliteAvailable && !headless)
@@ -415,6 +424,7 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             {
                 runtime.EndDrag();
                 previewPresenter.EndDrag();
+                currentDragGeneration = 0;
                 return NativeDragAdapterOutcome.PassThrough;
             }
             previewPresenter.EndDrag();
@@ -436,11 +446,13 @@ namespace BetterUnturnedExperience.ClientUi.Internal
                         projectionSink?.OnProjectionSubmitted(binding);
                     }
                 }
+                currentDragGeneration = 0;
                 return outcome;
             }
             catch (Exception)
             {
                 runtime.Isolate();
+                currentDragGeneration = 0;
                 return NativeDragAdapterOutcome.PassThrough;
             }
         }
@@ -467,6 +479,7 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             }
             runtime.EndDrag();
             previewPresenter.EndDrag();
+            currentDragGeneration = 0;
         }
 
         internal void HidePreview()
