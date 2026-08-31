@@ -305,21 +305,29 @@ namespace BetterUnturnedExperience.Plugin.Tests
             var forwarded = 0;
             var isolated = 0;
             var hidden = 0;
+            var detached = 0;
             InventoryDragPreviewAdapter.InvokePlacedItemGuarded(
                 () => { throw new InvalidOperationException("synthetic evaluate failure"); },
-                () => forwarded++, () => isolated++, () => hidden++);
-            Assert(forwarded == 1 && isolated == 1 && hidden == 1,
+                () => forwarded++, () => isolated++, () => hidden++, () => detached++);
+            Assert(forwarded == 1 && isolated == 1 && hidden == 1 && detached == 1,
                 "placed-item evaluation failure isolates, hides, and preserves native fallback");
 
             forwarded = 0;
             isolated = 0;
             hidden = 0;
+            detached = 0;
             InventoryDragPreviewAdapter.InvokePlacedItemGuarded(
                 () => true,
                 () => { throw new InvalidOperationException("synthetic native callback failure"); },
-                () => isolated++, () => hidden++);
-            Assert(forwarded == 0 && isolated == 1 && hidden == 1,
+                () => isolated++, () => hidden++, () => detached++);
+            Assert(forwarded == 0 && isolated == 1 && hidden == 1 && detached == 1,
                 "native placed-item callback failure is contained and isolated");
+
+            var cleanupOk = InventoryDragPreviewAdapter.FailClosedPreview(
+                () => { throw new InvalidOperationException("synthetic isolate cleanup failure"); },
+                () => { throw new InvalidOperationException("synthetic hide cleanup failure"); });
+            Assert(!cleanupOk && InventoryDragPreviewAdapter.LastCleanupDiagnostics.Contains("cleanup"),
+                "cleanup exceptions are reported as incomplete instead of being silently swallowed");
 
             isolated = 0;
             hidden = 0;

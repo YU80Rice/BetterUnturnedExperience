@@ -27,6 +27,7 @@ namespace BetterUnturnedExperience.Plugin
 
         private BetterItemInteractionUiComponent component;
         private bool hooksInstalled;
+        private bool isolated;
         private bool wasDragging;
         private uint dragGeneration;
         private System.Reflection.FieldInfo dragJarField;
@@ -46,6 +47,7 @@ namespace BetterUnturnedExperience.Plugin
         internal bool Enabled { get { return enabled; } }
         internal string GateDiagnostics { get { return gateDiagnostics; } }
         internal bool HooksInstalled { get { return hooksInstalled; } }
+        internal bool Isolated { get { return isolated; } }
 
         internal InventoryDragPreviewAdapter(BepInEx.Logging.ManualLogSource log,
             BetterItemInteractionUiComponent component)
@@ -88,7 +90,7 @@ namespace BetterUnturnedExperience.Plugin
 
         internal void Activate()
         {
-            if (!enabled || hooksInstalled) return;
+            if (!enabled || hooksInstalled || isolated) return;
             try
             {
                 // Drives the drag poll on the dashboard-inventory UI tick itself
@@ -140,7 +142,7 @@ namespace BetterUnturnedExperience.Plugin
             {
                 LastPollDiagnostics = "grid-attach-failed: " + error.GetType().FullName + ": " + error.Message;
                 log?.LogWarning("[BUE-DRAG] event=attach-grid-failed diagnosticId=BUE-DRAG-003");
-                FailClosedPreview(component.IsolatePreviewFailure, component.HidePreview);
+                IsolateAndDetach();
             }
         }
 
@@ -149,16 +151,53 @@ namespace BetterUnturnedExperience.Plugin
             if (attachedGrid == null) return;
             try
             {
-                if (ReferenceEquals(attachedGrid.onPlacedItem?.Target, this))
-                    attachedGrid.onPlacedItem = nativePlacedHandler;
+                DetachGridCore();
             }
             catch (Exception error)
             {
                 LastPollDiagnostics = "grid-detach-failed: " + error.GetType().FullName + ": " + error.Message;
-                FailClosedPreview(component.IsolatePreviewFailure, component.HidePreview);
+                IsolateAndDetach();
             }
+        }
+
+        private void DetachGridCore()
+        {
+            if (attachedGrid == null) return;
+            if (ReferenceEquals(attachedGrid.onPlacedItem?.Target, this))
+                attachedGrid.onPlacedItem = nativePlacedHandler;
             attachedGrid = null;
             nativePlacedHandler = null;
+        }
+
+        // GPT watermark: detach every native callback and event subscription
+        // before isolating the feature, so an exception cannot leave a stale
+        // wrapper or static adapter receiving future frames.
+        internal void IsolateAndDetach()
+        {
+            isolated = true;
+            DetachAndDeactivate();
+            FailClosedPreview(component.IsolatePreviewFailure, component.HidePreview);
+        }
+
+        private void DetachAndDeactivate()
+        {
+            try { DetachGridCore(); }
+            catch (Exception error)
+            {
+                LastPollDiagnostics = "grid-detach-isolation-failed: " + error.GetType().FullName + ": " + error.Message;
+            }
+            try { UnsubscribeInventoryEvents(); }
+            catch (Exception error)
+            {
+                LastPollDiagnostics = "inventory-unsubscribe-isolation-failed: " + error.GetType().FullName + ": " + error.Message;
+            }
+            try { harmony.UnpatchSelf(); }
+            catch (Exception error)
+            {
+                LastPollDiagnostics = "hook-unpatch-isolation-failed: " + error.GetType().FullName + ": " + error.Message;
+            }
+            hooksInstalled = false;
+            ClearActive(this);
         }
 
         private void GridPlacedItemWrapper(byte page, byte x, byte y)
@@ -168,13 +207,19 @@ namespace BetterUnturnedExperience.Plugin
                 () => EvaluatePlacement(page, x, y),
                 () => native?.Invoke(page, x, y),
                 component.IsolatePreviewFailure,
-                component.HidePreview);
+                component.HidePreview,
+                DetachAndDeactivate);
         }
 
         // GPT watermark: the U3-SDK invokes SleekItems.onPlacedItem directly
         // without an exception boundary. Keep the BUE wrapper fail-closed while
         // forwarding evaluation failures back to the vanilla callback.
         internal static void InvokePlacedItemGuarded(Func<bool> evaluate, Action forward, Action isolate, Action hide)
+        {
+            InvokePlacedItemGuarded(evaluate, forward, isolate, hide, null);
+        }
+
+        internal static void InvokePlacedItemGuarded(Func<bool> evaluate, Action forward, Action isolate, Action hide, Action detach)
         {
             bool passThrough;
             try
@@ -184,6 +229,7 @@ namespace BetterUnturnedExperience.Plugin
             catch (Exception error)
             {
                 LastPollDiagnostics = "placed-item-evaluate-failed: " + error.GetType().FullName + ": " + error.Message;
+                TryDetach(detach);
                 FailClosedPreview(isolate, hide);
                 try { forward?.Invoke(); } catch (Exception nativeError)
                 {
@@ -197,7 +243,17 @@ namespace BetterUnturnedExperience.Plugin
             catch (Exception error)
             {
                 LastPollDiagnostics = "placed-item-native-failed: " + error.GetType().FullName + ": " + error.Message;
+                TryDetach(detach);
                 FailClosedPreview(isolate, hide);
+            }
+        }
+
+        private static void TryDetach(Action detach)
+        {
+            try { detach?.Invoke(); }
+            catch (Exception error)
+            {
+                LastPollDiagnostics = "placed-item-detach-failed: " + error.GetType().FullName + ": " + error.Message;
             }
         }
 
@@ -212,7 +268,7 @@ namespace BetterUnturnedExperience.Plugin
             catch (Exception error)
             {
                 LastPollDiagnostics = "poll failed: " + error.GetType().FullName + ": " + error.Message;
-                FailClosedPreview(adapter.component.IsolatePreviewFailure, adapter.component.HidePreview);
+                adapter.IsolateAndDetach();
             }
         }
 
@@ -224,12 +280,13 @@ namespace BetterUnturnedExperience.Plugin
         }
 
         internal static string LastPollDiagnostics { get; private set; }
+        internal static string LastCleanupDiagnostics { get; private set; }
 
         // GPT watermark: reliable plugin-owned main-thread fallback, matching
         // UPM's BaseUnityPlugin.Update driver; Harmony remains a fast path.
         internal void Tick()
         {
-            if (!enabled) return;
+            if (!enabled || isolated) return;
             if (!component.LifecycleCanRun && !component.EnhancedDragActive)
             {
                 component.HidePreview();
@@ -241,17 +298,30 @@ namespace BetterUnturnedExperience.Plugin
             catch (Exception error)
             {
                 LastPollDiagnostics = "plugin-update poll failed: " + error.GetType().FullName + ": " + error.Message;
-                FailClosedPreview(component.IsolatePreviewFailure, component.HidePreview);
+                IsolateAndDetach();
             }
         }
 
         // GPT watermark: isolate and hide are deliberately separate guarded
         // callbacks so a cleanup exception cannot prevent stale visuals from
         // being cleared or re-enable the native fallback path.
-        internal static void FailClosedPreview(Action isolate, Action hide)
+        internal static bool FailClosedPreview(Action isolate, Action hide)
         {
-            try { isolate?.Invoke(); } catch (Exception) { }
-            try { hide?.Invoke(); } catch (Exception) { }
+            LastCleanupDiagnostics = null;
+            var success = true;
+            try { isolate?.Invoke(); }
+            catch (Exception error)
+            {
+                success = false;
+                LastCleanupDiagnostics = "cleanup-isolate-failed: " + error.GetType().FullName + ": " + error.Message;
+            }
+            try { hide?.Invoke(); }
+            catch (Exception error)
+            {
+                success = false;
+                LastCleanupDiagnostics = "cleanup-hide-failed: " + error.GetType().FullName + ": " + error.Message;
+            }
+            return success;
         }
 
         private void Poll()
@@ -371,18 +441,22 @@ namespace BetterUnturnedExperience.Plugin
         {
             var player = Player.LocalPlayer;
             if (ReferenceEquals(player, subscribedPlayer)) return;
-            if (subscribedPlayer != null)
-            {
-                subscribedPlayer.inventory.onInventoryAdded -= OnNativeInventoryEvent;
-                subscribedPlayer.inventory.onInventoryRemoved -= OnNativeInventoryEvent;
-                subscribedPlayer.inventory.onInventoryUpdated -= OnNativeInventoryEvent;
-            }
+            UnsubscribeInventoryEvents();
             subscribedPlayer = player;
             if (player == null) return;
             player.inventory.onInventoryAdded += OnNativeInventoryEvent;
             player.inventory.onInventoryRemoved += OnNativeInventoryEvent;
             player.inventory.onInventoryUpdated += OnNativeInventoryEvent;
             log?.LogInfo("[BUE-DRAG] event=inventory-events-subscribed diagnosticId=BUE-DRAG-001");
+        }
+
+        private void UnsubscribeInventoryEvents()
+        {
+            if (subscribedPlayer == null) return;
+            subscribedPlayer.inventory.onInventoryAdded -= OnNativeInventoryEvent;
+            subscribedPlayer.inventory.onInventoryRemoved -= OnNativeInventoryEvent;
+            subscribedPlayer.inventory.onInventoryUpdated -= OnNativeInventoryEvent;
+            subscribedPlayer = null;
         }
 
         private void OnNativeInventoryEvent(byte page, byte index, ItemJar jar)
@@ -408,7 +482,7 @@ namespace BetterUnturnedExperience.Plugin
             catch (Exception error)
             {
                 LastPollDiagnostics = "convergence-event-failed: " + error.GetType().FullName + ": " + error.Message;
-                FailClosedPreview(component.IsolatePreviewFailure, component.HidePreview);
+                IsolateAndDetach();
             }
         }
 

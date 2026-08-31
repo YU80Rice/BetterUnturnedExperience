@@ -300,8 +300,7 @@ namespace BetterUnturnedExperience.Plugin
                 DestroyRuntimePump();
                 if (pluginUpdateDriver != null) pluginUpdateDriver.Clear();
                 if (nativeManagementPanel != null) nativeManagementPanel.Destroy();
-                if (inventoryDragAdapter != null) inventoryDragAdapter.DetachGrid();
-                if (inventoryDragAdapter != null) InventoryDragPreviewAdapter.ClearActive(inventoryDragAdapter);
+                if (inventoryDragAdapter != null) inventoryDragAdapter.IsolateAndDetach();
                 if (inventoryLifecycleAdapter != null) InventorySurfaceLifecycleAdapter.ClearActive(inventoryLifecycleAdapter);
                 if (clientUiComposition != null) clientUiComposition.Destroy();
             }

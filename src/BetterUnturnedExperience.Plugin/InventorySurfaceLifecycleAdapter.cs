@@ -400,16 +400,12 @@ namespace BetterUnturnedExperience.Plugin
 
         internal float ReadScrollPixelsY()
         {
-            try
-            {
-                var scrollView = ResolveScrollView();
-                if (scrollView == null || occupancy == null || occupancy.Height == 0) return 0f;
-                var contentHeight = ReadGridContentHeight();
-                if (!IsFinitePositive(contentHeight)) contentHeight = occupancy.Height * CellPixelSize * UiScale;
-                return ComputeScrollPixels(scrollView.NormalizedVerticalPosition,
-                    scrollView.NormalizedViewportHeight, contentHeight);
-            }
-            catch (Exception) { return 0f; }
+            var scrollView = ResolveScrollView();
+            if (scrollView == null || occupancy == null || occupancy.Height == 0) return 0f;
+            var contentHeight = ReadGridContentHeight();
+            if (!IsFinitePositive(contentHeight)) contentHeight = occupancy.Height * CellPixelSize * UiScale;
+            return ComputeScrollPixels(scrollView.NormalizedVerticalPosition,
+                scrollView.NormalizedViewportHeight, contentHeight);
         }
 
         private float ReadGridContentHeight()
@@ -666,9 +662,7 @@ namespace BetterUnturnedExperience.Plugin
 
             var dashboardFields = typeof(PlayerDashboardInventoryUI);
             if (UnturnedInventorySurfaceContext.DashboardItemsField == null) return null;
-            Array dashboardItems;
-            try { dashboardItems = UnturnedInventorySurfaceContext.DashboardItemsField.GetValue(null) as Array; }
-            catch (Exception) { return null; }
+            var dashboardItems = UnturnedInventorySurfaceContext.DashboardItemsField.GetValue(null) as Array;
             var dashboardIndex = page - PlayerInventory.SLOTS;
             if (dashboardItems == null || dashboardIndex < 0 || dashboardIndex >= dashboardItems.Length) return null;
 
@@ -703,13 +697,13 @@ namespace BetterUnturnedExperience.Plugin
             // yielded OutsideGrid for every real pointer.
             InventoryGridViewport viewport;
             float uiScale = 1f;
-            try { uiScale = GraphicsSettings.userInterfaceScale; } catch (Exception) { uiScale = 1f; }
+            uiScale = GraphicsSettings.userInterfaceScale;
             if (uiScale <= 0f) uiScale = 1f;
 
             var scrollSize = Vector2.zero;
             if (hierarchyLive)
             {
-                try { scrollSize = nativeScroll.GetAbsoluteSize(); } catch (Exception) { scrollSize = Vector2.zero; }
+                scrollSize = nativeScroll.GetAbsoluteSize();
             }
             if (scrollSize.x <= 0f || scrollSize.y <= 0f || float.IsNaN(scrollSize.x) || float.IsNaN(scrollSize.y))
             {
@@ -722,13 +716,9 @@ namespace BetterUnturnedExperience.Plugin
             var scrollPixelsY = 0f;
             if (nativeScroll != null)
             {
-                try
-                {
-                    scrollPixelsY = UnturnedInventorySurfaceContext.ComputeScrollPixels(
-                        nativeScroll.NormalizedVerticalPosition, nativeScroll.NormalizedViewportHeight,
-                        dataItems.height * 50f * uiScale);
-                }
-                catch (Exception) { scrollPixelsY = 0f; }
+                scrollPixelsY = UnturnedInventorySurfaceContext.ComputeScrollPixels(
+                    nativeScroll.NormalizedVerticalPosition, nativeScroll.NormalizedViewportHeight,
+                    dataItems.height * 50f * uiScale);
             }
             viewport = UnturnedInventorySurfaceContext.ResolveViewport(hierarchyLive, scrollSize,
                 (byte)dataItems.width, (byte)dataItems.height,
