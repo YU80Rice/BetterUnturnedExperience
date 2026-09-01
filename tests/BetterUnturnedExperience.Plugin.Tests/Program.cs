@@ -76,6 +76,11 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     AssertDev16DR13SinglePageRebuildPreservesOtherSurface();
                     return 0;
                 }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--dev16d-r13-page-seam-red")
+                {
+                    AssertDev16DR13NonCurrentPageRebuildUsesLiveDispatchSeam();
+                    return 0;
+                }
                 if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--dev16d-r13-passthrough-red")
                 {
                     AssertDev16DR13UnsupportedSourcePassThrough();
@@ -138,6 +143,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 AssertDev16DR13RotationKeepsSourceExclusion();
                 AssertDev16DR13StalePreviewFallsThrough();
                 AssertDev16DR13SinglePageRebuildPreservesOtherSurface();
+                AssertDev16DR13NonCurrentPageRebuildUsesLiveDispatchSeam();
                 AssertRuntimeCompletionBarrierIsolates();
                 AssertManagementPanelConsumesRuntimeCatalog();
                 AssertManagementPanelOpenHooks();
@@ -405,6 +411,85 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 "rebuilding a dispatched page removes that page");
             Assert(!surfaces.ContainsKey(3) && surfaces.ContainsKey(7),
                 "rebuilding one page preserves the other live surface");
+        }
+
+        // GPT watermark: DEV-16D-R13 review regression. The production
+        // lifecycle dispatch seam must invalidate a non-current source page
+        // while a Storage target is active, clear the published preview and
+        // preserve native pass-through on the next release.
+        private static void AssertDev16DR13NonCurrentPageRebuildUsesLiveDispatchSeam()
+        {
+            var component = new BetterItemInteractionUiComponent(
+                new InventoryPreviewPresenter(new InventoryDragPresenter(new FixedCandidateEvaluator())),
+                new NativeInventoryInteractionAdapter(2, 8));
+            component.OnUiInitialized(new TestRoot());
+
+            var detachedPages = new List<byte>();
+            var lifecycle = new InventorySurfaceLifecycleAdapter(null,
+                surface => { },
+                () => { },
+                null,
+                null,
+                page =>
+                {
+                    detachedPages.Add(page);
+                    Assert(component.DiscardInventorySurface(page),
+                        "live dispatch callback reaches the component page discard seam");
+                });
+
+            var backpack = CreateTestSurface(ContainerKind.PlayerInventory, 3, 904);
+            var storage = CreateTestSurface(ContainerKind.Storage, 7, 904);
+            component.OnInventoryOpened(backpack);
+            component.OnInventoryOpened(storage);
+            component.OnDragStarted(904, ItemAssetIdentity.FromItemId(363),
+                new ItemGridPosition(3, 0, 0, 0));
+            Assert(component.TrySelectSurfaceForPage(7),
+                "Storage becomes the active target while Backpack remains the drag source");
+
+            InventoryPreviewInput input;
+            Assert(component.TryCreatePreviewInput(904, new ItemGridPosition(3, 0, 0, 0),
+                    100f, 100f, 1, 1, 0, false, 0.5f, 0.5f,
+                    ItemAssetIdentity.FromItemId(363), out input),
+                "live target surface creates the preview input before source rebuild");
+            component.OnDragUpdated(input);
+            Assert(component.LastPreview.State == PlacementPreviewState.Candidate,
+                "live target publishes a Candidate before source rebuild");
+            Assert(component.PreviewSink != null && component.PreviewSink.IsFrameVisible,
+                "live target preview is visible before source rebuild");
+            Assert(component.CurrentDragGeneration == 904 && component.DragOriginContainer.Page == 3,
+                "source generation and origin remain bound while Storage is the target");
+            Assert(component.HasActiveDragOccupancy,
+                "the drag-scoped occupancy snapshot is live before source rebuild");
+
+            lifecycle.RememberDispatchedSurface(3,
+                new InventorySurfaceLifecycleAdapter.DispatchedSurfaceState(904, null, null, null, null));
+            lifecycle.RememberDispatchedSurface(7,
+                new InventorySurfaceLifecycleAdapter.DispatchedSurfaceState(904, null, null, null, null));
+            Assert(lifecycle.DiscardDispatchedSurfaceForPage(3, "native-surface-rebuilt"),
+                "production dispatch seam discards the rebuilt non-current source page");
+            Assert(detachedPages.Count == 1 && detachedPages[0] == 3,
+                "only the rebuilt source page reaches detach/rebind callback");
+            Assert(component.LiveSurfaceCount == 1 && component.CurrentContainer.Page == 7,
+                "surviving Storage target remains live and active");
+            Assert(!component.EnhancedDragActive && component.DragSourcePassThrough,
+                "source rebuild ends the enhanced drag and restores native source routing");
+            Assert(component.LastPreview.State == PlacementPreviewState.Hidden,
+                "source rebuild clears the published Candidate before release");
+            Assert(component.PreviewSink != null && !component.PreviewSink.IsFrameVisible,
+                "source rebuild hides the target visual sink");
+            Assert(component.CurrentDragGeneration == 0 && !component.HasActiveDragOccupancy,
+                "source rebuild clears generation and occupancy state before release");
+
+            var native = new RecordingNativeDragActions();
+            var outcome = component.OnDragReleased(new NativeDragAdapterInput(true, 904,
+                new ItemGridPosition(3, 0, 0, 0), component.LastPreview, 7), native);
+            Assert(outcome == NativeDragAdapterOutcome.PassThrough && native.SendCount == 0,
+                "release after source rebuild remains native pass-through");
+            Assert(!lifecycle.DiscardDispatchedSurfaceForPage(3, "duplicate-rebuild"),
+                "discarding the source page twice is idempotent");
+            Assert(lifecycle.DiscardDispatchedSurfaceForPage(7, "session-closed"),
+                "surviving target page can be discarded independently");
+            component.OnInventoryClosed();
         }
 
         private static void AssertDev16DR13UnsupportedSourcePassThrough()

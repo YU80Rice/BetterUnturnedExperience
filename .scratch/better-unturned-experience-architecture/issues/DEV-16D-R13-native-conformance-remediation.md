@@ -89,3 +89,17 @@
 - `[x]` Added GPT-watermarked component lifecycle coverage for cross-page rebuild cleanup and callback-page pass-through coverage at the native adapter seam.
 - `[x]` ClientUi and Plugin targeted tests, Release solution build, seven test runners, UI/native token scans and `git diff --check` all pass with `0 errors / 0 warnings`.
 - `[ ]` Fresh Standards + Spec review for R13-4 is pending; no reviewed artifact identity is granted and the ticket remains `claimed`.
+
+### 2026-09-01 GPT R13-4 review result
+
+- `[x]` Standards axis returned `CLEAN` for frozen commit `b5db8cf`.
+- `[ ]` Spec axis returned `FAIL`: the page-rebuild regression still exercised only a dictionary helper/current-page component path, not the production lifecycle dispatch seam with a published Candidate and a non-current source-page rebuild.
+- `[ ]` Required next increment: expose the existing dispatch registry operation as a production lifecycle seam, route `Poll` through it, and test Storage-target/Backpack-source cleanup plus native release pass-through end to end.
+
+### 2026-09-01 GPT R13-5 remediation result
+
+- `[x]` The new seam regression was first red at compile time (`PAGE_SEAM_RED_BUILD_EXIT=1`) because the production dispatch operations were not exposed; this confirmed the test was anchored to a missing lifecycle seam rather than a dictionary-only helper.
+- `[x]` `InventorySurfaceLifecycleAdapter.Poll` now records and discards pages through the same internal page-local operations used by the test seam; the existing plugin callback still detaches only the rebuilt page before calling `DiscardInventorySurface(page)`.
+- `[x]` The regression publishes a Candidate on Storage while Backpack remains the source, rebuilds the non-current Backpack page, asserts delegate callback order, surviving target, generation/occupancy/preview/sink cleanup, and verifies the next release is native Pass-Through.
+- `[x]` Release solution build, seven test runners, eight R13 targeted regressions, UI/native token scans and `git diff --check` all pass with `0 errors / 0 warnings`.
+- `[ ]` Fresh Standards + Spec review for R13-5 is pending; no reviewed artifact identity is granted and the ticket remains `claimed`.

@@ -277,6 +277,9 @@ namespace BetterUnturnedExperience.ClientUi.Internal
         internal bool PreviewSinkBound { get { return previewSink != null; } }
         internal int LiveSurfaceCount { get { return liveSurfaces.Count; } }
         internal bool DragSourcePassThrough { get { return dragSourcePassThrough; } }
+        internal uint CurrentDragGeneration { get { return currentDragGeneration; } }
+        internal ContainerReference DragOriginContainer { get { return dragOriginContainer; } }
+        internal bool HasActiveDragOccupancy { get { return hasActiveDragOccupancy; } }
 
         internal static bool IsSupportedEnhancedPage(byte page)
         {

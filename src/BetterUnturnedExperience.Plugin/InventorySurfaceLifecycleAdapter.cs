@@ -1064,7 +1064,7 @@ namespace BetterUnturnedExperience.Plugin
                 if (dispatchedSurfaces.TryGetValue(page, out dispatched) &&
                     (!liveSurfaceReady || !IsDispatchedSurfaceCurrent(dispatched, liveNativeItems)))
                 {
-                    DiscardDispatchedSurface(page, liveSurfaceReady ? "native-surface-rebuilt" : "native-hierarchy-unavailable");
+                    DiscardDispatchedSurfaceForPage(page, liveSurfaceReady ? "native-surface-rebuilt" : "native-hierarchy-unavailable");
                     dispatched = null;
                 }
                 if (!liveSurfaceReady) continue;
@@ -1080,8 +1080,8 @@ namespace BetterUnturnedExperience.Plugin
                     continue;
                 }
                 openDispatcher(context);
-                dispatchedSurfaces[page] = new DispatchedSurfaceState(generation, context.NativeItems,
-                    context.NativeScroll, context.NativeGrid, context.NativeItemsPanel);
+                RememberDispatchedSurface(page, new DispatchedSurfaceState(generation, context.NativeItems,
+                    context.NativeScroll, context.NativeGrid, context.NativeItemsPanel));
                 // [DEV-16C] Geometry calibration readout for the real machine:
                 // these are the approximate viewport values DEV-16D consumes.
                 log?.LogInfo("[BUE-INVENTORY] event=surface-context-dispatched kind=" + kind + " page=" + page + " generation=" + generation
@@ -1095,10 +1095,20 @@ namespace BetterUnturnedExperience.Plugin
             }
         }
 
-        private void DiscardDispatchedSurface(byte page, string reason)
+        // GPT watermark: page-local lifecycle seam. Poll and the tests use the
+        // same operation so a rebuilt non-current source page exercises the
+        // exact callback that detaches the native delegate and clears the BUE
+        // component's session/preview state.
+        internal void RememberDispatchedSurface(byte page, DispatchedSurfaceState state)
+        {
+            if (state == null) throw new ArgumentNullException(nameof(state));
+            dispatchedSurfaces[page] = state;
+        }
+
+        internal bool DiscardDispatchedSurfaceForPage(byte page, string reason)
         {
             var wasDispatched = RemoveDispatchedSurfaceForPage(dispatchedSurfaces, page);
-            if (!wasDispatched) return;
+            if (!wasDispatched) return false;
             log?.LogInfo("[BUE-INVENTORY] event=surface-discarded reason=" + reason + " diagnosticId=BUE-INVENTORY-005");
             if (discardPageDispatcher != null) discardPageDispatcher(page);
             else if (dispatchedSurfaces.Count == 0)
@@ -1106,13 +1116,14 @@ namespace BetterUnturnedExperience.Plugin
                 if (hideDispatcher != null) hideDispatcher();
                 else closeDispatcher();
             }
+            return true;
         }
 
         private void DiscardAllDispatchedSurfaces(string reason)
         {
             var pages = new List<byte>(dispatchedSurfaces.Keys);
             for (var index = 0; index < pages.Count; index++)
-                DiscardDispatchedSurface(pages[index], reason);
+                DiscardDispatchedSurfaceForPage(pages[index], reason);
         }
 
         private static SleekItems ReadDashboardSleekItems(byte page)
