@@ -7,7 +7,7 @@
 - 02：DEV-16B BUE 内置插件管理面板与设置编辑
 - 03：DEV-16C 原生库存 UI 生命周期与容器上下文接线
 
-**Status:** ready-for-human
+**Status:** ready-for-agent
 
 > 2026-08-30 认领（agent）：前置 02（DEV-16B resolved）、03（DEV-16C resolved，`IInventorySurfaceContext` 真实投影与 `PlayerUI.Update` 轮询驱动已交付）。实施遵循 AGENTS.md Output review loop。
 
@@ -38,3 +38,16 @@
 - **双轴审查**：Standards `CLEAN`；Spec `CLEAN`；无阻断项。
 - **正式候选**：`audit/2026-09-01/artifacts/BetterUnturnedExperience.dll`，SHA-256 `142AC39F769EF23EE75406F3DE84F21B59597B8F1BA72191650B128CF624C5E4`，CandidateBuild `DEV-16D-R12-CLEAN-20260901`，CaseId `DEV-16D-R12-20260901`。
 - **下一步**：人工单人实机复测；真实客户端/P2P/U3DS 资格证据仍不继承静态审查结果。
+
+## Comments
+
+### 2026-09-01 DEV-16D implementation freeze
+
+本工单未关闭。根据 `snapshots/DEV-16D-implementation-state-freeze-20260901.md` 的只读审计，当前实现方向与 U3-SDK 原生注入 seam 基本一致，但仍有一个阻断级实现问题；另附一个页面覆盖事实记录：
+
+1. `InventorySurfaceLifecycleAdapter.cs:149-166` 使用 `Items.items[index]` 作为逐格占据判断，不符合 U3-SDK `ItemJar` 旋转 footprint/`slots[,]` 语义；且与 `InventoryDragPreviewAdapter.IsSwapOntoOccupied` 存在两套占据事实源。
+2. 覆盖事实（非当前阻断）：`InventorySurfaceLifecycleAdapter.cs:894-976,991-1052` 当前只接入 Backpack 及共享的 Storage/Trunk page 7，Hands、Vest、Shirt、Pants 页面尚未进入增强预览接线；DEV-16D 规格要求装备页保持原生 Pass-Through，如需扩大范围必须另立需求变更。
+
+本次冻结仅记录实现状态和修复方向，不修改生产源码、不构建、不生成 DLL。后续 Agent 必须按“统一 footprint occupancy → 补齐页面映射 → 红测/绿测 → Release/全套测试/静态门禁 → 全新的 Standards + Spec 双轴审查”的顺序推进。双轴未 CLEAN 前不得把 DEV-16D 标记为 `resolved`，也不得交付新 DLL 供实机测试。
+
+仓库化冻结记录：`snapshots/DEV-16D-implementation-state-freeze-20260901.md`。
