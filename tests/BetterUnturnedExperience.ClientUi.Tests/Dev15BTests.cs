@@ -32,6 +32,7 @@ namespace BetterUnturnedExperience.ClientUi.Tests
             SleekSinkHotPathZeroAllocationTest();
             NativeMouseCoordinatesMatchSleekTopLeftSpace();
             TopLevelIconFallbackRejectsGridLocalPointer();
+            GeometryFailureClearsLastPreviewBeforeRelease();
         }
 
         // GPT watermark: R2 red regression. A pointer sampled from the native
@@ -55,6 +56,34 @@ namespace BetterUnturnedExperience.ClientUi.Tests
 
             Assert(sink.FrameCount == 1, "candidate frame still renders when top-level icon anchor is unavailable");
             Assert(sink.IconCount == 0, "grid-local pointer never falls back to a top-level icon coordinate");
+        }
+
+        // GPT watermark: DEV-16D-R13-4 red regression. A non-finite viewport
+        // must clear the previous Candidate, not merely hide the sink.
+        private static void GeometryFailureClearsLastPreviewBeforeRelease()
+        {
+            var evaluator = new FixedEvaluator(new ItemPlacementPreview(32,
+                PlacementPreviewState.Candidate, new ItemGridPosition(3, 1, 1, 0),
+                1, 1, PlacementReason.None));
+            var presenter = new InventoryPreviewPresenter(new InventoryDragPresenter(evaluator));
+            var sink = new RecordingPreviewSink();
+            presenter.BeginDrag(32);
+            var valid = Input(new TestGrid(8, 6), 10f, 10f, 0f, 0f, 1f, 1f,
+                0f, 0f, 1, 1, 0.5f, 0.5f, generation: 32);
+            presenter.Update(valid, sink);
+            Assert(presenter.LastPreview.State == PlacementPreviewState.Candidate,
+                "valid geometry publishes a Candidate");
+
+            var invalid = new InventoryPreviewInput(32, valid.Source, valid.TargetContainer,
+                valid.PointerScreenX, valid.PointerScreenY,
+                new InventoryGridViewport(0f, 0f, 8, 6, 0f, 0f, float.NaN, 100f),
+                valid.CellPixelSize, valid.UiScale, valid.ScrollPixelsX, valid.ScrollPixelsY,
+                valid.ItemWidth, valid.ItemHeight, valid.CurrentRotation,
+                valid.AllowAutomaticRotation, valid.GrabOffsetX, valid.GrabOffsetY,
+                valid.ItemAsset, valid.Occupancy);
+            presenter.Update(invalid, sink);
+            Assert(presenter.LastPreview.State == PlacementPreviewState.Hidden,
+                "geometry failure clears LastPreview before release");
         }
 
         private static void NativeMouseCoordinatesMatchSleekTopLeftSpace()

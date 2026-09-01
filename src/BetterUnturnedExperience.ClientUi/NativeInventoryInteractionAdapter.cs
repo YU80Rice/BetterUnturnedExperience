@@ -16,13 +16,21 @@ namespace BetterUnturnedExperience.ClientUi.Internal
         public uint DragGeneration { get; }
         public ItemGridPosition Source { get; }
         public ItemPlacementPreview Preview { get; }
+        public byte CallbackPage { get; }
 
         internal NativeDragAdapterInput(bool isDragging, uint dragGeneration, ItemGridPosition source, ItemPlacementPreview preview)
+            : this(isDragging, dragGeneration, source, preview, preview.Candidate.Page)
+        {
+        }
+
+        internal NativeDragAdapterInput(bool isDragging, uint dragGeneration, ItemGridPosition source,
+            ItemPlacementPreview preview, byte callbackPage)
         {
             IsDragging = isDragging;
             DragGeneration = dragGeneration;
             Source = source;
             Preview = preview;
+            CallbackPage = callbackPage;
         }
     }
 
@@ -66,6 +74,11 @@ namespace BetterUnturnedExperience.ClientUi.Internal
 
             var target = input.Preview.Candidate;
             if (!IsOrdinaryGrid(target.Page))
+            {
+                return NativeDragAdapterOutcome.PassThrough;
+            }
+
+            if (input.CallbackPage != target.Page)
             {
                 return NativeDragAdapterOutcome.PassThrough;
             }

@@ -21,6 +21,7 @@ namespace BetterUnturnedExperience.ClientUi.Tests
             SourcePagePassThroughMatrixIsExplicit();
             StaleSessionMismatchClearsLastPreviewBeforeRelease();
             UnsupportedSourceWithStalePreviewRemainsNativePassThrough();
+            RebuildingAnyLivePageEndsCrossPageDragAndPreservesSurvivor();
         }
 
         private static void SettingsDefaultToEnabledAndAutoRotate()
@@ -254,6 +255,39 @@ namespace BetterUnturnedExperience.ClientUi.Tests
                 "unsupported stale source is native pass-through before generation validation");
             Assert(native.SendCount == 0 && native.StopCount == 0 && native.GroundTakeCount == 0,
                 "unsupported stale source never invokes enhanced native actions");
+        }
+
+        // GPT watermark: DEV-16D-R13-4 red regression. Rebuilding either
+        // surface invalidates the whole in-flight drag dependency graph even
+        // when the other page remains live.
+        private static void RebuildingAnyLivePageEndsCrossPageDragAndPreservesSurvivor()
+        {
+            var component = new BetterItemInteractionUiComponent(
+                new InventoryPreviewPresenter(new InventoryDragPresenter(new FixedEvaluator())),
+                new NativeInventoryInteractionAdapter(2, 8));
+            component.OnUiInitialized(new Program.TestRoot());
+            var backpack = new TestSurfaceContext(
+                new ContainerReference(ContainerKind.PlayerInventory, 3, 801),
+                new TestVisualContainer(), new TestVisualContainer(),
+                new InventoryGridViewport(0f, 0f, 8, 6, 0f, 0f, 400f, 300f),
+                50f, 1f, 0f, 0f, new TestGrid(8, 6));
+            var storage = new TestSurfaceContext(
+                new ContainerReference(ContainerKind.Storage, 7, 801),
+                new TestVisualContainer(), new TestVisualContainer(),
+                new InventoryGridViewport(0f, 0f, 8, 6, 0f, 0f, 400f, 300f),
+                50f, 1f, 0f, 0f, new TestGrid(8, 6));
+            component.OnInventoryOpened(backpack);
+            component.OnInventoryOpened(storage);
+            component.OnDragStarted(801, ItemAssetIdentity.FromItemId(363),
+                new ItemGridPosition(3, 0, 0, 0));
+            Assert(component.EnhancedDragActive, "cross-page drag is active before rebuild");
+
+            Assert(component.DiscardInventorySurface(3), "source page rebuild is accepted");
+            Assert(component.LiveSurfaceCount == 1, "surviving Storage surface remains live");
+            Assert(component.CurrentContainer.Page == 7, "surviving Storage surface becomes current");
+            Assert(!component.EnhancedDragActive && component.LastPreview.State == PlacementPreviewState.Hidden,
+                "page rebuild ends enhanced drag and clears preview immediately");
+            component.OnInventoryClosed();
         }
 
         private sealed class FixedEvaluator : IPlacementCandidateEvaluator

@@ -599,6 +599,7 @@ namespace BetterUnturnedExperience.Plugin
                 }
                 else
                 {
+                    component.HidePreview();
                     if (ShouldEmitDiagnostic(PlacementPreviewState.Hidden, PlacementReason.FeatureUnavailable))
                         log?.LogInfo("[BUE-DRAG] GPT-WATERMARK event=preview-input-rejected generation=" + dragGeneration + " diagnosticId=BUE-DRAG-001");
                 }
@@ -741,7 +742,7 @@ namespace BetterUnturnedExperience.Plugin
 
             var input = new NativeDragAdapterInput(
                 PlayerDashboardInventoryUI.isDragging, dragGeneration,
-                ReadDragSource(), preview);
+                ReadDragSource(), preview, page);
             var outcome = component.OnDragReleased(input, nativeActions);
             log?.LogInfo("[BUE-DRAG] event=placement-decision page=" + page + " x=" + x + " y=" + y
                 + " outcome=" + outcome + " diagnosticId=BUE-DRAG-001");

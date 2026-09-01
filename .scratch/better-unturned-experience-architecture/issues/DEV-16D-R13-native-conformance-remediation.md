@@ -70,3 +70,22 @@
 - `[x]` R13 targeted tests are green (`--dev16d-r13-red`, `--dev16d-r13-boundary-red`, `--dev16d-r13-surface-red`, `--dev16d-r13-rotation-red`, `--dev16d-r13-stale-red`, `--dev16d-r13-page-red`, `--dev16d-r13-passthrough-red`, all exit `0`).
 - `[x]` Release solution build is `0 errors / 0 warnings`; all seven test runners pass; Contracts/Core/ClientUi UI-native token scans and `git diff --check` pass.
 - `[ ]` Fresh Standards + Spec review for R13-3 is pending; no reviewed artifact identity is granted and the ticket remains `claimed`.
+
+### 2026-09-01 GPT R13-4 remediation round (Spec FAIL recorded)
+
+- `[x]` Spec-axis review of `68a189c` returned `FAIL`; Standards axis returned `CLEAN`.
+- `[ ]` Blocking finding 1: geometry/coordinate failure paths hide the sink but can retain `LastPreview`; a release before the next update can consume the stale Candidate.
+- `[ ]` Blocking finding 2: the native callback page is not carried into `NativeDragAdapterInput`; a callback from Backpack/Storage can submit a Candidate belonging to the other page.
+- `[ ]` Blocking finding 3: rebuilding a non-current live page does not invalidate cross-page drag origin, occupancy, preview or generation state; no surviving page does not end the active drag.
+- `[ ]` Blocking finding 4: the page-rebuild regression only exercises a dictionary helper, not the component/delegate/preview/generation lifecycle seam required by the specification.
+- `[ ]` R13-4 red regressions, minimal fixes, fresh Release verification and a new dual-axis review are pending; this ticket remains `claimed` and no DLL may be delivered.
+
+### 2026-09-01 GPT R13-4 implementation result
+
+- `[x]` Red-first geometry regression was observed before the fix (`ClientUi.Tests.exe` exited `1` with `geometry failure clears LastPreview before release`).
+- `[x]` `InventoryGridCoordinateAdapter` now rejects non-finite viewport origin/clip values and overflowed clip bounds before evaluator entry; the presenter clears both `LastPreview` and the visual sink on every geometry/evaluator failure path.
+- `[x]` Native release input carries the callback page and rejects page-mismatched candidates before generation/state handling; the runtime adapter forwards the actual callback page.
+- `[x]` Any live surface rebuild invalidates the complete in-flight drag dependency graph, including cross-page source/target state, occupancy snapshot, generation and preview, while preserving a surviving supported surface.
+- `[x]` Added GPT-watermarked component lifecycle coverage for cross-page rebuild cleanup and callback-page pass-through coverage at the native adapter seam.
+- `[x]` ClientUi and Plugin targeted tests, Release solution build, seven test runners, UI/native token scans and `git diff --check` all pass with `0 errors / 0 warnings`.
+- `[ ]` Fresh Standards + Spec review for R13-4 is pending; no reviewed artifact identity is granted and the ticket remains `claimed`.

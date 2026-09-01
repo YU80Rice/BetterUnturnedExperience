@@ -100,6 +100,13 @@ namespace BetterUnturnedExperience.ClientUi.Tests
             Assert(native.LastSource.Page == 7 && native.LastTarget.Page == 7 && native.LastTarget.Rotation == 1, "native submission preserves source and candidate coordinates");
 
             native.Reset();
+            Assert(adapter.HandleRelease(new NativeDragAdapterInput(true, 12, source, candidate, 3), native)
+                == NativeDragAdapterOutcome.PassThrough,
+                "callback page mismatch passes through instead of submitting a candidate from another page");
+            Assert(native.StopCount == 0 && native.SendCount == 0,
+                "callback page mismatch never invokes enhanced native actions");
+
+            native.Reset();
             var groundSource = new ItemGridPosition(8, 0, 0, 0);
             var groundInput = new NativeDragAdapterInput(true, 13, groundSource,
                 new ItemPlacementPreview(13, PlacementPreviewState.Candidate, new ItemGridPosition(7, 0, 0, 0), 1, 1, PlacementReason.None));

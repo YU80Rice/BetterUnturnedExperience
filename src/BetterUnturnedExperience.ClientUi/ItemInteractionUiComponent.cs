@@ -486,6 +486,7 @@ namespace BetterUnturnedExperience.ClientUi.Internal
         // was anchored to the removed hierarchy.
         internal bool DiscardInventorySurface(byte page)
         {
+            var hadActiveDrag = currentDragGeneration != 0 || runtime.EnhancedDragActive;
             if (!liveSurfaces.Remove(page)) return false;
 
             if (currentSurface != null && currentSurface.CurrentContainer.Page == page)
@@ -513,6 +514,20 @@ namespace BetterUnturnedExperience.ClientUi.Internal
                     currentSessionGeneration = 0;
                     isInventoryOpen = false;
                 }
+                HidePreview();
+                ClearActiveDragOccupancy();
+            }
+
+            if (hadActiveDrag)
+            {
+                // A surface rebuild invalidates both source and target
+                // dependencies, including cross-page drags where the removed
+                // page was not the currently selected target.
+                runtime.EndDrag();
+                previewPresenter.EndDrag();
+                currentDragGeneration = 0;
+                dragOriginContainer = default(ContainerReference);
+                dragSourcePassThrough = true;
                 HidePreview();
                 ClearActiveDragOccupancy();
             }

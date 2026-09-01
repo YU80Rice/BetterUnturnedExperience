@@ -198,6 +198,11 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             // must not reject every pointer and keep LastPreview empty
             // forever. The evaluator still hides out-of-bounds candidates
             // through occupancy and bounds checks downstream.
+            if (!IsFiniteViewport(input.Viewport))
+            {
+                return false;
+            }
+
             var viewportHasClip = input.Viewport.ClipWidth > 0f && input.Viewport.ClipHeight > 0f;
             if (!IsFinite(input.PointerScreenX) || !IsFinite(input.PointerScreenY) || !IsFinite(input.CellPixelSize) ||
                 !IsFinite(input.UiScale) || !IsFinite(input.ScrollPixelsX) || !IsFinite(input.ScrollPixelsY) ||
@@ -337,6 +342,28 @@ namespace BetterUnturnedExperience.ClientUi.Internal
         {
             return !float.IsNaN(value) && !float.IsInfinity(value);
         }
+
+        private static bool IsFiniteViewport(InventoryGridViewport viewport)
+        {
+            if (!IsFinite(viewport.OriginX) || !IsFinite(viewport.OriginY) ||
+                !IsFinite(viewport.ClipX) || !IsFinite(viewport.ClipY) ||
+                !IsFinite(viewport.ClipWidth) || !IsFinite(viewport.ClipHeight))
+            {
+                return false;
+            }
+
+            if (viewport.ClipWidth > 0f && !IsFinite(viewport.ClipX + viewport.ClipWidth))
+            {
+                return false;
+            }
+
+            if (viewport.ClipHeight > 0f && !IsFinite(viewport.ClipY + viewport.ClipHeight))
+            {
+                return false;
+            }
+
+            return true;
+        }
     }
 
     internal enum PreviewFrameKind : byte
@@ -438,6 +465,7 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             PlacementCandidateInput candidateInput;
             if (!InventoryGridCoordinateAdapter.TryCreateCandidateInput(input, out candidateInput))
             {
+                HidePreview();
                 sink.Hide();
                 return;
             }
@@ -447,6 +475,7 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             if (preview.DragGeneration != input.DragGeneration || preview.State == PlacementPreviewState.Hidden ||
                 preview.State == PlacementPreviewState.PendingAuthoritativeProjection)
             {
+                HidePreview();
                 sink.Hide();
                 return;
             }
@@ -459,6 +488,7 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             var cellPixelSize = input.CellPixelSize;
             if (!IsFinite(cellPixelSize) || cellPixelSize <= 0f)
             {
+                HidePreview();
                 sink.Hide();
                 return;
             }
