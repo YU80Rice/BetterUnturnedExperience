@@ -1,0 +1,32 @@
+# 自动旋转对称语义与空位边缘贴边（DEV-16D-R13-R6-DIAG-R4 决议）
+
+**Status: accepted**
+**Date: 2026-09-01**
+
+## Context
+
+DEV-16D-R13 系列实机诊断已闭环：R3 修复候选（scrollsize fail-retry）让强化渲染层在真实单机中恢复（强化渲染层正确跟随物品、不偏移，`surface-context-dispatched`/`drag-started`/`preview-visible` 在 R4 日志中大量出现）。
+
+R4 实机复测暴露一个新用户体验问题：**武士刀（1×3）在"竖→横"自动旋转成功后，玩家再拿起横放的武士刀拖回"竖着的位置"时，预览不再自动转回竖，必须手动按 R**。R4 日志 `grid=5x7`（背包）/ `grid=6x3`（后备箱）确认真实容器是宽容器。
+
+初步假设"evaluator 不旋转"，但 3×3 窄缝红测证明 `PlacementCandidateEvaluator` 在"横放确实放不下"的窄缝里**能**自动转回竖（红测绿）。真实失败原因是：宽容器中横放（3×1）几乎任何位置局部都能放下，Local-Fit Priority 阶梯①（"局部投影能放当前方向时立即返回，绝不检查旋转"）永远命中，横武士刀被**永久困在横放**，仅在"横放也放不下"的窄缝才触发阶梯②——而宽容器里这种窄缝几乎不存在。
+
+经 `/grill-me` 多轮访谈（Q1/Q3/Q5/Q7/Q9/Q10/Q11/Q12/Q13），人工开发者澄清并冻结以下语义。**本决议是对 `12-item-placement-algorithm.md`（Local-Fit Priority 冻结 spec）的确认与一次受控扩展**，不推翻其防蠕动设计。
+
+## Decision
+
+1. **保持 Local-Fit Priority 阶梯①（D1/D2）**：只有"当前方向（横）在光标投影处确实放不下"时才尝试旋转（阶梯②语义）；宽容器空旷处**保持当前方向**，不引入"双方向无差别距离竞争"（延续 `12-item-placement-algorithm.md` L22-31 对蠕动问题的否决）。这是冻结 spec 的确认。
+2. **自动旋转是预览层建议，提交跟随（D3）**：预览产出候选 `(page, x, y, rot)`，松手走原生 `sendDragItem`；手动 R 仍是随时可用的原生覆盖（D4）。
+3. **重新拿起已摆放物品的旋转链路已确认正确（D5）**：原生 `onGrabbedItem` 的 `dragFromRot = dragJar.rot`（U3-SDK `PlayerDashboardInventoryUI.cs` L1121），重新拿起横放的物品时 `dragJar.rot` 保留为 1，BUE `ReadDragRotation()` 读到 `CurrentRotation=1`——非 0。
+4. **新扩展——空位区域边缘贴边（D6/D7）**：当"当前方向在光标投影处放不下"且光标位于**空位区域边缘**时，允许自动旋转并使**长边顺着边缘方向**贴边：
+   - "边缘"定义为被物品/障碍挡出的**可用连续空位区域**的边界（非容器物理边界；例如右上角 2×2 挡出的 L 形空位的竖列/横行边界）；
+   - "长边贴边"= 长边与边缘方向平行（长边顺着边缘延伸），既贴合又省空间；
+   - 该规则**只在阶梯②已满足（当前方向放不下）时**参与判定，**不引入独立的边缘翻转源**，因此不放大空旷区蠕动风险（D7=Q13(a)）。
+5. **回归锚定（D8）**：新增纯 C# 红测覆盖"窄缝转竖（已有绿）"与"宽容器保持横（防蠕动）"与"边缘贴边转竖"，经红→绿 + 双轴独立审查 CLEAN 后交付。
+
+## Consequences
+
+- 正面：满足人工开发者"横武士刀拖回竖位应能自动转回竖"的对称直觉，同时不重开 `12-item-placement-algorithm.md` 已否决的空地蠕动问题；判定保持无状态、热路径零分配。
+- 代价：`PlacementCandidateEvaluator` 需新增"空位区域边缘"检测与"长边贴边"方向选择逻辑；边缘定义（被障碍挡出的空位边界）需要在 evaluator seam 上做可测实现与判定。
+- 门禁：本轮红测/实现/审查遵循 `docs/agents/real-machine-test-loop.md` 与 `docs/agents/output-review-loop.md`；实机确认"松手方向正确、窄缝自动转竖、宽区不蠕动"后才关闭 DEV-16D-R13-R6 支线。
+- 关联 spec：`12-item-placement-algorithm.md` 冻结 Local-Fit Priority 的阶梯语义不变，本次仅扩展阶梯②的"放不下"判定场景（加入空位区域边缘）；`CONTEXT.md` 词汇"自动旋转"定义不变。
