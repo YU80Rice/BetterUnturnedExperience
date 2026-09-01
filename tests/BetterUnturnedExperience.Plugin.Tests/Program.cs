@@ -91,6 +91,31 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     AssertDev16DR13UnsupportedSourcePassThrough();
                     return 0;
                 }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--dev16d-r13-silence-red")
+                {
+                    AssertDev16DR13SilenceTraceSeams();
+                    return 0;
+                }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--dev16d-r13-scrollsize-red")
+                {
+                    AssertDev16DR13ScrollViewportSizeSeam();
+                    return 0;
+                }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--dev16d-r13-symrot-red")
+                {
+                    AssertDev16DR13SymmetricAutoRotation();
+                    return 0;
+                }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--dev16d-r13-symrot-wide-red")
+                {
+                    AssertDev16DR13SymmetricAutoRotationWideContainer();
+                    return 0;
+                }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--dev16d-r13-edge-rot-red")
+                {
+                    AssertDev16DR13EdgeAutoRotation();
+                    return 0;
+                }
                 AssertSingleDllAssemblyClosure();
                 AssertExternalSdkAssemblyIdentity();
                 Assert(BootstrapGuard.Decide(false, false, true) == BootstrapDecision.Client, "client decision");
@@ -604,6 +629,168 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 "unsupported stale source is native pass-through before generation validation");
             Assert(native.SendCount == 0 && native.StopCount == 0 && native.GroundTakeCount == 0,
                 "unsupported stale source never invokes enhanced native actions");
+        }
+
+        // GPT watermark: R13-R6-silence red regression. The production silent-return
+        // points in the inventory lifecycle Poll and the drag Tick must expose a
+        // discriminable reason so a real-machine session can tell which gate blocked
+        // the feature (no active session vs lifecycle gate vs hierarchy-not-ready).
+        // These seams are referenced before they exist: the compile must go red
+        // (CS1061) until the instrumentation lands in the adapters.
+        private static void AssertDev16DR13SilenceTraceSeams()
+        {
+            var noSession = InventorySurfaceLifecycleAdapter.DescribeNoActiveSession(
+                dashboardActive: false, isStoring: false, isStorageTrunk: false,
+                connected: false, hasActiveSession: false);
+            Assert(!string.IsNullOrEmpty(noSession) && noSession.IndexOf("no-active-session", StringComparison.Ordinal) >= 0,
+                "lifecycle Poll names the no-active-session silent return");
+
+            var gate = InventoryDragPreviewAdapter.DescribeTickGate(
+                lifecycleCanRun: false, enhancedDragActive: false, state: FeatureState.Running);
+            Assert(!string.IsNullOrEmpty(gate) && gate.IndexOf("lifecycle-gate", StringComparison.Ordinal) >= 0,
+                "drag Tick names the lifecycle gate silent return");
+
+            var adapterGate = InventoryDragPreviewAdapter.DescribeAdapterGate(
+                enabled: false, isolated: false);
+            Assert(!string.IsNullOrEmpty(adapterGate) && adapterGate.IndexOf("adapter-gate", StringComparison.Ordinal) >= 0,
+                "drag Tick names the adapter (enabled/isolated) gate silent return");
+
+            var lifecycleAdapterGate = InventorySurfaceLifecycleAdapter.DescribeAdapterGate(
+                hasActiveAdapter: false, isolated: false);
+            Assert(!string.IsNullOrEmpty(lifecycleAdapterGate) && lifecycleAdapterGate.IndexOf("adapter-gate", StringComparison.Ordinal) >= 0,
+                "lifecycle postfix names the adapter (null/isolated) gate silent return");
+        }
+
+        // GPT watermark: R13-R6-scrollsize red regression. The real-machine log
+        // surfaced `poll-exception ... native inventory scroll viewport size is
+        // invalid` (H5): on the first frame after the dashboard opens, the native
+        // horizontalScrollView has not been laid out yet and GetAbsoluteSize()
+        // returns 0/NaN, so BuildSurfaceContext threw and the fail-closed guard
+        // isolated the whole feature. The fix must expose a pure seam
+        // (IsValidScrollViewportSize) and route the invalid-layout case to the
+        // existing not-ready retry instead of throwing. Referenced before it
+        // exists so the compile goes red (CS0117) until the seam lands.
+        private static void AssertDev16DR13ScrollViewportSizeSeam()
+        {
+            Assert(!UnturnedInventorySurfaceContext.IsValidScrollViewportSize(default(UnityEngine.Vector2)),
+                "zero scroll viewport size is rejected as not-ready");
+            Assert(!UnturnedInventorySurfaceContext.IsValidScrollViewportSize(new UnityEngine.Vector2(float.NaN, 300f)),
+                "NaN scroll viewport width is rejected as not-ready");
+            Assert(UnturnedInventorySurfaceContext.IsValidScrollViewportSize(new UnityEngine.Vector2(400f, 300f)),
+                "finite positive scroll viewport size is valid for dispatch");
+        }
+
+        private static void AssertDev16DR13SymmetricAutoRotation()
+        {
+            // User's real-machine repro (2026-09-01, backpack page): a katana
+            // (1 wide x 3 tall) dragged to the bottom row auto-rotates to
+            // horizontal and is placed. Re-grabbing that horizontal katana and
+            // dragging it to a vertical slot must auto-rotate BACK to vertical
+            // (symmetric auto-rotation). The frozen Local-Fit Priority ladder
+            // must not trap the item in the horizontal orientation once the
+            // current orientation fails to fit locally.
+            //
+            // 3x3 grid with a 2x2 item at the top-right:
+            //   X O O
+            //   X O O
+            //   X X X
+            // X = free, O = occupied by the 2x2. The only vertical slot is
+            // column 0; the only horizontal slot is row 2.
+            var occupancy = new IGridOccupancyViewForTest(3, 3, new System.ValueTuple<byte, byte>[]
+            {
+                (1, 0), (2, 0), (1, 1), (2, 1)
+            });
+            var evaluator = new BetterUnturnedExperience.Core.Placement.PlacementCandidateEvaluator();
+
+            // Vertical katana (rot 0) dragged to the bottom row -> auto-rotate
+            // to horizontal (rot 1) at row 2. Cursor at (1.5, 2.4).
+            var verticalInput = new PlacementCandidateInput(1,
+                new ItemGridPosition(3, 0, 0, 0),
+                new ContainerReference(ContainerKind.PlayerInventory, 3, 1),
+                1.5f, 2.4f, 1, 3, 0, true, occupancy);
+            var verticalResult = evaluator.Evaluate(verticalInput);
+            Assert(verticalResult.State == PlacementPreviewState.Candidate, "vertical katana at bottom row stays a candidate");
+            Assert(verticalResult.Candidate.Rotation == 1, "vertical katana at bottom row auto-rotates to horizontal");
+
+            // Horizontal katana (rot 1, just re-grabbed) dragged back to column
+            // 0 (vertical slot). Cursor at (0.4, 1.5).
+            var horizontalInput = new PlacementCandidateInput(2,
+                new ItemGridPosition(3, 0, 2, 1),
+                new ContainerReference(ContainerKind.PlayerInventory, 3, 2),
+                0.4f, 1.5f, 1, 3, 1, true, occupancy);
+            var horizontalResult = evaluator.Evaluate(horizontalInput);
+            Assert(horizontalResult.State == PlacementPreviewState.Candidate, "horizontal katana at vertical slot stays a candidate");
+            Assert(horizontalResult.Width == 1 && horizontalResult.Height == 3,
+                "horizontal katana auto-rotates BACK to a vertical footprint when the horizontal footprint cannot fit");
+            Assert(horizontalResult.Candidate.Rotation == 2 || horizontalResult.Candidate.Rotation == 0,
+                "horizontal katana returns a vertical rotation when dragged to the vertical slot");
+        }
+
+        // GPT watermark: R13-symrot red regression. The user's real container is
+        // the trunk 6x3 (or backpack 5x7), not the 3x3 illustrative grid. In a
+        // wide container a horizontal 1x3 katana fits almost everywhere, so the
+        // frozen Local-Fit Priority ladder step 1 ("current orientation fits
+        // locally -> return immediately, never check rotation") traps the item
+        // in horizontal forever. The frozen decision (ADR-0003, D2) is that a
+        // wide container's open middle keeps the current orientation; the
+        // auto-rotate-back fix belongs to the empty-area edge rule (edge-rot),
+        // not to symmetric rotation in open space. This test pins the D2 guard:
+        // a horizontal katana in the open middle of a wide container stays
+        // horizontal (no wobble source introduced).
+        private static void AssertDev16DR13SymmetricAutoRotationWideContainer()
+        {
+            // Trunk 6x3, completely empty (no obstacle-carved edge near the
+            // cursor). A horizontal 1x3 katana at the open middle must keep
+            // horizontal per D2.
+            var occupancy = new IGridOccupancyViewForTest(6, 3);
+            var evaluator = new BetterUnturnedExperience.Core.Placement.PlacementCandidateEvaluator();
+
+            // Horizontal katana (rot 1, re-grabbed) in the open middle.
+            // Cursor at (2.6, 1.5) — not near any empty-area edge.
+            var horizontalInput = new PlacementCandidateInput(2,
+                new ItemGridPosition(7, 0, 2, 1),
+                new ContainerReference(ContainerKind.Storage, 7, 2),
+                2.6f, 1.5f, 1, 3, 1, true, occupancy);
+            var horizontalResult = evaluator.Evaluate(horizontalInput);
+            Assert(horizontalResult.State == PlacementPreviewState.Candidate,
+                "D2 guard: horizontal katana in the open middle of a wide container stays a candidate");
+            Assert(horizontalResult.Width == 3 && horizontalResult.Height == 1,
+                "D2 guard: horizontal katana in the open middle of a wide container keeps horizontal");
+            Assert(horizontalResult.Candidate.Rotation == 1,
+                "D2 guard: horizontal katana in the open middle returns the horizontal rotation");
+        }
+
+        // GPT watermark: R13-edge-rot red regression. ADR-0003 (方案 A, 已确认):
+        // when the cursor is at an empty-area edge (the outermost column/row of
+        // the free region — container border or obstacle-carved boundary), the
+        // auto-rotation must flip the current orientation so the LONG side hugs
+        // the edge, even though the current orientation (horizontal) still fits.
+        // The user's real machine repro (backpack 5x7 / trunk 6x3): a horizontal
+        // 1x3 katana dragged back toward the left column stays horizontal because
+        // step 1 of Local-Fit returns it immediately; edge-rot must rotate it
+        // vertical so the long side hugs the left edge.
+        private static void AssertDev16DR13EdgeAutoRotation()
+        {
+            // Trunk 6x3. The left column (x=0) is the empty-area left edge.
+            // Cursor over column 0 center. A horizontal katana fits there too,
+            // but edge-rot must prefer the vertical footprint (long side hugs
+            // the left edge).
+            var occupancy = new IGridOccupancyViewForTest(6, 3);
+            var evaluator = new BetterUnturnedExperience.Core.Placement.PlacementCandidateEvaluator();
+
+            // Horizontal katana (rot 1, re-grabbed) dragged to the left edge
+            // column (x=0). Cursor at (0.4, 1.5).
+            var horizontalInput = new PlacementCandidateInput(2,
+                new ItemGridPosition(7, 0, 2, 1),
+                new ContainerReference(ContainerKind.Storage, 7, 2),
+                0.4f, 1.5f, 1, 3, 1, true, occupancy);
+            var horizontalResult = evaluator.Evaluate(horizontalInput);
+            Assert(horizontalResult.State == PlacementPreviewState.Candidate,
+                "edge-rot: horizontal katana at the left edge stays a candidate");
+            Assert(horizontalResult.Width == 1 && horizontalResult.Height == 3,
+                "edge-rot: horizontal katana at the left edge auto-rotates to a vertical footprint (long side hugs the edge)");
+            Assert(horizontalResult.Candidate.Rotation == 2 || horizontalResult.Candidate.Rotation == 0,
+                "edge-rot: horizontal katana at the left edge returns a vertical rotation");
         }
 
         private static TestSurfaceContext CreateTestSurface(ContainerKind kind, byte page, uint generation)
@@ -1214,9 +1401,21 @@ namespace BetterUnturnedExperience.Plugin.Tests
         private sealed class IGridOccupancyViewForTest : IGridOccupancyView
         {
             internal IGridOccupancyViewForTest(byte width, byte height) { Width = width; Height = height; }
+            internal IGridOccupancyViewForTest(byte width, byte height, System.Collections.Generic.IReadOnlyList<System.ValueTuple<byte, byte>> occupied)
+            {
+                Width = width;
+                Height = height;
+                this.occupied = occupied;
+            }
             public byte Width { get; }
             public byte Height { get; }
-            public bool IsOccupied(byte x, byte y) { return false; }
+            public bool IsOccupied(byte x, byte y)
+            {
+                if (occupied == null) return false;
+                foreach (var cell in occupied) if (cell.Item1 == x && cell.Item2 == y) return true;
+                return false;
+            }
+            private readonly System.Collections.Generic.IReadOnlyList<System.ValueTuple<byte, byte>> occupied;
         }
 
         private static void AssertRuntimePumpBridge()

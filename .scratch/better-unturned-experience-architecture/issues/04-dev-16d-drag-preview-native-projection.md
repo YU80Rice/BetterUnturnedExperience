@@ -51,3 +51,9 @@
 本次冻结仅记录实现状态和修复方向，不修改生产源码、不构建、不生成 DLL。后续 Agent 必须按“统一 footprint occupancy → 补齐页面映射 → 红测/绿测 → Release/全套测试/静态门禁 → 全新的 Standards + Spec 双轴审查”的顺序推进。双轴未 CLEAN 前不得把 DEV-16D 标记为 `resolved`，也不得交付新 DLL 供实机测试。
 
 仓库化冻结记录：`snapshots/DEV-16D-implementation-state-freeze-20260901.md`。
+
+### 2026-09-01 Native Conformance Remediation 规格
+
+已根据冻结快照和 U3-SDK 调研发布实施规格：`spec-DEV-16D-native-conformance-remediation.md`。
+
+该规格是 DEV-16D 的符合性修复增量，不废弃 DEV-16A、DEV-16B、DEV-16C 或 DEV-16E。其首要实现目标是统一 `ItemJar footprint → occupancy snapshot`，保持现有原生 UI 注入 seam 和页面 Pass-Through 矩阵；DEV-16E 继续等待新的 DEV-16D 候选产物和证据。

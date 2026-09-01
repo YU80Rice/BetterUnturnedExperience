@@ -319,6 +319,16 @@ namespace BetterUnturnedExperience.Plugin
             return IsFinite(value) && value > 0f;
         }
 
+        // GPT watermark: R13-R6-scrollsize seam. A freshly opened dashboard's
+        // native horizontalScrollView is not laid out on the first frames, so
+        // GetAbsoluteSize() returns 0/NaN. That transient state must route to
+        // the not-ready retry (return null in BuildSurfaceContext) instead of
+        // throwing and isolating the whole feature.
+        internal static bool IsValidScrollViewportSize(UnityEngine.Vector2 size)
+        {
+            return size.x > 0f && size.y > 0f && IsFinite(size.x) && IsFinite(size.y);
+        }
+
         private static bool IsFiniteNonNegative(float value)
         {
             return IsFinite(value) && value >= 0f;
@@ -748,6 +758,7 @@ namespace BetterUnturnedExperience.Plugin
     internal sealed class InventorySurfaceLifecycleAdapter
     {
         private readonly BepInEx.Logging.ManualLogSource log;
+        internal BepInEx.Logging.ManualLogSource Log { get { return log; } }
         private readonly Action<IClientUiInventorySurface> openDispatcher;
         private readonly Action closeDispatcher;
         private readonly ContainerSessionTracker tracker;
@@ -815,6 +826,7 @@ namespace BetterUnturnedExperience.Plugin
             Action<byte> discardPageDispatcher = null)
         {
             this.log = log;
+            staticLog = log;
             this.openDispatcher = openDispatcher ?? throw new ArgumentNullException(nameof(openDispatcher));
             this.closeDispatcher = closeDispatcher ?? throw new ArgumentNullException(nameof(closeDispatcher));
             this.isolateDispatcher = isolateDispatcher;
@@ -937,12 +949,37 @@ namespace BetterUnturnedExperience.Plugin
             return isolationSucceeded;
         }
 
+        internal static string DescribeAdapterGate(bool hasActiveAdapter, bool isolated)
+        {
+            if (!hasActiveAdapter) return "adapter-gate reason=adapter-null";
+            if (isolated) return "adapter-gate reason=adapter-isolated";
+            return "adapter-gate reason=live";
+        }
+
         internal static void PlayerUIUpdatePostfix()
         {
+            // GPT watermark: count the Harmony callback before the null gate so
+            // a dead/isolated adapter is distinguishable from a missing patch.
+            var aliveTick = ++playerUiUpdatePostfixTick;
             var adapter = ActiveAdapter;
-            if (adapter == null || adapter.isolated) return;
+            if (adapter == null || adapter.isolated)
+            {
+                if (aliveTick % 120 == 0)
+                    staticLog?.LogInfo("[DEBUG-SURF] event=postfix-alive target=PlayerUI.Update count=" + aliveTick
+                        + " reason=" + DescribeAdapterGate(adapter != null, adapter != null && adapter.isolated)
+                        + " diagnosticId=BUE-DIAG-SURF-003");
+                return;
+            }
+            if (aliveTick % 120 == 0)
+            {
+                adapter.Log?.LogInfo("[DEBUG-SURF] event=postfix-alive target=PlayerUI.Update count=" + aliveTick
+                    + " diagnosticId=BUE-DIAG-SURF-003");
+            }
             adapter.RunGuardedPoll();
         }
+
+        private static int playerUiUpdatePostfixTick;
+        private static BepInEx.Logging.ManualLogSource staticLog;
 
         private void RunGuardedPoll()
         {
@@ -986,6 +1023,8 @@ namespace BetterUnturnedExperience.Plugin
             catch (Exception error)
             {
                 LastPollDiagnostics = "poll failed: " + error.GetType().FullName + ": " + error.Message;
+                staticLog?.LogInfo("[DEBUG-SURF] event=poll-exception errorType=" + error.GetType().FullName
+                    + " message=" + error.Message + " diagnosticId=BUE-DIAG-SURF-004");
                 var cleanupSucceeded = InventoryDragPreviewAdapter.FailClosedPreviewResult(isolate, hide);
                 if (!cleanupSucceeded && !string.IsNullOrEmpty(InventoryDragPreviewAdapter.LastCleanupDiagnostics))
                 {
@@ -1016,6 +1055,31 @@ namespace BetterUnturnedExperience.Plugin
             }
         }
 
+        // GPT watermark: R13-R6-silence discriminant seam. The lifecycle Poll has
+        // several silent returns that a real-machine session cannot distinguish.
+        // Each returns a named reason so the BepInEx log can tell which gate
+        // blocked the feature (no active session vs hierarchy-not-ready).
+        internal static string DescribeNoActiveSession(bool dashboardActive, bool isStoring,
+            bool isStorageTrunk, bool connected, bool hasActiveSession)
+        {
+            if (!connected) return "no-active-session reason=disconnected";
+            if (!dashboardActive && !isStoring) return "no-active-session reason=dashboard-closed";
+            if (!hasActiveSession) return "no-active-session reason=tracker-inactive"
+                + " dashboardActive=" + dashboardActive + " isStoring=" + isStoring
+                + " isStorageTrunk=" + isStorageTrunk;
+            return "no-active-session reason=generation-unknown";
+        }
+
+        private int lastSilenceLogTick;
+
+        private void LogSilenceOncePerTwoSeconds(string message)
+        {
+            var now = Environment.TickCount;
+            if (now - lastSilenceLogTick < 2000) return;
+            lastSilenceLogTick = now;
+            log?.LogInfo(message);
+        }
+
         internal void Poll()
         {
             var player = Player.LocalPlayer;
@@ -1033,6 +1097,9 @@ namespace BetterUnturnedExperience.Plugin
 
             if (!tracker.TryGetActiveGeneration(out var generation))
             {
+                LogSilenceOncePerTwoSeconds("[DEBUG-SURF] event=poll-silent reason="
+                    + DescribeNoActiveSession(dashboardActive, isStoring, isStorageTrunk, connected, tracker.HasActiveSession)
+                    + " diagnosticId=BUE-DIAG-SURF-001");
                 if (dispatchedSurfaces.Count > 0)
                 {
                     DiscardAllDispatchedSurfaces("session-closed");
@@ -1067,7 +1134,14 @@ namespace BetterUnturnedExperience.Plugin
                     DiscardDispatchedSurfaceForPage(page, liveSurfaceReady ? "native-surface-rebuilt" : "native-hierarchy-unavailable");
                     dispatched = null;
                 }
-                if (!liveSurfaceReady) continue;
+                if (!liveSurfaceReady)
+                {
+                    LogSilenceOncePerTwoSeconds("[DEBUG-SURF] event=poll-silent reason=hierarchy-not-ready"
+                        + " page=" + page + " hierarchy=" + hierarchyState
+                        + " hasSleekItems=" + (liveNativeItems != null)
+                        + " diagnosticId=BUE-DIAG-SURF-002");
+                    continue;
+                }
                 if (dispatchedSurfaces.ContainsKey(page) && dispatched != null && dispatched.Generation == generation)
                     continue;
 
@@ -1195,8 +1269,17 @@ namespace BetterUnturnedExperience.Plugin
             var uiScale = UnturnedInventorySurfaceContext.NormalizeUiScale(GraphicsSettings.userInterfaceScale);
 
             var scrollSize = nativeScroll.GetAbsoluteSize();
-            if (scrollSize.x <= 0f || scrollSize.y <= 0f || float.IsNaN(scrollSize.x) || float.IsNaN(scrollSize.y))
-                throw new InvalidOperationException("native inventory scroll viewport size is invalid");
+            if (!UnturnedInventorySurfaceContext.IsValidScrollViewportSize(scrollSize))
+            {
+                // GPT watermark: R13-R6-scrollsize fix. On the first frames after
+                // the dashboard opens the native scroll view is not laid out yet,
+                // so its absolute size is 0/NaN. This is a transient not-ready
+                // condition, not a fatal error: return null so Poll() retries next
+                // frame (existing surface-not-ready path) instead of throwing and
+                // isolating the whole feature.
+                log?.LogInfo("[BUE-INVENTORY] event=surface-not-ready reason=scroll-viewport-not-laid-out page=" + page + " diagnosticId=BUE-INVENTORY-004");
+                return null;
+            }
             var scrollPixelsX = 0f;
             var scrollPixelsY = 0f;
             if (nativeScroll != null)

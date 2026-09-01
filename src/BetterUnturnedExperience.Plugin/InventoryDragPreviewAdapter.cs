@@ -22,6 +22,7 @@ namespace BetterUnturnedExperience.Plugin
     {
         
         private readonly BepInEx.Logging.ManualLogSource log;
+        internal BepInEx.Logging.ManualLogSource Log { get { return log; } }
         private readonly Harmony harmony;
         private readonly bool enabled;
         private string gateDiagnostics;
@@ -55,6 +56,7 @@ namespace BetterUnturnedExperience.Plugin
             BetterItemInteractionUiComponent component)
         {
             this.log = log;
+            staticLog = log;
 
             this.component = component ?? throw new ArgumentNullException(nameof(component));
             harmony = new Harmony("io.github.yu80rice.bue.drag-preview");
@@ -456,8 +458,29 @@ namespace BetterUnturnedExperience.Plugin
 
         internal static void DashboardUpdatePostfix()
         {
+            // GPT watermark: count the Harmony callback before the null gate so
+            // a dead/isolated adapter is distinguishable from a missing patch.
+            var aliveTick = ++dashboardPostfixTick;
             var adapter = ActiveAdapter;
-            if (adapter == null) return;
+            if (adapter == null)
+            {
+                if (aliveTick % 120 == 0)
+                    staticLog?.LogInfo("[DEBUG-DRG] event=postfix-alive target=updateDraggedItem count=" + aliveTick
+                        + " reason=adapter-null diagnosticId=BUE-DIAG-DRG-003");
+                return;
+            }
+            if (adapter.isolated)
+            {
+                if (aliveTick % 120 == 0)
+                    adapter.Log?.LogInfo("[DEBUG-DRG] event=postfix-alive target=updateDraggedItem count=" + aliveTick
+                        + " reason=adapter-isolated diagnosticId=BUE-DIAG-DRG-003");
+                return;
+            }
+            if (aliveTick % 120 == 0)
+            {
+                adapter.Log?.LogInfo("[DEBUG-DRG] event=postfix-alive target=updateDraggedItem count=" + aliveTick
+                    + " diagnosticId=BUE-DIAG-DRG-003");
+            }
             try
             {
                 adapter.Tick();
@@ -465,9 +488,14 @@ namespace BetterUnturnedExperience.Plugin
             catch (Exception error)
             {
                 LastPollDiagnostics = "poll failed: " + error.GetType().FullName + ": " + error.Message;
+                adapter.Log?.LogInfo("[DEBUG-DRG] event=tick-exception errorType=" + error.GetType().FullName
+                    + " message=" + error.Message + " diagnosticId=BUE-DIAG-DRG-004");
                 adapter.IsolateAndDetach();
             }
         }
+
+        private static int dashboardPostfixTick;
+        private static BepInEx.Logging.ManualLogSource staticLog;
 
         internal static InventoryDragPreviewAdapter ActiveAdapter { get; private set; }
 
@@ -505,12 +533,46 @@ namespace BetterUnturnedExperience.Plugin
 
         // GPT watermark: reliable plugin-owned main-thread fallback, matching
         // UPM's BaseUnityPlugin.Update driver; Harmony remains a fast path.
+        internal static string DescribeTickGate(bool lifecycleCanRun, bool enhancedDragActive, FeatureState state)
+        {
+            if (lifecycleCanRun) return "lifecycle-gate reason=can-run";
+            if (enhancedDragActive) return "lifecycle-gate reason=enhanced-active";
+            return "lifecycle-gate reason=blocked lifecycleCanRun=" + lifecycleCanRun
+                + " enhancedDragActive=" + enhancedDragActive + " state=" + state;
+        }
+
+        internal static string DescribeAdapterGate(bool enabled, bool isolated)
+        {
+            if (!enabled) return "adapter-gate reason=disabled";
+            if (isolated) return "adapter-gate reason=isolated";
+            return "adapter-gate reason=live";
+        }
+
+        private int lastSilenceLogTick;
+
+        private void LogSilenceOncePerTwoSeconds(string message)
+        {
+            var now = Environment.TickCount;
+            if (now - lastSilenceLogTick < 2000) return;
+            lastSilenceLogTick = now;
+            log?.LogInfo(message);
+        }
+
         internal void Tick()
         {
-            if (!enabled || isolated) return;
+            if (!enabled || isolated)
+            {
+                LogSilenceOncePerTwoSeconds("[DEBUG-DRG] event=tick-silent reason="
+                    + DescribeAdapterGate(enabled, isolated)
+                    + " diagnosticId=BUE-DIAG-DRG-005");
+                return;
+            }
             if (!component.LifecycleCanRun && !component.EnhancedDragActive)
             {
                 component.HidePreview();
+                LogSilenceOncePerTwoSeconds("[DEBUG-DRG] event=tick-silent reason="
+                    + DescribeTickGate(component.LifecycleCanRun, component.EnhancedDragActive, component.Lifecycle.State)
+                    + " diagnosticId=BUE-DIAG-DRG-001");
                 return;
             }
             var frame = Time.frameCount;
@@ -526,6 +588,8 @@ namespace BetterUnturnedExperience.Plugin
             catch (Exception error)
             {
                 LastPollDiagnostics = "plugin-update poll failed: " + error.GetType().FullName + ": " + error.Message;
+                log?.LogInfo("[DEBUG-DRG] event=tick-exception errorType=" + error.GetType().FullName
+                    + " message=" + error.Message + " diagnosticId=BUE-DIAG-DRG-004");
                 IsolateAndDetach();
             }
         }
@@ -569,7 +633,13 @@ namespace BetterUnturnedExperience.Plugin
 
         private void Poll()
         {
-            if (!component.LifecycleCanRun && !component.EnhancedDragActive) return;
+            if (!component.LifecycleCanRun && !component.EnhancedDragActive)
+            {
+                LogSilenceOncePerTwoSeconds("[DEBUG-DRG] event=poll-silent reason="
+                    + DescribeTickGate(component.LifecycleCanRun, component.EnhancedDragActive, component.Lifecycle.State)
+                    + " diagnosticId=BUE-DIAG-DRG-002");
+                return;
+            }
             var isDragging = PlayerDashboardInventoryUI.isDragging;
             if (isDragging && !wasDragging)
             {
