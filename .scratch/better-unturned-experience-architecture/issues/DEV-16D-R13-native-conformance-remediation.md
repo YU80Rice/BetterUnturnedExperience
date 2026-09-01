@@ -34,4 +34,19 @@
 - `[x]` Preview evaluation and native swap guard now consume the same drag-scoped snapshot through `INativeInventoryOccupancyProvider`; same-container source exclusion requires verifiable jar metadata and cross-container targets keep all target occupancy.
 - `[x]` Added a GPT-watermarked boundary regression for stale/out-of-grid footprints. It failed before the fix (`TEST_EXIT=1`, `R13 rejects an ItemJar footprint that extends outside the native grid`) and passes after the fail-closed rejection.
 - `[x]` Plugin and ClientUi targeted tests pass after the implementation round; full Release build and seven-project suite pass (`0 errors / 0 warnings`, all exit code `0`).
+- `[x]` Review round R13-1 completed on the frozen `8d093f2` increment: Standards and Spec both returned `FAIL` with four blocking findings.
+- `[ ]` Blocking finding 1: lifecycle dispatch and drag adapter retain only one live `SleekItems` surface, so Backpack↔Storage/Trunk routing is not bidirectional while both native pages exist.
+- `[ ]` Blocking finding 2: same-container source exclusion compares the mutable `ItemJar.rot` with the original `dragFromRot`; a native rotation can reject the occupancy snapshot and cannot preserve the source's pre-rotation footprint.
+- `[ ]` Blocking finding 3: release routing checks only the target page; AREA and equipment sources can still enter enhanced submission paths, violating the fixed Pass-Through matrix.
+- `[ ]` Blocking finding 4: occupancy snapshot rejection clears the cache but leaves `LastPreview`; a later release can consume stale preview state instead of passing through natively.
 - `[ ]` Static gates, dual-axis review, reviewed artifact identity and final resolution remain pending; this ticket is intentionally still `claimed`.
+
+### 2026-09-01 GPT R13-2 implementation round
+
+- `[x]` Added pointer-based target routing across both live supported pages; the drag adapter now consumes the page whose native pointer contains the cursor instead of reusing the last registered page.
+- `[x]` Added explicit source-page gating for Backpack/Storage only; AREA, equipment, unknown and other pages remain native Pass-Through before preview evaluation.
+- `[x]` Hidden/default previews now pass through natively before generation validation, so occupancy invalidation cannot cancel or submit stale state.
+- `[x]` Occupancy invalidation clears every live surface provider and the cached preview/drag occupancy without allocating in the hot invalidation path.
+- `[x]` Added GPT-watermarked pointer-routing regression; it failed against last-surface routing and passes after the pointer seam was wired.
+- `[x]` Release build, seven project test runners, R13 targeted tests, UI/native token gates and `git diff --check` pass with 0 errors / 0 warnings.
+- `[ ]` Fresh Standards + Spec review for this increment is pending; no DLL identity has been granted and the ticket remains `claimed`.

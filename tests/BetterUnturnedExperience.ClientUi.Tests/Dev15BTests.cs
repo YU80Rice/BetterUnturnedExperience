@@ -334,10 +334,10 @@ namespace BetterUnturnedExperience.ClientUi.Tests
             Assert(component.CurrentSessionGeneration == 100, "session generation bound from surface");
             Assert(component.PreviewSink != null, "visual sink bound from surface");
 
-            component.OnDragStarted(10);
+            component.OnDragStarted(10, ItemAssetIdentity.FromItemId(363), new ItemGridPosition(3, 0, 0, 0));
             var asset = ItemAssetIdentity.FromItemId(363);
             InventoryPreviewInput input;
-            var created = component.TryCreatePreviewInput(10, new ItemGridPosition(8, 0, 0, 0), 100f, 100f, 2, 2, 0, true, 0.5f, 0.5f, asset, out input);
+            var created = component.TryCreatePreviewInput(10, new ItemGridPosition(3, 0, 0, 0), 100f, 100f, 2, 2, 0, true, 0.5f, 0.5f, asset, out input);
             Assert(created, "TryCreatePreviewInput constructs input from active surface context");
             Assert(input.ItemAsset == asset, "input carries item asset identity");
             Assert(input.TargetContainer.SessionGeneration == 100, "input target container carries surface session generation");
@@ -348,7 +348,7 @@ namespace BetterUnturnedExperience.ClientUi.Tests
             Assert(component.PreviewSink.BoundIconAsset == asset, "bound asset visible on icon element");
 
             var nativeActions = new Program.RecordingNativeDragActions();
-            var releaseInput = new NativeDragAdapterInput(true, 10, new ItemGridPosition(8, 0, 0, 0),
+            var releaseInput = new NativeDragAdapterInput(true, 10, new ItemGridPosition(3, 0, 0, 0),
                 new ItemPlacementPreview(10, PlacementPreviewState.Candidate, new ItemGridPosition(3, 1, 2, 0), 2, 2, PlacementReason.None));
             var outcome = component.OnDragReleased(releaseInput, nativeActions);
             Assert(outcome == NativeDragAdapterOutcome.Submitted, "ordinary candidate submitted on release");
@@ -369,14 +369,14 @@ namespace BetterUnturnedExperience.ClientUi.Tests
             var component = new BetterItemInteractionUiComponent(presenter, adapter);
 
             var surface = new MockInventorySurfaceContext(
-                new ContainerReference(ContainerKind.Storage, 5, 202),
+                new ContainerReference(ContainerKind.Storage, 7, 202),
                 new MockVisualContainer(), new MockVisualContainer(),
                 new InventoryGridViewport(50f, 100f, 10, 8, 50f, 100f, 500f, 400f),
                 40f, 1.25f, 10f, 20f, new TestGrid(10, 8));
 
             component.OnInventoryOpened(surface);
             Assert(component.CurrentContainer.Kind == ContainerKind.Storage, "container kind bound");
-            Assert(component.CurrentContainer.Page == 5, "container page bound");
+            Assert(component.CurrentContainer.Page == 7, "container page bound");
             Assert(component.CurrentContainer.SessionGeneration == 202, "container session generation bound");
 
             var asset = ItemAssetIdentity.FromAsset(519, Guid.NewGuid(), "Items/Bags/Alicepack");
@@ -406,7 +406,7 @@ namespace BetterUnturnedExperience.ClientUi.Tests
                 50f, 1f, 0f, 0f, new TestGrid(8, 6));
 
             component.OnInventoryOpened(surfaceA);
-            component.OnDragStarted(20);
+            component.OnDragStarted(20, ItemAssetIdentity.FromItemId(363), new ItemGridPosition(3, 0, 0, 0));
 
             // Stale session generation update should hide visual sink:
             var staleInput = new InventoryPreviewInput(20, new ItemGridPosition(0, 0, 0, 0),
@@ -418,14 +418,14 @@ namespace BetterUnturnedExperience.ClientUi.Tests
 
             // Container switch: open surfaceB (new container / new session)
             var surfaceB = new MockInventorySurfaceContext(
-                new ContainerReference(ContainerKind.Storage, 4, 302),
+                new ContainerReference(ContainerKind.Storage, 7, 302),
                 new MockVisualContainer(), new MockVisualContainer(),
                 new InventoryGridViewport(0f, 0f, 8, 6, 0f, 0f, 800f, 600f),
                 50f, 1f, 0f, 0f, new TestGrid(8, 6));
 
             component.OnInventoryOpened(surfaceB);
             Assert(component.CurrentSessionGeneration == 302, "session generation updated to new container");
-            Assert(component.CurrentContainer.Page == 4, "container page updated to new container");
+            Assert(component.CurrentContainer.Page == 7, "container page updated to new container");
 
             component.OnInventoryClosed();
         }
@@ -443,7 +443,7 @@ namespace BetterUnturnedExperience.ClientUi.Tests
                 new InventoryPreviewPresenter(new InventoryDragPresenter(evaluator)),
                 new NativeInventoryInteractionAdapter(2, 8));
             component.OnUiInitialized(new Program.TestRoot());
-            component.OnDragStarted(41, ItemAssetIdentity.FromItemId(363));
+            component.OnDragStarted(41, ItemAssetIdentity.FromItemId(363), new ItemGridPosition(3, 0, 0, 0));
 
             var surface = new MockInventorySurfaceContext(
                 new ContainerReference(ContainerKind.PlayerInventory, 3, 501),
@@ -453,7 +453,7 @@ namespace BetterUnturnedExperience.ClientUi.Tests
             component.OnInventoryOpened(surface);
 
             InventoryPreviewInput input;
-            Assert(component.TryCreatePreviewInput(41, new ItemGridPosition(8, 0, 0, 0),
+            Assert(component.TryCreatePreviewInput(41, new ItemGridPosition(3, 0, 0, 0),
                 125f, 125f, 1, 1, 0, true, 0.5f, 0.5f,
                 ItemAssetIdentity.FromItemId(363), out input),
                 "surface arrival during an active drag creates a preview input");
@@ -472,7 +472,7 @@ namespace BetterUnturnedExperience.ClientUi.Tests
             var component = new BetterItemInteractionUiComponent(presenter, adapter);
 
             var surface = new MockInventorySurfaceContext(
-                new ContainerReference(ContainerKind.PlayerInventory, 2, 401),
+                new ContainerReference(ContainerKind.PlayerInventory, 3, 401),
                 new MockVisualContainer(), new MockVisualContainer(),
                 new InventoryGridViewport(0f, 0f, 8, 6, 0f, 0f, 800f, 600f),
                 50f, 1f, 0f, 0f, new TestGrid(8, 6));

@@ -37,11 +37,15 @@ namespace BetterUnturnedExperience.ClientUi.Internal
     {
         private readonly byte slotsPageBoundary;
         private readonly byte areaPage;
+        private readonly byte backpackPage;
+        private readonly byte storagePage;
 
         internal NativeInventoryInteractionAdapter(byte slotsPageBoundary, byte areaPage)
         {
             this.slotsPageBoundary = slotsPageBoundary;
             this.areaPage = areaPage;
+            backpackPage = (byte)(slotsPageBoundary + 1);
+            storagePage = (byte)(areaPage - 1);
         }
 
         internal NativeDragAdapterOutcome HandleRelease(NativeDragAdapterInput input, INativeInventoryDragActions native)
@@ -52,9 +56,23 @@ namespace BetterUnturnedExperience.ClientUi.Internal
                 return NativeDragAdapterOutcome.PassThrough;
             }
 
+            // A hidden/default preview means the enhancement has no current
+            // fact source (for example after an occupancy snapshot invalidation).
+            // Never cancel or submit in that state; leave the native callback in
+            // control so the vanilla interaction remains available.
+            if (input.Preview.State == PlacementPreviewState.Hidden)
+            {
+                return NativeDragAdapterOutcome.PassThrough;
+            }
+
             if (input.Preview.DragGeneration != input.DragGeneration)
             {
                 return NativeDragAdapterOutcome.Cancelled;
+            }
+
+            if (!IsEnhancedSourcePage(input.Source.Page))
+            {
+                return NativeDragAdapterOutcome.PassThrough;
             }
 
             var target = input.Preview.Candidate;
@@ -77,21 +95,19 @@ namespace BetterUnturnedExperience.ClientUi.Internal
                 return NativeDragAdapterOutcome.PassThrough;
             }
 
-            if (input.Source.Page == areaPage)
-            {
-                native.TakeGroundItem(target);
-            }
-            else
-            {
-                native.SendDragItem(input.Source, target);
-            }
+            native.SendDragItem(input.Source, target);
             native.StopDrag();
             return NativeDragAdapterOutcome.Submitted;
         }
 
         private bool IsOrdinaryGrid(byte page)
         {
-            return page >= slotsPageBoundary && page != areaPage;
+            return page == backpackPage || page == storagePage;
+        }
+
+        internal bool IsEnhancedSourcePage(byte page)
+        {
+            return IsOrdinaryGrid(page);
         }
 
         private static bool IsSamePlacement(ItemGridPosition source, ItemGridPosition target)

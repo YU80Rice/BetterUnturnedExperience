@@ -55,6 +55,21 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     AssertDev16DR13RejectsOutOfBoundsFootprints();
                     return 0;
                 }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--dev16d-r13-surface-red")
+                {
+                    AssertDev16DR13TracksBothSupportedSurfaces();
+                    return 0;
+                }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--dev16d-r13-rotation-red")
+                {
+                    AssertDev16DR13RotationKeepsSourceExclusion();
+                    return 0;
+                }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--dev16d-r13-stale-red")
+                {
+                    AssertDev16DR13StalePreviewFallsThrough();
+                    return 0;
+                }
                 AssertSingleDllAssemblyClosure();
                 AssertExternalSdkAssemblyIdentity();
                 Assert(BootstrapGuard.Decide(false, false, true) == BootstrapDecision.Client, "client decision");
@@ -107,6 +122,10 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 AssertDev16DR9CleanupPropagationContracts();
                 AssertDev16DR13CanonicalOccupancyUsesItemJarFootprints();
                 AssertDev16DR13RejectsOutOfBoundsFootprints();
+                AssertDev16DR13TracksBothSupportedSurfaces();
+                AssertDev16DR13PointerRoutesToLiveTargetSurface();
+                AssertDev16DR13RotationKeepsSourceExclusion();
+                AssertDev16DR13StalePreviewFallsThrough();
                 AssertRuntimeCompletionBarrierIsolates();
                 AssertManagementPanelConsumesRuntimeCatalog();
                 AssertManagementPanelOpenHooks();
@@ -245,6 +264,230 @@ namespace BetterUnturnedExperience.Plugin.Tests
             Assert(!NativeItemGridOccupancySnapshot.TryCreateFromItems(items, null, out snapshot),
                 "R13 rejects an ItemJar footprint that extends outside the native grid");
             Assert(snapshot == null, "R13 does not publish a partial snapshot for an invalid footprint");
+        }
+
+        // GPT watermark: R13 red regression. Both supported SleekItems pages
+        // are live at the same time. Registering the Storage page must not
+        // discard the Backpack surface needed by a cross-page drag source.
+        private static void AssertDev16DR13TracksBothSupportedSurfaces()
+        {
+            var component = new BetterItemInteractionUiComponent(
+                new InventoryPreviewPresenter(new InventoryDragPresenter(new FixedCandidateEvaluator())),
+                new NativeInventoryInteractionAdapter(2, 8));
+            component.OnUiInitialized(new TestRoot());
+            var backpack = CreateTestSurface(ContainerKind.PlayerInventory, 3, 901);
+            var storage = CreateTestSurface(ContainerKind.Storage, 7, 901);
+            component.OnInventoryOpened(backpack);
+            component.OnInventoryOpened(storage);
+            component.OnDragStarted(90, ItemAssetIdentity.FromItemId(363),
+                new ItemGridPosition(3, 0, 0, 0));
+
+            InventoryPreviewInput input;
+            Assert(component.TryCreatePreviewInput(90, new ItemGridPosition(3, 0, 0, 0),
+                    100f, 100f, 1, 1, 0, false, 0.5f, 0.5f,
+                    ItemAssetIdentity.FromItemId(363), out input),
+                "cross-page source can still create a preview input after both surfaces are registered");
+            Assert(input.TargetContainer.Page == 3,
+                "source-page routing keeps the Backpack live surface instead of the last Storage registration");
+            component.OnInventoryClosed();
+        }
+
+        // GPT watermark: R13 red regression. The source page may be Backpack
+        // while the cursor is over Storage; polling must select the live target
+        // surface by native pointer hit instead of reusing the source surface.
+        private static void AssertDev16DR13PointerRoutesToLiveTargetSurface()
+        {
+            var component = new BetterItemInteractionUiComponent(
+                new InventoryPreviewPresenter(new InventoryDragPresenter(new FixedCandidateEvaluator())),
+                new NativeInventoryInteractionAdapter(2, 8));
+            component.OnUiInitialized(new TestRoot());
+            var backpack = new TestSurfaceContext(new ContainerReference(ContainerKind.PlayerInventory, 3, 903),
+                new TestVisualContainer(), new TestVisualContainer(),
+                new InventoryGridViewport(0f, 0f, 8, 6, 0f, 0f, 400f, 300f),
+                50f, 1f, 0f, 0f, new EmptyGridForTest(8, 6), false, 100f, 100f);
+            var storage = new TestSurfaceContext(new ContainerReference(ContainerKind.Storage, 7, 903),
+                new TestVisualContainer(), new TestVisualContainer(),
+                new InventoryGridViewport(0f, 0f, 8, 6, 0f, 0f, 400f, 300f),
+                50f, 1f, 0f, 0f, new EmptyGridForTest(8, 6), true, 200f, 200f);
+            component.OnInventoryOpened(backpack);
+            component.OnInventoryOpened(storage);
+            component.OnDragStarted(92, ItemAssetIdentity.FromItemId(363),
+                new ItemGridPosition(3, 0, 0, 0));
+
+            IInventorySurfaceContext selected;
+            float localX;
+            float localY;
+            Assert(InventoryDragPreviewAdapter.TrySelectTargetSurface(component,
+                    out selected, out localX, out localY),
+                "pointer routing finds a live inventory target surface");
+            Assert(selected.CurrentContainer.Page == 7 && localX == 200f && localY == 200f,
+                "pointer routing selects Storage while the source drag remains on Backpack");
+            component.OnInventoryClosed();
+        }
+
+        // GPT watermark: R13 red regression. Native rotation mutates dragJar.rot
+        // during updateDraggedItem, while dragFromRot remains the original
+        // source orientation. Source exclusion must remain valid after that
+        // mutation so the original footprint is not treated as a blocker.
+        private static void AssertDev16DR13RotationKeepsSourceExclusion()
+        {
+            var jar = CreateTestItemJar(1, 1, 2, 2, 1);
+            Assert(UnturnedGridOccupancyView.SourceExclusionMetadataMatches(
+                    jar, new ItemGridPosition(3, 1, 1, 0),
+                    ItemAssetIdentity.FromItemId(1), 2, 1, 0, true, true),
+                "rotated native drag jar remains eligible for exclusion using frozen source rotation");
+        }
+
+        // GPT watermark: R13 red regression. Once the canonical occupancy
+        // snapshot becomes unavailable, a previously visible Candidate must
+        // never be submitted on release.
+        private static void AssertDev16DR13StalePreviewFallsThrough()
+        {
+            var component = new BetterItemInteractionUiComponent(
+                new InventoryPreviewPresenter(new InventoryDragPresenter(new FixedCandidateEvaluator())),
+                new NativeInventoryInteractionAdapter(2, 8));
+            component.OnUiInitialized(new TestRoot());
+            var surface = CreateTestSurface(ContainerKind.PlayerInventory, 3, 902);
+            component.OnInventoryOpened(surface);
+            component.OnDragStarted(91, ItemAssetIdentity.FromItemId(363),
+                new ItemGridPosition(3, 0, 0, 0));
+            InventoryPreviewInput input;
+            Assert(component.TryCreatePreviewInput(91, new ItemGridPosition(3, 0, 0, 0),
+                    100f, 100f, 1, 1, 0, false, 0.5f, 0.5f,
+                    ItemAssetIdentity.FromItemId(363), out input),
+                "initial occupancy snapshot is available");
+            component.OnDragUpdated(input);
+            Assert(component.LastPreview.State == PlacementPreviewState.Candidate,
+                "initial preview is a Candidate before occupancy invalidation");
+            surface.InvalidateOccupancy();
+            component.InvalidateOccupancySnapshot();
+            Assert(!component.TryCreatePreviewInput(91, new ItemGridPosition(3, 0, 0, 0),
+                    100f, 100f, 1, 1, 0, false, 0.5f, 0.5f,
+                    ItemAssetIdentity.FromItemId(363), out input),
+                "invalidated occupancy rejects the next preview input");
+            Assert(component.LastPreview.State == 0,
+                "occupancy rejection clears the old preview instead of retaining Candidate");
+            var native = new RecordingNativeDragActions();
+            var outcome = component.OnDragReleased(
+                new NativeDragAdapterInput(true, 91, new ItemGridPosition(3, 0, 0, 0), component.LastPreview), native);
+            Assert(outcome == NativeDragAdapterOutcome.PassThrough && native.SendCount == 0,
+                "stale preview release remains native pass-through and cannot submit");
+            component.OnInventoryClosed();
+        }
+
+        private static TestSurfaceContext CreateTestSurface(ContainerKind kind, byte page, uint generation)
+        {
+            return new TestSurfaceContext(new ContainerReference(kind, page, generation),
+                new TestVisualContainer(), new TestVisualContainer(),
+                new InventoryGridViewport(0f, 0f, 8, 6, 0f, 0f, 400f, 300f),
+                50f, 1f, 0f, 0f, new EmptyGridForTest(8, 6));
+        }
+
+        private sealed class FixedCandidateEvaluator : IPlacementCandidateEvaluator
+        {
+            public ItemPlacementPreview Evaluate(PlacementCandidateInput input)
+            {
+                return new ItemPlacementPreview(input.DragGeneration, PlacementPreviewState.Candidate,
+                    new ItemGridPosition(input.TargetContainer.Page, 1, 1, input.CurrentRotation),
+                    input.ItemWidth, input.ItemHeight, PlacementReason.None);
+            }
+        }
+
+        private sealed class EmptyGridForTest : IGridOccupancyView
+        {
+            internal EmptyGridForTest(byte width, byte height) { Width = width; Height = height; }
+            public byte Width { get; }
+            public byte Height { get; }
+            public bool IsOccupied(byte x, byte y) { return false; }
+        }
+
+        private sealed class TestVisualElement : IVisualElement
+        {
+            public float PositionScaleX { get; set; }
+            public float PositionScaleY { get; set; }
+            public float PositionOffsetX { get; set; }
+            public float PositionOffsetY { get; set; }
+            public float SizeOffsetX { get; set; }
+            public float SizeOffsetY { get; set; }
+            public byte RotationAngle { get; set; }
+            public bool CanRotate { get; set; }
+            public bool IsVisible { get; set; }
+            public PreviewFrameColor Color { get; set; }
+            public ItemAssetIdentity BoundAsset { get; set; }
+        }
+
+        private sealed class TestVisualContainer : IVisualContainer
+        {
+            public IVisualElement CreateBox() { return new TestVisualElement(); }
+            public IVisualElement CreateImage() { return new TestVisualElement(); }
+            public void AddChild(IVisualElement child) { }
+            public void RemoveChild(IVisualElement child) { }
+        }
+
+        private sealed class TestClientUiRoot : IClientUiRoot { }
+        private sealed class TestRoot : IClientUiRoot { }
+
+        private sealed class RecordingNativeDragActions : INativeInventoryDragActions
+        {
+            internal int StopCount;
+            internal int SendCount;
+            internal int GroundTakeCount;
+            public void StopDrag() { StopCount++; }
+            public void SendDragItem(ItemGridPosition source, ItemGridPosition target) { SendCount++; }
+            public void TakeGroundItem(ItemGridPosition target) { GroundTakeCount++; }
+        }
+
+        private sealed class TestSurfaceContext : IInventoryPointerSurfaceContext, INativeInventoryOccupancyProvider
+        {
+            private bool occupancyAvailable = true;
+            private readonly bool pointerAvailable;
+            private readonly float pointerX;
+            private readonly float pointerY;
+            public ContainerReference CurrentContainer { get; }
+            public IVisualContainer TopLevelContainer { get; }
+            public IVisualContainer GridPanelContainer { get; }
+            public InventoryGridViewport Viewport { get; }
+            public float CellPixelSize { get; }
+            public float UiScale { get; }
+            public float ScrollPixelsX { get; }
+            public float ScrollPixelsY { get; }
+            public IGridOccupancyView Occupancy { get; }
+
+            internal TestSurfaceContext(ContainerReference currentContainer, IVisualContainer topLevel,
+                IVisualContainer gridPanel, InventoryGridViewport viewport, float cellPixelSize,
+                float uiScale, float scrollPixelsX, float scrollPixelsY, IGridOccupancyView occupancy,
+                bool pointerAvailable = false, float pointerX = 0f, float pointerY = 0f)
+            {
+                CurrentContainer = currentContainer;
+                TopLevelContainer = topLevel;
+                GridPanelContainer = gridPanel;
+                Viewport = viewport;
+                CellPixelSize = cellPixelSize;
+                UiScale = uiScale;
+                ScrollPixelsX = scrollPixelsX;
+                ScrollPixelsY = scrollPixelsY;
+                Occupancy = occupancy;
+                this.pointerAvailable = pointerAvailable;
+                this.pointerX = pointerX;
+                this.pointerY = pointerY;
+            }
+
+            public bool TryGetLocalPointerPixels(out float x, out float y)
+            {
+                x = pointerX;
+                y = pointerY;
+                return pointerAvailable;
+            }
+
+            public bool TryCreateOccupancyForDrag(ContainerReference sourceContainer, ContainerReference targetContainer,
+                ItemGridPosition source, byte itemWidth, byte itemHeight, byte sourceRotation,
+                ItemAssetIdentity sourceAsset, out IGridOccupancyView occupancy)
+            {
+                occupancy = occupancyAvailable ? Occupancy : null;
+                return occupancyAvailable;
+            }
+
+            public void InvalidateOccupancy() { occupancyAvailable = false; }
         }
 
         private static ItemJar CreateTestItemJar(byte x, byte y, byte rotation, byte width, byte height)

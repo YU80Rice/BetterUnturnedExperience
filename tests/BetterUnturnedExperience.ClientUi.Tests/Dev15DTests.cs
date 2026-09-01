@@ -18,6 +18,7 @@ namespace BetterUnturnedExperience.ClientUi.Tests
             SnapshotIdentityAndRevisionAreFailClosed();
             CleanupFailureNeverPublishesStopped();
             ComponentDisabledPathReturnsNativePassThrough();
+            SourcePagePassThroughMatrixIsExplicit();
         }
 
         private static void SettingsDefaultToEnabledAndAutoRotate()
@@ -147,10 +148,10 @@ namespace BetterUnturnedExperience.ClientUi.Tests
                 new NativeInventoryInteractionAdapter(2, 8));
             component.OnUiInitialized(new Program.TestRoot());
             component.ApplySettingsSnapshot(Snapshot(false, true, 3));
-            component.OnDragStarted(30);
+            component.OnDragStarted(30, ItemAssetIdentity.FromItemId(363), new ItemGridPosition(3, 0, 0, 0));
             var native = new NativeActions();
             var outcome = component.OnDragReleased(new NativeDragAdapterInput(true, 30,
-                new ItemGridPosition(8, 0, 0, 0), new ItemPlacementPreview(30, PlacementPreviewState.Candidate,
+                new ItemGridPosition(3, 0, 0, 0), new ItemPlacementPreview(30, PlacementPreviewState.Candidate,
                     new ItemGridPosition(7, 0, 0, 0), 1, 1, PlacementReason.None)), native);
             Assert(outcome == NativeDragAdapterOutcome.PassThrough && native.SendCount == 0 && native.StopCount == 0,
                 "disabled component leaves native drag untouched");
@@ -158,12 +159,44 @@ namespace BetterUnturnedExperience.ClientUi.Tests
                 new InventoryPreviewPresenter(new InventoryDragPresenter(new FixedEvaluator())),
                 new NativeInventoryInteractionAdapter(2, 8));
             enabledComponent.OnUiInitialized(new Program.TestRoot());
-            enabledComponent.OnDragStarted(31);
+            enabledComponent.OnDragStarted(31, ItemAssetIdentity.FromItemId(363), new ItemGridPosition(3, 0, 0, 0));
             var submitted = enabledComponent.OnDragReleased(new NativeDragAdapterInput(true, 31,
-                new ItemGridPosition(8, 0, 0, 0), new ItemPlacementPreview(31, PlacementPreviewState.Candidate,
+                new ItemGridPosition(3, 0, 0, 0), new ItemPlacementPreview(31, PlacementPreviewState.Candidate,
                     new ItemGridPosition(7, 0, 0, 0), 1, 1, PlacementReason.None)), new NativeActions());
             Assert(submitted == NativeDragAdapterOutcome.Submitted && !enabledComponent.EnhancedDragActive,
                 "submitted release clears enhanced drag state");
+        }
+
+        // GPT watermark: DEV-16D-R13 red regression. Enhanced interaction is
+        // limited to ordinary Backpack/Storage/Trunk grids; AREA and every
+        // equipment source must remain native pass-through even when the target
+        // is an ordinary grid.
+        private static void SourcePagePassThroughMatrixIsExplicit()
+        {
+            var adapter = new NativeInventoryInteractionAdapter(2, 8);
+            var native = new NativeActions();
+            var ordinaryTarget = new ItemPlacementPreview(60, PlacementPreviewState.Candidate,
+                new ItemGridPosition(7, 0, 0, 0), 1, 1, PlacementReason.None);
+
+            Assert(adapter.HandleRelease(new NativeDragAdapterInput(true, 60,
+                    new ItemGridPosition(8, 0, 0, 0), ordinaryTarget), native) == NativeDragAdapterOutcome.PassThrough,
+                "AREA source remains native pass-through when targeting Storage");
+            Assert(native.SendCount == 0 && native.GroundTakeCount == 0 && native.StopCount == 0,
+                "AREA source never invokes enhanced native actions");
+
+            native.Reset();
+            Assert(adapter.HandleRelease(new NativeDragAdapterInput(true, 61,
+                    new ItemGridPosition(0, 0, 0, 0),
+                    new ItemPlacementPreview(61, PlacementPreviewState.Candidate,
+                        new ItemGridPosition(7, 0, 0, 0), 1, 1, PlacementReason.None)), native) == NativeDragAdapterOutcome.PassThrough,
+                "equipment source remains native pass-through when targeting Storage");
+            Assert(native.SendCount == 0 && native.GroundTakeCount == 0 && native.StopCount == 0,
+                "equipment source never invokes enhanced native actions");
+            Assert(!BetterItemInteractionUiComponent.IsSupportedEnhancedPage(8),
+                "AREA is excluded from the enhanced source page matrix");
+            Assert(BetterItemInteractionUiComponent.IsSupportedEnhancedPage(3) &&
+                BetterItemInteractionUiComponent.IsSupportedEnhancedPage(7),
+                "Backpack and Storage are the only enhanced source pages");
         }
 
         private sealed class FixedEvaluator : IPlacementCandidateEvaluator
@@ -183,6 +216,7 @@ namespace BetterUnturnedExperience.ClientUi.Tests
             public void SendDragItem(ItemGridPosition source, ItemGridPosition target) { SendCount++; }
             public void StopDrag() { StopCount++; }
             public void TakeGroundItem(ItemGridPosition target) { GroundTakeCount++; }
+            internal void Reset() { SendCount = 0; StopCount = 0; GroundTakeCount = 0; }
         }
 
         private static FeatureSettingsSnapshot Snapshot(bool enabled, bool autoRotate, uint revision)

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Action = System.Action;
 using BetterUnturnedExperience.ClientUi.Internal;
 using BetterUnturnedExperience.Contracts;
@@ -124,8 +125,22 @@ namespace BetterUnturnedExperience.Plugin
         // wrapper that runs the take-over decision first and only forwards to
         // the vanilla handler on pass-through. Rebinding re-runs per dispatch
         // so a rebuilt UI gets fresh delegates.
-        private SleekItems attachedGrid;
-        private PlacedItem nativePlacedHandler;
+        private readonly Dictionary<byte, AttachedGridBinding> attachedGrids =
+            new Dictionary<byte, AttachedGridBinding>();
+
+        private sealed class AttachedGridBinding
+        {
+            internal readonly SleekItems Grid;
+            internal readonly PlacedItem NativeHandler;
+
+            internal AttachedGridBinding(SleekItems grid, PlacedItem nativeHandler)
+            {
+                Grid = grid;
+                NativeHandler = nativeHandler;
+            }
+        }
+
+        internal int AttachedGridCount { get { return attachedGrids.Count; } }
 
         // Rebuilt native surfaces are only attachable while this adapter is
         // live. Once isolation starts, no new delegate may be written.
@@ -157,14 +172,15 @@ namespace BetterUnturnedExperience.Plugin
                 var sleek = context?.NativeItems;
                 if (sleek == null)
                     throw new InvalidOperationException("context has no native SleekItems");
-                // Idempotence: storage and trunk share one SleekItems (page 7),
-                // and re-entry here used to wrap our own wrapper, stacking
-                // evaluation layers until a placement crashed the game.
-                if (ReferenceEquals(sleek, attachedGrid) || ReferenceEquals(sleek.onPlacedItem?.Target, this)) return;
-                var detachSucceeded = DetachGrid();
+                var page = context.CurrentContainer.Page;
+                if (!IsSupportedPage(page)) return;
+                AttachedGridBinding existing;
+                if (attachedGrids.TryGetValue(page, out existing) && ReferenceEquals(sleek, existing.Grid)) return;
+                // Re-entry for a rebuilt page must only detach that page; the
+                // other supported page remains live for cross-page drags.
+                var detachSucceeded = DetachGrid(page);
                 if (!CanContinueGridAttach(detachSucceeded, isolated)) return;
-                attachedGrid = sleek;
-                nativePlacedHandler = sleek.onPlacedItem;
+                attachedGrids[page] = new AttachedGridBinding(sleek, sleek.onPlacedItem);
                 sleek.onPlacedItem = GridPlacedItemWrapper;
                 log?.LogInfo("[BUE-DRAG] event=placed-item-delegate-rebound page=" + sleek.page + " diagnosticId=BUE-DRAG-001");
             }
@@ -178,27 +194,44 @@ namespace BetterUnturnedExperience.Plugin
 
         internal bool DetachGrid()
         {
-            if (attachedGrid == null) return true;
+            var success = true;
+            foreach (var page in SupportedPages)
+            {
+                if (!DetachGrid(page)) success = false;
+            }
+            return success;
+        }
+
+        private bool DetachGrid(byte page)
+        {
+            AttachedGridBinding binding;
+            if (!attachedGrids.TryGetValue(page, out binding)) return true;
             try
             {
-                DetachGridCore();
+                if (ReferenceEquals(binding.Grid.onPlacedItem?.Target, this))
+                    binding.Grid.onPlacedItem = binding.NativeHandler;
+                attachedGrids.Remove(page);
                 return true;
             }
             catch (Exception error)
             {
                 LastPollDiagnostics = "grid-detach-failed: " + error.GetType().FullName + ": " + error.Message;
-                IsolateAndDetach();
                 return false;
             }
         }
 
-        private void DetachGridCore()
+        // U3-SDK PlayerInventory.BACKPACK/STORAGE are fixed protocol page
+        // values (3 and 7). Keep the adapter's static gate independent from
+        // PlayerInventory's network-reflection type initializer so headless
+        // test hosts can load the plugin without invoking native RPC setup.
+        private const byte BackpackPage = 3;
+        private const byte StoragePage = 7;
+        private static readonly byte[] SupportedPages =
+            { BackpackPage, StoragePage };
+
+        internal static bool IsSupportedPage(byte page)
         {
-            if (attachedGrid == null) return;
-            if (ReferenceEquals(attachedGrid.onPlacedItem?.Target, this))
-                attachedGrid.onPlacedItem = nativePlacedHandler;
-            attachedGrid = null;
-            nativePlacedHandler = null;
+            return page == BackpackPage || page == StoragePage;
         }
 
         // GPT watermark: detach every native callback and event subscription
@@ -247,7 +280,7 @@ namespace BetterUnturnedExperience.Plugin
         private bool DetachAndDeactivate()
         {
             var success = true;
-            try { DetachGridCore(); }
+            try { if (!DetachGrid()) success = false; }
             catch (Exception error)
             {
                 success = false;
@@ -272,7 +305,8 @@ namespace BetterUnturnedExperience.Plugin
 
         private void GridPlacedItemWrapper(byte page, byte x, byte y)
         {
-            var native = nativePlacedHandler;
+            AttachedGridBinding binding;
+            var native = attachedGrids.TryGetValue(page, out binding) ? binding.NativeHandler : null;
             InvokePlacedItemGuarded(
                 () => EvaluatePlacement(page, x, y),
                 () => native?.Invoke(page, x, y),
@@ -415,6 +449,20 @@ namespace BetterUnturnedExperience.Plugin
             return !isDragging || hasSurface;
         }
 
+        // GPT watermark: R13 target routing must use the live native surface
+        // whose pointer currently contains the cursor. This seam is kept
+        // explicit so the dual-page route is regression-tested independently
+        // from Unity's concrete pointer implementation.
+        internal static bool TrySelectTargetSurface(BetterItemInteractionUiComponent component,
+            out IInventorySurfaceContext surface, out float localX, out float localY)
+        {
+            surface = null;
+            localX = 0f;
+            localY = 0f;
+            if (component == null) return false;
+            return component.TrySelectSurfaceForPointer(out surface, out localX, out localY);
+        }
+
         // GPT watermark: reliable plugin-owned main-thread fallback, matching
         // UPM's BaseUnityPlugin.Update driver; Harmony remains a fast path.
         internal void Tick()
@@ -511,27 +559,26 @@ namespace BetterUnturnedExperience.Plugin
                 // SleekItems.onClickedGrid. The grid-local content point
                 // already includes the scroll transform; no second scroll is
                 // added by the pure-C# adapter.
-                var surface = component.CurrentSurface as UnturnedInventorySurfaceContext;
-                if (surface == null)
+                IInventorySurfaceContext selectedSurface;
+                float localX;
+                float localY;
+                if (!TrySelectTargetSurface(component, out selectedSurface, out localX, out localY))
                 {
                     component.HidePreview();
                     if (ShouldEmitDiagnostic(PlacementPreviewState.Hidden, PlacementReason.OutsideGrid))
                         log?.LogInfo("[BUE-DRAG] GPT-WATERMARK event=preview-hidden reason=outside-viewport generation=" + dragGeneration + " diagnosticId=BUE-DRAG-001");
+                    return;
+                }
+                var surface = selectedSurface as UnturnedInventorySurfaceContext;
+                if (surface == null)
+                {
+                    component.HidePreview();
+                    if (ShouldEmitDiagnostic(PlacementPreviewState.Hidden, PlacementReason.FeatureUnavailable))
+                        log?.LogInfo("[BUE-DRAG] GPT-WATERMARK event=preview-hidden reason=surface-not-native generation=" + dragGeneration + " diagnosticId=BUE-DRAG-001");
                     return;
                 }
                 var source = ReadDragSource();
                 var dragJar = ReadDragJar();
-                UnturnedInventorySurfaceContext.PointerReadFailure pointerFailure;
-                if (!surface.TryGetLocalPointerPixels(out var localX, out var localY, out pointerFailure))
-                {
-                    if (pointerFailure == UnturnedInventorySurfaceContext.PointerReadFailure.InvalidGeometry ||
-                        pointerFailure == UnturnedInventorySurfaceContext.PointerReadFailure.ReadException)
-                        throw new InvalidOperationException("BUE-DEV16D-VIEWPORT-READ-FAILED failure=" + pointerFailure);
-                    component.HidePreview();
-                    if (ShouldEmitDiagnostic(PlacementPreviewState.Hidden, PlacementReason.OutsideGrid))
-                        log?.LogInfo("[BUE-DRAG] GPT-WATERMARK event=preview-hidden reason=outside-viewport generation=" + dragGeneration + " diagnosticId=BUE-DRAG-001");
-                    return;
-                }
                 var topLevelPointer = ReadTopLevelPointerScale();
                 var nativePivot = ReadDragPivot();
                 if (component.TryCreatePreviewInput(dragGeneration, source, localX,

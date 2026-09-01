@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using BetterUnturnedExperience.Contracts;
 
 namespace BetterUnturnedExperience.ClientUi.Internal
@@ -55,6 +56,11 @@ namespace BetterUnturnedExperience.ClientUi.Internal
         float ScrollPixelsX { get; }
         float ScrollPixelsY { get; }
         IGridOccupancyView Occupancy { get; }
+    }
+
+    internal interface IInventoryPointerSurfaceContext : IInventorySurfaceContext
+    {
+        bool TryGetLocalPointerPixels(out float x, out float y);
     }
 
     /// <summary>
@@ -203,6 +209,13 @@ namespace BetterUnturnedExperience.ClientUi.Internal
         private uint currentSessionGeneration;
         private uint currentDragGeneration;
         private ContainerReference dragOriginContainer;
+        private bool dragSourcePassThrough;
+        // Both supported native inventory pages are live while the dashboard
+        // is open. The active surface is selected per drag/source/target page;
+        // registering a second page must not discard the first one.
+        private readonly Dictionary<byte, IInventorySurfaceContext> liveSurfaces =
+            new Dictionary<byte, IInventorySurfaceContext>();
+        private static readonly byte[] SupportedLiveSurfacePages = { 3, 7 };
         private IGridOccupancyView activeDragOccupancy;
         private IInventorySurfaceContext activeDragOccupancySurface;
         private ContainerReference activeDragOccupancySourceContainer;
@@ -262,6 +275,13 @@ namespace BetterUnturnedExperience.ClientUi.Internal
         internal bool EnhancedDragActive { get { return runtime.EnhancedDragActive; } }
         internal bool LifecycleCanRun { get { return lifecycle.CanRun; } }
         internal bool PreviewSinkBound { get { return previewSink != null; } }
+        internal int LiveSurfaceCount { get { return liveSurfaces.Count; } }
+        internal bool DragSourcePassThrough { get { return dragSourcePassThrough; } }
+
+        internal static bool IsSupportedEnhancedPage(byte page)
+        {
+            return page == 3 || page == 7;
+        }
 
         internal void ApplySettingsSnapshot(FeatureSettingsSnapshot snapshot)
         {
@@ -328,30 +348,114 @@ namespace BetterUnturnedExperience.ClientUi.Internal
         public void OnInventoryOpened(IClientUiInventorySurface inventory)
         {
             if (lifecycle.State == FeatureState.Discovered) runtime.Start(true, satelliteAvailable);
-            var rearmDrag = runtime.EnhancedDragActive;
-            var rearmGeneration = currentDragGeneration;
-            CleanupUiAndDrag();
-            if (lifecycle.SafeMode || !lifecycle.CanRun || !satelliteAvailable || headless)
-            {
-                isInventoryOpen = false;
-                return;
-            }
-            isInventoryOpen = true;
-            if (inventory is IInventorySurfaceContext surfaceContext)
-            {
-                currentSurface = surfaceContext;
-                currentContainer = surfaceContext.CurrentContainer;
-                currentSessionGeneration = surfaceContext.CurrentContainer.SessionGeneration;
-                BindVisualSink(surfaceContext.TopLevelContainer, surfaceContext.GridPanelContainer);
-                if (rearmDrag && rearmGeneration != 0)
-                {
-                    previewPresenter.BeginDrag(rearmGeneration);
-                }
-            }
-            else
+            var surfaceContext = inventory as IInventorySurfaceContext;
+            if (surfaceContext == null)
             {
                 OnInventoryClosed();
+                return;
             }
+            RegisterInventorySurface(surfaceContext, true);
+        }
+
+        // Registers one live native page without closing other supported pages.
+        // The caller may make the surface active when it is the current target
+        // of a drag; registration itself never ends an in-flight drag.
+        internal bool RegisterInventorySurface(IInventorySurfaceContext surfaceContext, bool makeActive)
+        {
+            if (surfaceContext == null || lifecycle.SafeMode || !lifecycle.CanRun || !satelliteAvailable || headless)
+            {
+                return false;
+            }
+            if (!IsSupportedEnhancedPage(surfaceContext.CurrentContainer.Page))
+            {
+                // Unknown/equipment/AREA pages never become an enhanced target
+                // surface. Their native grid remains entirely in pass-through.
+                return false;
+            }
+
+            var rearmDrag = runtime.EnhancedDragActive;
+            var rearmGeneration = currentDragGeneration;
+            if (isInventoryOpen && liveSurfaces.Count > 0 && !HasMatchingSession(surfaceContext.CurrentContainer))
+            {
+                CleanupUiAndDrag();
+            }
+
+            isInventoryOpen = true;
+            liveSurfaces[surfaceContext.CurrentContainer.Page] = surfaceContext;
+            if (makeActive || currentSurface == null ||
+                currentSurface.CurrentContainer.Page == surfaceContext.CurrentContainer.Page)
+            {
+                ActivateSurface(surfaceContext);
+            }
+
+            if (rearmDrag && rearmGeneration != 0)
+            {
+                previewPresenter.BeginDrag(rearmGeneration);
+            }
+            return true;
+        }
+
+        internal bool TrySelectSurfaceForPage(byte page)
+        {
+            IInventorySurfaceContext surface;
+            if (!liveSurfaces.TryGetValue(page, out surface)) return false;
+            ActivateSurface(surface);
+            return true;
+        }
+
+        internal bool TryGetLiveSurface(byte page, out IInventorySurfaceContext surface)
+        {
+            return liveSurfaces.TryGetValue(page, out surface);
+        }
+
+        internal bool TrySelectSurfaceForPointer(out IInventorySurfaceContext surface, out float localX, out float localY)
+        {
+            surface = null;
+            localX = 0f;
+            localY = 0f;
+            // Dictionary order is intentionally not used as a routing rule.
+            // Supported page order is stable and gives Backpack precedence if
+            // native panels overlap at a boundary.
+            for (var index = 0; index < SupportedLiveSurfacePages.Length; index++)
+            {
+                IInventorySurfaceContext candidate;
+                if (!liveSurfaces.TryGetValue(SupportedLiveSurfacePages[index], out candidate)) continue;
+                var pointerSurface = candidate as IInventoryPointerSurfaceContext;
+                if (pointerSurface == null) continue;
+                if (!pointerSurface.TryGetLocalPointerPixels(out localX, out localY)) continue;
+                surface = candidate;
+                ActivateSurface(candidate);
+                return true;
+            }
+            return false;
+        }
+
+        private bool HasMatchingSession(ContainerReference container)
+        {
+            foreach (var surface in liveSurfaces.Values)
+            {
+                if (surface.CurrentContainer.SessionGeneration == container.SessionGeneration &&
+                    surface.CurrentContainer.SessionGeneration != 0)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private void ActivateSurface(IInventorySurfaceContext surfaceContext)
+        {
+            if (ReferenceEquals(currentSurface, surfaceContext) && previewSink != null)
+            {
+                currentContainer = surfaceContext.CurrentContainer;
+                currentSessionGeneration = surfaceContext.CurrentContainer.SessionGeneration;
+                return;
+            }
+
+            currentSurface = surfaceContext;
+            currentContainer = surfaceContext.CurrentContainer;
+            currentSessionGeneration = surfaceContext.CurrentContainer.SessionGeneration;
+            BindVisualSink(surfaceContext.TopLevelContainer, surfaceContext.GridPanelContainer);
         }
 
         public void OnInventoryClosed()
@@ -360,6 +464,7 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             currentSurface = null;
             currentContainer = default(ContainerReference);
             currentSessionGeneration = 0;
+            liveSurfaces.Clear();
             if (previewSink != null)
             {
                 previewSink.Unmount();
@@ -369,6 +474,7 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             previewPresenter.EndDrag();
             currentDragGeneration = 0;
             dragOriginContainer = default(ContainerReference);
+            dragSourcePassThrough = false;
             ClearActiveDragOccupancy();
         }
 
@@ -400,11 +506,24 @@ namespace BetterUnturnedExperience.ClientUi.Internal
 
         internal void OnDragStarted(uint dragGeneration, ItemAssetIdentity dragAsset, ItemGridPosition source)
         {
+            if (source.Page != 0 && TrySelectSurfaceForPage(source.Page))
+            {
+                // Source-page selection ensures a Backpack <-> Storage drag
+                // captures the correct origin container before target routing.
+            }
             currentDragGeneration = dragGeneration;
             currentDragAsset = dragAsset;
+            dragSourcePassThrough = !IsSupportedEnhancedPage(source.Page);
             dragOriginContainer = source.Page == currentContainer.Page && currentContainer.SessionGeneration != 0
                 ? currentContainer : default(ContainerReference);
             ClearActiveDragOccupancy();
+            if (dragSourcePassThrough)
+            {
+                runtime.EndDrag();
+                previewPresenter.EndDrag();
+                HidePreview();
+                return;
+            }
             runtime.BeginDrag(dragGeneration);
             if (runtime.EnhancedDragActive && previewSink == null && currentSurface != null && satelliteAvailable && !headless)
             {
@@ -419,7 +538,7 @@ namespace BetterUnturnedExperience.ClientUi.Internal
 
         internal void OnDragUpdated(InventoryPreviewInput input)
         {
-            if (!isInventoryOpen || previewSink == null || !runtime.EnhancedDragActive || !lifecycle.CanRun)
+            if (dragSourcePassThrough || !isInventoryOpen || previewSink == null || !runtime.EnhancedDragActive || !lifecycle.CanRun)
             {
                 if (previewSink != null) previewSink.Hide();
                 return;
@@ -460,6 +579,7 @@ namespace BetterUnturnedExperience.ClientUi.Internal
                 previewPresenter.EndDrag();
                 currentDragGeneration = 0;
                 dragOriginContainer = default(ContainerReference);
+                dragSourcePassThrough = false;
                 return NativeDragAdapterOutcome.PassThrough;
             }
             previewPresenter.EndDrag();
@@ -483,6 +603,7 @@ namespace BetterUnturnedExperience.ClientUi.Internal
                 }
                 currentDragGeneration = 0;
                 dragOriginContainer = default(ContainerReference);
+                dragSourcePassThrough = false;
                 return outcome;
             }
             catch (Exception)
@@ -490,6 +611,7 @@ namespace BetterUnturnedExperience.ClientUi.Internal
                 runtime.Isolate();
                 currentDragGeneration = 0;
                 dragOriginContainer = default(ContainerReference);
+                dragSourcePassThrough = false;
                 return NativeDragAdapterOutcome.PassThrough;
             }
         }
@@ -519,6 +641,7 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             previewPresenter.EndDrag();
             currentDragGeneration = 0;
             dragOriginContainer = default(ContainerReference);
+            dragSourcePassThrough = false;
             ClearActiveDragOccupancy();
         }
 
@@ -539,15 +662,23 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             currentSurface = null;
             currentContainer = default(ContainerReference);
             currentSessionGeneration = 0;
+            liveSurfaces.Clear();
             previewPresenter.EndDrag();
             dragOriginContainer = default(ContainerReference);
+            dragSourcePassThrough = false;
             ClearActiveDragOccupancy();
         }
 
         internal void InvalidateOccupancySnapshot()
         {
-            var provider = currentSurface as INativeInventoryOccupancyProvider;
-            if (provider != null) provider.InvalidateOccupancy();
+            var currentProvider = currentSurface as INativeInventoryOccupancyProvider;
+            if (currentProvider != null) currentProvider.InvalidateOccupancy();
+            foreach (var surface in liveSurfaces.Values)
+            {
+                var provider = surface as INativeInventoryOccupancyProvider;
+                if (provider == null || object.ReferenceEquals(provider, currentProvider)) continue;
+                provider.InvalidateOccupancy();
+            }
             ClearActiveDragOccupancy();
         }
 
@@ -667,7 +798,15 @@ namespace BetterUnturnedExperience.ClientUi.Internal
 
             IGridOccupancyView occupancy;
             if (!TryGetOccupancyForDrag(source, itemWidth, itemHeight, currentRotation, itemAsset, out occupancy))
+            {
+                // Occupancy is the single fact source for both preview and
+                // native swap decisions. Once it is invalidated, discard any
+                // previously published Candidate so release cannot reuse stale
+                // visual state; the caller will preserve native pass-through.
+                previewPresenter.HidePreview();
+                if (previewSink != null) previewSink.Hide();
                 return false;
+            }
 
             var scrollPixelsX = pointerAlreadyIncludesScroll ? 0f : currentSurface.ScrollPixelsX;
             var scrollPixelsY = pointerAlreadyIncludesScroll ? 0f : currentSurface.ScrollPixelsY;
