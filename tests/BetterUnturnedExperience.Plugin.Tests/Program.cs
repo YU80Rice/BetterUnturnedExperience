@@ -45,6 +45,16 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     AssertDragTickDefersFrameCommitUntilSurfaceReady();
                     return 0;
                 }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--dev16d-r13-red")
+                {
+                    AssertDev16DR13CanonicalOccupancyUsesItemJarFootprints();
+                    return 0;
+                }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--dev16d-r13-boundary-red")
+                {
+                    AssertDev16DR13RejectsOutOfBoundsFootprints();
+                    return 0;
+                }
                 AssertSingleDllAssemblyClosure();
                 AssertExternalSdkAssemblyIdentity();
                 Assert(BootstrapGuard.Decide(false, false, true) == BootstrapDecision.Client, "client decision");
@@ -95,6 +105,8 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 AssertDev16DR3IsolationAndGeometryContracts();
                 AssertDev16DR4RebindAndFailureProjectionContracts();
                 AssertDev16DR9CleanupPropagationContracts();
+                AssertDev16DR13CanonicalOccupancyUsesItemJarFootprints();
+                AssertDev16DR13RejectsOutOfBoundsFootprints();
                 AssertRuntimeCompletionBarrierIsolates();
                 AssertManagementPanelConsumesRuntimeCatalog();
                 AssertManagementPanelOpenHooks();
@@ -163,6 +175,87 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 "R44 regression: floating icon follows native cursor-to-top-left grab offset");
             Assert(Math.Abs(icon.Width - 100f) < 0.001f && Math.Abs(icon.Height - 150f) < 0.001f,
                 "R44 regression: floating icon carries the rotated footprint size");
+        }
+
+        // GPT watermark: DEV-16D-R13 red regression. U3-SDK Items.items is a
+        // compact list, while each ItemJar carries its authoritative origin,
+        // dimensions, and rotation. Occupancy must expand those footprints;
+        // treating y * width + x as a list index reports empty cells as full
+        // and misses sparse or rotated items.
+        private static void AssertDev16DR13CanonicalOccupancyUsesItemJarFootprints()
+        {
+            var items = new Items(7);
+            // Avoid invoking Items.loadSize in the host-only regression fixture:
+            // the SDK helper touches PlayerInventory's NetReflection static
+            // initializer, which is unavailable outside the game process. The
+            // width/height fields are the same native inputs the adapter reads.
+            typeof(Items).GetField("_width", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+                .SetValue(items, (byte)6);
+            typeof(Items).GetField("_height", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+                .SetValue(items, (byte)4);
+            var jar = CreateTestItemJar(3, 1, 1, 2, 3);
+            var obstacle = CreateTestItemJar(0, 0, 0, 1, 1);
+            items.items.Add(jar);
+            items.items.Add(obstacle);
+
+            var occupancy = new UnturnedGridOccupancyView(items);
+            Assert(occupancy.IsOccupied(3, 1), "R13 occupancy includes rotated ItemJar top-left");
+            Assert(occupancy.IsOccupied(5, 2), "R13 occupancy includes the far cell of a rotated footprint");
+            Assert(occupancy.IsOccupied(0, 0), "R13 occupancy includes an ItemJar that is sparse in list order");
+            Assert(!occupancy.IsOccupied(2, 3), "R13 occupancy does not leak beyond the ItemJar footprint");
+
+            NativeItemGridOccupancySnapshot initial;
+            NativeItemGridOccupancySnapshot withoutSource;
+            Assert(NativeItemGridOccupancySnapshot.TryCreateFromItems(items, null, out initial),
+                "R13 builds an immutable occupancy snapshot from native items");
+            Assert(NativeItemGridOccupancySnapshot.TryCreateFromItems(items, jar, out withoutSource),
+                "R13 can build a source-excluded occupancy snapshot");
+            Assert(!withoutSource.IsOccupied(3, 1) && !withoutSource.IsOccupied(5, 2),
+                "R13 excludes every cell of the dragged source footprint");
+            Assert(withoutSource.IsOccupied(0, 0),
+                "R13 source exclusion does not remove another ItemJar");
+            Assert(!object.ReferenceEquals(initial, withoutSource),
+                "R13 source exclusion publishes a replacement immutable snapshot");
+
+            NativeItemGridOccupancySnapshot crossContainer;
+            Assert(NativeItemGridOccupancySnapshot.TryCreateFromItems(items, null, out crossContainer) &&
+                crossContainer.IsOccupied(3, 1),
+                "R13 cross-container occupancy keeps the target container source cells occupied");
+
+            Assert(!occupancy.RebuildForDrag(new ContainerReference(ContainerKind.PlayerInventory, 7, 1),
+                    new ContainerReference(ContainerKind.PlayerInventory, 7, 1),
+                    new ItemGridPosition(7, 3, 1, 1), jar, ItemAssetIdentity.FromItemId(1), 2, 3, 1),
+                "R13 rejects source exclusion when the asset fingerprint is incomplete");
+        }
+
+        // GPT watermark: an ItemJar footprint that cannot be represented by the
+        // native grid is stale or malformed. The adapter must reject the whole
+        // snapshot so the caller can preserve native pass-through; clipping it
+        // would silently turn an invalid inventory state into a false vacancy.
+        private static void AssertDev16DR13RejectsOutOfBoundsFootprints()
+        {
+            var items = new Items(7);
+            typeof(Items).GetField("_width", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+                .SetValue(items, (byte)4);
+            typeof(Items).GetField("_height", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+                .SetValue(items, (byte)4);
+            items.items.Add(CreateTestItemJar(3, 3, 0, 2, 1));
+
+            NativeItemGridOccupancySnapshot snapshot;
+            Assert(!NativeItemGridOccupancySnapshot.TryCreateFromItems(items, null, out snapshot),
+                "R13 rejects an ItemJar footprint that extends outside the native grid");
+            Assert(snapshot == null, "R13 does not publish a partial snapshot for an invalid footprint");
+        }
+
+        private static ItemJar CreateTestItemJar(byte x, byte y, byte rotation, byte width, byte height)
+        {
+            var jar = (ItemJar)System.Runtime.Serialization.FormatterServices.GetUninitializedObject(typeof(ItemJar));
+            jar.x = x;
+            jar.y = y;
+            jar.rot = rotation;
+            jar.size_x = width;
+            jar.size_y = height;
+            return jar;
         }
 
         private static void AssertDragPreviewHasPluginOwnedUpdateDriver()
@@ -902,18 +995,21 @@ namespace BetterUnturnedExperience.Plugin.Tests
         // not a BUE-cancelled placement.
         private static void AssertSwapFootprintGuardMatrix()
         {
-            var occupied = new bool[3, 3];
-            occupied[1, 1] = true;
-            Assert(BetterUnturnedExperience.Plugin.InventoryDragPreviewAdapter.FootprintOccupied(occupied, 3, 3, 1, 1, 2, 2),
+            var items = new Items(7);
+            typeof(Items).GetField("_width", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+                .SetValue(items, (byte)3);
+            typeof(Items).GetField("_height", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+                .SetValue(items, (byte)3);
+            items.items.Add(CreateTestItemJar(1, 1, 0, 1, 1));
+            var occupancy = new UnturnedGridOccupancyView(items);
+            Assert(BetterUnturnedExperience.Plugin.InventoryDragPreviewAdapter.FootprintOccupied(occupancy, 1, 1, 2, 2),
                 "footprint origin covering the occupied cell counts as occupied");
-            Assert(!BetterUnturnedExperience.Plugin.InventoryDragPreviewAdapter.FootprintOccupied(occupied, 3, 3, 2, 2, 2, 2),
+            Assert(!BetterUnturnedExperience.Plugin.InventoryDragPreviewAdapter.FootprintOccupied(occupancy, 2, 2, 1, 1),
                 "footprint away from the occupied cell counts as empty");
-            Assert(BetterUnturnedExperience.Plugin.InventoryDragPreviewAdapter.FootprintOccupied(occupied, 3, 3, 0, 0, 2, 2),
+            Assert(BetterUnturnedExperience.Plugin.InventoryDragPreviewAdapter.FootprintOccupied(occupancy, 0, 0, 2, 2),
                 "footprint touching the occupied cell at (1,1) counts as occupied");
-            Assert(!BetterUnturnedExperience.Plugin.InventoryDragPreviewAdapter.FootprintOccupied(occupied, 3, 3, 0, 2, 2, 2),
-                "footprint away from the occupied cell counts as empty");
-            Assert(!BetterUnturnedExperience.Plugin.InventoryDragPreviewAdapter.FootprintOccupied(occupied, 3, 3, 3, 0, 2, 2),
-                "out-of-bounds reads as empty");
+            Assert(BetterUnturnedExperience.Plugin.InventoryDragPreviewAdapter.FootprintOccupied(occupancy, 2, 2, 2, 2),
+                "out-of-bounds footprint fails closed");
         }
 
         // [R43] Single coordinate space: the viewport is always grid-local

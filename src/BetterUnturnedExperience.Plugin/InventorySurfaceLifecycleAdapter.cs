@@ -149,21 +149,93 @@ namespace BetterUnturnedExperience.Plugin
     internal sealed class UnturnedGridOccupancyView : IGridOccupancyView
     {
         private readonly Items items;
+        private NativeItemGridOccupancySnapshot snapshot;
+        private bool hasConfiguration;
+        private ItemJar configuredExcludedJar;
+        private ItemGridPosition configuredSource;
+        private int configuredItemCount;
 
         internal UnturnedGridOccupancyView(Items items)
         {
             this.items = items ?? throw new ArgumentNullException(nameof(items));
+            if (!NativeItemGridOccupancySnapshot.TryCreateFromItems(items, null, out snapshot))
+                throw new InvalidOperationException("native inventory occupancy snapshot is invalid");
+            configuredItemCount = items.items.Count;
+            hasConfiguration = true;
         }
 
-        public byte Width { get { return (byte)Mathf.Min(items.width, byte.MaxValue); } }
-        public byte Height { get { return (byte)Mathf.Min(items.height, byte.MaxValue); } }
+        public byte Width { get { return snapshot.Width; } }
+        public byte Height { get { return snapshot.Height; } }
 
         public bool IsOccupied(byte x, byte y)
         {
-            if (x >= items.width || y >= items.height) return true;
-            var index = y * items.width + x;
-            return index < items.items.Count && items.items[index] != null;
+            return snapshot.IsOccupied(x, y);
         }
+
+        internal IGridOccupancyView CurrentSnapshot { get { return snapshot; } }
+
+        internal bool RebuildForDrag(ContainerReference sourceContainer, ContainerReference targetContainer,
+            ItemGridPosition source, ItemJar dragJar, ItemAssetIdentity sourceAsset,
+            byte itemWidth, byte itemHeight, byte sourceRotation)
+        {
+            ItemJar excludedJar = null;
+            var sameContainer = SameContainer(sourceContainer, targetContainer) && source.Page == items.page &&
+                source.Rotation == (sourceRotation & 3) && sourceAsset.ItemId != 0 &&
+                itemWidth != 0 && itemHeight != 0;
+            if (sameContainer)
+            {
+                // Same-container source exclusion is safe only when the native
+                // drag jar is the exact member and its source metadata matches.
+                if (dragJar == null || !items.containsItem(dragJar) ||
+                    dragJar.x != source.X || dragJar.y != source.Y ||
+                    (dragJar.rot & 3) != (source.Rotation & 3) ||
+                    dragJar.size_x != itemWidth || dragJar.size_y != itemHeight ||
+                    !AssetIdentityMatches(dragJar, sourceAsset))
+                    return false;
+                excludedJar = dragJar;
+            }
+            else if (SameContainer(sourceContainer, targetContainer) && source.Page == items.page)
+            {
+                // A same-page source with incomplete identity is ambiguous;
+                // do not silently exclude a potentially different item.
+                return false;
+            }
+
+            if (hasConfiguration && object.ReferenceEquals(configuredExcludedJar, excludedJar) &&
+                configuredSource.Page == source.Page && configuredSource.X == source.X &&
+                configuredSource.Y == source.Y && configuredSource.Rotation == source.Rotation &&
+                configuredItemCount == items.items.Count)
+                return true;
+
+            NativeItemGridOccupancySnapshot next;
+            if (!NativeItemGridOccupancySnapshot.TryCreateFromItems(items, excludedJar, out next))
+                return false;
+            snapshot = next;
+            configuredExcludedJar = excludedJar;
+            configuredSource = source;
+            configuredItemCount = items.items.Count;
+            hasConfiguration = true;
+            return true;
+        }
+
+        private static bool SameContainer(ContainerReference left, ContainerReference right)
+        {
+            return left.SessionGeneration != 0 && left.Kind == right.Kind && left.Page == right.Page &&
+                left.SessionGeneration == right.SessionGeneration;
+        }
+
+        private static bool AssetIdentityMatches(ItemJar jar, ItemAssetIdentity expected)
+        {
+            var asset = jar == null ? null : jar.GetAsset();
+            if (asset == null || expected.ItemId == 0) return false;
+            return expected == ItemAssetIdentity.FromAsset(asset.id, asset.GUID, asset.name);
+        }
+
+        internal void Invalidate()
+        {
+            hasConfiguration = false;
+        }
+
     }
 
     /// <summary>
@@ -171,7 +243,7 @@ namespace BetterUnturnedExperience.Plugin
     /// inventory UI (player pages, storage and vehicle trunk share the STORAGE
     /// surface; the storage/trunk distinction lives in ContainerReference.Kind).
     /// </summary>
-    internal sealed class UnturnedInventorySurfaceContext : IInventorySurfaceContext
+    internal sealed class UnturnedInventorySurfaceContext : IInventorySurfaceContext, INativeInventoryOccupancyProvider
     {
         internal enum PointerReadFailure : byte
         {
@@ -416,6 +488,7 @@ namespace BetterUnturnedExperience.Plugin
         private readonly InventoryGridViewport viewport;
         private readonly float uiScale;
         private readonly IGridOccupancyView occupancy;
+        private readonly UnturnedGridOccupancyView occupancyAdapter;
         private readonly bool hierarchyLive;
         private readonly byte gridWidth;
         private readonly byte gridHeight;
@@ -440,6 +513,7 @@ namespace BetterUnturnedExperience.Plugin
             this.gridPanelContainer = gridPanelContainer;
             this.viewport = viewport;
             this.uiScale = NormalizeUiScale(uiScale);
+            occupancyAdapter = occupancy as UnturnedGridOccupancyView;
             this.occupancy = occupancy;
             this.hierarchyLive = hierarchyLive;
             gridWidth = occupancy == null ? (byte)0 : occupancy.Width;
@@ -459,6 +533,26 @@ namespace BetterUnturnedExperience.Plugin
         public float ScrollPixelsX { get { return ReadScrollPixelsX(); } }
         public float ScrollPixelsY { get { return ReadScrollPixelsY(); } }
         public IGridOccupancyView Occupancy { get { return occupancy; } }
+
+        public bool TryCreateOccupancyForDrag(ContainerReference sourceContainer, ContainerReference targetContainer,
+            ItemGridPosition source, byte itemWidth, byte itemHeight, byte sourceRotation,
+            ItemAssetIdentity sourceAsset, out IGridOccupancyView result)
+        {
+            result = null;
+            if (occupancyAdapter == null) return false;
+            var dragJarField = typeof(PlayerDashboardInventoryUI).GetField("dragJar",
+                BindingFlags.Static | BindingFlags.NonPublic);
+            var dragJar = dragJarField == null ? null : dragJarField.GetValue(null) as ItemJar;
+            if (!occupancyAdapter.RebuildForDrag(sourceContainer, targetContainer, source, dragJar, sourceAsset,
+                itemWidth, itemHeight, sourceRotation)) return false;
+            result = occupancyAdapter.CurrentSnapshot;
+            return true;
+        }
+
+        public void InvalidateOccupancy()
+        {
+            if (occupancyAdapter != null) occupancyAdapter.Invalidate();
+        }
 
         // Sleek coordinates are local to the live inventory surface. Reading
         // the normalized cursor from that same surface closes the coordinate

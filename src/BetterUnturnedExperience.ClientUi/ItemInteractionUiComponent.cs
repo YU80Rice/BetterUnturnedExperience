@@ -58,6 +58,19 @@ namespace BetterUnturnedExperience.ClientUi.Internal
     }
 
     /// <summary>
+    /// Native surfaces may provide a drag-specific immutable occupancy view.
+    /// The provider is an internal seam so the pure ClientUi layer never needs
+    /// to reference ItemJar or other Unity/Unturned types.
+    /// </summary>
+    internal interface INativeInventoryOccupancyProvider
+    {
+        bool TryCreateOccupancyForDrag(ContainerReference sourceContainer, ContainerReference targetContainer,
+            ItemGridPosition source, byte itemWidth, byte itemHeight, byte sourceRotation,
+            ItemAssetIdentity sourceAsset, out IGridOccupancyView occupancy);
+        void InvalidateOccupancy();
+    }
+
+    /// <summary>
     /// DEV-16D awaiting-projection bridge: submitted placements enter the
     /// visual-await state and converge when a native inventory snapshot
     /// matches the binding; the 2000ms budget only affects the visual wait.
@@ -189,6 +202,17 @@ namespace BetterUnturnedExperience.ClientUi.Internal
         private ContainerReference currentContainer;
         private uint currentSessionGeneration;
         private uint currentDragGeneration;
+        private ContainerReference dragOriginContainer;
+        private IGridOccupancyView activeDragOccupancy;
+        private IInventorySurfaceContext activeDragOccupancySurface;
+        private ContainerReference activeDragOccupancySourceContainer;
+        private ContainerReference activeDragOccupancyTargetContainer;
+        private ItemGridPosition activeDragOccupancySource;
+        private byte activeDragOccupancyWidth;
+        private byte activeDragOccupancyHeight;
+        private byte activeDragOccupancyRotation;
+        private ItemAssetIdentity activeDragOccupancyAsset;
+        private bool hasActiveDragOccupancy;
         private InventoryPreviewVisualSink previewSink;
         private bool isInventoryOpen;
         private bool satelliteAvailable = true;
@@ -344,6 +368,8 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             runtime.EndDrag();
             previewPresenter.EndDrag();
             currentDragGeneration = 0;
+            dragOriginContainer = default(ContainerReference);
+            ClearActiveDragOccupancy();
         }
 
         public void OnUiDestroyed()
@@ -369,8 +395,16 @@ namespace BetterUnturnedExperience.ClientUi.Internal
 
         internal void OnDragStarted(uint dragGeneration, ItemAssetIdentity dragAsset)
         {
+            OnDragStarted(dragGeneration, dragAsset, default(ItemGridPosition));
+        }
+
+        internal void OnDragStarted(uint dragGeneration, ItemAssetIdentity dragAsset, ItemGridPosition source)
+        {
             currentDragGeneration = dragGeneration;
             currentDragAsset = dragAsset;
+            dragOriginContainer = source.Page == currentContainer.Page && currentContainer.SessionGeneration != 0
+                ? currentContainer : default(ContainerReference);
+            ClearActiveDragOccupancy();
             runtime.BeginDrag(dragGeneration);
             if (runtime.EnhancedDragActive && previewSink == null && currentSurface != null && satelliteAvailable && !headless)
             {
@@ -425,6 +459,7 @@ namespace BetterUnturnedExperience.ClientUi.Internal
                 runtime.EndDrag();
                 previewPresenter.EndDrag();
                 currentDragGeneration = 0;
+                dragOriginContainer = default(ContainerReference);
                 return NativeDragAdapterOutcome.PassThrough;
             }
             previewPresenter.EndDrag();
@@ -447,12 +482,14 @@ namespace BetterUnturnedExperience.ClientUi.Internal
                     }
                 }
                 currentDragGeneration = 0;
+                dragOriginContainer = default(ContainerReference);
                 return outcome;
             }
             catch (Exception)
             {
                 runtime.Isolate();
                 currentDragGeneration = 0;
+                dragOriginContainer = default(ContainerReference);
                 return NativeDragAdapterOutcome.PassThrough;
             }
         }
@@ -462,6 +499,7 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             // The awaiting controller decides convergence; the sink only
             // observes (its return value is ignored by design).
             var convergence = awaitingProjection.Apply(snapshot);
+            ClearActiveDragOccupancy();
             projectionSink?.OnNativeInventorySnapshot(snapshot);
             if (convergence == ProjectionConvergence.Converged)
             {
@@ -480,6 +518,8 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             runtime.EndDrag();
             previewPresenter.EndDrag();
             currentDragGeneration = 0;
+            dragOriginContainer = default(ContainerReference);
+            ClearActiveDragOccupancy();
         }
 
         internal void HidePreview()
@@ -500,6 +540,86 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             currentContainer = default(ContainerReference);
             currentSessionGeneration = 0;
             previewPresenter.EndDrag();
+            dragOriginContainer = default(ContainerReference);
+            ClearActiveDragOccupancy();
+        }
+
+        internal void InvalidateOccupancySnapshot()
+        {
+            var provider = currentSurface as INativeInventoryOccupancyProvider;
+            if (provider != null) provider.InvalidateOccupancy();
+            ClearActiveDragOccupancy();
+        }
+
+        internal bool TryGetOccupancyForDrag(ItemGridPosition source, byte itemWidth, byte itemHeight,
+            byte sourceRotation, ItemAssetIdentity sourceAsset, out IGridOccupancyView occupancy)
+        {
+            occupancy = null;
+            if (currentSurface == null) return false;
+            if (hasActiveDragOccupancy && object.ReferenceEquals(activeDragOccupancySurface, currentSurface) &&
+                SameContainer(activeDragOccupancySourceContainer, dragOriginContainer) &&
+                SameContainer(activeDragOccupancyTargetContainer, currentContainer) &&
+                SameSource(activeDragOccupancySource, source) &&
+                activeDragOccupancyWidth == itemWidth && activeDragOccupancyHeight == itemHeight &&
+                activeDragOccupancyRotation == sourceRotation && activeDragOccupancyAsset == sourceAsset)
+            {
+                occupancy = activeDragOccupancy;
+                return true;
+            }
+
+            var provider = currentSurface as INativeInventoryOccupancyProvider;
+            if (provider != null)
+            {
+                if (!provider.TryCreateOccupancyForDrag(dragOriginContainer, currentContainer, source,
+                    itemWidth, itemHeight, sourceRotation, sourceAsset, out occupancy))
+                {
+                    ClearActiveDragOccupancy();
+                    return false;
+                }
+            }
+            else
+            {
+                occupancy = currentSurface.Occupancy;
+                if (occupancy == null) return false;
+            }
+
+            activeDragOccupancy = occupancy;
+            activeDragOccupancySurface = currentSurface;
+            activeDragOccupancySourceContainer = dragOriginContainer;
+            activeDragOccupancyTargetContainer = currentContainer;
+            activeDragOccupancySource = source;
+            activeDragOccupancyWidth = itemWidth;
+            activeDragOccupancyHeight = itemHeight;
+            activeDragOccupancyRotation = sourceRotation;
+            activeDragOccupancyAsset = sourceAsset;
+            hasActiveDragOccupancy = true;
+            return true;
+        }
+
+        private static bool SameContainer(ContainerReference left, ContainerReference right)
+        {
+            return left.Kind == right.Kind && left.Page == right.Page &&
+                left.SessionGeneration == right.SessionGeneration;
+        }
+
+        private static bool SameSource(ItemGridPosition left, ItemGridPosition right)
+        {
+            return left.Page == right.Page && left.X == right.X && left.Y == right.Y &&
+                left.Rotation == right.Rotation;
+        }
+
+        private void ClearActiveDragOccupancy()
+        {
+            activeDragOccupancy = null;
+            activeDragOccupancySurface = null;
+            activeDragOccupancySourceContainer = default(ContainerReference);
+            activeDragOccupancyTargetContainer = default(ContainerReference);
+            activeDragOccupancySource = default(ItemGridPosition);
+            activeDragOccupancyWidth = 0;
+            activeDragOccupancyHeight = 0;
+            activeDragOccupancyRotation = 0;
+            activeDragOccupancyAsset = default(ItemAssetIdentity);
+            hasActiveDragOccupancy = false;
         }
 
         internal bool TryCreatePreviewInput(uint dragGeneration, ItemGridPosition source, float pointerScreenX, float pointerScreenY,
@@ -545,6 +665,10 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             input = default(InventoryPreviewInput);
             if (!isInventoryOpen || currentSurface == null) return false;
 
+            IGridOccupancyView occupancy;
+            if (!TryGetOccupancyForDrag(source, itemWidth, itemHeight, currentRotation, itemAsset, out occupancy))
+                return false;
+
             var scrollPixelsX = pointerAlreadyIncludesScroll ? 0f : currentSurface.ScrollPixelsX;
             var scrollPixelsY = pointerAlreadyIncludesScroll ? 0f : currentSurface.ScrollPixelsY;
             input = new InventoryPreviewInput(dragGeneration, source, currentContainer, pointerScreenX, pointerScreenY,
@@ -552,7 +676,7 @@ namespace BetterUnturnedExperience.ClientUi.Internal
                 scrollPixelsX, scrollPixelsY, itemWidth, itemHeight, currentRotation,
                 runtime.EnhancedDragActive && runtime.ActivePolicy.AutoRotate && allowAutomaticRotation,
                 grabOffsetX, grabOffsetY, itemAsset, topLevelPointerScaleX, topLevelPointerScaleY,
-                nativeDragPivotX, nativeDragPivotY, pointerCoordinateSpace, currentSurface.Occupancy);
+                nativeDragPivotX, nativeDragPivotY, pointerCoordinateSpace, occupancy);
             return true;
         }
     }

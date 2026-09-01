@@ -488,7 +488,7 @@ namespace BetterUnturnedExperience.Plugin
                 dragGeneration++;
                 var jar = ReadDragJar();
                 var asset = jar == null ? ItemAssetIdentity.FromItemId(0) : AssetIdentityOf(jar);
-                component.OnDragStarted(dragGeneration, asset);
+                component.OnDragStarted(dragGeneration, asset, ReadDragSource());
                 log?.LogInfo("[BUE-DRAG] event=drag-started generation=" + dragGeneration
                     + " enhanced=" + component.EnhancedDragActive
                     + " canRun=" + component.LifecycleCanRun
@@ -519,6 +519,8 @@ namespace BetterUnturnedExperience.Plugin
                         log?.LogInfo("[BUE-DRAG] GPT-WATERMARK event=preview-hidden reason=outside-viewport generation=" + dragGeneration + " diagnosticId=BUE-DRAG-001");
                     return;
                 }
+                var source = ReadDragSource();
+                var dragJar = ReadDragJar();
                 UnturnedInventorySurfaceContext.PointerReadFailure pointerFailure;
                 if (!surface.TryGetLocalPointerPixels(out var localX, out var localY, out pointerFailure))
                 {
@@ -532,9 +534,9 @@ namespace BetterUnturnedExperience.Plugin
                 }
                 var topLevelPointer = ReadTopLevelPointerScale();
                 var nativePivot = ReadDragPivot();
-                if (component.TryCreatePreviewInput(dragGeneration, ReadDragSource(), localX,
+                if (component.TryCreatePreviewInput(dragGeneration, source, localX,
                         localY, ReadDragWidth(), ReadDragHeight(), ReadDragRotation(),
-                        true, ReadGrabOffsetX(), ReadGrabOffsetY(), AssetIdentityOf(ReadDragJar()),
+                        true, ReadGrabOffsetX(), ReadGrabOffsetY(), AssetIdentityOf(dragJar),
                         topLevelPointer.x, topLevelPointer.y, nativePivot.x, nativePivot.y, out var input))
                 {
                     component.OnDragUpdated(input);
@@ -629,6 +631,7 @@ namespace BetterUnturnedExperience.Plugin
         {
             try
             {
+                component.InvalidateOccupancySnapshot();
                 if (lastSubmittedGeneration == 0) return;
                 var asset = jar == null || jar.item == null ? ItemAssetIdentity.FromItemId(0) : AssetIdentityOf(jar);
                 var assetInstance = jar == null ? null : jar.GetAsset();
@@ -709,47 +712,30 @@ namespace BetterUnturnedExperience.Plugin
             return true;
         }
 
-        // [DEV-16D] Swap guard footprint semantics: a swap onto a cell covered
-        // by the dragged item's footprint is a native sendSwapItem operation,
-        // not a BUE-cancelled placement. Matches the native Items.findIndex
-        // coverage (any footprint cell occupied counts).
-        internal static bool FootprintOccupied(bool[,] occupancy, int gridW, int gridH, int originX, int originY, int itemW, int itemH)
+        // [DEV-16D] Swap guard footprint query operates on the canonical
+        // occupancy seam. It does not build or own a second item grid.
+        internal static bool FootprintOccupied(IGridOccupancyView occupancy, int originX, int originY, int itemW, int itemH)
         {
+            if (occupancy == null) return true;
             for (var dy = 0; dy < itemH; dy++)
             for (var dx = 0; dx < itemW; dx++)
             {
                 var cx = originX + dx;
                 var cy = originY + dy;
-                if (cx < 0 || cy < 0 || cx >= gridW || cy >= gridH) continue;
-                if (occupancy[cx, cy]) return true;
+                if (cx < 0 || cy < 0 || cx >= occupancy.Width || cy >= occupancy.Height) return true;
+                if (occupancy.IsOccupied((byte)cx, (byte)cy)) return true;
             }
             return false;
         }
 
         private bool IsSwapOntoOccupied(byte page, byte x, byte y)
         {
-            var player = Player.LocalPlayer;
-            if (player == null || player.inventory == null) return false;
-            var pageItems = player.inventory.items[page];
-            if (pageItems == null) return false;
-            // Occupy cells straight from each jar's own authoritative grid
-            // position and rotated footprint (matches native Items.findIndex
-            // coverage: rot%2 swaps the size axes).
-            for (var listIndex = 0; listIndex < pageItems.items.Count; listIndex++)
-            {
-                var cell = pageItems.items[listIndex];
-                if (cell == null) continue;
-                var cellAsset = cell.GetAsset();
-                if (cellAsset == null) continue;
-                var w = (cell.rot % 2 == 0) ? cellAsset.size_x : cellAsset.size_y;
-                var h = (cell.rot % 2 == 0) ? cellAsset.size_y : cellAsset.size_x;
-                for (var dy = 0; dy < h; dy++)
-                for (var dx = 0; dx < w; dx++)
-                {
-                    if (cell.x + dx == x && cell.y + dy == y) return true;
-                }
-            }
-            return false;
+            IGridOccupancyView occupancy;
+            if (!component.TryGetOccupancyForDrag(ReadDragSource(), ReadDragWidth(), ReadDragHeight(),
+                ReadDragRotation(), AssetIdentityOf(ReadDragJar()), out occupancy))
+                return true;
+            if (page != component.CurrentContainer.Page) return true;
+            return FootprintOccupied(occupancy, x, y, 1, 1);
         }
 
         private ItemJar ReadDragJar()

@@ -1,0 +1,8 @@
+DEV-16D-R13 boundary red regression (pre-fix)
+Command: tests\BetterUnturnedExperience.Plugin.Tests\bin\Release\BetterUnturnedExperience.Plugin.Tests.exe --dev16d-r13-boundary-red
+BUILD_EXIT=0 TEST_EXIT=1
+DEV-14 official registration parity tests: FAIL
+System.InvalidOperationException: R13 rejects an ItemJar footprint that extends outside the native grid
+   at BetterUnturnedExperience.Plugin.Tests.Program.AssertDev16DR13RejectsOutOfBoundsFootprints()
+   at BetterUnturnedExperience.Plugin.Tests.Program.Main()
+Expected red result: the pre-fix implementation clipped the out-of-bounds footprint and incorrectly published a partial snapshot.
