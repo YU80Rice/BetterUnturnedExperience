@@ -56,6 +56,20 @@ namespace BetterUnturnedExperience.ClientUi.Internal
                 return NativeDragAdapterOutcome.PassThrough;
             }
 
+            // Page support is the first gate. Unsupported source/target pages
+            // are always native pass-through, even if a stale visible preview
+            // is still present from an earlier supported drag.
+            if (!IsEnhancedSourcePage(input.Source.Page))
+            {
+                return NativeDragAdapterOutcome.PassThrough;
+            }
+
+            var target = input.Preview.Candidate;
+            if (!IsOrdinaryGrid(target.Page))
+            {
+                return NativeDragAdapterOutcome.PassThrough;
+            }
+
             // A hidden/default preview means the enhancement has no current
             // fact source (for example after an occupancy snapshot invalidation).
             // Never cancel or submit in that state; leave the native callback in
@@ -68,17 +82,6 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             if (input.Preview.DragGeneration != input.DragGeneration)
             {
                 return NativeDragAdapterOutcome.Cancelled;
-            }
-
-            if (!IsEnhancedSourcePage(input.Source.Page))
-            {
-                return NativeDragAdapterOutcome.PassThrough;
-            }
-
-            var target = input.Preview.Candidate;
-            if (!IsOrdinaryGrid(target.Page))
-            {
-                return NativeDragAdapterOutcome.PassThrough;
             }
 
             if (input.Preview.State != PlacementPreviewState.Candidate)

@@ -242,6 +242,14 @@ namespace BetterUnturnedExperience.Plugin
                 jar.size_x == itemWidth && jar.size_y == itemHeight;
         }
 
+        // GPT watermark: R13-3 source rotation seam. Native rotation mutates
+        // the drag jar, while ItemGridPosition.Rotation is the frozen
+        // dragFromRot snapshot used for source-footprint exclusion.
+        internal static byte ResolveSourceRotation(ItemGridPosition source, byte mutableJarRotation)
+        {
+            return (byte)(source.Rotation & 3);
+        }
+
         internal void Invalidate()
         {
             hasConfiguration = false;
@@ -554,8 +562,9 @@ namespace BetterUnturnedExperience.Plugin
             var dragJarField = typeof(PlayerDashboardInventoryUI).GetField("dragJar",
                 BindingFlags.Static | BindingFlags.NonPublic);
             var dragJar = dragJarField == null ? null : dragJarField.GetValue(null) as ItemJar;
+            var frozenSourceRotation = UnturnedGridOccupancyView.ResolveSourceRotation(source, sourceRotation);
             if (!occupancyAdapter.RebuildForDrag(sourceContainer, targetContainer, source, dragJar, sourceAsset,
-                itemWidth, itemHeight, sourceRotation)) return false;
+                itemWidth, itemHeight, frozenSourceRotation)) return false;
             result = occupancyAdapter.CurrentSnapshot;
             return true;
         }
@@ -746,6 +755,7 @@ namespace BetterUnturnedExperience.Plugin
         private readonly bool enabled;
         private readonly Func<bool> isolateDispatcher;
         private readonly Action hideDispatcher;
+        private readonly Action<byte> discardPageDispatcher;
         private readonly Action guardedPoll;
         private string gateDiagnostics;
         internal static string LastPollDiagnostics { get; private set; }
@@ -756,7 +766,7 @@ namespace BetterUnturnedExperience.Plugin
         private readonly Dictionary<byte, DispatchedSurfaceState> dispatchedSurfaces =
             new Dictionary<byte, DispatchedSurfaceState>();
 
-        private sealed class DispatchedSurfaceState
+        internal sealed class DispatchedSurfaceState
         {
             internal readonly uint Generation;
             internal readonly SleekItems NativeItems;
@@ -784,6 +794,15 @@ namespace BetterUnturnedExperience.Plugin
         private static readonly byte[] SupportedSurfacePages =
             { BackpackPage, StoragePage };
 
+        // GPT watermark: R13-3 page-local dispatch seam. Removing a rebuilt
+        // page must preserve every other live native surface.
+        internal static bool RemoveDispatchedSurfaceForPage<T>(
+            IDictionary<byte, T> surfaces, byte page)
+        {
+            if (surfaces == null || surfaces.Count == 0) return false;
+            return surfaces.Remove(page);
+        }
+
         internal ContainerSessionTracker Tracker { get { return tracker; } }
         internal bool Enabled { get { return enabled; } }
         internal string GateDiagnostics { get { return gateDiagnostics; } }
@@ -792,13 +811,15 @@ namespace BetterUnturnedExperience.Plugin
 
         internal InventorySurfaceLifecycleAdapter(BepInEx.Logging.ManualLogSource log,
             Action<IClientUiInventorySurface> openDispatcher, Action closeDispatcher,
-            Func<bool> isolateDispatcher = null, Action hideDispatcher = null)
+            Func<bool> isolateDispatcher = null, Action hideDispatcher = null,
+            Action<byte> discardPageDispatcher = null)
         {
             this.log = log;
             this.openDispatcher = openDispatcher ?? throw new ArgumentNullException(nameof(openDispatcher));
             this.closeDispatcher = closeDispatcher ?? throw new ArgumentNullException(nameof(closeDispatcher));
             this.isolateDispatcher = isolateDispatcher;
             this.hideDispatcher = hideDispatcher;
+            this.discardPageDispatcher = discardPageDispatcher;
             tracker = new ContainerSessionTracker();
             watcher = new InventoryLifecycleWatcher(tracker);
             harmony = new Harmony("io.github.yu80rice.bue.inventory-lifecycle");
@@ -1014,7 +1035,7 @@ namespace BetterUnturnedExperience.Plugin
             {
                 if (dispatchedSurfaces.Count > 0)
                 {
-                    DiscardDispatchedSurface("session-closed");
+                    DiscardAllDispatchedSurfaces("session-closed");
                 }
                 return;
             }
@@ -1035,7 +1056,7 @@ namespace BetterUnturnedExperience.Plugin
                         + " errorCode=NativeHierarchyIncompatible diagnosticId=BUE-INVENTORY-003"
                         + " reason=live-parent-chain-invalid page=" + page;
                     LastPollDiagnostics = gateDiagnostics;
-                    if (dispatchedSurfaces.Count > 0) DiscardDispatchedSurface("native-hierarchy-incompatible");
+                    if (dispatchedSurfaces.Count > 0) DiscardAllDispatchedSurfaces("native-hierarchy-incompatible");
                     IsolateAndDispatch();
                     return;
                 }
@@ -1043,7 +1064,7 @@ namespace BetterUnturnedExperience.Plugin
                 if (dispatchedSurfaces.TryGetValue(page, out dispatched) &&
                     (!liveSurfaceReady || !IsDispatchedSurfaceCurrent(dispatched, liveNativeItems)))
                 {
-                    DiscardDispatchedSurface(liveSurfaceReady ? "native-surface-rebuilt" : "native-hierarchy-unavailable");
+                    DiscardDispatchedSurface(page, liveSurfaceReady ? "native-surface-rebuilt" : "native-hierarchy-unavailable");
                     dispatched = null;
                 }
                 if (!liveSurfaceReady) continue;
@@ -1074,14 +1095,24 @@ namespace BetterUnturnedExperience.Plugin
             }
         }
 
-        private void DiscardDispatchedSurface(string reason)
+        private void DiscardDispatchedSurface(byte page, string reason)
         {
-            var wasDispatched = dispatchedSurfaces.Count > 0;
-            dispatchedSurfaces.Clear();
+            var wasDispatched = RemoveDispatchedSurfaceForPage(dispatchedSurfaces, page);
             if (!wasDispatched) return;
             log?.LogInfo("[BUE-INVENTORY] event=surface-discarded reason=" + reason + " diagnosticId=BUE-INVENTORY-005");
-            if (hideDispatcher != null) hideDispatcher();
-            else closeDispatcher();
+            if (discardPageDispatcher != null) discardPageDispatcher(page);
+            else if (dispatchedSurfaces.Count == 0)
+            {
+                if (hideDispatcher != null) hideDispatcher();
+                else closeDispatcher();
+            }
+        }
+
+        private void DiscardAllDispatchedSurfaces(string reason)
+        {
+            var pages = new List<byte>(dispatchedSurfaces.Keys);
+            for (var index = 0; index < pages.Count; index++)
+                DiscardDispatchedSurface(pages[index], reason);
         }
 
         private static SleekItems ReadDashboardSleekItems(byte page)

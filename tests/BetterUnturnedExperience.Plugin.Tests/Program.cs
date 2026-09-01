@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using BetterUnturnedExperience.Contracts;
 using BetterUnturnedExperience.Core.Registration;
 using BetterUnturnedExperience.NoOpFixture;
@@ -70,6 +71,16 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     AssertDev16DR13StalePreviewFallsThrough();
                     return 0;
                 }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--dev16d-r13-page-red")
+                {
+                    AssertDev16DR13SinglePageRebuildPreservesOtherSurface();
+                    return 0;
+                }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--dev16d-r13-passthrough-red")
+                {
+                    AssertDev16DR13UnsupportedSourcePassThrough();
+                    return 0;
+                }
                 AssertSingleDllAssemblyClosure();
                 AssertExternalSdkAssemblyIdentity();
                 Assert(BootstrapGuard.Decide(false, false, true) == BootstrapDecision.Client, "client decision");
@@ -126,6 +137,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 AssertDev16DR13PointerRoutesToLiveTargetSurface();
                 AssertDev16DR13RotationKeepsSourceExclusion();
                 AssertDev16DR13StalePreviewFallsThrough();
+                AssertDev16DR13SinglePageRebuildPreservesOtherSurface();
                 AssertRuntimeCompletionBarrierIsolates();
                 AssertManagementPanelConsumesRuntimeCatalog();
                 AssertManagementPanelOpenHooks();
@@ -332,8 +344,11 @@ namespace BetterUnturnedExperience.Plugin.Tests
         private static void AssertDev16DR13RotationKeepsSourceExclusion()
         {
             var jar = CreateTestItemJar(1, 1, 2, 2, 1);
+            var source = new ItemGridPosition(3, 1, 1, 0);
+            Assert(UnturnedGridOccupancyView.ResolveSourceRotation(source, jar.rot) == source.Rotation,
+                "R13 source occupancy uses frozen dragFromRot instead of mutable ItemJar.rot");
             Assert(UnturnedGridOccupancyView.SourceExclusionMetadataMatches(
-                    jar, new ItemGridPosition(3, 1, 1, 0),
+                    jar, source,
                     ItemAssetIdentity.FromItemId(1), 2, 1, 0, true, true),
                 "rotated native drag jar remains eligible for exclusion using frozen source rotation");
         }
@@ -361,6 +376,8 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 "initial preview is a Candidate before occupancy invalidation");
             surface.InvalidateOccupancy();
             component.InvalidateOccupancySnapshot();
+            Assert(component.LastPreview.State == PlacementPreviewState.Hidden,
+                "occupancy invalidation clears the old preview before any next pointer update");
             Assert(!component.TryCreatePreviewInput(91, new ItemGridPosition(3, 0, 0, 0),
                     100f, 100f, 1, 1, 0, false, 0.5f, 0.5f,
                     ItemAssetIdentity.FromItemId(363), out input),
@@ -373,6 +390,35 @@ namespace BetterUnturnedExperience.Plugin.Tests
             Assert(outcome == NativeDragAdapterOutcome.PassThrough && native.SendCount == 0,
                 "stale preview release remains native pass-through and cannot submit");
             component.OnInventoryClosed();
+        }
+
+        // GPT watermark: DEV-16D-R13 red regression. Rebuilding one native
+        // page must not clear the other live page from the dispatch table.
+        private static void AssertDev16DR13SinglePageRebuildPreservesOtherSurface()
+        {
+            var surfaces = new Dictionary<byte, object>
+            {
+                { 3, new object() },
+                { 7, new object() }
+            };
+            Assert(InventorySurfaceLifecycleAdapter.RemoveDispatchedSurfaceForPage(surfaces, 3),
+                "rebuilding a dispatched page removes that page");
+            Assert(!surfaces.ContainsKey(3) && surfaces.ContainsKey(7),
+                "rebuilding one page preserves the other live surface");
+        }
+
+        private static void AssertDev16DR13UnsupportedSourcePassThrough()
+        {
+            var adapter = new NativeInventoryInteractionAdapter(2, 8);
+            var native = new RecordingNativeDragActions();
+            var preview = new ItemPlacementPreview(700, PlacementPreviewState.Candidate,
+                new ItemGridPosition(7, 0, 0, 0), 1, 1, PlacementReason.None);
+            var outcome = adapter.HandleRelease(new NativeDragAdapterInput(true, 701,
+                new ItemGridPosition(8, 0, 0, 0), preview), native);
+            Assert(outcome == NativeDragAdapterOutcome.PassThrough,
+                "unsupported stale source is native pass-through before generation validation");
+            Assert(native.SendCount == 0 && native.StopCount == 0 && native.GroundTakeCount == 0,
+                "unsupported stale source never invokes enhanced native actions");
         }
 
         private static TestSurfaceContext CreateTestSurface(ContainerKind kind, byte page, uint generation)

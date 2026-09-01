@@ -119,7 +119,7 @@ namespace BetterUnturnedExperience.ClientUi.Tests
 
             native.Reset();
             var staleSpecialTarget = new ItemPlacementPreview(20, PlacementPreviewState.Candidate, new ItemGridPosition(1, 0, 0, 0), 1, 1, PlacementReason.None);
-            Assert(adapter.HandleRelease(new NativeDragAdapterInput(true, 21, source, staleSpecialTarget), native) == NativeDragAdapterOutcome.Cancelled, "stale special target fails closed");
+            Assert(adapter.HandleRelease(new NativeDragAdapterInput(true, 21, source, staleSpecialTarget), native) == NativeDragAdapterOutcome.PassThrough, "stale special target passes through natively");
             Assert(native.StopCount == 0 && native.SendCount == 0, "stale special target never reaches native pass-through");
 
             native.Reset();

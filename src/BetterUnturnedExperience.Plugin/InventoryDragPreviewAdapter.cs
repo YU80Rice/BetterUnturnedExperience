@@ -202,7 +202,7 @@ namespace BetterUnturnedExperience.Plugin
             return success;
         }
 
-        private bool DetachGrid(byte page)
+        internal bool DetachGrid(byte page)
         {
             AttachedGridBinding binding;
             if (!attachedGrids.TryGetValue(page, out binding)) return true;

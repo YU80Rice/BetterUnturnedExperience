@@ -19,6 +19,8 @@ namespace BetterUnturnedExperience.ClientUi.Tests
             CleanupFailureNeverPublishesStopped();
             ComponentDisabledPathReturnsNativePassThrough();
             SourcePagePassThroughMatrixIsExplicit();
+            StaleSessionMismatchClearsLastPreviewBeforeRelease();
+            UnsupportedSourceWithStalePreviewRemainsNativePassThrough();
         }
 
         private static void SettingsDefaultToEnabledAndAutoRotate()
@@ -199,6 +201,61 @@ namespace BetterUnturnedExperience.ClientUi.Tests
                 "Backpack and Storage are the only enhanced source pages");
         }
 
+        // GPT watermark: DEV-16D-R13 red regression. A visible Candidate must
+        // be cleared immediately when the target session changes; release can
+        // happen before another pointer poll and must not consume stale state.
+        private static void StaleSessionMismatchClearsLastPreviewBeforeRelease()
+        {
+            var component = new BetterItemInteractionUiComponent(
+                new InventoryPreviewPresenter(new InventoryDragPresenter(new FixedEvaluator())),
+                new NativeInventoryInteractionAdapter(2, 8));
+            component.OnUiInitialized(new Program.TestRoot());
+            var surface = new TestSurfaceContext(
+                new ContainerReference(ContainerKind.PlayerInventory, 3, 711),
+                new TestVisualContainer(), new TestVisualContainer(),
+                new InventoryGridViewport(0f, 0f, 8, 6, 0f, 0f, 400f, 300f),
+                50f, 1f, 0f, 0f, new TestGrid(8, 6));
+            component.OnInventoryOpened(surface);
+            component.OnDragStarted(711, ItemAssetIdentity.FromItemId(363), new ItemGridPosition(3, 0, 0, 0));
+            InventoryPreviewInput input;
+            Assert(component.TryCreatePreviewInput(711, new ItemGridPosition(3, 0, 0, 0),
+                    100f, 100f, 1, 1, 0, false, 0.5f, 0.5f,
+                    ItemAssetIdentity.FromItemId(363), out input),
+                "fresh session creates preview input");
+            component.OnDragUpdated(input);
+            Assert(component.LastPreview.State == PlacementPreviewState.Candidate,
+                "fresh session publishes a Candidate");
+
+            var stale = new InventoryPreviewInput(711, input.Source,
+                new ContainerReference(ContainerKind.PlayerInventory, 3, 710),
+                input.PointerScreenX, input.PointerScreenY, input.Viewport, input.CellPixelSize,
+                input.UiScale, input.ScrollPixelsX, input.ScrollPixelsY, input.ItemWidth,
+                input.ItemHeight, input.CurrentRotation, input.AllowAutomaticRotation,
+                input.GrabOffsetX, input.GrabOffsetY, input.ItemAsset, input.Occupancy);
+            component.OnDragUpdated(stale);
+            Assert(component.LastPreview.State == PlacementPreviewState.Hidden,
+                "stale session mismatch clears LastPreview immediately");
+            component.OnInventoryClosed();
+        }
+
+        // GPT watermark: DEV-16D-R13 red regression. Page support is the first
+        // release gate. An unsupported source must pass through even when a
+        // stale visible preview would otherwise fail the generation check.
+        private static void UnsupportedSourceWithStalePreviewRemainsNativePassThrough()
+        {
+            var adapter = new NativeInventoryInteractionAdapter(2, 8);
+            var native = new NativeActions();
+            var staleCandidate = new ItemPlacementPreview(700,
+                PlacementPreviewState.Candidate,
+                new ItemGridPosition(7, 0, 0, 0), 1, 1, PlacementReason.None);
+            var outcome = adapter.HandleRelease(new NativeDragAdapterInput(true, 701,
+                new ItemGridPosition(8, 0, 0, 0), staleCandidate), native);
+            Assert(outcome == NativeDragAdapterOutcome.PassThrough,
+                "unsupported stale source is native pass-through before generation validation");
+            Assert(native.SendCount == 0 && native.StopCount == 0 && native.GroundTakeCount == 0,
+                "unsupported stale source never invokes enhanced native actions");
+        }
+
         private sealed class FixedEvaluator : IPlacementCandidateEvaluator
         {
             public ItemPlacementPreview Evaluate(PlacementCandidateInput input)
@@ -217,6 +274,65 @@ namespace BetterUnturnedExperience.ClientUi.Tests
             public void StopDrag() { StopCount++; }
             public void TakeGroundItem(ItemGridPosition target) { GroundTakeCount++; }
             internal void Reset() { SendCount = 0; StopCount = 0; GroundTakeCount = 0; }
+        }
+
+        private sealed class TestGrid : IGridOccupancyView
+        {
+            internal TestGrid(byte width, byte height) { Width = width; Height = height; }
+            public byte Width { get; }
+            public byte Height { get; }
+            public bool IsOccupied(byte x, byte y) { return false; }
+        }
+
+        private sealed class TestVisualElement : IVisualElement
+        {
+            public float PositionScaleX { get; set; }
+            public float PositionScaleY { get; set; }
+            public float PositionOffsetX { get; set; }
+            public float PositionOffsetY { get; set; }
+            public float SizeOffsetX { get; set; }
+            public float SizeOffsetY { get; set; }
+            public byte RotationAngle { get; set; }
+            public bool CanRotate { get; set; }
+            public bool IsVisible { get; set; }
+            public PreviewFrameColor Color { get; set; }
+            public ItemAssetIdentity BoundAsset { get; set; }
+        }
+
+        private sealed class TestVisualContainer : IVisualContainer
+        {
+            public IVisualElement CreateBox() { return new TestVisualElement(); }
+            public IVisualElement CreateImage() { return new TestVisualElement(); }
+            public void AddChild(IVisualElement child) { }
+            public void RemoveChild(IVisualElement child) { }
+        }
+
+        private sealed class TestSurfaceContext : IInventorySurfaceContext
+        {
+            public ContainerReference CurrentContainer { get; }
+            public IVisualContainer TopLevelContainer { get; }
+            public IVisualContainer GridPanelContainer { get; }
+            public InventoryGridViewport Viewport { get; }
+            public float CellPixelSize { get; }
+            public float UiScale { get; }
+            public float ScrollPixelsX { get; }
+            public float ScrollPixelsY { get; }
+            public IGridOccupancyView Occupancy { get; }
+
+            internal TestSurfaceContext(ContainerReference currentContainer, IVisualContainer topLevel,
+                IVisualContainer gridPanel, InventoryGridViewport viewport, float cellPixelSize,
+                float uiScale, float scrollPixelsX, float scrollPixelsY, IGridOccupancyView occupancy)
+            {
+                CurrentContainer = currentContainer;
+                TopLevelContainer = topLevel;
+                GridPanelContainer = gridPanel;
+                Viewport = viewport;
+                CellPixelSize = cellPixelSize;
+                UiScale = uiScale;
+                ScrollPixelsX = scrollPixelsX;
+                ScrollPixelsY = scrollPixelsY;
+                Occupancy = occupancy;
+            }
         }
 
         private static FeatureSettingsSnapshot Snapshot(bool enabled, bool autoRotate, uint revision)

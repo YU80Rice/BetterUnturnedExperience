@@ -50,3 +50,23 @@
 - `[x]` Added GPT-watermarked pointer-routing regression; it failed against last-surface routing and passes after the pointer seam was wired.
 - `[x]` Release build, seven project test runners, R13 targeted tests, UI/native token gates and `git diff --check` pass with 0 errors / 0 warnings.
 - `[ ]` Fresh Standards + Spec review for this increment is pending; no DLL identity has been granted and the ticket remains `claimed`.
+
+### 2026-09-01 GPT R13-3 remediation round (Spec FAIL recorded)
+
+- `[x]` Spec-axis review of `6895858` returned `FAIL`; Standards axis returned `CLEAN`.
+- `[ ]` Blocking finding 1: the live occupancy path still forwards mutable `ItemJar.rot` as the source rotation after native rotation; the frozen `dragFromRot` source footprint can therefore be rejected.
+- `[ ]` Blocking finding 2: rebuilding one live page calls the global surface discard path and removes the other supported page; Backpack and Storage/Trunk must be independently re-bound.
+- `[ ]` Blocking finding 3: session mismatch and related fail-closed paths hide only the visual sink while retaining `LastPreview`; release without another update can consume stale Candidate state.
+- `[ ]` Blocking finding 4: release routing validates preview generation before source/target page support; stale visible previews from unsupported pages must return native `PassThrough` first.
+- `[ ]` R13-3 red regressions, minimal fixes, fresh Release verification and a new dual-axis review are pending; this ticket remains `claimed` and no DLL may be delivered.
+
+### 2026-09-01 GPT R13-3 implementation result
+
+- `[x]` Red-first regressions were observed before the fixes: stale session retained `LastPreview` (`CLIENT_TEST_EXIT=1`), mutable rotation failed the frozen-source assertion (`PLUGIN_TEST_EXIT=1`), page rebuild cleared the surviving page (`R13_PAGE_RED_EXIT=1`), and stale unsupported source returned `Cancelled` (`R13_PASSTHROUGH_RED_EXIT=1`).
+- `[x]` Source-footprint exclusion now derives rotation from the immutable `ItemGridPosition.Rotation` (`dragFromRot`) while current `ItemJar.rot` remains preview-only.
+- `[x]` Native surface discard is page-local; the surviving live page remains registered and the plugin detaches/rebinds only the rebuilt page.
+- `[x]` Session mismatch, occupancy invalidation, release, cancellation and cleanup all call the canonical `HidePreview()` path, clearing both visuals and `LastPreview` before a possible release.
+- `[x]` Native release gates source page and target page before preview generation/state checks; unsupported pages always return native `PassThrough`.
+- `[x]` R13 targeted tests are green (`--dev16d-r13-red`, `--dev16d-r13-boundary-red`, `--dev16d-r13-surface-red`, `--dev16d-r13-rotation-red`, `--dev16d-r13-stale-red`, `--dev16d-r13-page-red`, `--dev16d-r13-passthrough-red`, all exit `0`).
+- `[x]` Release solution build is `0 errors / 0 warnings`; all seven test runners pass; Contracts/Core/ClientUi UI-native token scans and `git diff --check` pass.
+- `[ ]` Fresh Standards + Spec review for R13-3 is pending; no reviewed artifact identity is granted and the ticket remains `claimed`.

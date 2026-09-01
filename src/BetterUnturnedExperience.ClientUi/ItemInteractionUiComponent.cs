@@ -460,6 +460,7 @@ namespace BetterUnturnedExperience.ClientUi.Internal
 
         public void OnInventoryClosed()
         {
+            HidePreview();
             isInventoryOpen = false;
             currentSurface = null;
             currentContainer = default(ContainerReference);
@@ -476,6 +477,47 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             dragOriginContainer = default(ContainerReference);
             dragSourcePassThrough = false;
             ClearActiveDragOccupancy();
+        }
+
+        // GPT watermark: DEV-16D-R13 page-local rebuild handling. A native
+        // Backpack or Storage surface may be recreated independently while
+        // the other supported page remains live. Remove only the rebuilt page,
+        // reselect a surviving page when possible, and clear any preview that
+        // was anchored to the removed hierarchy.
+        internal bool DiscardInventorySurface(byte page)
+        {
+            if (!liveSurfaces.Remove(page)) return false;
+
+            if (currentSurface != null && currentSurface.CurrentContainer.Page == page)
+            {
+                IInventorySurfaceContext replacement = null;
+                for (var index = 0; index < SupportedLiveSurfacePages.Length; index++)
+                {
+                    if (liveSurfaces.TryGetValue(SupportedLiveSurfacePages[index], out replacement)) break;
+                }
+
+                if (replacement != null)
+                {
+                    ActivateSurface(replacement);
+                    isInventoryOpen = true;
+                }
+                else
+                {
+                    if (previewSink != null)
+                    {
+                        previewSink.Unmount();
+                        previewSink = null;
+                    }
+                    currentSurface = null;
+                    currentContainer = default(ContainerReference);
+                    currentSessionGeneration = 0;
+                    isInventoryOpen = false;
+                }
+                HidePreview();
+                ClearActiveDragOccupancy();
+            }
+
+            return true;
         }
 
         public void OnUiDestroyed()
@@ -540,7 +582,7 @@ namespace BetterUnturnedExperience.ClientUi.Internal
         {
             if (dragSourcePassThrough || !isInventoryOpen || previewSink == null || !runtime.EnhancedDragActive || !lifecycle.CanRun)
             {
-                if (previewSink != null) previewSink.Hide();
+                HidePreview();
                 return;
             }
 
@@ -550,7 +592,7 @@ namespace BetterUnturnedExperience.ClientUi.Internal
                  input.TargetContainer.Page != currentContainer.Page ||
                  input.TargetContainer.Kind != currentContainer.Kind))
             {
-                previewSink.Hide();
+                HidePreview();
                 return;
             }
 
@@ -561,7 +603,7 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             catch (Exception)
             {
                 runtime.Isolate();
-                if (previewSink != null) previewSink.Hide();
+                HidePreview();
             }
         }
 
@@ -569,10 +611,7 @@ namespace BetterUnturnedExperience.ClientUi.Internal
 
         internal NativeDragAdapterOutcome OnDragReleased(NativeDragAdapterInput input, INativeInventoryDragActions nativeActions)
         {
-            if (previewSink != null)
-            {
-                previewSink.Hide();
-            }
+            HidePreview();
             if (!runtime.EnhancedDragActive)
             {
                 runtime.EndDrag();
@@ -633,10 +672,7 @@ namespace BetterUnturnedExperience.ClientUi.Internal
 
         internal void OnDragCancelled()
         {
-            if (previewSink != null)
-            {
-                previewSink.Hide();
-            }
+            HidePreview();
             runtime.EndDrag();
             previewPresenter.EndDrag();
             currentDragGeneration = 0;
@@ -653,6 +689,7 @@ namespace BetterUnturnedExperience.ClientUi.Internal
 
         private void CleanupUiAndDrag()
         {
+            HidePreview();
             if (previewSink != null)
             {
                 previewSink.Unmount();
@@ -680,6 +717,7 @@ namespace BetterUnturnedExperience.ClientUi.Internal
                 provider.InvalidateOccupancy();
             }
             ClearActiveDragOccupancy();
+            HidePreview();
         }
 
         internal bool TryGetOccupancyForDrag(ItemGridPosition source, byte itemWidth, byte itemHeight,
