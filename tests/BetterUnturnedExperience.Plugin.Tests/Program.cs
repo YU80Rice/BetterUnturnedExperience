@@ -81,6 +81,11 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     AssertDev16DR13NonCurrentPageRebuildUsesLiveDispatchSeam();
                     return 0;
                 }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--dev16d-r13-native-delegate-red")
+                {
+                    AssertDev16DR13NativeDelegateLifecycleIsReversible();
+                    return 0;
+                }
                 if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--dev16d-r13-passthrough-red")
                 {
                     AssertDev16DR13UnsupportedSourcePassThrough();
@@ -144,6 +149,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 AssertDev16DR13StalePreviewFallsThrough();
                 AssertDev16DR13SinglePageRebuildPreservesOtherSurface();
                 AssertDev16DR13NonCurrentPageRebuildUsesLiveDispatchSeam();
+                AssertDev16DR13NativeDelegateLifecycleIsReversible();
                 AssertRuntimeCompletionBarrierIsolates();
                 AssertManagementPanelConsumesRuntimeCatalog();
                 AssertManagementPanelOpenHooks();
@@ -492,6 +498,100 @@ namespace BetterUnturnedExperience.Plugin.Tests
             component.OnInventoryClosed();
         }
 
+        // GPT watermark: R13-6 red regression. The production page-discard
+        // callback must exercise the real InventoryDragPreviewAdapter native
+        // delegate seam: detach only the rebuilt page, restore its exact
+        // original delegate, leave the other supported page wrapped, and make
+        // the component's source/generation state pass through natively.
+        private static void AssertDev16DR13NativeDelegateLifecycleIsReversible()
+        {
+            var component = new BetterItemInteractionUiComponent(
+                new InventoryPreviewPresenter(new InventoryDragPresenter(new FixedCandidateEvaluator())),
+                new NativeInventoryInteractionAdapter(2, 8));
+            component.OnUiInitialized(new TestRoot());
+
+            var nativeBackpackCalls = 0;
+            var nativeStorageCalls = 0;
+            PlacedItem originalBackpack = (page, x, y) => nativeBackpackCalls++;
+            PlacedItem originalStorage = (page, x, y) => nativeStorageCalls++;
+            var backpackGrid = CreateNativeSleekItems(3, originalBackpack);
+            var storageGrid = CreateNativeSleekItems(7, originalStorage);
+            var backpack = CreateNativeSurface(ContainerKind.PlayerInventory, 3, 905, backpackGrid);
+            var storage = CreateNativeSurface(ContainerKind.Storage, 7, 905, storageGrid);
+            component.OnInventoryOpened(backpack);
+            component.OnInventoryOpened(storage);
+
+            var adapter = new InventoryDragPreviewAdapter(null, component);
+            Assert(adapter.AttachNativeGrid(backpackGrid, 3),
+                "native Backpack grid can be attached through the production seam");
+            Assert(adapter.AttachNativeGrid(storageGrid, 7),
+                "native Storage grid can be attached through the production seam");
+            var backpackWrapper = backpackGrid.onPlacedItem;
+            var storageWrapper = storageGrid.onPlacedItem;
+            Assert(adapter.AttachedGridCount == 2,
+                "both native page delegates are live before a page rebuild");
+            Assert(!ReferenceEquals(backpackWrapper, originalBackpack) &&
+                !ReferenceEquals(storageWrapper, originalStorage),
+                "production seam installs wrappers without losing native delegates");
+
+            component.OnDragStarted(905, ItemAssetIdentity.FromItemId(363),
+                new ItemGridPosition(3, 0, 0, 0));
+            Assert(component.TrySelectSurfaceForPage(7),
+                "Storage is selected as the live target while Backpack remains the source");
+
+            var lifecycle = new InventorySurfaceLifecycleAdapter(null,
+                surface => { },
+                () => { },
+                null,
+                null,
+                page =>
+                {
+                    Assert(adapter.DetachGridAndDiscardSurface(page),
+                        "production callback detaches the native delegate before discarding the page");
+                });
+            lifecycle.RememberDispatchedSurface(3,
+                new InventorySurfaceLifecycleAdapter.DispatchedSurfaceState(905, backpackGrid, null, null, null));
+            lifecycle.RememberDispatchedSurface(7,
+                new InventorySurfaceLifecycleAdapter.DispatchedSurfaceState(905, storageGrid, null, null, null));
+
+            Assert(lifecycle.DiscardDispatchedSurfaceForPage(3, "native-surface-rebuilt"),
+                "non-current Backpack rebuild reaches the production delegate seam");
+            Assert(ReferenceEquals(backpackGrid.onPlacedItem, originalBackpack),
+                "Backpack rebuild restores the exact original native delegate");
+            Assert(ReferenceEquals(storageGrid.onPlacedItem, storageWrapper),
+                "Backpack detach leaves the live Storage wrapper untouched");
+            Assert(adapter.AttachedGridCount == 1,
+                "only the rebuilt page is detached from the native adapter");
+            Assert(component.CurrentContainer.Page == 7 && component.LiveSurfaceCount == 1,
+                "the surviving Storage surface remains live after source-page rebuild");
+            Assert(component.CurrentDragGeneration == 0 && component.DragOriginContainer.Page == 0 &&
+                component.DragSourcePassThrough,
+                "page rebuild clears drag origin/generation and restores native pass-through");
+
+            Assert(adapter.DetachGrid(3),
+                "repeated detach of an already detached page is idempotent");
+            Assert(nativeBackpackCalls == 0 && nativeStorageCalls == 0,
+                "detaching does not invoke native placement callbacks");
+
+            var rebuiltBackpackNativeCalls = 0;
+            PlacedItem rebuiltBackpackOriginal = (page, x, y) => rebuiltBackpackNativeCalls++;
+            var rebuiltBackpackGrid = CreateNativeSleekItems(3, rebuiltBackpackOriginal);
+            var rebuiltBackpack = CreateNativeSurface(ContainerKind.PlayerInventory, 3, 906, rebuiltBackpackGrid);
+            component.OnInventoryOpened(rebuiltBackpack);
+            Assert(adapter.AttachNativeGrid(rebuiltBackpackGrid, 3),
+                "rebuilt Backpack can be rebound after the original detach");
+            var rebuiltWrapper = rebuiltBackpackGrid.onPlacedItem;
+            Assert(!ReferenceEquals(rebuiltWrapper, rebuiltBackpackOriginal),
+                "rebuilt Backpack receives a fresh BUE wrapper");
+            Assert(adapter.DetachGrid(3),
+                "rebuilt Backpack detaches cleanly on the second lifecycle edge");
+            Assert(ReferenceEquals(rebuiltBackpackGrid.onPlacedItem, rebuiltBackpackOriginal),
+                "rebuilt Backpack restores its own exact original delegate");
+            Assert(rebuiltBackpackNativeCalls == 0,
+                "native delegate remains untouched until the game invokes it");
+            component.OnInventoryClosed();
+        }
+
         private static void AssertDev16DR13UnsupportedSourcePassThrough()
         {
             var adapter = new NativeInventoryInteractionAdapter(2, 8);
@@ -512,6 +612,31 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 new TestVisualContainer(), new TestVisualContainer(),
                 new InventoryGridViewport(0f, 0f, 8, 6, 0f, 0f, 400f, 300f),
                 50f, 1f, 0f, 0f, new EmptyGridForTest(8, 6));
+        }
+
+        private static SleekItems CreateNativeSleekItems(byte page, PlacedItem original)
+        {
+            var native = (SleekItems)System.Runtime.Serialization.FormatterServices
+                .GetUninitializedObject(typeof(SleekItems));
+            typeof(SleekItems).GetField("_page",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+                .SetValue(native, page);
+            native.onPlacedItem = original;
+            return native;
+        }
+
+        private static UnturnedInventorySurfaceContext CreateNativeSurface(ContainerKind kind, byte page,
+            uint generation, SleekItems nativeItems)
+        {
+            return new UnturnedInventorySurfaceContext(
+                new ContainerReference(kind, page, generation),
+                new TestVisualContainer(),
+                new TestVisualContainer(),
+                new InventoryGridViewport(0f, 0f, 8, 6, 0f, 0f, 400f, 300f),
+                50f,
+                new EmptyGridForTest(8, 6),
+                nativeItems,
+                false);
         }
 
         private sealed class FixedCandidateEvaluator : IPlacementCandidateEvaluator

@@ -100,8 +100,10 @@ namespace BetterUnturnedExperience.Plugin
                             },
                             page =>
                             {
-                                inventoryDragAdapter?.DetachGrid(page);
-                                clientUiComposition.OfficialComponent?.DiscardInventorySurface(page);
+                                if (inventoryDragAdapter != null)
+                                    inventoryDragAdapter.DetachGridAndDiscardSurface(page);
+                                else
+                                    clientUiComposition.OfficialComponent?.DiscardInventorySurface(page);
                             });
                         clientUiComposition.OfficialComponent.RegisterCleanupResult(() => inventoryLifecycleAdapter.IsolateAndDetach());
                         clientUiComposition.OfficialComponent.RegisterCleanupResult(() => inventoryDragAdapter.IsolateAndDetach(false));

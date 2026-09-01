@@ -103,3 +103,17 @@
 - `[x]` The regression publishes a Candidate on Storage while Backpack remains the source, rebuilds the non-current Backpack page, asserts delegate callback order, surviving target, generation/occupancy/preview/sink cleanup, and verifies the next release is native Pass-Through.
 - `[x]` Release solution build, seven test runners, eight R13 targeted regressions, UI/native token scans and `git diff --check` all pass with `0 errors / 0 warnings`.
 - `[ ]` Fresh Standards + Spec review for R13-5 is pending; no reviewed artifact identity is granted and the ticket remains `claimed`.
+
+### 2026-09-01 GPT R13-6 remediation round (Spec FAIL recorded)
+
+- `[x]` Standards axis returned `CLEAN` for frozen commit `6e90157`.
+- `[ ]` Spec axis returned `FAIL`: the R13-5 lifecycle regression used a page callback that only recorded the page and discarded the component surface; it did not invoke the production `InventoryDragPreviewAdapter.DetachGrid(page)` native delegate seam.
+- `[ ]` Required next increment: route production page discard through one ordered `DetachGrid(page) -> DiscardInventorySurface(page)` operation and test constructable `SleekItems.onPlacedItem` delegates for exact restoration, surviving-page wrapper isolation, reversible rebind and idempotent detach, including drag-origin cleanup.
+
+### 2026-09-01 GPT R13-6 implementation result
+
+- `[x]` Added the shared `AttachNativeGrid(SleekItems, page)` seam used by production surface dispatch and tests; wrapper delegates now retain their exact instance for identity-safe restoration.
+- `[x]` Added `DetachGridAndDiscardSurface(page)` and routed the production lifecycle callback through the ordered native detach then component-discard operation.
+- `[x]` Added GPT-watermarked native delegate lifecycle regression using constructable `SleekItems` state: both pages attach, non-current Backpack detaches without disturbing Storage, exact original delegate restores, drag origin/generation clear, repeated detach is idempotent, and a rebuilt Backpack rebinds/restores reversibly.
+- `[x]` Native delegate regression is green after the recorded compile red (`PAGE_NATIVE_DELEGATE_RED_EXIT=1`); full Release/static/test verification and fresh dual-axis review remain pending.
+- `[ ]` No reviewed artifact identity is granted; this ticket remains `claimed` until both review axes return `CLEAN`.

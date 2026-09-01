@@ -132,11 +132,13 @@ namespace BetterUnturnedExperience.Plugin
         {
             internal readonly SleekItems Grid;
             internal readonly PlacedItem NativeHandler;
+            internal readonly PlacedItem Wrapper;
 
-            internal AttachedGridBinding(SleekItems grid, PlacedItem nativeHandler)
+            internal AttachedGridBinding(SleekItems grid, PlacedItem nativeHandler, PlacedItem wrapper)
             {
                 Grid = grid;
                 NativeHandler = nativeHandler;
+                Wrapper = wrapper;
             }
         }
 
@@ -173,22 +175,50 @@ namespace BetterUnturnedExperience.Plugin
                 if (sleek == null)
                     throw new InvalidOperationException("context has no native SleekItems");
                 var page = context.CurrentContainer.Page;
-                if (!IsSupportedPage(page)) return;
-                AttachedGridBinding existing;
-                if (attachedGrids.TryGetValue(page, out existing) && ReferenceEquals(sleek, existing.Grid)) return;
-                // Re-entry for a rebuilt page must only detach that page; the
-                // other supported page remains live for cross-page drags.
-                var detachSucceeded = DetachGrid(page);
-                if (!CanContinueGridAttach(detachSucceeded, isolated)) return;
-                attachedGrids[page] = new AttachedGridBinding(sleek, sleek.onPlacedItem);
-                sleek.onPlacedItem = GridPlacedItemWrapper;
-                log?.LogInfo("[BUE-DRAG] event=placed-item-delegate-rebound page=" + sleek.page + " diagnosticId=BUE-DRAG-001");
+                AttachNativeGrid(sleek, page);
             }
             catch (Exception error)
             {
                 LastPollDiagnostics = "grid-attach-failed: " + error.GetType().FullName + ": " + error.Message;
                 log?.LogWarning("[BUE-DRAG] event=attach-grid-failed diagnosticId=BUE-DRAG-003");
                 IsolateAndDetach();
+            }
+        }
+
+        // GPT watermark: highest-available native delegate seam. Production
+        // surface dispatch and host tests both enter this operation so the
+        // wrapper, exact-original capture, page-local detach and rebind rules
+        // cannot drift into separate synthetic implementations.
+        internal bool AttachNativeGrid(SleekItems sleek, byte page)
+        {
+            if (!CanAttachGrid(isolated))
+            {
+                LastPollDiagnostics = "grid-attach-rejected-isolated";
+                return false;
+            }
+            if (sleek == null) throw new ArgumentNullException(nameof(sleek));
+            if (!IsSupportedPage(page)) return false;
+            try
+            {
+                AttachedGridBinding existing;
+                if (attachedGrids.TryGetValue(page, out existing) && ReferenceEquals(sleek, existing.Grid))
+                    return true;
+                // Re-entry for a rebuilt page must only detach that page; the
+                // other supported page remains live for cross-page drags.
+                var detachSucceeded = DetachGrid(page);
+                if (!CanContinueGridAttach(detachSucceeded, isolated)) return false;
+                var wrapper = new PlacedItem(GridPlacedItemWrapper);
+                attachedGrids[page] = new AttachedGridBinding(sleek, sleek.onPlacedItem, wrapper);
+                sleek.onPlacedItem = wrapper;
+                log?.LogInfo("[BUE-DRAG] event=placed-item-delegate-rebound page=" + sleek.page + " diagnosticId=BUE-DRAG-001");
+                return true;
+            }
+            catch (Exception error)
+            {
+                LastPollDiagnostics = "grid-attach-failed: " + error.GetType().FullName + ": " + error.Message;
+                log?.LogWarning("[BUE-DRAG] event=attach-grid-failed diagnosticId=BUE-DRAG-003");
+                IsolateAndDetach();
+                return false;
             }
         }
 
@@ -208,7 +238,7 @@ namespace BetterUnturnedExperience.Plugin
             if (!attachedGrids.TryGetValue(page, out binding)) return true;
             try
             {
-                if (ReferenceEquals(binding.Grid.onPlacedItem?.Target, this))
+                if (ReferenceEquals(binding.Grid.onPlacedItem, binding.Wrapper))
                     binding.Grid.onPlacedItem = binding.NativeHandler;
                 attachedGrids.Remove(page);
                 return true;
@@ -218,6 +248,16 @@ namespace BetterUnturnedExperience.Plugin
                 LastPollDiagnostics = "grid-detach-failed: " + error.GetType().FullName + ": " + error.Message;
                 return false;
             }
+        }
+
+        // GPT watermark: the production lifecycle callback uses one ordered
+        // operation: restore the exact native delegate first, then discard the
+        // corresponding component surface. This is also the regression seam.
+        internal bool DetachGridAndDiscardSurface(byte page)
+        {
+            var detachSucceeded = DetachGrid(page);
+            var surfaceDiscarded = component.DiscardInventorySurface(page);
+            return detachSucceeded && surfaceDiscarded;
         }
 
         // U3-SDK PlayerInventory.BACKPACK/STORAGE are fixed protocol page
