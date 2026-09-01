@@ -1,0 +1,19 @@
+===== --dev16d-r13-red =====
+EXIT=0
+===== --dev16d-r13-boundary-red =====
+EXIT=0
+===== --dev16d-r13-surface-red =====
+EXIT=0
+===== --dev16d-r13-rotation-red =====
+EXIT=0
+===== --dev16d-r13-stale-red =====
+EXIT=0
+===== --dev16d-r13-page-red =====
+EXIT=0
+===== --dev16d-r13-page-seam-red =====
+EXIT=0
+===== --dev16d-r13-native-delegate-red =====
+EXIT=0
+===== --dev16d-r13-passthrough-red =====
+EXIT=0
+R13_FAILURES=0

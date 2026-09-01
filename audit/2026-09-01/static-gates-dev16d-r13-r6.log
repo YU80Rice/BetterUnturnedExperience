@@ -1,0 +1,12 @@
+===== src\BetterUnturnedExperience.ClientUi =====
+UI/native token scan PASS: 11 C# files
+EXIT=0
+===== src\BetterUnturnedExperience.Contracts =====
+UI/native token scan PASS: 2 C# files
+EXIT=0
+===== src\BetterUnturnedExperience.Core =====
+UI/native token scan PASS: 10 C# files
+EXIT=0
+===== git diff --check =====
+warning: in the working copy of '.scratch/better-unturned-experience-architecture/issues/04-dev-16d-drag-preview-native-projection.md', LF will be replaced by CRLF the next time Git touches it warning: in the working copy of '.scratch/better-unturned-experience-architecture/issues/DEV-16D-R13-native-conformance-remediation.md', LF will be replaced by CRLF the next time Git touches it
+EXIT=0
