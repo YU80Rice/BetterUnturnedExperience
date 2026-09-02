@@ -116,6 +116,11 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     AssertDev16DR13EdgeAutoRotation();
                     return 0;
                 }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--dev16d-r13-corner-lift-red")
+                {
+                    AssertDev16DR13CornerLift();
+                    return 0;
+                }
                 AssertSingleDllAssemblyClosure();
                 AssertExternalSdkAssemblyIdentity();
                 Assert(BootstrapGuard.Decide(false, false, true) == BootstrapDecision.Client, "client decision");
@@ -800,6 +805,96 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 "edge-rot: horizontal katana at the right edge auto-rotates to a vertical footprint (long side hugs the right edge)");
             Assert(rightResult.Candidate.Rotation == 2 || rightResult.Candidate.Rotation == 0,
                 "edge-rot: horizontal katana at the right edge returns a vertical rotation");
+
+            // Edge-sensing band (spec §11): the trigger is cursor-grid based,
+            // band(dim)=clamp(1.0, dim*0.15, 2.0). On a 6x3 the band is 1.0, so a
+            // cursor one cell inside the left/right wall (0.9 / 5.1) is still in
+            // the vertical band and must auto-rotate vertical (not only x==0).
+            var innerLeft = new PlacementCandidateInput(2,
+                new ItemGridPosition(7, 0, 2, 1),
+                new ContainerReference(ContainerKind.Storage, 7, 2),
+                0.9f, 1.5f, 1, 3, 1, true, occupancy);
+            var innerLeftResult = evaluator.Evaluate(innerLeft);
+            Assert(innerLeftResult.State == PlacementPreviewState.Candidate,
+                "edge-rot band: cursor one cell inside the left wall stays a candidate");
+            Assert(innerLeftResult.Width == 1 && innerLeftResult.Height == 3,
+                "edge-rot band: cursor one cell inside the left wall auto-rotates vertical (long side hugs the left edge)");
+
+            var innerRight = new PlacementCandidateInput(2,
+                new ItemGridPosition(7, 0, 2, 1),
+                new ContainerReference(ContainerKind.Storage, 7, 2),
+                5.1f, 1.5f, 1, 3, 1, true, occupancy);
+            var innerRightResult = evaluator.Evaluate(innerRight);
+            Assert(innerRightResult.State == PlacementPreviewState.Candidate,
+                "edge-rot band: cursor one cell inside the right wall stays a candidate");
+            Assert(innerRightResult.Width == 1 && innerRightResult.Height == 3,
+                "edge-rot band: cursor one cell inside the right wall auto-rotates vertical (long side hugs the right edge)");
+        }
+
+        // GPT watermark: R13-corner-lift red regression. ADR-0003 (Rev 2026-09-02)
+        // + spec §11: a horizontal 1x3 katana in the bottom-left corner (overlap
+        // of vertical and horizontal sensing bands) keeps its entering horizontal
+        // posture (anti-jitter). Lifting the cursor up (leaving the bottom band,
+        // entering the left band) must flip it vertical hugging the left wall;
+        // pulling it back down to the pure bottom band must flip it horizontal
+        // hugging the bottom. "往上一提立起，往下一拉躺平".
+        private static void AssertDev16DR13CornerLift()
+        {
+            var evaluator = new BetterUnturnedExperience.Core.Placement.PlacementCandidateEvaluator();
+            var occupancy = new IGridOccupancyViewForTest(6, 3);
+            var source = new ItemGridPosition(7, 0, 2, 1);
+            var target = new ContainerReference(ContainerKind.Storage, 7, 2);
+
+            // Bottom-left corner (0.4, 2.5): inside both the left vertical band
+            // (0.4 < 1.0) and the bottom horizontal band (2.5 >= 2.0). Overlap ->
+            // keep entering horizontal posture (no jitter).
+            var corner = evaluator.Evaluate(new PlacementCandidateInput(1, source, target,
+                0.4f, 2.5f, 1, 3, 1, true, occupancy));
+            Assert(corner.State == PlacementPreviewState.Candidate,
+                "corner-lift: bottom-left corner stays a candidate");
+            Assert(corner.Width == 3 && corner.Height == 1 && corner.Candidate.Rotation == 1,
+                "corner-lift: bottom-left corner overlap keeps the entering horizontal posture (anti-jitter)");
+
+            // Lift up to (0.4, 1.5): still in the left band, no longer in the
+            // bottom band -> vertical band gravity flips to vertical hugging the
+            // left wall.
+            var lifted = evaluator.Evaluate(new PlacementCandidateInput(1, source, target,
+                0.4f, 1.5f, 1, 3, 1, true, occupancy));
+            Assert(lifted.State == PlacementPreviewState.Candidate,
+                "corner-lift: lifted cursor stays a candidate");
+            Assert(lifted.Width == 1 && lifted.Height == 3 &&
+                (lifted.Candidate.Rotation == 2 || lifted.Candidate.Rotation == 0),
+                "corner-lift: lifting out of the bottom band flips to vertical hugging the left wall");
+
+            // Pull down to the pure bottom band (1.5, 2.5): no longer in the left
+            // band, still in the bottom band -> horizontal band gravity flips back
+            // to horizontal hugging the bottom.
+            var pulled = evaluator.Evaluate(new PlacementCandidateInput(1, source, target,
+                1.5f, 2.5f, 1, 3, 1, true, occupancy));
+            Assert(pulled.State == PlacementPreviewState.Candidate,
+                "corner-lift: pulled cursor stays a candidate");
+            Assert(pulled.Width == 3 && pulled.Height == 1 && pulled.Candidate.Rotation == 1,
+                "corner-lift: pulling back to the pure bottom band flips to horizontal hugging the bottom");
+
+            // Spec §11 distinguishing case (the real red anchor): on a LARGE
+            // container (13x13) the vertical band is band(13)=clamp(1.0, 1.95, 2.0)
+            // = 1.95 cells. A cursor at x=1.5 is inside the left vertical band, so
+            // the vertical band gravity must rotate the horizontal katana to
+            // vertical hugging the LEFT WALL (x=0) — even though the raw vertical
+            // projection would land at x=1 (not flush). The old footprint-based
+            // LongSideHugsEdge does NOT fire here (x=1 is not a wall), so this
+            // case must be RED on the current implementation.
+            var large = new IGridOccupancyViewForTest(13, 13);
+            var bandCursor = evaluator.Evaluate(new PlacementCandidateInput(1, source,
+                new ContainerReference(ContainerKind.Storage, 7, 2),
+                1.5f, 6.5f, 1, 3, 1, true, large));
+            Assert(bandCursor.State == PlacementPreviewState.Candidate,
+                "edge band: cursor inside the left band of a large container stays a candidate");
+            Assert(bandCursor.Width == 1 && bandCursor.Height == 3 &&
+                (bandCursor.Candidate.Rotation == 2 || bandCursor.Candidate.Rotation == 0),
+                "edge band: cursor inside the left band rotates to vertical hugging the left wall");
+            Assert(bandCursor.Candidate.X == 0,
+                "edge band: vertical candidate is positioned hugging the left wall (x=0)");
         }
 
         private static TestSurfaceContext CreateTestSurface(ContainerKind kind, byte page, uint generation)

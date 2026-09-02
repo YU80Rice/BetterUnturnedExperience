@@ -39,10 +39,23 @@ namespace BetterUnturnedExperience.Core.Placement
 
             if (currentFitsGrid && Fits(occupancy, currentX, currentY, currentWidth, currentHeight))
             {
-                // Edge-rot: prefer the rotated orientation when its long side
-                // hugs an empty-area edge while the current orientation's long
-                // side does not. If neither (or both) hug an edge, keep the
-                // current orientation (D2 anti-wobble in the open middle).
+                // Edge-sensing band (spec §11, ADR-0003 Rev 2026-09-02): when the
+                // cursor is inside a vertical band (near left/right wall) or a
+                // horizontal band (near top/bottom wall), the auto-rotation must
+                // tend toward the long side hugging that wall — even though the
+                // current orientation (horizontal) still fits locally. Trigger is
+                // cursor-grid based; physical-fit guard required. Corner overlap
+                // (inside both bands) keeps the entering posture (anti-jitter);
+                // outside the overlap the band takes over smoothly.
+                if (rotated && rotatedFitsGrid &&
+                    TryEdgeBandCandidate(occupancy, input, rotation, rotatedWidth, rotatedHeight, rotatedRotation, page, out var bandPreview))
+                {
+                    return bandPreview;
+                }
+                // Fallback: obstacle-carved edge gravity (Q6) — a fully blocked
+                // row/column boundary behaves like a container wall. If the
+                // rotated long side hugs such an edge while the current long side
+                // does not, rotate.
                 if (rotatedFitsGrid && Fits(occupancy, rotatedX, rotatedY, rotatedWidth, rotatedHeight) &&
                     LongSideHugsEdge(occupancy, rotatedX, rotatedY, rotatedWidth, rotatedHeight) &&
                     !LongSideHugsEdge(occupancy, currentX, currentY, currentWidth, currentHeight))
@@ -74,6 +87,72 @@ namespace BetterUnturnedExperience.Core.Placement
             var feedbackX = currentFitsGrid ? currentX : 0;
             var feedbackY = currentFitsGrid ? currentY : 0;
             return new ItemPlacementPreview(input.DragGeneration, PlacementPreviewState.LocallyInvalid, new ItemGridPosition(page, (byte)feedbackX, (byte)feedbackY, rotation), currentWidth, currentHeight, reason);
+        }
+
+        // GPT watermark: R13-edge-sensing-band. Spec §11: band(dim) =
+        // clamp(1.0, dim*0.15, 2.0) cells, per-axis (vertical band uses
+        // containerWidth, horizontal uses containerHeight). Cursor-grid based
+        // trigger. Inside a vertical band the rotated (tall) orientation is
+        // preferred and positioned hugging the left/right wall; inside a
+        // horizontal band the rotated (wide) orientation hugs the top/bottom
+        // wall. Corner overlap (both bands) keeps the entering posture. Always
+        // gated by the physical-fit guard. Pure, allocation-free, stateless.
+        private static bool TryEdgeBandCandidate(IGridOccupancyView occupancy, PlacementCandidateInput input,
+            byte rotation, byte rotatedWidth, byte rotatedHeight, byte rotatedRotation, byte page,
+            out ItemPlacementPreview preview)
+        {
+            preview = default(ItemPlacementPreview);
+            if (!input.AllowAutomaticRotation || input.ItemWidth == input.ItemHeight) return false;
+
+            var bandW = BandForDimension(occupancy.Width);
+            var bandH = BandForDimension(occupancy.Height);
+            var inLeft = input.CursorGridX < bandW;
+            var inRight = input.CursorGridX >= occupancy.Width - bandW;
+            var inTop = input.CursorGridY < bandH;
+            var inBottom = input.CursorGridY >= occupancy.Height - bandH;
+            var verticalBand = inLeft || inRight;
+            var horizontalBand = inTop || inBottom;
+            if (verticalBand && horizontalBand) return false; // corner overlap: keep entering posture
+
+            int x;
+            int y;
+            if (verticalBand)
+            {
+                // Vertical band: prefer the tall footprint hugging left/right wall.
+                var tall = rotatedHeight > rotatedWidth;
+                if (!tall) return false;
+                x = inLeft ? 0 : occupancy.Width - rotatedWidth;
+                y = ProjectAxis(input.CursorGridY, rotatedHeight, occupancy.Height);
+            }
+            else if (horizontalBand)
+            {
+                // Horizontal band: prefer the wide footprint hugging top/bottom wall.
+                var wide = rotatedWidth > rotatedHeight;
+                if (!wide) return false;
+                x = ProjectAxis(input.CursorGridX, rotatedWidth, occupancy.Width);
+                y = inTop ? 0 : occupancy.Height - rotatedHeight;
+            }
+            else
+            {
+                return false; // open middle: no band gravity, keep current (D2)
+            }
+            if (x < 0 || y < 0 || x + rotatedWidth > occupancy.Width || y + rotatedHeight > occupancy.Height) return false;
+            if (!Fits(occupancy, x, y, rotatedWidth, rotatedHeight)) return false;
+            preview = Candidate(input.DragGeneration, page, x, y, rotatedRotation, rotatedWidth, rotatedHeight, PlacementPreviewState.Candidate);
+            return true;
+        }
+
+        private static float BandForDimension(float dimension)
+        {
+            var raw = dimension * 0.15f;
+            return Math.Max(1.0f, Math.Min(2.0f, raw));
+        }
+
+        private static int ProjectAxis(float cursor, byte footprint, byte grid)
+        {
+            var max = grid - footprint;
+            var raw = (int)Math.Floor(cursor - footprint / 2f + 0.5f);
+            return raw < 0 ? 0 : raw > max ? max : raw;
         }
 
         private static ItemPlacementPreview Candidate(uint generation, byte page, int x, int y, byte rotation, byte width, byte height, PlacementPreviewState state)
