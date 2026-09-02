@@ -213,12 +213,29 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             }
 
             var rotation = (byte)(input.CurrentRotation & 3);
-            float grabX;
-            float grabY;
+            // GPT watermark: R13-rotgrab. Spec §2 defines grabOffsetInFootprint in
+            // the CURRENT rotation coordinate space (the adapter reads the native
+            // dragPivot, which is already current-rot). The footprint size is
+            // derived from the rotation bit directly; the grab offset is used as
+            // given — it must NOT be re-rotated from a base (rot0) frame, which
+            // fails the baseWidth/baseHeight bound for a rotated item (e.g. a
+            // horizontal 1x3 katana's grabX=1.48 > baseWidth=1).
             byte width;
             byte height;
-            if (!TryRotateGrabOffset(input.ItemWidth, input.ItemHeight, input.GrabOffsetX, input.GrabOffsetY, rotation,
-                out width, out height, out grabX, out grabY))
+            float grabX = input.GrabOffsetX;
+            float grabY = input.GrabOffsetY;
+            if ((rotation & 1) == 0)
+            {
+                width = input.ItemWidth;
+                height = input.ItemHeight;
+            }
+            else
+            {
+                width = input.ItemHeight;
+                height = input.ItemWidth;
+            }
+            if (width == 0 || height == 0 || !IsFinite(grabX) || !IsFinite(grabY) ||
+                grabX < 0f || grabY < 0f || grabX > width || grabY > height)
             {
                 return false;
             }
@@ -261,10 +278,28 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             byte height;
             float grabX;
             float grabY;
+            var currentRotation = (byte)(input.CurrentRotation & 3);
+            var delta = (byte)((targetRotation - currentRotation) & 3);
+            // GPT watermark: R13-rotgrab. input.GrabOffsetX/Y is in the CURRENT
+            // rotation coordinate space (adapter reads native dragPivot), so the
+            // rotate step starts from the current footprint and rotates by the
+            // delta to the target rotation — never from a base (rot0) frame.
+            byte currentWidth;
+            byte currentHeight;
+            if ((currentRotation & 1) == 0)
+            {
+                currentWidth = input.ItemWidth;
+                currentHeight = input.ItemHeight;
+            }
+            else
+            {
+                currentWidth = input.ItemHeight;
+                currentHeight = input.ItemWidth;
+            }
             if (!IsFinite(input.PointerScreenX) || !IsFinite(input.PointerScreenY) || !IsFinite(input.CellPixelSize) ||
                 !IsFinite(input.UiScale) || input.CellPixelSize <= 0f || input.UiScale <= 0f ||
-                !TryRotateGrabOffset(input.ItemWidth, input.ItemHeight, input.GrabOffsetX, input.GrabOffsetY,
-                    (byte)(targetRotation & 3), out width, out height, out grabX, out grabY))
+                !TryRotateGrabOffset(currentWidth, currentHeight, input.GrabOffsetX, input.GrabOffsetY,
+                    delta, out width, out height, out grabX, out grabY))
             {
                 return false;
             }
@@ -290,13 +325,29 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             byte height;
             float grabX;
             float grabY;
-            if (!TryRotateGrabOffset(input.ItemWidth, input.ItemHeight, input.GrabOffsetX, input.GrabOffsetY,
-                (byte)(targetRotation & 3), out width, out height, out grabX, out grabY)) return false;
+            var currentRotation = (byte)(input.CurrentRotation & 3);
+            var delta = (byte)((targetRotation - currentRotation) & 3);
+            // GPT watermark: R13-rotgrab. input.GrabOffsetX/Y is in the CURRENT
+            // rotation coordinate space; rotate by the delta to the target
+            // rotation, starting from the current footprint size.
+            byte currentWidth;
+            byte currentHeight;
+            if ((currentRotation & 1) == 0)
+            {
+                currentWidth = input.ItemWidth;
+                currentHeight = input.ItemHeight;
+            }
+            else
+            {
+                currentWidth = input.ItemHeight;
+                currentHeight = input.ItemWidth;
+            }
+            if (!TryRotateGrabOffset(currentWidth, currentHeight, input.GrabOffsetX, input.GrabOffsetY,
+                delta, out width, out height, out grabX, out grabY)) return false;
 
             var cellPixelSize = input.CellPixelSize;
             if (!IsFinite(cellPixelSize) || cellPixelSize <= 0f) return false;
 
-            var currentRotation = (byte)(input.CurrentRotation & 3);
             var offsetX = targetRotation == currentRotation && IsFinite(input.NativeDragPivotX)
                 ? input.NativeDragPivotX
                 : -grabX * cellPixelSize;

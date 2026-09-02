@@ -121,6 +121,11 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     AssertDev16DR13CornerLift();
                     return 0;
                 }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--dev16d-r13-rotgrab-red")
+                {
+                    AssertDev16DR13RotatedGrabOffsetCandidate();
+                    return 0;
+                }
                 AssertSingleDllAssemblyClosure();
                 AssertExternalSdkAssemblyIdentity();
                 Assert(BootstrapGuard.Decide(false, false, true) == BootstrapDecision.Client, "client decision");
@@ -895,6 +900,35 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 "edge band: cursor inside the left band rotates to vertical hugging the left wall");
             Assert(bandCursor.Candidate.X == 0,
                 "edge band: vertical candidate is positioned hugging the left wall (x=0)");
+        }
+
+        // GPT watermark: R13-rotgrab red regression. Spec §2 defines
+        // grabOffsetInFootprint in the CURRENT rotation coordinate space, and
+        // the adapter reads the native dragPivot (already current-rot). But
+        // TryCreateCandidateInput re-rotates that grab offset as if it were the
+        // base (rot0) footprint, so a re-grabbed HORIZONTAL katana (rot=1, grab
+        // offset like 1.48,0.2 in 3x1 space) fails the baseWidth bound
+        // (1.48 > 1) -> TryCreateCandidateInput returns false -> presenter keeps
+        // HidePreview -> no enhanced render. Vertical (rot=0) coincides with
+        // base so it passes. This red test drives the real-machine symptom: a
+        // horizontal katana's grab offset must reach the candidate seam.
+        private static void AssertDev16DR13RotatedGrabOffsetCandidate()
+        {
+            var occupancy = new IGridOccupancyViewForTest(5, 7);
+            var input = new InventoryPreviewInput(9, new ItemGridPosition(3, 4, 6, 1),
+                new ContainerReference(ContainerKind.PlayerInventory, 3, 9),
+                175f, 150f,
+                new InventoryGridViewport(0f, 0f, 5, 7, 0f, 0f, 250f, 350f),
+                50f, 1f, 0f, 0f,
+                1, 3, 1, true, 1.48f, 0.2f,
+                ItemAssetIdentity.FromItemId(363), 0.25f, 0.5f, -74f, -10f,
+                occupancy);
+            PlacementCandidateInput candidate;
+            Assert(InventoryGridCoordinateAdapter.TryCreateCandidateInput(input, out candidate),
+                "rotated grab offset: horizontal katana (rot=1) grab offset reaches the candidate seam");
+            Assert(!float.IsNaN(candidate.CursorGridX) && !float.IsNaN(candidate.CursorGridY) &&
+                candidate.CursorGridX >= 0f && candidate.CursorGridY >= 0f,
+                "rotated grab offset: candidate center is finite and inside the grid");
         }
 
         private static TestSurfaceContext CreateTestSurface(ContainerKind kind, byte page, uint generation)

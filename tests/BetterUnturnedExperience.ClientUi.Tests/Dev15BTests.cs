@@ -119,12 +119,18 @@ namespace BetterUnturnedExperience.ClientUi.Tests
                 new ItemGridPosition(3, 2, 1, 1), 3, 2, PlacementReason.None));
             var presenter = new InventoryPreviewPresenter(new InventoryDragPresenter(evaluator));
             presenter.BeginDrag(7);
+            // GPT watermark: R13-rotgrab. Spec §2 defines grabOffsetInFootprint in
+            // the CURRENT rotation coordinate space. The native dragPivot is
+            // already current-rot, so the grab offset is used as given: a 2x3
+            // base item at rot=1 has a 3x2 current footprint, and grabOffset
+            // (0.25, 0.25) is a point inside that 3x2 footprint (x in [0,3]).
+            // Center = pointerGrid + currentFootprintCenter - grab = (3.25, 4.75).
             var input = Input(new TestGrid(8, 6), 20f, 40f, 0f, 0f, 10f, 1f, 0f, 0f, 2, 3, 0.25f, 0.25f, 1);
 
             presenter.Update(input, new RecordingPreviewSink());
 
             var candidate = evaluator.Last.Value;
-            Assert(Approximately(candidate.CursorGridX, 0.75f) && Approximately(candidate.CursorGridY, 4.75f),
+            Assert(Approximately(candidate.CursorGridX, 3.25f) && Approximately(candidate.CursorGridY, 4.75f),
                 "odd current rotation swaps footprint dimensions before center correction");
         }
 
@@ -239,11 +245,18 @@ namespace BetterUnturnedExperience.ClientUi.Tests
                 new ItemGridPosition(3, 2, 1, 1), 3, 2, PlacementReason.None));
             var presenter = new InventoryPreviewPresenter(new InventoryDragPresenter(evaluator));
             presenter.BeginDrag(7);
+            // GPT watermark: R13-rotgrab. Spec §2: grabOffsetInFootprint lives in
+            // the CURRENT rotation footprint (the adapter reads the native
+            // dragPivot which updatePivot already current-rot-transformed). A 2x3
+            // base item at rot=1 has a 3x2 current footprint; grabOffset
+            // (0.25, 1.25) is used as given. Center = pointerGrid + center -
+            // grab = (3.25, 3.75) — NOT a forward (H - gy, gx) re-rotation from a
+            // base frame, which would fail for rotated items (base grab bound).
             presenter.Update(Input(new TestGrid(8, 6), 20f, 40f, 0f, 0f, 10f, 1f, 0f, 0f, 2, 3, 0.25f, 1.25f, 1), new RecordingPreviewSink());
 
             var candidate = evaluator.Last.Value;
-            Assert(Approximately(candidate.CursorGridX, 1.75f) && Approximately(candidate.CursorGridY, 4.75f),
-                "forward rotation maps grab offset as (H - gy, gx); actual=" + candidate.CursorGridX + "," + candidate.CursorGridY);
+            Assert(Approximately(candidate.CursorGridX, 3.25f) && Approximately(candidate.CursorGridY, 3.75f),
+                "current-space grab offset feeds the rotated footprint center; actual=" + candidate.CursorGridX + "," + candidate.CursorGridY);
         }
 
         private static void AnchorsIconUsingRotatedGrabOffset()
@@ -253,10 +266,13 @@ namespace BetterUnturnedExperience.ClientUi.Tests
             var presenter = new InventoryPreviewPresenter(new InventoryDragPresenter(evaluator));
             var sink = new RecordingPreviewSink();
             presenter.BeginDrag(7);
+            // GPT watermark: R13-rotgrab. Grab offset is current-space (spec §2),
+            // so at rot=1 (3x2 current footprint) grab=(0.25, 1.25) is used as-is:
+            // screen = pointer + (center - grab) * cell = (32.5, 37.5).
             presenter.Update(Input(new TestGrid(8, 6), 20f, 40f, 0f, 0f, 10f, 1f, 0f, 0f, 2, 3, 0.25f, 1.25f, 1), sink);
 
-            Assert(Approximately(sink.LastIcon.ScreenX, 17.5f) && Approximately(sink.LastIcon.ScreenY, 47.5f),
-                "floating icon anchor consumes the rotated grab offset");
+            Assert(Approximately(sink.LastIcon.ScreenX, 32.5f) && Approximately(sink.LastIcon.ScreenY, 37.5f),
+                "floating icon anchor consumes the current-space grab offset");
         }
 
         private static void SleekPreviewSinkShowsGreenFrameAndFloatingIcon()
