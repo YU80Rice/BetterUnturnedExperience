@@ -126,6 +126,16 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     AssertDev16DR13RotatedGrabOffsetCandidate();
                     return 0;
                 }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--dev16f-source-decouple-red")
+                {
+                    AssertDev16FSourceDecoupleReachesCandidateSeam();
+                    return 0;
+                }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--dev16f-target-vest-red")
+                {
+                    AssertDev16FTargetVestEnhancedPreview();
+                    return 0;
+                }
                 AssertSingleDllAssemblyClosure();
                 AssertExternalSdkAssemblyIdentity();
                 Assert(BootstrapGuard.Decide(false, false, true) == BootstrapDecision.Client, "client decision");
@@ -185,6 +195,8 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 AssertDev16DR13SinglePageRebuildPreservesOtherSurface();
                 AssertDev16DR13NonCurrentPageRebuildUsesLiveDispatchSeam();
                 AssertDev16DR13NativeDelegateLifecycleIsReversible();
+                AssertDev16FSourceDecoupleReachesCandidateSeam();
+                AssertDev16FTargetVestEnhancedPreview();
                 AssertRuntimeCompletionBarrierIsolates();
                 AssertManagementPanelConsumesRuntimeCatalog();
                 AssertManagementPanelOpenHooks();
@@ -929,6 +941,88 @@ namespace BetterUnturnedExperience.Plugin.Tests
             Assert(!float.IsNaN(candidate.CursorGridX) && !float.IsNaN(candidate.CursorGridY) &&
                 candidate.CursorGridX >= 0f && candidate.CursorGridY >= 0f,
                 "rotated grab offset: candidate center is finite and inside the grid");
+        }
+
+        // GPT watermark: DEV-16F slice A red regression. The user's real
+        // repro (2026-09-02): pick an item up from the Shirt page and carry it
+        // into the Backpack — the enhanced preview must appear. The current
+        // source gate (`dragSourcePassThrough = !IsSupportedEnhancedPage(source.Page)`)
+        // treats any source outside {3,7} as pass-through, so a SHIRT(5) source
+        // immediately aborts the enhanced drag and keeps the preview Hidden.
+        // Source decoupling means the source page must NOT decide takeover:
+        // the pickup enters the BUE drag flow and the TARGET grid decides
+        // whether the preview is enhanced. RED until the source gate is
+        // decoupled from the source page.
+        private static void AssertDev16FSourceDecoupleReachesCandidateSeam()
+        {
+            var component = new BetterItemInteractionUiComponent(
+                new InventoryPreviewPresenter(new InventoryDragPresenter(new FixedCandidateEvaluator())),
+                new NativeInventoryInteractionAdapter(2, 8));
+            component.OnUiInitialized(new TestRoot());
+            var backpack = CreateTestSurface(ContainerKind.PlayerInventory, 3, 1101);
+            component.OnInventoryOpened(backpack);
+
+            // Drag starts from SHIRT (5) — a grid source page that the current
+            // source gate treats as pass-through.
+            component.OnDragStarted(1101, ItemAssetIdentity.FromItemId(363),
+                new ItemGridPosition(5, 0, 0, 0));
+            Assert(!component.DragSourcePassThrough,
+                "source decouple: SHIRT(5) source must not force native pass-through");
+            Assert(component.EnhancedDragActive,
+                "source decouple: SHIRT(5) source enters the enhanced drag flow");
+
+            InventoryPreviewInput input;
+            Assert(component.TryCreatePreviewInput(1101, new ItemGridPosition(5, 0, 0, 0),
+                    100f, 100f, 1, 1, 0, false, 0.5f, 0.5f,
+                    ItemAssetIdentity.FromItemId(363), out input),
+                "source decouple: SHIRT(5) source can create a preview input toward BACKPACK(3)");
+            component.OnDragUpdated(input);
+            Assert(component.LastPreview.State == PlacementPreviewState.Candidate,
+                "source decouple: SHIRT(5) source reaches the candidate seam on BACKPACK(3)");
+            component.OnInventoryClosed();
+        }
+
+        // GPT watermark: DEV-16F slice B red regression. VEST(4) is a grid
+        // page like Backpack/Storage but the attach gate is hardcoded to
+        // {3,7}, so its onPlacedItem delegate is never wrapped and no preview
+        // can be produced over the vest grid. RED until SupportedPages /
+        // IsSupportedEnhancedPage / SupportedSurfacePages / IsOrdinaryGrid
+        // extend to the full grid set {2,3,4,5,6,7}.
+        private static void AssertDev16FTargetVestEnhancedPreview()
+        {
+            var component = new BetterItemInteractionUiComponent(
+                new InventoryPreviewPresenter(new InventoryDragPresenter(new FixedCandidateEvaluator())),
+                new NativeInventoryInteractionAdapter(2, 8));
+            component.OnUiInitialized(new TestRoot());
+            var vest = CreateTestSurface(ContainerKind.PlayerInventory, 4, 1102);
+            component.OnInventoryOpened(vest);
+            Assert(component.TryGetLiveSurface(4, out _),
+                "target vest: VEST(4) registers as a live enhanced target surface");
+
+            var vestGrid = CreateNativeSleekItems(4, (page, x, y) => { });
+            var adapter = new InventoryDragPreviewAdapter(null, component);
+            Assert(adapter.AttachNativeGrid(vestGrid, 4),
+                "target vest: native VEST(4) grid attaches through the production seam");
+            Assert(adapter.DetachGrid(4),
+                "target vest: VEST(4) grid detaches cleanly");
+
+            // A BACKPACK source dragging over VEST must reach the candidate seam.
+            var backpack = CreateTestSurface(ContainerKind.PlayerInventory, 3, 1102);
+            component.OnInventoryOpened(backpack);
+            component.OnDragStarted(1102, ItemAssetIdentity.FromItemId(363),
+                new ItemGridPosition(3, 0, 0, 0));
+            Assert(component.TrySelectSurfaceForPage(4),
+                "target vest: VEST(4) is selectable as the live target surface");
+            InventoryPreviewInput input;
+            Assert(component.TryCreatePreviewInput(1102, new ItemGridPosition(3, 0, 0, 0),
+                    100f, 100f, 1, 1, 0, false, 0.5f, 0.5f,
+                    ItemAssetIdentity.FromItemId(363), out input),
+                "target vest: preview input targets the VEST(4) grid");
+            component.OnDragUpdated(input);
+            Assert(component.LastPreview.State == PlacementPreviewState.Candidate &&
+                component.LastPreview.Candidate.Page == 4,
+                "target vest: VEST(4) target publishes an enhanced candidate preview");
+            component.OnInventoryClosed();
         }
 
         private static TestSurfaceContext CreateTestSurface(ContainerKind kind, byte page, uint generation)

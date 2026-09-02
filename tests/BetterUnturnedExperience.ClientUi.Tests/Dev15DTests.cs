@@ -197,9 +197,16 @@ namespace BetterUnturnedExperience.ClientUi.Tests
                 "equipment source never invokes enhanced native actions");
             Assert(!BetterItemInteractionUiComponent.IsSupportedEnhancedPage(8),
                 "AREA is excluded from the enhanced source page matrix");
-            Assert(BetterItemInteractionUiComponent.IsSupportedEnhancedPage(3) &&
+            Assert(BetterItemInteractionUiComponent.IsSupportedEnhancedPage(2) &&
+                BetterItemInteractionUiComponent.IsSupportedEnhancedPage(3) &&
+                BetterItemInteractionUiComponent.IsSupportedEnhancedPage(4) &&
+                BetterItemInteractionUiComponent.IsSupportedEnhancedPage(5) &&
+                BetterItemInteractionUiComponent.IsSupportedEnhancedPage(6) &&
                 BetterItemInteractionUiComponent.IsSupportedEnhancedPage(7),
-                "Backpack and Storage are the only enhanced source pages");
+                "every player grid page (Hands/Backpack/Vest/Shirt/Pants/Storage) is enhanced");
+            Assert(!BetterItemInteractionUiComponent.IsSupportedEnhancedPage(0) &&
+                !BetterItemInteractionUiComponent.IsSupportedEnhancedPage(1),
+                "equipment slots are excluded from the enhanced page matrix");
         }
 
         // GPT watermark: DEV-16D-R13 red regression. A visible Candidate must

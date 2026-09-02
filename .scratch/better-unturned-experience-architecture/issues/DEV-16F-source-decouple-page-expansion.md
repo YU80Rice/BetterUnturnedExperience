@@ -1,9 +1,9 @@
 # DEV-16F：增强拖入拿起源解耦 + 目标页扩展（VEST/SHIRT/PANTS）
 
 Type: task
-Status: ready-for-agent（阻塞于 DEV-16E 三环境资格之后）
+Status: resolved（已实现、双轴审查 CLEAN、提交；待实机三环境复测）
 Parent: 04：DEV-16D 拖拽预览、真实图标、原生提交与投影收敛
-Blocked by: DEV-16E（三环境证据采集完成前不启动；新功能作为独立需求变更，不混入 DEV-16D 关闭）
+Blocked by: DEV-16E（已解除 —— DEV-16E 已三环境资格关闭，本工单独立实现）
 
 ## 背景（用户 2026-09-02 实机反馈）
 
@@ -57,3 +57,27 @@ dragSourcePassThrough = !IsSupportedEnhancedPage(source.Page);
 ## 2026-09-02 立项记录
 
 用户拍板：新功能作为功能优化，放在 DEV-16E 三环境实现之后。DEV-16D 父工单已按当前范围（Backpack/Storage/Trunk 增强 + 其它页 Pass-Through）关闭；本工单为其明确的"扩大范围"需求变更（符合 spec-DEV-16D "若未来要增强装备页或 AREA，必须另立需求变更和独立工单" L96）。
+
+## 2026-09-02 实现记录（DEV-16F 已交付）
+
+### 范围裁定（Spec 轴确认）
+
+- 目标/源页集合 = `{2,3,4,5,6,7}`（Hands/Backpack/Vest/Shirt/Pants/Storage+trunk）。
+- **更正原风险注**：U3-SDK 证实 `SLOTS(2)=Hands` 是 `SleekItems items[0]` 普通网格（5×3），**不是** SleekSlot；`SleekSlot[] slots` 只覆盖 Primary/Secondary（页 0/1）。故 Hands(2) 按用户清单"手中的物品（默认物品栏）"纳入增强。
+- AREA(8) 与装备槽(0/1) 保持原生 Pass-Through（边界不变）。
+
+### 变更清单（红测 → 绿）
+
+- [x] **切片 A 拿起源解耦**：`IsSupportedEnhancedPage` 从 `{3,7}` → `page>=2 && page<=7`，`OnDragStarted` 的 `dragSourcePassThrough` 对网格源页不再触发；渲染改由目标网格支持与否决定。源页只决定来源容器快照/footprint 排除。
+- [x] **切片 B 目标页扩展**：五道门控全部 `{2,3,4,5,6,7}` —— `SupportedLiveSurfacePages`（ClientUi）、`IsSupportedEnhancedPage`（ClientUi）、`IsOrdinaryGrid`/`IsEnhancedSourcePage`（NativeAdapter）、`SupportedPages`/`IsSupportedPage`（DragPreviewAdapter）、`SupportedSurfacePages`（SurfaceLifecycleAdapter）。
+- [x] **生命周期 kind 映射修正**：仅页 7（Storage/trunk）取会话 kind；页 2–6 恒为 `PlayerInventory`（原 `BACKPACK?` 判断已推广）。
+- [x] **红测锚点**：`--dev16f-source-decouple-red`（SHIRT(5) 源 → BACKPACK(3) 目标到达 candidate seam；修复前红 exit 1）+ `--dev16f-target-vest-red`（VEST(4) 注册/attach/预览；修复前红 exit 1），已并入全套测试。
+- [x] **既有矩阵测试更新**：`Dev15DTests.SourcePagePassThroughMatrixIsExplicit` 改为六网格页 + 排除装备槽/AREA。
+- [x] **边界**：不改变 AREA 拖出/丢弃语义；不新增 RPC；不写客户端库存；原生权威不变；§11 边缘感应带/开阔区 D2 由 page-agnostic 的 `PlacementCandidateEvaluator` 保持（未改动该文件）。
+
+### 验证
+
+- [x] 红测先红（两个 `--dev16f-*-red` 修复前 exit 1）后绿（exit 0）。
+- [x] Release 构建 0 errors / 0 warnings；七项目测试全 PASS；UI/native token 扫描零命中；`git diff --check` 通过。
+- [x] 双轴独立审查（Standards + Spec，并行子代理）：两轴 **CLEAN**，无阻断项。可延后项已列名（Standards S1 门控六处手维护可共享常量、S2 `EvaluatePlacement` 沿用冻结公式、S3 注释三处重复；Spec S1 工单 slice-B 原文 `{3,4,5,6,7}` 与用户清单含 Hands 的措辞已在本记录对齐为 `{2..7}`、S2 纯 C# 红测不覆盖服装页格内几何、S3 提交门防御性不变式）。
+- [x] 待办：实机三环境复测（单人 + SteamP2P + U3DS）后关闭；本工单实现阶段在双轴 CLEAN 后提交。

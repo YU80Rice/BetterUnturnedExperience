@@ -215,7 +215,10 @@ namespace BetterUnturnedExperience.ClientUi.Internal
         // registering a second page must not discard the first one.
         private readonly Dictionary<byte, IInventorySurfaceContext> liveSurfaces =
             new Dictionary<byte, IInventorySurfaceContext>();
-        private static readonly byte[] SupportedLiveSurfacePages = { 3, 7 };
+        // DEV-16F: U3-SDK page model — 2=Hands, 3=Backpack, 4=Vest, 5=Shirt,
+        // 6=Pants, 7=Storage/trunk. AREA(8) and equipment slots (0/1) are not
+        // grids and stay native pass-through (AREA drag-out unchanged).
+        private static readonly byte[] SupportedLiveSurfacePages = { 2, 3, 4, 5, 6, 7 };
         private IGridOccupancyView activeDragOccupancy;
         private IInventorySurfaceContext activeDragOccupancySurface;
         private ContainerReference activeDragOccupancySourceContainer;
@@ -283,7 +286,10 @@ namespace BetterUnturnedExperience.ClientUi.Internal
 
         internal static bool IsSupportedEnhancedPage(byte page)
         {
-            return page == 3 || page == 7;
+            // DEV-16F: every player grid page is enhanced — 2=Hands, 3=Backpack,
+            // 4=Vest, 5=Shirt, 6=Pants, 7=Storage/trunk. AREA(8) and equipment
+            // slots (0/1) are not grids and stay native pass-through.
+            return page >= 2 && page <= 7;
         }
 
         internal void ApplySettingsSnapshot(FeatureSettingsSnapshot snapshot)
@@ -417,8 +423,8 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             localX = 0f;
             localY = 0f;
             // Dictionary order is intentionally not used as a routing rule.
-            // Supported page order is stable and gives Backpack precedence if
-            // native panels overlap at a boundary.
+            // Supported page order is stable and gives the earliest grid page
+            // (Hands) precedence if native panels overlap at a boundary.
             for (var index = 0; index < SupportedLiveSurfacePages.Length; index++)
             {
                 IInventorySurfaceContext candidate;

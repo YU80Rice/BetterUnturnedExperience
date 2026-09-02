@@ -796,14 +796,19 @@ namespace BetterUnturnedExperience.Plugin
             }
         }
 
-        // U3-SDK PlayerInventory.BACKPACK/STORAGE are fixed page values. Keep
-        // the static dispatch table literal so loading this adapter does not
-        // trigger PlayerInventory's network-reflection initializer in a
-        // headless test host.
+        // U3-SDK PlayerInventory pages: 2=Hands, 3=Backpack, 4=Vest, 5=Shirt,
+        // 6=Pants, 7=Storage/trunk, 8=AREA. Every player grid page is a live
+        // surface; AREA stays native (ground). Keep the static dispatch table
+        // literal so loading this adapter does not trigger PlayerInventory's
+        // network-reflection initializer in a headless test host.
+        private const byte HandsPage = 2;
         private const byte BackpackPage = 3;
+        private const byte VestPage = 4;
+        private const byte ShirtPage = 5;
+        private const byte PantsPage = 6;
         private const byte StoragePage = 7;
         private static readonly byte[] SupportedSurfacePages =
-            { BackpackPage, StoragePage };
+            { HandsPage, BackpackPage, VestPage, ShirtPage, PantsPage, StoragePage };
 
         // GPT watermark: R13-3 page-local dispatch seam. Removing a rebuilt
         // page must preserve every other live native surface.
@@ -1112,8 +1117,11 @@ namespace BetterUnturnedExperience.Plugin
                 if (dispatchedSurfaces.ContainsKey(page) && dispatched != null && dispatched.Generation == generation)
                     continue;
 
-                var kind = page == PlayerInventory.BACKPACK
-                    ? ContainerSessionKind.PlayerInventory : tracker.Kind;
+                // DEV-16F: only the Storage/trunk page (7) takes the container
+                // session kind; every player grid page (Hands/Backpack/Vest/
+                // Shirt/Pants = 2..6) is PlayerInventory regardless of storage.
+                var kind = page == PlayerInventory.STORAGE
+                    ? tracker.Kind : ContainerSessionKind.PlayerInventory;
                 var context = BuildSurfaceContext(kind, page, generation);
                 if (context == null)
                 {

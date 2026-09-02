@@ -261,18 +261,24 @@ namespace BetterUnturnedExperience.Plugin
             return detachSucceeded && surfaceDiscarded;
         }
 
-        // U3-SDK PlayerInventory.BACKPACK/STORAGE are fixed protocol page
-        // values (3 and 7). Keep the adapter's static gate independent from
-        // PlayerInventory's network-reflection type initializer so headless
-        // test hosts can load the plugin without invoking native RPC setup.
+        // U3-SDK PlayerInventory pages: 2=Hands, 3=Backpack, 4=Vest, 5=Shirt,
+        // 6=Pants, 7=Storage/trunk, 8=AREA. Every player grid page gets the
+        // placed-item wrapper so its grid can be enhanced; AREA stays native.
+        // Keep the adapter's static gate independent from PlayerInventory's
+        // network-reflection type initializer so headless test hosts can load
+        // the plugin without invoking native RPC setup.
+        private const byte HandsPage = 2;
         private const byte BackpackPage = 3;
+        private const byte VestPage = 4;
+        private const byte ShirtPage = 5;
+        private const byte PantsPage = 6;
         private const byte StoragePage = 7;
         private static readonly byte[] SupportedPages =
-            { BackpackPage, StoragePage };
+            { HandsPage, BackpackPage, VestPage, ShirtPage, PantsPage, StoragePage };
 
         internal static bool IsSupportedPage(byte page)
         {
-            return page == BackpackPage || page == StoragePage;
+            return page >= HandsPage && page <= StoragePage;
         }
 
         // GPT watermark: detach every native callback and event subscription

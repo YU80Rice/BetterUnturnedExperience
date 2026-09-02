@@ -45,15 +45,11 @@ namespace BetterUnturnedExperience.ClientUi.Internal
     {
         private readonly byte slotsPageBoundary;
         private readonly byte areaPage;
-        private readonly byte backpackPage;
-        private readonly byte storagePage;
 
         internal NativeInventoryInteractionAdapter(byte slotsPageBoundary, byte areaPage)
         {
             this.slotsPageBoundary = slotsPageBoundary;
             this.areaPage = areaPage;
-            backpackPage = (byte)(slotsPageBoundary + 1);
-            storagePage = (byte)(areaPage - 1);
         }
 
         internal NativeDragAdapterOutcome HandleRelease(NativeDragAdapterInput input, INativeInventoryDragActions native)
@@ -116,11 +112,17 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             return NativeDragAdapterOutcome.Submitted;
         }
 
+        // DEV-16F: every player grid page is an ordinary enhanced grid —
+        // 2=Hands, 3=Backpack, 4=Vest, 5=Shirt, 6=Pants, 7=Storage/trunk.
+        // AREA(8) and equipment slots (< SLOTS) stay native pass-through.
         private bool IsOrdinaryGrid(byte page)
         {
-            return page == backpackPage || page == storagePage;
+            return page >= slotsPageBoundary && page < areaPage;
         }
 
+        // DEV-16F source decoupling: the pickup source is no longer limited to
+        // Backpack/Storage. Any ordinary grid page can be a source for the
+        // enhanced flow; AREA (ground pickup) and equipment slots stay native.
         internal bool IsEnhancedSourcePage(byte page)
         {
             return IsOrdinaryGrid(page);
