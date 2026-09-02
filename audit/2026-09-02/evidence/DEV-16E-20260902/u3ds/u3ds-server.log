@@ -1,0 +1,20 @@
+[Message:   BepInEx] BepInEx 5.4.23.5 - Unturned (2026/9/1 23:28:44)
+[Info   :   BepInEx] Running under Unity v2022.3.62.9860879
+[Info   :   BepInEx] CLR runtime version: 4.0.30319.42000
+[Info   :   BepInEx] Supports SRE: True
+[Info   :   BepInEx] System platform: Bits64, Windows
+[Message:   BepInEx] Preloader started
+[Info   :   BepInEx] Loaded 1 patcher method from [BepInEx.Preloader 5.4.23.5]
+[Info   :   BepInEx] 1 patcher plugin loaded
+[Info   :   BepInEx] Patching [UnityEngine.CoreModule] with [BepInEx.Chainloader]
+[Message:   BepInEx] Preloader finished
+[Message:   BepInEx] Chainloader ready
+[Message:   BepInEx] Chainloader started
+[Info   :   BepInEx] 1 plugin to load
+[Info   :   BepInEx] Loading [Better Unturned Experience 0.0.0]
+[Info   :Better Unturned Experience] [BUE-UI-TRACE] plugin=io.github.yu80rice.betterunturnedexperience diagnosticId=BUE-MANAGEMENT-TRACE-002 event=assembly-identity path=E:\Steam\steamapps\common\U3DS\BepInEx\plugins\BetterUnturnedExperience-DIAG-R13SILENCE-r6-rotgrab-20260902.dll sha256=6ABB7E0D930D5560EFE46F27A5058DF9F7000A2EC0DB3CF4E08B94CD2AF3615C
+[Info   :Better Unturned Experience] [BUE-UI-TRACE] plugin=io.github.yu80rice.betterunturnedexperience diagnosticId=BUE-BOOTSTRAP-002 event=runtime-gate decision=Headless batchMode=True headless=True
+[Info   :Better Unturned Experience] Better Unturned Experience featureId=io.github.yu80rice.betterunturnedexperience status=BootstrapReady decision=Headless diagnosticId=BUE-BOOTSTRAP-001
+[Info   :Better Unturned Experience] Better Item Interaction featureId=io.github.yu80rice.bue.better-item-interaction accepted=True reason=None diagnosticId=BUE-REG-ACCEPT
+[Message:   BepInEx] Chainloader startup complete
+[Warning:Better Unturned Experience] [BUE-UI-TRACE] plugin=io.github.yu80rice.betterunturnedexperience event=host-destroyed state=preserved patches-kept=true diagnosticId=BUE-CLIENTUI-005

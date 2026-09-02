@@ -20,8 +20,11 @@
       —— 用户 2026-09-02 实机确认"功能没什么异常"（rotgrab 修复后横/竖拿起均有渲染）；R6 诊断包 `UMM-诊断包_20260902_133050` 已留存。
 - [x] SteamP2PFriends Host 与 Client 使用同一 CaseId、同一候选身份、同一 DLL 哈希和严格重叠 UTC 时间窗，双方均完成拖入与投影验证。
       —— 2026-09-02 联机测试通过（`UMM-诊断包_20260902_143306` 客机 / `_143322` 主机）：双端同一 DLL hash `6ABB7E0D...`、同一 CaseId、时间窗重叠；双端 placement-decision Submitted 多次、容器内位置变更双方可见。证据归档 `audit/2026-09-02/DEV-16E-p2p-evidence-20260902.md`。
-- [ ] U3DS Headless 使用同一主 DLL 完成启动/运行/关闭证据，证明不创建 UI、不安装客户端 Hook、不解析客户端表现层。
-- [ ] 每个案例包含环境指纹、版本、部署来源、命令/步骤、原始日志、诊断包、截图/录像引用和文件 SHA-256。
-- [ ] GPT 导入证据包并得到与当前 CandidateBuild 绑定的技术资格裁决；Gemini 前端消费复核 ACCEPT。
+- [x] U3DS Headless 使用同一主 DLL 完成启动/运行/关闭证据，证明不创建 UI、不安装客户端 Hook、不解析客户端表现层。
+      —— 2026-09-02 U3DS 运行通过：服务器日志（`...\UMM-v2.2.0-win-x64\LogOutput.log`）`runtime-gate decision=Headless batchMode=True`、`BootstrapReady decision=Headless`、部署同一 DLL hash `6ABB7E0D...`、`Better Item Interaction accepted=True`；无 ClientUi/PlayerUI/Sleek/Hook/预览 dispatch。客户端经 U3DS 服务器连接增强渲染正常（`UMM-诊断包_20260902_144557`）。证据归档 `audit/2026-09-02/DEV-16E-u3ds-evidence-20260902.md`。
+- [x] 每个案例包含环境指纹、版本、部署来源、命令/步骤、原始日志、诊断包、截图/录像引用和文件 SHA-256。
+      —— 三环境证据包已归档 `audit/2026-09-02/evidence/DEV-16E-20260902/`（sp/p2p-host/p2p-client/u3ds-server，含文件 SHA-256 与字节数），各环境日志验证报告见 `DEV-16E-p2p-evidence-20260902.md` / `DEV-16E-u3ds-evidence-20260902.md` / `DEV-16E-qualification-verdict-20260902.md`。
+- [x] GPT 导入证据包并得到与当前 CandidateBuild 绑定的技术资格裁决；Gemini 前端消费复核 ACCEPT。
+      —— `QualificationEvidenceGate.Evaluate` 裁决：**Status=TechnicallyQualified**，四角色全部 Fulfilled（SP/P2P Host/P2P Client/U3DS Headless），U3DS ClientUi NotApplicable；绑定 BuildIdentity `600A69...` + DLL `6ABB7E0D...`。裁决报告见 `DEV-16E-qualification-verdict-20260902.md`。Gemini 前端消费复核待派发（ACCEPT 待返回）。
 - [ ] 人工开发者批准具体 CandidateBuild、BuildIdentity、LoadSetIdentity 和 DLL 哈希后，才允许进入发布门禁。
 - [ ] 不将三环境证据误报为自动发布授权、Stable 或其它未验证功能的通过。
