@@ -771,26 +771,35 @@ namespace BetterUnturnedExperience.Plugin.Tests
         // vertical so the long side hugs the left edge.
         private static void AssertDev16DR13EdgeAutoRotation()
         {
-            // Trunk 6x3. The left column (x=0) is the empty-area left edge.
-            // Cursor over column 0 center. A horizontal katana fits there too,
-            // but edge-rot must prefer the vertical footprint (long side hugs
-            // the left edge).
-            var occupancy = new IGridOccupancyViewForTest(6, 3);
             var evaluator = new BetterUnturnedExperience.Core.Placement.PlacementCandidateEvaluator();
+            var occupancy = new IGridOccupancyViewForTest(6, 3);
 
             // Horizontal katana (rot 1, re-grabbed) dragged to the left edge
             // column (x=0). Cursor at (0.4, 1.5).
-            var horizontalInput = new PlacementCandidateInput(2,
+            var leftInput = new PlacementCandidateInput(2,
                 new ItemGridPosition(7, 0, 2, 1),
                 new ContainerReference(ContainerKind.Storage, 7, 2),
                 0.4f, 1.5f, 1, 3, 1, true, occupancy);
-            var horizontalResult = evaluator.Evaluate(horizontalInput);
-            Assert(horizontalResult.State == PlacementPreviewState.Candidate,
+            var leftResult = evaluator.Evaluate(leftInput);
+            Assert(leftResult.State == PlacementPreviewState.Candidate,
                 "edge-rot: horizontal katana at the left edge stays a candidate");
-            Assert(horizontalResult.Width == 1 && horizontalResult.Height == 3,
-                "edge-rot: horizontal katana at the left edge auto-rotates to a vertical footprint (long side hugs the edge)");
-            Assert(horizontalResult.Candidate.Rotation == 2 || horizontalResult.Candidate.Rotation == 0,
+            Assert(leftResult.Width == 1 && leftResult.Height == 3,
+                "edge-rot: horizontal katana at the left edge auto-rotates to a vertical footprint (long side hugs the left edge)");
+            Assert(leftResult.Candidate.Rotation == 2 || leftResult.Candidate.Rotation == 0,
                 "edge-rot: horizontal katana at the left edge returns a vertical rotation");
+
+            // Symmetry: the right edge column (x=5). Cursor at (5.6, 1.5).
+            var rightInput = new PlacementCandidateInput(2,
+                new ItemGridPosition(7, 0, 2, 1),
+                new ContainerReference(ContainerKind.Storage, 7, 2),
+                5.6f, 1.5f, 1, 3, 1, true, occupancy);
+            var rightResult = evaluator.Evaluate(rightInput);
+            Assert(rightResult.State == PlacementPreviewState.Candidate,
+                "edge-rot: horizontal katana at the right edge stays a candidate");
+            Assert(rightResult.Width == 1 && rightResult.Height == 3,
+                "edge-rot: horizontal katana at the right edge auto-rotates to a vertical footprint (long side hugs the right edge)");
+            Assert(rightResult.Candidate.Rotation == 2 || rightResult.Candidate.Rotation == 0,
+                "edge-rot: horizontal katana at the right edge returns a vertical rotation");
         }
 
         private static TestSurfaceContext CreateTestSurface(ContainerKind kind, byte page, uint generation)
