@@ -1,7 +1,7 @@
 # DEV-16D-R13-R7: 自动旋转空位边缘贴边（Auto-Rotation Edge-Fit）
 
 Type: task
-Status: claimed
+Status: resolved
 Blocked by: None（阻塞边已于 2026-09-01 由用户确认为 (b)，见下）
 
 ## 父工单 / 背景
@@ -44,3 +44,13 @@ Blocked by: None（阻塞边已于 2026-09-01 由用户确认为 (b)，见下）
   - `--dev16d-r13-symrot-wide-red` → **绿**（exit 0）：宽容器空旷中部横放保持横，D2 守卫通过。
   - `--dev16d-r13-edge-rot-red` → **红**（exit 1，断言 "edge-rot: horizontal katana at the left edge auto-rotates to a vertical footprint"）：精确复现用户实机 bug（宽容器最左列边缘，横武士刀拖回竖位不转竖）。
 - **下一步（下一阶段）**：在 `PlacementCandidateEvaluator` 实现 edge-rot（空位边缘检测 + 长边贴边方向选择），使 edge-rot-red 转绿；随后按 output-review-loop 全量验证 + 双轴独立审查 CLEAN 后归档交付。
+
+## Answer
+
+已实现并交付（2026-09-01）：
+- 实现提交 `e45bc98`：`PlacementCandidateEvaluator` 新增 edge-rot（rotated 前置计算 + step 1 内 edge-rot 分支 + `LongSideHugsEdge`/`RowFullyBlocked`/`ColumnFullyBlocked` 纯 helper），D2 防蠕动边界保持（空旷中部两者都不贴边 → 走原阶梯①）。
+- 红测状态：`--dev16d-r13-edge-rot-red`（左/右边界）红→绿；`--dev16d-r13-symrot-red`（窄缝）、`--dev16d-r13-symrot-wide-red`（D2 守卫）保持绿。
+- 全量验证：Release 0/0、七项目全 PASS、R13 定向 14/14、UI token 0、diff-check 0。
+- 双轴独立审查：Standards CLEAN / Spec CLEAN（可延后项：右边界测试镜像块可折叠；障碍挡出边界路径已实现但本轮红测未直接覆盖——Spec 轴 traced 确认逻辑正确）。
+- 交付物：`audit/2026-09-01/artifacts/BetterUnturnedExperience-DIAG-R13SILENCE-r4-edgefix-20260901.dll`（sha256 `3AF8DCABBC2467ACD82A809966EEA6E8D9ABF650F65FC7ED1601219C1B211E1F`），交付报告 `audit/2026-09-01/Delivery-DEV16D-R13-R7-EDGEFIX-20260901.md`，哈希记录 `audit/2026-09-01/r7-edgefix-dll-sha256.txt`。
+- 实机复测判读矩阵见交付报告 §6；待用户实机确认后关闭 R7 支线并进入 DEV-16E 资格轮（届时清理 `[DEBUG-]`）。
