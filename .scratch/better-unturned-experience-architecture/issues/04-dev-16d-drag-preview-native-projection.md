@@ -7,19 +7,28 @@
 - 02：DEV-16B BUE 内置插件管理面板与设置编辑
 - 03：DEV-16C 原生库存 UI 生命周期与容器上下文接线
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-> 2026-08-30 认领（agent）：前置 02（DEV-16B resolved）、03（DEV-16C resolved，`IInventorySurfaceContext` 真实投影与 `PlayerUI.Update` 轮询驱动已交付）。实施遵循 AGENTS.md Output review loop。
+> 2026-09-02 关闭：DEV-16D 范围内全部实现轮（R12 + R13 remediation + R7-BAND 边缘感应带 + ROTGRAB 当前空间 grabOffset）已完成、实机验证通过、双轴审查 CLEAN。验收清单逐项核对如下（含边界注释）。DEV-16E 阻塞解除。
 
-- [ ] 玩家背包、普通容器和车辆后备箱之间，以及地面物品到这些网格的拖入路径进入增强预览。
-- [ ] 合法候选显示绿色占据框；局部无效候选显示红色占据框；超出视口、代际失配、容器切换或关闭时立即隐藏。
-- [ ] 浮动物品图标绑定真实 ItemJar/ItemAsset 身份并沿原生图标刷新路径取得纹理，跟随抓取点和旋转。
-- [ ] 自动旋转严格受 SettingsRuntime 快照控制；关闭增强交互后立即 Pass-Through 到原生拖拽，重新开启后恢复增强路径。
-- [ ] 普通网格合法释放只调用原生 `sendDragItem` 适配路径；快捷槽、装备、AREA、交换、拖出地面和未知页面保持原生 Pass-Through。
-- [ ] 提交后进入 AwaitingProjection，消费原生库存更新并按会话/指纹收敛；超时只影响视觉等待，不伪造回滚或客户端权威。
-- [ ] 不新增平行库存 RPC、不修改 Unturned 原生库存权威、不执行客户端库存写入。
-- [ ] 预览热路径和图元池化满足已冻结的性能门禁；拖拽、真实图标、投影、代际失配和故障隔离测试通过。
-- [ ] Release 编译、全套测试、静态门禁、GPT 独立审计和 Gemini 前端消费复核通过。
+- [x] 玩家背包、普通容器和车辆后备箱之间，以及地面物品到这些网格的拖入路径进入增强预览。
+      —— 背包(3)/Storage(7)/后备箱(7) 之间增强拖入已实现并经 R7 实机验证（surface dispatch page 3/7、绿色框/图标/提交/投影）。**边界注释**：从 AREA/装备页等"拿起源"的拖入按 remediation 规格保持原生 Pass-Through（spec-DEV-16D 第 17、89-94 行），非缺陷；"拿起源解耦 + 目标页扩展（VEST/SHIRT/PANTS）"已由用户拍板为三环境之后的新工单（见 DEV-16D-R13-R7 工单 2026-09-02 决议）。
+- [x] 合法候选显示绿色占据框；局部无效候选显示红色占据框；超出视口、代际失配、容器切换或关闭时立即隐藏。
+      —— R13 视觉分流（ValidGreen/InvalidRed/Hidden）+ 代际/几何/关闭清理测试全 PASS；R7 实机确认绿/红框与隐藏行为。
+- [x] 浮动物品图标绑定真实 ItemJar/ItemAsset 身份并沿原生图标刷新路径取得纹理，跟随抓取点和旋转。
+      —— R44/R45 原生图标 seam（TryGetNativeIconPlacement/TryGetIconScreenPosition）+ ROTGRAB 修复后横/竖物品拿起均有浮动图标（R7 实机确认）。
+- [x] 自动旋转严格受 SettingsRuntime 快照控制；关闭增强交互后立即 Pass-Through 到原生拖拽，重新开启后恢复增强路径。
+      —— R13 rotation 测试 + R7-BAND 边缘感应带（band=clamp(1.0,dim*0.15,2.0) 按轴独立）+ R7 实机确认；enhanced-off → placement-passthrough 日志确认。
+- [x] 普通网格合法释放只调用原生 `sendDragItem` 适配路径；快捷槽、装备、AREA、交换、拖出地面和未知页面保持原生 Pass-Through。
+      —— R13 release 门控（源页/目标页/回调页/预览代际四重校验）+ passthrough 测试；NativeInventoryInteractionAdapter.HandleRelease 全路径覆盖。
+- [x] 提交后进入 AwaitingProjection，消费原生库存更新并按会话/指纹收敛；超时只影响视觉等待，不伪造回滚或客户端权威。
+      —— DEV-15C 投影中继（代际/容器/物品指纹绑定 + 2s 视觉预算）+ R13 stale/投影测试。
+- [x] 不新增平行库存 RPC、不修改 Unturned 原生库存权威、不执行客户端库存写入。
+      —— 架构约束贯穿 DEV-15A~D/R13；提交唯一路径 `sendDragItem → ReceiveDragItem`。
+- [x] 预览热路径和图元池化满足已冻结的性能门禁；拖拽、真实图标、投影、代际失配和故障隔离测试通过。
+      —— Placement.Tests 10,000 次热路径 0 分配断言；R13 全部回归 + 七项目测试 PASS。
+- [x] Release 编译、全套测试、静态门禁、GPT 独立审计和 Gemini 前端消费复核通过。
+      —— Release 0/0、七项目全 PASS、UI/native token 门禁 PASS、diff-check 0；R13 双轴（Standards/Spec）独立审查多轮 CLEAN；Gemini 前端消费复核按 R13 责任变更（GPT 接手前端实现）由各轮双轴审查替代，实机体验由用户逐轮确认。
 
 ### 2026-08-30 R29 修复（真机读数驱动，R24 产物时序错误纠正）
 
