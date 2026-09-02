@@ -18,7 +18,8 @@
       —— 候选：rotgrab DLL，SHA-256 `6ABB7E0D930D5560EFE46F27A5058DF9F7000A2EC0DB3CF4E08B94CD2AF3615C`，BuildIdentity `600A6926F0AA47ADA0902AA5D64F69E2BBFE2F10FDA817F99C2FEC039FC9B26A`（编译代码验证），SourceSnapshotId `61737df`，CaseId `DEV-16E-20260902`，CandidateBuild `DEV-16E-CLEAN-20260902`。LoadSetIdentity 与证据包在人工实机证据采集后绑定。
 - [x] 单人完成管理面板、设置开关、绿色/红色预览、真实图标、拖入提交和投影收敛验证。
       —— 用户 2026-09-02 实机确认"功能没什么异常"（rotgrab 修复后横/竖拿起均有渲染）；R6 诊断包 `UMM-诊断包_20260902_133050` 已留存。
-- [ ] SteamP2PFriends Host 与 Client 使用同一 CaseId、同一候选身份、同一 DLL 哈希和严格重叠 UTC 时间窗，双方均完成拖入与投影验证。
+- [x] SteamP2PFriends Host 与 Client 使用同一 CaseId、同一候选身份、同一 DLL 哈希和严格重叠 UTC 时间窗，双方均完成拖入与投影验证。
+      —— 2026-09-02 联机测试通过（`UMM-诊断包_20260902_143306` 客机 / `_143322` 主机）：双端同一 DLL hash `6ABB7E0D...`、同一 CaseId、时间窗重叠；双端 placement-decision Submitted 多次、容器内位置变更双方可见。证据归档 `audit/2026-09-02/DEV-16E-p2p-evidence-20260902.md`。
 - [ ] U3DS Headless 使用同一主 DLL 完成启动/运行/关闭证据，证明不创建 UI、不安装客户端 Hook、不解析客户端表现层。
 - [ ] 每个案例包含环境指纹、版本、部署来源、命令/步骤、原始日志、诊断包、截图/录像引用和文件 SHA-256。
 - [ ] GPT 导入证据包并得到与当前 CandidateBuild 绑定的技术资格裁决；Gemini 前端消费复核 ACCEPT。
