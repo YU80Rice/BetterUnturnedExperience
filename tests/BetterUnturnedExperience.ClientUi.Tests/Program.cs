@@ -110,9 +110,10 @@ namespace BetterUnturnedExperience.ClientUi.Tests
             var groundSource = new ItemGridPosition(8, 0, 0, 0);
             var groundInput = new NativeDragAdapterInput(true, 13, groundSource,
                 new ItemPlacementPreview(13, PlacementPreviewState.Candidate, new ItemGridPosition(7, 0, 0, 0), 1, 1, PlacementReason.None));
-            Assert(adapter.HandleRelease(groundInput, native) == NativeDragAdapterOutcome.PassThrough, "AREA source remains native pass-through");
-            Assert(native.GroundTakeCount == 0 && native.SendCount == 0 && native.StopCount == 0,
-                "AREA source never invokes enhanced native actions");
+            Assert(adapter.HandleRelease(groundInput, native) == NativeDragAdapterOutcome.Submitted,
+                "DEV-16F: AREA source targeting a grid submits through the ground port");
+            Assert(native.GroundTakeCount == 1 && native.SendCount == 0 && native.StopCount == 1,
+                "DEV-16F: AREA source commits via TakeGroundItem, never sendDragItem");
 
             native.Reset();
             var equipmentTarget = new ItemPlacementPreview(14, PlacementPreviewState.Candidate, new ItemGridPosition(1, 0, 0, 0), 1, 1, PlacementReason.None);

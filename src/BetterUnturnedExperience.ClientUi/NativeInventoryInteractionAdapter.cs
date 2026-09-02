@@ -107,25 +107,40 @@ namespace BetterUnturnedExperience.ClientUi.Internal
                 return NativeDragAdapterOutcome.PassThrough;
             }
 
+            // DEV-16F R2: ground pickups (AREA=8 source) must commit through
+            // TakeGroundItem, never sendDragItem — the server rejects
+            // sendDragItem with page_0 >= PAGES-1 (PlayerInventory.ReceiveDragItem),
+            // so the item would vanish. Equipment/grid sources use sendDragItem.
+            if (input.Source.Page == areaPage)
+            {
+                native.TakeGroundItem(target);
+                native.StopDrag();
+                return NativeDragAdapterOutcome.Submitted;
+            }
+
             native.SendDragItem(input.Source, target);
             native.StopDrag();
             return NativeDragAdapterOutcome.Submitted;
         }
 
-        // DEV-16F: every player grid page is an ordinary enhanced grid —
+        // DEV-16F: every player grid page is an ordinary enhanced TARGET grid —
         // 2=Hands, 3=Backpack, 4=Vest, 5=Shirt, 6=Pants, 7=Storage/trunk.
-        // AREA(8) and equipment slots (< SLOTS) stay native pass-through.
+        // AREA(8) and equipment slots (< SLOTS) are never enhanced targets.
         private bool IsOrdinaryGrid(byte page)
         {
             return page >= slotsPageBoundary && page < areaPage;
         }
 
-        // DEV-16F source decoupling: the pickup source is no longer limited to
-        // Backpack/Storage. Any ordinary grid page can be a source for the
-        // enhanced flow; AREA (ground pickup) and equipment slots stay native.
+        // DEV-16F R2: source decoupling must cover EVERY pickup origin. A drag
+        // that started from the ground (AREA=8), a hotbar equipment slot (0/1),
+        // or any player grid (2-7) can reach an enhanced grid target. The
+        // source page no longer decides takeover: only the TARGET grid does.
+        // On release the source determines the native call: ground pickups use
+        // TakeGroundItem (server rejects sendDragItem with page_0 >= PAGES-1),
+        // everything else uses sendDragItem.
         internal bool IsEnhancedSourcePage(byte page)
         {
-            return IsOrdinaryGrid(page);
+            return page <= areaPage;
         }
 
         private static bool IsSamePlacement(ItemGridPosition source, ItemGridPosition target)

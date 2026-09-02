@@ -216,8 +216,9 @@ namespace BetterUnturnedExperience.ClientUi.Internal
         private readonly Dictionary<byte, IInventorySurfaceContext> liveSurfaces =
             new Dictionary<byte, IInventorySurfaceContext>();
         // DEV-16F: U3-SDK page model — 2=Hands, 3=Backpack, 4=Vest, 5=Shirt,
-        // 6=Pants, 7=Storage/trunk. AREA(8) and equipment slots (0/1) are not
-        // grids and stay native pass-through (AREA drag-out unchanged).
+        // 6=Pants, 7=Storage/trunk. Only these player grid pages are live
+        // TARGET surfaces. AREA(8) and equipment slots (0/1) are not grids and
+        // are never enhanced targets (they can still be pickup SOURCES; R2).
         private static readonly byte[] SupportedLiveSurfacePages = { 2, 3, 4, 5, 6, 7 };
         private IGridOccupancyView activeDragOccupancy;
         private IInventorySurfaceContext activeDragOccupancySurface;
@@ -286,9 +287,10 @@ namespace BetterUnturnedExperience.ClientUi.Internal
 
         internal static bool IsSupportedEnhancedPage(byte page)
         {
-            // DEV-16F: every player grid page is enhanced — 2=Hands, 3=Backpack,
-            // 4=Vest, 5=Shirt, 6=Pants, 7=Storage/trunk. AREA(8) and equipment
-            // slots (0/1) are not grids and stay native pass-through.
+            // DEV-16F: every player grid page is an enhanced TARGET surface —
+            // 2=Hands, 3=Backpack, 4=Vest, 5=Shirt, 6=Pants, 7=Storage/trunk.
+            // AREA(8) and equipment slots (0/1) are never enhanced targets
+            // (they can still be pickup sources; R2).
             return page >= 2 && page <= 7;
         }
 
@@ -579,7 +581,12 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             }
             currentDragGeneration = dragGeneration;
             currentDragAsset = dragAsset;
-            dragSourcePassThrough = !IsSupportedEnhancedPage(source.Page);
+            // DEV-16F R2 source decoupling: the source page no longer decides
+            // takeover. Any pickup origin (grid 2-7, equipment 0/1, ground
+            // AREA=8) enters the enhanced drag flow; the TARGET grid decides
+            // whether a preview renders (only pages 2-7 are live surfaces).
+            // Only a malformed page beyond AREA is pass-through.
+            dragSourcePassThrough = !nativeAdapter.IsEnhancedSourcePage(source.Page);
             dragOriginContainer = source.Page == currentContainer.Page && currentContainer.SessionGeneration != 0
                 ? currentContainer : default(ContainerReference);
             ClearActiveDragOccupancy();

@@ -170,10 +170,11 @@ namespace BetterUnturnedExperience.ClientUi.Tests
                 "submitted release clears enhanced drag state");
         }
 
-        // GPT watermark: DEV-16D-R13 red regression. Enhanced interaction is
-        // limited to ordinary Backpack/Storage/Trunk grids; AREA and every
-        // equipment source must remain native pass-through even when the target
-        // is an ordinary grid.
+        // GPT watermark: DEV-16D-R13 red regression (updated for DEV-16F R2).
+        // Source decoupling: the source page no longer decides takeover. AREA
+        // (ground pickup) and equipment slots are now valid enhanced sources
+        // that submit through their correct native ports when targeting an
+        // ordinary grid; malformed pages beyond AREA remain pass-through.
         private static void SourcePagePassThroughMatrixIsExplicit()
         {
             var adapter = new NativeInventoryInteractionAdapter(2, 8);
@@ -182,31 +183,39 @@ namespace BetterUnturnedExperience.ClientUi.Tests
                 new ItemGridPosition(7, 0, 0, 0), 1, 1, PlacementReason.None);
 
             Assert(adapter.HandleRelease(new NativeDragAdapterInput(true, 60,
-                    new ItemGridPosition(8, 0, 0, 0), ordinaryTarget), native) == NativeDragAdapterOutcome.PassThrough,
-                "AREA source remains native pass-through when targeting Storage");
-            Assert(native.SendCount == 0 && native.GroundTakeCount == 0 && native.StopCount == 0,
-                "AREA source never invokes enhanced native actions");
+                    new ItemGridPosition(8, 0, 0, 0), ordinaryTarget), native) == NativeDragAdapterOutcome.Submitted,
+                "AREA source targeting a grid submits through the ground port");
+            Assert(native.GroundTakeCount == 1 && native.SendCount == 0 && native.StopCount == 1,
+                "AREA source commits via TakeGroundItem, never sendDragItem");
 
             native.Reset();
             Assert(adapter.HandleRelease(new NativeDragAdapterInput(true, 61,
                     new ItemGridPosition(0, 0, 0, 0),
                     new ItemPlacementPreview(61, PlacementPreviewState.Candidate,
-                        new ItemGridPosition(7, 0, 0, 0), 1, 1, PlacementReason.None)), native) == NativeDragAdapterOutcome.PassThrough,
-                "equipment source remains native pass-through when targeting Storage");
+                        new ItemGridPosition(7, 0, 0, 0), 1, 1, PlacementReason.None)), native) == NativeDragAdapterOutcome.Submitted,
+                "equipment source targeting a grid submits through sendDragItem");
+            Assert(native.SendCount == 1 && native.GroundTakeCount == 0 && native.StopCount == 1,
+                "equipment source commits via SendDragItem");
+
+            native.Reset();
+            Assert(adapter.HandleRelease(new NativeDragAdapterInput(true, 62,
+                    new ItemGridPosition(9, 0, 0, 0), ordinaryTarget), native) == NativeDragAdapterOutcome.PassThrough,
+                "malformed source page beyond AREA remains native pass-through");
             Assert(native.SendCount == 0 && native.GroundTakeCount == 0 && native.StopCount == 0,
-                "equipment source never invokes enhanced native actions");
+                "malformed source page never invokes enhanced native actions");
+
             Assert(!BetterItemInteractionUiComponent.IsSupportedEnhancedPage(8),
-                "AREA is excluded from the enhanced source page matrix");
+                "AREA is excluded from the enhanced TARGET surface matrix");
             Assert(BetterItemInteractionUiComponent.IsSupportedEnhancedPage(2) &&
                 BetterItemInteractionUiComponent.IsSupportedEnhancedPage(3) &&
                 BetterItemInteractionUiComponent.IsSupportedEnhancedPage(4) &&
                 BetterItemInteractionUiComponent.IsSupportedEnhancedPage(5) &&
                 BetterItemInteractionUiComponent.IsSupportedEnhancedPage(6) &&
                 BetterItemInteractionUiComponent.IsSupportedEnhancedPage(7),
-                "every player grid page (Hands/Backpack/Vest/Shirt/Pants/Storage) is enhanced");
+                "every player grid page (Hands/Backpack/Vest/Shirt/Pants/Storage) is an enhanced target surface");
             Assert(!BetterItemInteractionUiComponent.IsSupportedEnhancedPage(0) &&
                 !BetterItemInteractionUiComponent.IsSupportedEnhancedPage(1),
-                "equipment slots are excluded from the enhanced page matrix");
+                "equipment slots are excluded from the enhanced target surface matrix");
         }
 
         // GPT watermark: DEV-16D-R13 red regression. A visible Candidate must
@@ -246,9 +255,11 @@ namespace BetterUnturnedExperience.ClientUi.Tests
             component.OnInventoryClosed();
         }
 
-        // GPT watermark: DEV-16D-R13 red regression. Page support is the first
-        // release gate. An unsupported source must pass through even when a
-        // stale visible preview would otherwise fail the generation check.
+        // GPT watermark: DEV-16D-R13 red regression (updated for DEV-16F R2).
+        // Page support is the first release gate. A malformed source page
+        // (beyond AREA) must pass through even when a stale visible preview
+        // would otherwise fail the generation check. AREA(8) is now a valid
+        // enhanced source, so the stale-source case is tested at page 9.
         private static void UnsupportedSourceWithStalePreviewRemainsNativePassThrough()
         {
             var adapter = new NativeInventoryInteractionAdapter(2, 8);
@@ -257,7 +268,7 @@ namespace BetterUnturnedExperience.ClientUi.Tests
                 PlacementPreviewState.Candidate,
                 new ItemGridPosition(7, 0, 0, 0), 1, 1, PlacementReason.None);
             var outcome = adapter.HandleRelease(new NativeDragAdapterInput(true, 701,
-                new ItemGridPosition(8, 0, 0, 0), staleCandidate), native);
+                new ItemGridPosition(9, 0, 0, 0), staleCandidate), native);
             Assert(outcome == NativeDragAdapterOutcome.PassThrough,
                 "unsupported stale source is native pass-through before generation validation");
             Assert(native.SendCount == 0 && native.StopCount == 0 && native.GroundTakeCount == 0,

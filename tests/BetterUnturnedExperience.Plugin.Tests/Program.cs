@@ -136,6 +136,16 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     AssertDev16FTargetVestEnhancedPreview();
                     return 0;
                 }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--dev16f-area-source-red")
+                {
+                    AssertDev16FAreaSourceReachesCandidateSeam();
+                    return 0;
+                }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--dev16f-equip-source-red")
+                {
+                    AssertDev16FEquipSlotSourceReachesCandidateSeam();
+                    return 0;
+                }
                 AssertSingleDllAssemblyClosure();
                 AssertExternalSdkAssemblyIdentity();
                 Assert(BootstrapGuard.Decide(false, false, true) == BootstrapDecision.Client, "client decision");
@@ -197,6 +207,8 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 AssertDev16DR13NativeDelegateLifecycleIsReversible();
                 AssertDev16FSourceDecoupleReachesCandidateSeam();
                 AssertDev16FTargetVestEnhancedPreview();
+                AssertDev16FAreaSourceReachesCandidateSeam();
+                AssertDev16FEquipSlotSourceReachesCandidateSeam();
                 AssertRuntimeCompletionBarrierIsolates();
                 AssertManagementPanelConsumesRuntimeCatalog();
                 AssertManagementPanelOpenHooks();
@@ -645,8 +657,11 @@ namespace BetterUnturnedExperience.Plugin.Tests
             var native = new RecordingNativeDragActions();
             var preview = new ItemPlacementPreview(700, PlacementPreviewState.Candidate,
                 new ItemGridPosition(7, 0, 0, 0), 1, 1, PlacementReason.None);
+            // DEV-16F R2: page 8 (AREA) is now a valid enhanced source. A
+            // malformed source page (9, beyond AREA) remains the first-gate
+            // pass-through case.
             var outcome = adapter.HandleRelease(new NativeDragAdapterInput(true, 701,
-                new ItemGridPosition(8, 0, 0, 0), preview), native);
+                new ItemGridPosition(9, 0, 0, 0), preview), native);
             Assert(outcome == NativeDragAdapterOutcome.PassThrough,
                 "unsupported stale source is native pass-through before generation validation");
             Assert(native.SendCount == 0 && native.StopCount == 0 && native.GroundTakeCount == 0,
@@ -1022,6 +1037,80 @@ namespace BetterUnturnedExperience.Plugin.Tests
             Assert(component.LastPreview.State == PlacementPreviewState.Candidate &&
                 component.LastPreview.Candidate.Page == 4,
                 "target vest: VEST(4) target publishes an enhanced candidate preview");
+            component.OnInventoryClosed();
+        }
+
+        // GPT watermark: DEV-16F R2 red regression. Real-machine feedback
+        // (2026-09-02): picking up from the GROUND ("附近的物品", AREA=8) and
+        // dragging into a supported grid does NOT trigger enhanced preview or
+        // auto-rotation. Root cause: OnDragStarted sets
+        // `dragSourcePassThrough = !IsSupportedEnhancedPage(source.Page)`, so a
+        // source page of 8 (AREA) is treated as pass-through and BUE never
+        // takes over. Slice A's "any page pickup enters the enhanced flow"
+        // must include AREA as a source: the TARGET grid decides rendering.
+        // RED until the source gate no longer excludes AREA(8).
+        private static void AssertDev16FAreaSourceReachesCandidateSeam()
+        {
+            var component = new BetterItemInteractionUiComponent(
+                new InventoryPreviewPresenter(new InventoryDragPresenter(new FixedCandidateEvaluator())),
+                new NativeInventoryInteractionAdapter(2, 8));
+            component.OnUiInitialized(new TestRoot());
+            var backpack = CreateTestSurface(ContainerKind.PlayerInventory, 3, 1103);
+            component.OnInventoryOpened(backpack);
+
+            // Drag starts from the ground (AREA=8) toward BACKPACK(3).
+            component.OnDragStarted(1103, ItemAssetIdentity.FromItemId(363),
+                new ItemGridPosition(8, 0, 0, 0));
+            Assert(!component.DragSourcePassThrough,
+                "area source: ground pickup (AREA=8) must not force native pass-through");
+            Assert(component.EnhancedDragActive,
+                "area source: ground pickup (AREA=8) enters the enhanced drag flow");
+
+            InventoryPreviewInput input;
+            Assert(component.TryCreatePreviewInput(1103, new ItemGridPosition(8, 0, 0, 0),
+                    100f, 100f, 1, 1, 0, false, 0.5f, 0.5f,
+                    ItemAssetIdentity.FromItemId(363), out input),
+                "area source: ground pickup creates a preview input toward BACKPACK(3)");
+            component.OnDragUpdated(input);
+            Assert(component.LastPreview.State == PlacementPreviewState.Candidate,
+                "area source: ground pickup reaches the candidate seam on BACKPACK(3)");
+            component.OnInventoryClosed();
+        }
+
+        // GPT watermark: DEV-16F R2 red regression. Real-machine feedback
+        // (2026-09-02): picking up from the HOTBAR equipment slots ("手持的物
+        // 品（快捷键1、2栏位）", pages 0/1 Primary/Secondary) and dragging into
+        // a supported grid does NOT trigger enhanced preview or auto-rotation.
+        // Root cause is the same source gate: `IsSupportedEnhancedPage(0)` is
+        // false, so OnDragStarted aborts. Slice A source decoupling must let
+        // equipment-slot pickups enter the enhanced flow too; the TARGET grid
+        // decides rendering. RED until the source gate no longer excludes
+        // equipment slots (0/1).
+        private static void AssertDev16FEquipSlotSourceReachesCandidateSeam()
+        {
+            var component = new BetterItemInteractionUiComponent(
+                new InventoryPreviewPresenter(new InventoryDragPresenter(new FixedCandidateEvaluator())),
+                new NativeInventoryInteractionAdapter(2, 8));
+            component.OnUiInitialized(new TestRoot());
+            var backpack = CreateTestSurface(ContainerKind.PlayerInventory, 3, 1104);
+            component.OnInventoryOpened(backpack);
+
+            // Drag starts from the Primary equipment slot (page 0).
+            component.OnDragStarted(1104, ItemAssetIdentity.FromItemId(363),
+                new ItemGridPosition(0, 0, 0, 0));
+            Assert(!component.DragSourcePassThrough,
+                "equip source: hotbar slot (page 0) pickup must not force native pass-through");
+            Assert(component.EnhancedDragActive,
+                "equip source: hotbar slot (page 0) pickup enters the enhanced drag flow");
+
+            InventoryPreviewInput input;
+            Assert(component.TryCreatePreviewInput(1104, new ItemGridPosition(0, 0, 0, 0),
+                    100f, 100f, 1, 1, 0, false, 0.5f, 0.5f,
+                    ItemAssetIdentity.FromItemId(363), out input),
+                "equip source: hotbar slot pickup creates a preview input toward BACKPACK(3)");
+            component.OnDragUpdated(input);
+            Assert(component.LastPreview.State == PlacementPreviewState.Candidate,
+                "equip source: hotbar slot pickup reaches the candidate seam on BACKPACK(3)");
             component.OnInventoryClosed();
         }
 
