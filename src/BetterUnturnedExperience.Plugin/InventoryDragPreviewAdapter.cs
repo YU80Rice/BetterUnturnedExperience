@@ -215,7 +215,7 @@ namespace BetterUnturnedExperience.Plugin
                 var wrapper = new PlacedItem(GridPlacedItemWrapper);
                 attachedGrids[page] = new AttachedGridBinding(sleek, sleek.onPlacedItem, wrapper);
                 sleek.onPlacedItem = wrapper;
-                log?.LogInfo("[BUE-DRAG] event=placed-item-delegate-rebound page=" + sleek.page + " diagnosticId=BUE-DRAG-001");
+                BueRuntimeLog.Runtime("[BUE-DRAG] event=placed-item-delegate-rebound page=" + sleek.page + " diagnosticId=BUE-DRAG-001");
                 return true;
             }
             catch (Exception error)
@@ -640,7 +640,7 @@ namespace BetterUnturnedExperience.Plugin
                 var jar = ReadDragJar();
                 var asset = jar == null ? ItemAssetIdentity.FromItemId(0) : AssetIdentityOf(jar);
                 component.OnDragStarted(dragGeneration, asset, ReadDragSource());
-                log?.LogInfo("[BUE-DRAG] event=drag-started generation=" + dragGeneration
+                BueRuntimeLog.Runtime("[BUE-DRAG] event=drag-started generation=" + dragGeneration
                     + " enhanced=" + component.EnhancedDragActive
                     + " canRun=" + component.LifecycleCanRun
                     + " sinkBound=" + component.PreviewSinkBound
@@ -650,7 +650,7 @@ namespace BetterUnturnedExperience.Plugin
             {
                 // Drag ended without onPlacedItem (ESC, drag-out): cancel visuals.
                 component.OnDragCancelled();
-                log?.LogInfo("[BUE-DRAG] event=drag-cancelled diagnosticId=BUE-DRAG-001");
+                BueRuntimeLog.Runtime("[BUE-DRAG] event=drag-cancelled diagnosticId=BUE-DRAG-001");
             }
             wasDragging = isDragging;
 
@@ -669,7 +669,7 @@ namespace BetterUnturnedExperience.Plugin
                 {
                     component.HidePreview();
                     if (ShouldEmitDiagnostic(PlacementPreviewState.Hidden, PlacementReason.OutsideGrid))
-                        log?.LogInfo("[BUE-DRAG] GPT-WATERMARK event=preview-hidden reason=outside-viewport generation=" + dragGeneration + " diagnosticId=BUE-DRAG-001");
+                        BueRuntimeLog.Runtime("[BUE-DRAG] GPT-WATERMARK event=preview-hidden reason=outside-viewport generation=" + dragGeneration + " diagnosticId=BUE-DRAG-001");
                     return;
                 }
                 var surface = selectedSurface as UnturnedInventorySurfaceContext;
@@ -677,7 +677,7 @@ namespace BetterUnturnedExperience.Plugin
                 {
                     component.HidePreview();
                     if (ShouldEmitDiagnostic(PlacementPreviewState.Hidden, PlacementReason.FeatureUnavailable))
-                        log?.LogInfo("[BUE-DRAG] GPT-WATERMARK event=preview-hidden reason=surface-not-native generation=" + dragGeneration + " diagnosticId=BUE-DRAG-001");
+                        BueRuntimeLog.Runtime("[BUE-DRAG] GPT-WATERMARK event=preview-hidden reason=surface-not-native generation=" + dragGeneration + " diagnosticId=BUE-DRAG-001");
                     return;
                 }
                 var source = ReadDragSource();
@@ -695,16 +695,16 @@ namespace BetterUnturnedExperience.Plugin
                     {
                         LogPreviewInputReadout(input, Input.mousePosition.x, Input.mousePosition.y,
                             localX, localY, state, component.LastPreview.Reason);
-                        log?.LogInfo("[BUE-DRAG] GPT-WATERMARK event=preview-evaluated generation=" + dragGeneration + " state=" + state + " diagnosticId=BUE-DRAG-001");
+                        BueRuntimeLog.Runtime("[BUE-DRAG] GPT-WATERMARK event=preview-evaluated generation=" + dragGeneration + " state=" + state + " diagnosticId=BUE-DRAG-001");
                         if (state == PlacementPreviewState.Candidate || state == PlacementPreviewState.LocallyInvalid)
-                            log?.LogInfo("[BUE-DRAG] GPT-WATERMARK event=preview-visible generation=" + dragGeneration + " state=" + state + " diagnosticId=BUE-DRAG-001");
+                            BueRuntimeLog.Runtime("[BUE-DRAG] GPT-WATERMARK event=preview-visible generation=" + dragGeneration + " state=" + state + " diagnosticId=BUE-DRAG-001");
                     }
                 }
                 else
                 {
                     component.HidePreview();
                     if (ShouldEmitDiagnostic(PlacementPreviewState.Hidden, PlacementReason.FeatureUnavailable))
-                        log?.LogInfo("[BUE-DRAG] GPT-WATERMARK event=preview-input-rejected generation=" + dragGeneration + " diagnosticId=BUE-DRAG-001");
+                        BueRuntimeLog.Runtime("[BUE-DRAG] GPT-WATERMARK event=preview-input-rejected generation=" + dragGeneration + " diagnosticId=BUE-DRAG-001");
                 }
             }
         }
@@ -733,7 +733,7 @@ namespace BetterUnturnedExperience.Plugin
             var gridY = scaledCell > 0f
                 ? (uiY - input.Viewport.OriginY + input.ScrollPixelsY) / scaledCell
                 : float.NaN;
-            log?.LogInfo("[BUE-DRAG] GPT-WATERMARK event=preview-input-readout"
+            BueRuntimeLog.Runtime("[BUE-DRAG] GPT-WATERMARK event=preview-input-readout"
                 + " generation=" + input.DragGeneration
                 + " pointerScreen=" + rawMouseX.ToString("0.###") + "," + rawMouseY.ToString("0.###")
                 + " uiScale=" + input.UiScale.ToString("0.###")
@@ -766,7 +766,7 @@ namespace BetterUnturnedExperience.Plugin
             player.inventory.onInventoryAdded += OnNativeInventoryEvent;
             player.inventory.onInventoryRemoved += OnNativeInventoryEvent;
             player.inventory.onInventoryUpdated += OnNativeInventoryEvent;
-            log?.LogInfo("[BUE-DRAG] event=inventory-events-subscribed diagnosticId=BUE-DRAG-001");
+            BueRuntimeLog.Runtime("[BUE-DRAG] event=inventory-events-subscribed diagnosticId=BUE-DRAG-001");
         }
 
         private void UnsubscribeInventoryEvents()
@@ -821,13 +821,13 @@ namespace BetterUnturnedExperience.Plugin
             // path owns it. BUE never blocks what it cannot evaluate.
             if (!component.EnhancedDragActive)
             {
-                log?.LogInfo("[BUE-DRAG] event=placement-passthrough reason=enhanced-off diagnosticId=BUE-DRAG-001");
+                BueRuntimeLog.Runtime("[BUE-DRAG] event=placement-passthrough reason=enhanced-off diagnosticId=BUE-DRAG-001");
                 return true;
             }
             var preview = component.LastPreview;
             if (preview.State == 0 || preview.DragGeneration != dragGeneration)
             {
-                log?.LogInfo("[BUE-DRAG] event=placement-passthrough reason=preview-stale previewGen=" + preview.DragGeneration + " dragGen=" + dragGeneration + " diagnosticId=BUE-DRAG-001");
+                BueRuntimeLog.Runtime("[BUE-DRAG] event=placement-passthrough reason=preview-stale previewGen=" + preview.DragGeneration + " dragGen=" + dragGeneration + " diagnosticId=BUE-DRAG-001");
                 return true;
             }
 
@@ -839,7 +839,7 @@ namespace BetterUnturnedExperience.Plugin
                 preview.Reason == PlacementReason.Occupied && IsSwapOntoOccupied(page, x, y))
             {
                 component.HidePreview();
-                log?.LogInfo("[BUE-DRAG] event=placement-passthrough reason=native-swap diagnosticId=BUE-DRAG-001");
+                BueRuntimeLog.Runtime("[BUE-DRAG] event=placement-passthrough reason=native-swap diagnosticId=BUE-DRAG-001");
                 return true;
             }
 
@@ -847,7 +847,7 @@ namespace BetterUnturnedExperience.Plugin
                 PlayerDashboardInventoryUI.isDragging, dragGeneration,
                 ReadDragSource(), preview, page);
             var outcome = component.OnDragReleased(input, nativeActions);
-            log?.LogInfo("[BUE-DRAG] event=placement-decision page=" + page + " x=" + x + " y=" + y
+            BueRuntimeLog.Runtime("[BUE-DRAG] event=placement-decision page=" + page + " x=" + x + " y=" + y
                 + " outcome=" + outcome + " diagnosticId=BUE-DRAG-001");
             if (outcome == NativeDragAdapterOutcome.Submitted)
             {

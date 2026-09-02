@@ -206,7 +206,7 @@ namespace BetterUnturnedExperience.Plugin
                 updateTickCount++;
                 if (updateTickCount == 1 || updateTickCount % 120 == 0)
                 {
-                    LogTrace("heartbeat", "source=Update count=" + updateTickCount);
+                    LogTrace("heartbeat", "source=Update count=" + updateTickCount, true);
                 }
             }
             else if (source == TickSource.HostUi && !hostUiTickLogged)
@@ -987,9 +987,24 @@ namespace BetterUnturnedExperience.Plugin
 
         private void LogTrace(string eventName, string details)
         {
+            LogTrace(eventName, details, false);
+        }
+
+        // isRuntime=true emits at Debug level (silent in normal play, per the
+        // user's log policy); false (default) emits at Info (load one-shots).
+        private void LogTrace(string eventName, string details, bool isRuntime)
+        {
+            var line = "[BUE-UI-TRACE] plugin=" + PluginId + " featureId=" + FeatureId + " version=" + Version
+                + " environmentRole=Client scenario=" + GetScenario() + " diagnosticId=" + TraceDiagnosticId
+                + " event=" + eventName + " " + details;
+            if (isRuntime)
+            {
+                BueRuntimeLog.Runtime(line);
+                return;
+            }
             if (log != null)
             {
-                log.LogInfo("[BUE-UI-TRACE] plugin=" + PluginId + " featureId=" + FeatureId + " version=" + Version + " environmentRole=Client scenario=" + GetScenario() + " diagnosticId=" + TraceDiagnosticId + " event=" + eventName + " " + details);
+                log.LogInfo(line);
             }
         }
 

@@ -47,6 +47,7 @@ namespace BetterUnturnedExperience.Plugin
                 DontDestroyOnLoad(gameObject);
                 enabled = true;
                 LogAssemblyIdentity();
+                BueRuntimeLog.Bind(Logger);
                 var isBatchMode = Application.isBatchMode;
                 var decision = BootstrapGuard.Decide(isBatchMode, isBatchMode, !isBatchMode);
                 Logger.LogInfo("[BUE-UI-TRACE] plugin=io.github.yu80rice.betterunturnedexperience diagnosticId=BUE-BOOTSTRAP-002 event=runtime-gate decision=" + decision + " batchMode=" + isBatchMode + " headless=" + isBatchMode);
@@ -138,7 +139,7 @@ namespace BetterUnturnedExperience.Plugin
             }
             catch (System.Exception error)
             {
-                Logger.LogError("Better Unturned Experience featureId=" + FeatureId + " status=BootstrapFailed diagnosticId=" + DiagnosticId + " errorType=" + error.GetType().FullName);
+                Logger.LogError("Better Unturned Experience featureId=" + FeatureId + " status=BootstrapFailed diagnosticId=" + DiagnosticId + " errorType=" + error.GetType().FullName + " message=" + error.Message);
             }
         }
 
@@ -161,7 +162,7 @@ namespace BetterUnturnedExperience.Plugin
             catch (Exception error)
             {
                 DestroyRuntimePump();
-                Logger.LogWarning("[BUE-UI-TRACE] plugin=io.github.yu80rice.betterunturnedexperience diagnosticId=BUE-MANAGEMENT-TRACE-003 event=runtime-pump-create-failed errorType=" + error.GetType().FullName);
+                Logger.LogWarning("[BUE-UI-TRACE] plugin=io.github.yu80rice.betterunturnedexperience diagnosticId=BUE-MANAGEMENT-TRACE-003 event=runtime-pump-create-failed errorType=" + error.GetType().FullName + " message=" + error.Message);
             }
         }
 
@@ -198,7 +199,7 @@ namespace BetterUnturnedExperience.Plugin
             catch (Exception error)
             {
                 runtimePumpIsolated = true;
-                Logger.LogWarning("[BUE-UI-TRACE] plugin=io.github.yu80rice.betterunturnedexperience diagnosticId=BUE-MANAGEMENT-TRACE-003 event=runtime-pump-failed errorType=" + error.GetType().FullName);
+                Logger.LogWarning("[BUE-UI-TRACE] plugin=io.github.yu80rice.betterunturnedexperience diagnosticId=BUE-MANAGEMENT-TRACE-003 event=runtime-pump-failed errorType=" + error.GetType().FullName + " message=" + error.Message);
                 Logger.LogWarning("[BUE-UI-TRACE] plugin=io.github.yu80rice.betterunturnedexperience diagnosticId=BUE-MANAGEMENT-TRACE-003 event=runtime-pump-isolated fallback=NativeUi");
             }
         }
@@ -218,7 +219,7 @@ namespace BetterUnturnedExperience.Plugin
             updateTickCount++;
             if (updateTickCount == 1 || updateTickCount % 120 == 0)
             {
-                Logger.LogInfo("[BUE-UI-TRACE] plugin=io.github.yu80rice.betterunturnedexperience diagnosticId=BUE-MANAGEMENT-TRACE-001 event=plugin-update count=" + updateTickCount);
+                BueRuntimeLog.Runtime("[BUE-UI-TRACE] plugin=io.github.yu80rice.betterunturnedexperience diagnosticId=BUE-MANAGEMENT-TRACE-001 event=plugin-update count=" + updateTickCount);
             }
             if (nativeManagementPanel != null) nativeManagementPanel.Dispatch(BueNativeManagementPanel.TickSource.Update);
             // GPT watermark: drive DEV-16D from the guaranteed plugin Update;
@@ -242,7 +243,7 @@ namespace BetterUnturnedExperience.Plugin
 
         private void LogRuntimeCompletionIsolated(Exception error)
         {
-            Logger.LogError("Better Unturned Experience featureId=" + FeatureId + " status=RuntimeCompletionIsolated decision=Isolate errorType=" + error.GetType().FullName + " diagnosticId=" + DiagnosticId);
+            Logger.LogError("Better Unturned Experience featureId=" + FeatureId + " status=RuntimeCompletionIsolated decision=Isolate errorType=" + error.GetType().FullName + " diagnosticId=" + DiagnosticId + " message=" + error.Message);
         }
 
         private bool CompleteRuntimeOnce()
@@ -316,7 +317,7 @@ namespace BetterUnturnedExperience.Plugin
                 {
                     UnsubscribeSceneLoaded();
                     if (pluginUpdateDriver != null) pluginUpdateDriver.Clear();
-                    Logger.LogWarning("[BUE-UI-TRACE] plugin=io.github.yu80rice.betterunturnedexperience event=host-destroyed state=preserved patches-kept=true diagnosticId=BUE-CLIENTUI-005");
+                    Logger.LogInfo("[BUE-UI-TRACE] plugin=io.github.yu80rice.betterunturnedexperience event=host-destroyed state=preserved patches-kept=true diagnosticId=BUE-CLIENTUI-005");
                 }
                 catch (System.Exception error)
                 {

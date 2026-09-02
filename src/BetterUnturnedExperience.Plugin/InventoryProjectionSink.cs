@@ -11,30 +11,32 @@ namespace BetterUnturnedExperience.Plugin
     /// </summary>
     internal sealed class LoggingInventoryProjectionSink : IInventoryProjectionSink
     {
-        private readonly BepInEx.Logging.ManualLogSource log;
-
         internal LoggingInventoryProjectionSink(BepInEx.Logging.ManualLogSource log)
         {
-            this.log = log ?? throw new ArgumentNullException(nameof(log));
+            // The log source is validated for wiring-time failure visibility,
+            // but emissions route through the static BueRuntimeLog seam.
+            if (log == null) throw new ArgumentNullException(nameof(log));
         }
 
         public void OnProjectionSubmitted(ProjectionBinding binding)
         {
-            log.LogWarning("[BUE-DRAG] event=projection-submitted dragGeneration=" + binding.DragGeneration
+            BueRuntimeLog.Runtime("[BUE-DRAG] event=projection-submitted dragGeneration=" + binding.DragGeneration
                 + " containerGeneration=" + binding.Container.SessionGeneration
                 + " diagnosticId=BUE-DRAG-002");
         }
 
         public ProjectionConvergence OnNativeInventorySnapshot(NativeInventorySnapshot snapshot)
         {
-            log.LogInfo("[BUE-DRAG] event=native-inventory-snapshot dragGeneration=" + snapshot.DragGeneration
+            BueRuntimeLog.Runtime("[BUE-DRAG] event=native-inventory-snapshot dragGeneration=" + snapshot.DragGeneration
                 + " revision=" + snapshot.NativeRevision + " diagnosticId=BUE-DRAG-002");
             return ProjectionConvergence.Ignored;
         }
 
         public void OnProjectionTimedOut()
         {
-            log.LogWarning("[BUE-DRAG] event=projection-timed-out diagnosticId=BUE-DRAG-002");
+            // Real abnormal condition: keep loud with a reason so the user can
+            // tell placement confirmation failed.
+            BueRuntimeLog.Error("[BUE-DRAG] event=projection-timed-out reason=native-convergence-timeout diagnosticId=BUE-DRAG-002");
         }
 
         public AwaitingProjectionState ProjectionState { get { return AwaitingProjectionState.Idle; } }

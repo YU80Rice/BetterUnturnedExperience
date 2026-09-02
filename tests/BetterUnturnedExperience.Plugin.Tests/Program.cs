@@ -156,6 +156,11 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     AssertLoggingFailureEmission();
                     return 0;
                 }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--logging-verbose-red")
+                {
+                    AssertLoggingRuntimeVerbosity();
+                    return 0;
+                }
                 AssertSingleDllAssemblyClosure();
                 AssertExternalSdkAssemblyIdentity();
                 Assert(BootstrapGuard.Decide(false, false, true) == BootstrapDecision.Client, "client decision");
@@ -221,6 +226,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 AssertDev16FEquipSlotSourceReachesCandidateSeam();
                 AssertLoggingSurfaceReadinessGate();
                 AssertLoggingFailureEmission();
+                AssertLoggingRuntimeVerbosity();
                 AssertRuntimeCompletionBarrierIsolates();
                 AssertManagementPanelConsumesRuntimeCatalog();
                 AssertManagementPanelOpenHooks();
@@ -1220,6 +1226,55 @@ namespace BetterUnturnedExperience.Plugin.Tests
             finally
             {
                 InventorySurfaceLifecycleAdapter.DiagnosticLogSink = previousGate;
+            }
+        }
+
+        // GPT watermark: DEV-16G ticket B red regression. The user's new log
+        // policy: load/inject stages announce (Info), errors print a reason
+        // (Warning/Error), but in-game RUNTIME events must be SILENT during
+        // normal play (Debug level, filtered by BepInEx unless Levels=Debug).
+        // This red test drives the BueRuntimeLog seam that does not exist yet:
+        // - Runtime (verbose) events go to Debug.
+        // - Load one-shots go to Info.
+        // - Errors go to Warning/Error AND are never swallowed by the verbosity
+        //   gate (ERROR_ALWAYS always passes).
+        private static void AssertLoggingRuntimeVerbosity()
+        {
+            var recorded = new System.Collections.Generic.List<string>();
+            var previous = BetterUnturnedExperience.Plugin.BueRuntimeLog.Recorder;
+            BetterUnturnedExperience.Plugin.BueRuntimeLog.Recorder = line => recorded.Add(line);
+            try
+            {
+                BetterUnturnedExperience.Plugin.BueRuntimeLog.Runtime("event=drag-started");
+                BetterUnturnedExperience.Plugin.BueRuntimeLog.Runtime("event=placement-decision outcome=Submitted");
+                BetterUnturnedExperience.Plugin.BueRuntimeLog.Runtime("event=preview-evaluated state=Candidate");
+                Assert(recorded.Count == 3,
+                    "runtime verbosity: runtime events record all three");
+                Assert(recorded[0].IndexOf("Debug") >= 0 && recorded[1].IndexOf("Debug") >= 0 &&
+                    recorded[2].IndexOf("Debug") >= 0,
+                    "runtime verbosity: runtime events are emitted at Debug level (silent by default)");
+
+                recorded.Clear();
+                BetterUnturnedExperience.Plugin.BueRuntimeLog.Load("event=hooks-installed");
+                BetterUnturnedExperience.Plugin.BueRuntimeLog.Load("event=surface-context-dispatched");
+                Assert(recorded.Count == 2 && recorded[0].IndexOf("Info") >= 0 && recorded[1].IndexOf("Info") >= 0,
+                    "runtime verbosity: load one-shots are emitted at Info level");
+
+                recorded.Clear();
+                BetterUnturnedExperience.Plugin.BueRuntimeLog.Error("event=diagnostic-failure reason=cleanup-incomplete");
+                Assert(recorded.Count == 1 && recorded[0].IndexOf("Error") >= 0 &&
+                    recorded[0].IndexOf("cleanup-incomplete") >= 0,
+                    "runtime verbosity: errors are emitted at Error level WITH reason, never swallowed");
+
+                // Error must pass even when the verbosity gate is off (default).
+                recorded.Clear();
+                BetterUnturnedExperience.Plugin.BueRuntimeLog.Error("event=projection-timed-out reason=timeout");
+                Assert(recorded.Count == 1 && recorded[0].IndexOf("Error") >= 0,
+                    "runtime verbosity: ERROR_ALWAYS is not swallowed by the runtime-silent gate");
+            }
+            finally
+            {
+                BetterUnturnedExperience.Plugin.BueRuntimeLog.Recorder = previous;
             }
         }
 
