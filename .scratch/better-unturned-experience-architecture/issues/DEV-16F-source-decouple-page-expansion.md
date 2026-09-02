@@ -1,7 +1,7 @@
 # DEV-16F：增强拖入拿起源解耦 + 目标页扩展（VEST/SHIRT/PANTS）
 
 Type: task
-Status: resolved（已实现、双轴审查 CLEAN、提交；待实机三环境复测）
+Status: closed（人工验收通过 + 三环境日志审计确认无阻断；2026-09-02 关闭）
 Parent: 04：DEV-16D 拖拽预览、真实图标、原生提交与投影收敛
 Blocked by: DEV-16E（已解除 —— DEV-16E 已三环境资格关闭，本工单独立实现）
 
@@ -108,4 +108,20 @@ dragSourcePassThrough = !IsSupportedEnhancedPage(source.Page);
 - [x] 红测先红后绿：`--dev16f-area-source-red` / `--dev16f-equip-source-red` 修复前 exit 1 → 修复后 exit 0。
 - [x] Release 构建 0/0；七项目测试全 PASS；UI token 扫描零命中；`git diff --check` 通过。
 - [x] research 裁定：AREA 源与装备槽源均可安全增强；无 vanilla 回归风险（BUE 判 Pass-Through 时转发原生 handler）。
-- [ ] 待实机复测确认（R2 交付后）：地面拿起→网格、热键栏拿起→网格、AREA 拖出不变、装备槽目标不变。
+- [x] 实机复测确认（R2 交付后 2026-09-02）：地面拿起→网格、热键栏拿起→网格、AREA 拖出不变、装备槽目标不变 —— 用户在单人、本地联机、U3DS 三环境人工验收通过，功能无异常。
+
+## 2026-09-02 关闭记录（三环境日志审计 + 人工验收）
+
+- [x] 三环境实机日志审计（`audit/2026-09-02/DEV-16F/DEV-16F-three-env-log-audit-20260902.md`）：
+  - 本地主机（203220）✅ 干净：R2 哈希一致、接线全 enabled、增强拖拽 `Submitted`、无异常。
+  - U3DS 客户端（203552）✅ 干净：9 次拖拽全 `enhanced=True`、8 次 `Submitted`、无 Isolate/BootstrapFailed。
+  - U3DS 服务器 ✅ 干净：`decision=Headless`、同哈希、严格无头（无客户端 UI/Hook）。
+  - 本地客机（203145）⚠️ 日志被误启动覆盖（陈旧快照、无 BUE 行）——用户人工确认客机功能正常。
+- [x] 无任何代码级阻断缺陷（无崩溃、无 Isolate、无 BootstrapFailed、无 DEV-15D-CLEANUP-INCOMPLETE）。
+- [x] R2 源门（0-8）不回归：U3DS 客户端 8 次 `Submitted` 全部必经 `IsEnhancedSourcePage(page <= AREA)`，无 `enhanced=False` 整段逃跑。
+- [x] 人工验收通过（用户 2026-09-02：单人 + 本地联机 + U3DS 三环境功能无异常）。
+- [x] 关闭。已列名可延后项（非阻断，供未来发布门禁参考）：
+  1. 本地客机（SteamP2P Client）独立 BUE 日志缺失（日志事故覆盖；已由人工验收 + 环境 2/3 双端覆盖代替）。
+  2. `drag-started` 未打印 sourcePage，AREA(8)→TakeGroundItem 与装备槽(0/1)→SendDragItem 的实机命中无法从日志文本直接区分（自动化红测已覆盖两条路径 seam）。
+  3. 切片 B 目标页 4/5/6/7 未在日志中作为真实放置目标提交（主机日志有 page 4/6 surface dispatch；实机验证以人工验收为准）。
+- [x] 发布授权边界：本关闭为功能验收关闭，不自动授予发布/Stable 授权；发布仍按 real-machine-test-loop.md 由人工批准。
