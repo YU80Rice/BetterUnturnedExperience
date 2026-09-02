@@ -85,3 +85,15 @@ R5 实机（`UMM-诊断包_20260902_085838`，部署 R4 edgefix `3AF8DC...`）�
 - 双轴独立审查：Standards CLEAN / Spec CLEAN（可延后项：`rotation` 参数未用、`ProjectAxis` 与 `Project` 重复、测试红声明注释校正——DEV-16E 轮消解）。
 - 交付物：`audit/2026-09-02/BetterUnturnedExperience-DIAG-R13SILENCE-r5-band-20260902.dll`（sha256 `CC8BC4831AF9F5CE78BFACEC1797655E83AF748FF18A5790448ADE04B6470296`），交付报告 `audit/2026-09-02/Delivery-DEV16D-R13-R7-BAND-20260902.md`，哈希记录 `audit/2026-09-02/r7-band-dll-sha256.txt`。
 - 实机复测判读矩阵见交付报告 §6；待用户实机确认后关闭 R7 支线并进入 DEV-16E 资格轮（届时清理 `[DEBUG-]`）。
+
+### 2026-09-02 决议修订 2（R6 实机反馈 → grabOffset 当前空间契约修复）
+
+R7-BAND（r5-band `CC8BC4...`）实机复测（`UMM-诊断包_20260902_124432`）确认边缘感应带生效，但暴露：**已横放非方形物品（武士刀 1×3）再次抓取时强化预放置渲染完全消失，按 R 转竖后恢复**（背包/后备箱/储物箱 100% 复现）。
+
+根因（日志 gen 3 vs gen 5）：spec §2 `grabOffsetInFootprint` 为**当前旋转 footprint 空间**，adapter 读原生 `dragPivot`（原生 `updatePivot` 已按当前 rot 变换）交付的正是当前空间值；但 `TryCreateCandidateInput`/`TryGetIconScreenPosition`/`TryGetNativeIconPlacement` 把它当 base（rot0）坐标系二次旋转——横武士刀 `baseGrabX=1.48 > baseWidth=1` → `TryRotateGrabOffset` false → presenter 持续 `HidePreview()` → 无渲染。竖武士刀 rot=0 时 base==current 碰巧一致。
+
+修复（`61737df`）：`TryCreateCandidateInput` 用 `(rotation & 1)` 推导 footprint 并**按给定值使用 grabOffset**（当前空间，闭区间校验）；两个图标方法从当前 footprint 出发按 `delta=(targetRotation-currentRotation)&3` 相对旋转。
+
+红测：新增 `--dev16d-r13-rotgrab-red`（横武士刀 rot=1 grab (1.48,0.2) 到达 candidate seam），修复前红（stash 验证 exit 1）/ 修复后绿；ClientUi 三测试期望更新为 spec §2 当前空间数学。全量验证：Release 0/0、七项目全 PASS、R13 16/16、UI token 0、diff-check 0。双轴审查：Standards CLEAN / Spec CLEAN。
+
+交付物：`audit/2026-09-02/BetterUnturnedExperience-DIAG-R13SILENCE-r6-rotgrab-20260902.dll`（sha256 `6ABB7E0D930D5560EFE46F27A5058DF9F7000A2EC0DB3CF4E08B94CD2AF3615C`），交付报告 `audit/2026-09-02/Delivery-DEV16D-R13-R7-ROTGRAB-20260902.md`，哈希记录 `audit/2026-09-02/r7-rotgrab-dll-sha256.txt`。实机复测判读矩阵见交付报告 §7。

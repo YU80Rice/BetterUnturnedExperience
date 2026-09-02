@@ -1,0 +1,9 @@
+CandidateBuild: DEV-16D-R13-R7-ROTGRAB-20260902
+CaseId: DEV-16D-R13-R7-ROTGRAB-20260902
+Kind: current-space grab-offset fix (rotgrab) + retained diagnostic instrumentation
+SourceSnapshotId: 61737df (rotgrab fix, on top of 5152867)
+SourceDll: src/BetterUnturnedExperience.Plugin/bin/Release/BetterUnturnedExperience.dll
+ArchivedDll: audit/2026-09-02/BetterUnturnedExperience-DIAG-R13SILENCE-r6-rotgrab-20260902.dll
+SizeBytes: 237056
+SHA256: 6ABB7E0D930D5560EFE46F27A5058DF9F7000A2EC0DB3CF4E08B94CD2AF3615C
+Review: Standards CLEAN / Spec CLEAN (independent subagents, 2026-09-02)
