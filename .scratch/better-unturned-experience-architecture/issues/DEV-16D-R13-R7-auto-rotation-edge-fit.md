@@ -1,7 +1,7 @@
 # DEV-16D-R13-R7: 自动旋转空位边缘贴边（Auto-Rotation Edge-Fit）
 
 Type: task
-Status: resolved
+Status: claimed
 Blocked by: None（阻塞边已于 2026-09-01 由用户确认为 (b)，见下）
 
 ## 父工单 / 背景
@@ -54,3 +54,23 @@ Blocked by: None（阻塞边已于 2026-09-01 由用户确认为 (b)，见下）
 - 双轴独立审查：Standards CLEAN / Spec CLEAN（可延后项：右边界测试镜像块可折叠；障碍挡出边界路径已实现但本轮红测未直接覆盖——Spec 轴 traced 确认逻辑正确）。
 - 交付物：`audit/2026-09-01/artifacts/BetterUnturnedExperience-DIAG-R13SILENCE-r4-edgefix-20260901.dll`（sha256 `3AF8DCABBC2467ACD82A809966EEA6E8D9ABF650F65FC7ED1601219C1B211E1F`），交付报告 `audit/2026-09-01/Delivery-DEV16D-R13-R7-EDGEFIX-20260901.md`，哈希记录 `audit/2026-09-01/r7-edgefix-dll-sha256.txt`。
 - 实机复测判读矩阵见交付报告 §6；待用户实机确认后关闭 R7 支线并进入 DEV-16E 资格轮（届时清理 `[DEBUG-]`）。
+
+### 2026-09-02 决议修订（R5 实机反馈 → edge-rot 升级为边缘感应带）
+
+R5 实机（`UMM-诊断包_20260902_085838`，部署 R4 edgefix `3AF8DC...`）复现：单列 `LongSideHugsEdge` 触发过窄、横武士刀经 edge-rot 转横后重抓（`dragJar.rot=1`）使阶梯①在开阔区永久锁死横向（"单向粘滞"）。经 `/grill-with-docs` 拍板（Q-A~Q-D + Q1-Q6，完整决议见 `docs/adr/0003-bue-auto-rotation-edge-fit-decision.md` Revision 2026-09-02）：
+
+1. 拒绝全局 BaseRotation 记忆（几何/边缘引力驱动）；
+2. edge-rot 升级为**边缘感应带**：带宽 `band(dim)=clamp(1.0, dim*0.15, 2.0)`，按轴独立（竖向带用 `containerWidth`，横向带用 `containerHeight`）；
+3. 角落重叠区保持当前姿态，重叠区外平滑接管；
+4. 光标坐标触发 + 物理容纳守卫（`rotatedFitsGrid && Fits`）；
+5. 提交持久化保持（松手用预览 `Candidate.Rotation`）；
+6. **D2 红线保持**：开阔正中部严格保持当前方向，`--dev16d-r13-symrot-wide-red` 断言**不翻转**；
+7. 障碍边界引力保留（前序物品充当"人造侧壁"并排竖放）。
+
+**红测清单（修订后）**：
+- `--dev16d-r13-symrot-red`（窄缝转竖）保持绿；
+- `--dev16d-r13-symrot-wide-red`（D2 守卫：开阔中部保持横）保持断言不翻转；
+- `--dev16d-r13-edge-rot-red`（左/右壁感应带转竖）保留并扩为感应带断言；
+- **新增** `--dev16d-r13-corner-lift-red`（左下角横武器上提离开底带进入左带 → 转竖贴左壁）。
+
+**下一步**：实现边缘感应带（光标坐标判定 + 容纳守卫），使 `corner-lift-red` 红→绿、`edge-rot-red` 扩带后保持绿；随后 output-review-loop 全量验证 + 双轴审查 CLEAN 后归档交付。

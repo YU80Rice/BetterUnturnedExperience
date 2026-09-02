@@ -67,4 +67,18 @@ R4 实机（背包 5×7 / 后备箱 6×3，`UMM-诊断包_20260901_223854`）复
 
 关联：本决议是 Local-Fit Priority 的受控扩展；`CONTEXT.md` 词汇"自动旋转"定义不变。回归锚定红测见 `tests/BetterUnturnedExperience.Plugin.Tests` 的 `--dev16d-r13-symrot-red` / `--dev16d-r13-symrot-wide-red` / `--dev16d-r13-edge-rot-red`。
 
+### 2026-09-02 人工开发者决议（R5 实机反馈 → edge-rot 升级为边缘感应带）
+
+R5 实机（`UMM-诊断包_20260902_085838`，部署 R4 edgefix `3AF8DC...`）复现：单列 `LongSideHugsEdge`（`x==0`/`y==0`）触发过窄，且横武士刀一旦经 edge-rot 转横、重抓后 `dragJar.rot=1` 使阶梯①在开阔区永久锁死横向（"单向粘滞"）。经前端交互实测与三角洲收纳机制对比，人工开发者经 `/grill-with-docs` 拍板（Q-A~Q-D + Q1-Q6，完整记录见 `docs/adr/0003-bue-auto-rotation-edge-fit-decision.md` Revision 2026-09-02）：
+
+1. **拒绝全局 BaseRotation 记忆**：朝向切换 = 几何空间与边缘引力驱动，非历史记忆驱动。
+2. **边缘感应带**：带宽 `band(dim)=clamp(1.0, dim*0.15, 2.0)` 格，按轴独立（竖向带用 `containerWidth`，横向带用 `containerHeight`）。
+3. **角落裁决**：重叠区保持当前进入姿态，重叠区外平滑接管（"往上一提立起，往下一拉躺平"）。
+4. **判定基准**：光标网格坐标触发 + 物理容纳守卫（`rotatedFitsGrid && Fits`）。
+5. **提交持久化保持**：松手用预览 `Candidate.Rotation`。
+6. **D2 红线保持**：开阔正中部严格保持当前方向；`--dev16d-r13-symrot-wide-red` 断言不翻转。
+7. **障碍边界引力保留**：`RowFullyBlocked`/`ColumnFullyBlocked` 空位边界与容器外壁等价，允许前序物品充当"人造侧壁"并排竖放。
+
+回归锚定红测：`--dev16d-r13-symrot-wide-red`（D2 守卫保持绿）、`--dev16d-r13-edge-rot-red`（扩为感应带断言）、`--dev16d-r13-corner-lift-red`（新增，左下角上提转竖贴左壁）。
+
 

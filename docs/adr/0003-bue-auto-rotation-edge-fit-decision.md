@@ -34,9 +34,23 @@ R4 实机复测暴露一个新用户体验问题：**武士刀（1×3）在"竖�
 
 此修订由人工开发者 /grill-me 澄清（Q10 "拖到可放置栏位的边缘也可以旋转，长边贴边" + 方案 A 选择）后确认，替换原 Q13=(a) 的"仅在放不下时参与"表述。
 
+## Revision 2026-09-02（edge-rot → 边缘感应带，实机反馈驱动）
+
+R4/R5 实机测试（`UMM-诊断包_20260902_085838`）暴露单列 `LongSideHugsEdge` 触发过窄与"单向粘滞"体验问题。经前端交互实测与三角洲收纳机制对比，人工开发者经 `/grill-with-docs` 拍板（Q-A~Q-D + Q1-Q6）：
+
+1. **拒绝全局 BaseRotation 记忆（D-A）**：朝向切换由**几何空间与边缘引力驱动**，而非历史记忆驱动；物品拿起时以当前姿态进入开阔区。
+2. **edge-rot 升级为边缘感应带（D-B + Q1/Q5）**：带宽 `band(dim) = clamp(1.0, dim * 0.15, 2.0)` 格；竖向感应带（左/右壁）用 `containerWidth`，横向感应带（上/下壁）用 `containerHeight`——**按轴独立**。≤6 列容器=1.0 格，13×13 大背包≈1.5-2.0 格。
+3. **角落裁决（Q2）**：重叠区（同时处于竖向带与横向带）保持当前进入姿态（防抖动）；重叠区外由感应带平滑接管——实现"往上一提立起，往下一拉躺平"。
+4. **判定基准（Q3）**：**光标网格坐标**触发意图 + **物理容纳守卫**（`rotatedFitsGrid && Fits(rotatedX,...)`）——放不下绝不盲目翻转。
+5. **提交持久化保持（D-C）**：松手用预览 `Candidate.Rotation`，所见即所得。
+6. **D2 红线保持（D-D/Q4）**：开阔正中部（远离感应带）严格保持当前方向，`--dev16d-r13-symrot-wide-red` 断言**不翻转**；红测变更点 = "左下角上提转竖贴左壁"（新增 corner-lift 用例）。
+7. **障碍边界引力保留（Q6）**：`RowFullyBlocked`/`ColumnFullyBlocked` 挡出的空位边界与容器外壁等价——前序物品充当"人造侧壁"，后续武器可并排竖放。
+
+实现契约：`PlacementCandidateEvaluator` 用光标坐标计算感应带命中 + 容纳守卫；红测三件套 = `symrot-wide-red`（D2 守卫保持绿）、`edge-rot-red`（扩为感应带断言）、`corner-lift-red`（新增）。
+
 ## Consequences
 
 - 正面：满足人工开发者"横武士刀拖回竖位应能自动转回竖"的对称直觉，同时不重开 `12-item-placement-algorithm.md` 已否决的空地蠕动问题；判定保持无状态、热路径零分配。
 - 代价：`PlacementCandidateEvaluator` 需新增"空位区域边缘"检测与"长边贴边"方向选择逻辑；边缘定义（被障碍挡出的空位边界）需要在 evaluator seam 上做可测实现与判定。
 - 门禁：本轮红测/实现/审查遵循 `docs/agents/real-machine-test-loop.md` 与 `docs/agents/output-review-loop.md`；实机确认"松手方向正确、窄缝自动转竖、宽区不蠕动"后才关闭 DEV-16D-R13-R6 支线。
-- 关联 spec：`12-item-placement-algorithm.md` 冻结 Local-Fit Priority 的阶梯语义不变，本次仅扩展阶梯②的"放不下"判定场景（加入空位区域边缘）；`CONTEXT.md` 词汇"自动旋转"定义不变。
+- 关联 spec：`12-item-placement-algorithm.md` 冻结 Local-Fit Priority 的阶梯语义不变，本次仅扩展阶梯②的"放不下"判定场景（加入空位区域边缘）；`CONTEXT.md` 词汇"自动旋转"已修订为几何/边缘引力驱动，并新增"边缘感应带""边缘引力""开阔中部保持方向"词条。
