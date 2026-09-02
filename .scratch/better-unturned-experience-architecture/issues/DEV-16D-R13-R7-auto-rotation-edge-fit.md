@@ -1,7 +1,7 @@
 # DEV-16D-R13-R7: 自动旋转空位边缘贴边（Auto-Rotation Edge-Fit）
 
 Type: task
-Status: claimed
+Status: resolved
 Blocked by: None（阻塞边已于 2026-09-01 由用户确认为 (b)，见下）
 
 ## 父工单 / 背景
@@ -74,3 +74,14 @@ R5 实机（`UMM-诊断包_20260902_085838`，部署 R4 edgefix `3AF8DC...`）�
 - **新增** `--dev16d-r13-corner-lift-red`（左下角横武器上提离开底带进入左带 → 转竖贴左壁）。
 
 **下一步**：实现边缘感应带（光标坐标判定 + 容纳守卫），使 `corner-lift-red` 红→绿、`edge-rot-red` 扩带后保持绿；随后 output-review-loop 全量验证 + 双轴审查 CLEAN 后归档交付。
+
+## Answer（R7-BAND 2026-09-02）
+
+已实现并交付：
+- 决议冻结 `135be62`：CONTEXT 词汇（边缘感应带/边缘引力/开阔中部保持方向）+ ADR-0003 Rev 2026-09-02 + spec §11 + 工单重开（claimed）。
+- 实现提交 `576cbed`：`PlacementCandidateEvaluator` 新增 `TryEdgeBandCandidate`（光标坐标触发、band=clamp(1.0,dim*0.15,2.0) 按轴独立、角落重叠保持、物理容纳守卫、D2 开阔中部保持横）+ `BandForDimension`/`ProjectAxis` helper；Q6 障碍边界引力保留为 fallback。
+- 红测状态：`--dev16d-r13-corner-lift-red`（左下角保持/上提转竖/下拉回横/13×13 左带 X==0）红→绿；`--dev16d-r13-edge-rot-red`（扩为感应带）、`--dev16d-r13-symrot-red`（窄缝）、`--dev16d-r13-symrot-wide-red`（D2 守卫，断言未翻转）保持绿。
+- 全量验证：Release 0/0、七项目全 PASS（含 Placement.Tests 零分配）、R13 定向 15/15、UI token 0、diff-check 0。
+- 双轴独立审查：Standards CLEAN / Spec CLEAN（可延后项：`rotation` 参数未用、`ProjectAxis` 与 `Project` 重复、测试红声明注释校正——DEV-16E 轮消解）。
+- 交付物：`audit/2026-09-01/artifacts/BetterUnturnedExperience-DIAG-R13SILENCE-r5-band-20260902.dll`（sha256 `CC8BC4831AF9F5CE78BFACEC1797655E83AF748FF18A5790448ADE04B6470296`），交付报告 `audit/2026-09-01/Delivery-DEV16D-R13-R7-BAND-20260902.md`，哈希记录 `audit/2026-09-01/r7-band-dll-sha256.txt`。
+- 实机复测判读矩阵见交付报告 §6；待用户实机确认后关闭 R7 支线并进入 DEV-16E 资格轮（届时清理 `[DEBUG-]`）。
