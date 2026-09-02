@@ -826,7 +826,6 @@ namespace BetterUnturnedExperience.Plugin
             Action<byte> discardPageDispatcher = null)
         {
             this.log = log;
-            staticLog = log;
             this.openDispatcher = openDispatcher ?? throw new ArgumentNullException(nameof(openDispatcher));
             this.closeDispatcher = closeDispatcher ?? throw new ArgumentNullException(nameof(closeDispatcher));
             this.isolateDispatcher = isolateDispatcher;
@@ -958,28 +957,15 @@ namespace BetterUnturnedExperience.Plugin
 
         internal static void PlayerUIUpdatePostfix()
         {
-            // GPT watermark: count the Harmony callback before the null gate so
+            // GPT watermark: route the Harmony callback to the guarded poll so
             // a dead/isolated adapter is distinguishable from a missing patch.
-            var aliveTick = ++playerUiUpdatePostfixTick;
             var adapter = ActiveAdapter;
             if (adapter == null || adapter.isolated)
             {
-                if (aliveTick % 120 == 0)
-                    staticLog?.LogInfo("[DEBUG-SURF] event=postfix-alive target=PlayerUI.Update count=" + aliveTick
-                        + " reason=" + DescribeAdapterGate(adapter != null, adapter != null && adapter.isolated)
-                        + " diagnosticId=BUE-DIAG-SURF-003");
                 return;
-            }
-            if (aliveTick % 120 == 0)
-            {
-                adapter.Log?.LogInfo("[DEBUG-SURF] event=postfix-alive target=PlayerUI.Update count=" + aliveTick
-                    + " diagnosticId=BUE-DIAG-SURF-003");
             }
             adapter.RunGuardedPoll();
         }
-
-        private static int playerUiUpdatePostfixTick;
-        private static BepInEx.Logging.ManualLogSource staticLog;
 
         private void RunGuardedPoll()
         {
@@ -1023,8 +1009,6 @@ namespace BetterUnturnedExperience.Plugin
             catch (Exception error)
             {
                 LastPollDiagnostics = "poll failed: " + error.GetType().FullName + ": " + error.Message;
-                staticLog?.LogInfo("[DEBUG-SURF] event=poll-exception errorType=" + error.GetType().FullName
-                    + " message=" + error.Message + " diagnosticId=BUE-DIAG-SURF-004");
                 var cleanupSucceeded = InventoryDragPreviewAdapter.FailClosedPreviewResult(isolate, hide);
                 if (!cleanupSucceeded && !string.IsNullOrEmpty(InventoryDragPreviewAdapter.LastCleanupDiagnostics))
                 {
@@ -1070,16 +1054,6 @@ namespace BetterUnturnedExperience.Plugin
             return "no-active-session reason=generation-unknown";
         }
 
-        private int lastSilenceLogTick;
-
-        private void LogSilenceOncePerTwoSeconds(string message)
-        {
-            var now = Environment.TickCount;
-            if (now - lastSilenceLogTick < 2000) return;
-            lastSilenceLogTick = now;
-            log?.LogInfo(message);
-        }
-
         internal void Poll()
         {
             var player = Player.LocalPlayer;
@@ -1097,9 +1071,6 @@ namespace BetterUnturnedExperience.Plugin
 
             if (!tracker.TryGetActiveGeneration(out var generation))
             {
-                LogSilenceOncePerTwoSeconds("[DEBUG-SURF] event=poll-silent reason="
-                    + DescribeNoActiveSession(dashboardActive, isStoring, isStorageTrunk, connected, tracker.HasActiveSession)
-                    + " diagnosticId=BUE-DIAG-SURF-001");
                 if (dispatchedSurfaces.Count > 0)
                 {
                     DiscardAllDispatchedSurfaces("session-closed");
@@ -1136,10 +1107,6 @@ namespace BetterUnturnedExperience.Plugin
                 }
                 if (!liveSurfaceReady)
                 {
-                    LogSilenceOncePerTwoSeconds("[DEBUG-SURF] event=poll-silent reason=hierarchy-not-ready"
-                        + " page=" + page + " hierarchy=" + hierarchyState
-                        + " hasSleekItems=" + (liveNativeItems != null)
-                        + " diagnosticId=BUE-DIAG-SURF-002");
                     continue;
                 }
                 if (dispatchedSurfaces.ContainsKey(page) && dispatched != null && dispatched.Generation == generation)
