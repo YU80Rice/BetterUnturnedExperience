@@ -146,6 +146,16 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     AssertDev16FEquipSlotSourceReachesCandidateSeam();
                     return 0;
                 }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--logging-gate-red")
+                {
+                    AssertLoggingSurfaceReadinessGate();
+                    return 0;
+                }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--logging-failure-red")
+                {
+                    AssertLoggingFailureEmission();
+                    return 0;
+                }
                 AssertSingleDllAssemblyClosure();
                 AssertExternalSdkAssemblyIdentity();
                 Assert(BootstrapGuard.Decide(false, false, true) == BootstrapDecision.Client, "client decision");
@@ -209,6 +219,8 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 AssertDev16FTargetVestEnhancedPreview();
                 AssertDev16FAreaSourceReachesCandidateSeam();
                 AssertDev16FEquipSlotSourceReachesCandidateSeam();
+                AssertLoggingSurfaceReadinessGate();
+                AssertLoggingFailureEmission();
                 AssertRuntimeCompletionBarrierIsolates();
                 AssertManagementPanelConsumesRuntimeCatalog();
                 AssertManagementPanelOpenHooks();
@@ -1112,6 +1124,103 @@ namespace BetterUnturnedExperience.Plugin.Tests
             Assert(component.LastPreview.State == PlacementPreviewState.Candidate,
                 "equip source: hotbar slot pickup reaches the candidate seam on BACKPACK(3)");
             component.OnInventoryClosed();
+        }
+
+        // GPT watermark: DEV-16G slice A red regression. surface-not-ready was
+        // emitted EVERY frame for every 0x0 page (97.3% of all BUE log lines —
+        // ~13,768 lines in a single real session). The fix introduces a
+        // per-page readiness state tracker: a page that stays in the same
+        // state must be SILENT; only a state TRANSITION emits one line
+        // (not-ready -> ready logs "loaded grid=WxH", ready -> not-ready logs
+        // "failed reason=<reason>"). This red test drives the seam that does
+        // not exist yet (compile goes red until the gate lands).
+        private static void AssertLoggingSurfaceReadinessGate()
+        {
+            var gate = new InventorySurfaceLifecycleAdapter.SurfaceReadinessGate();
+
+            string line1;
+            string line2;
+            string line3;
+            string line4;
+
+            // Page 4 starts not-ready. First observation of an unchanged
+            // not-ready state must be silent (no flood on every frame).
+            Assert(!gate.Observe(4, false, "scroll-viewport-not-laid-out", out line1),
+                "readiness gate: first not-ready frame is silent (no per-frame flood)");
+
+            // Same page, same not-ready state, next frame — still silent.
+            Assert(!gate.Observe(4, false, "scroll-viewport-not-laid-out", out line2),
+                "readiness gate: repeated not-ready frames stay silent");
+
+            // Page becomes ready — transition fires a "loaded" line once.
+            Assert(gate.Observe(4, true, null, out line3),
+                "readiness gate: not-ready -> ready transition emits one line");
+            Assert(line3 != null && line3.IndexOf("page=4") >= 0 && line3.IndexOf("ready") >= 0,
+                "readiness gate: ready transition names the page and ready state");
+
+            // Page goes back to not-ready — transition fires a "failed, reason" line.
+            Assert(gate.Observe(4, false, "native-hierarchy-incomplete", out line4),
+                "readiness gate: ready -> not-ready transition emits one line");
+            Assert(line4 != null && line4.IndexOf("page=4") >= 0 && line4.IndexOf("native-hierarchy-incomplete") >= 0,
+                "readiness gate: failed transition carries the not-ready reason");
+
+            // Pages are independent: page 5 not-ready is silent even though page 4 just fired.
+            string line5;
+            Assert(!gate.Observe(5, false, "scroll-viewport-not-laid-out", out line5),
+                "readiness gate: per-page state is independent (page 5 silent)");
+
+            // Page 4 stays not-ready after its transition — silent again.
+            string line6;
+            Assert(!gate.Observe(4, false, "native-hierarchy-incomplete", out line6),
+                "readiness gate: post-transition not-ready frames are silent");
+        }
+
+        // GPT watermark: DEV-16G slice B red regression. The rich failure
+        // reasons (LastPollDiagnostics / LastCleanupDiagnostics / Describe*)
+        // are built but NEVER emitted in production — a mid-session isolation
+        // leaves no one-shot "xxx failed, reason: yyy" line. The fix routes
+        // these through a static emission seam (EmitDiagnosticOnce) so a
+        // real failure is logged exactly once. This red test drives the seam
+        // that does not exist yet.
+        private static void AssertLoggingFailureEmission()
+        {
+            var emitted = new System.Collections.Generic.List<string>();
+            var previous = InventoryDragPreviewAdapter.DiagnosticLogSink;
+            InventoryDragPreviewAdapter.DiagnosticLogSink = line => emitted.Add(line);
+            try
+            {
+                // Simulate a real failure path: cleanup incomplete must emit
+                // exactly one one-shot diagnostic line carrying the reason.
+                InventoryDragPreviewAdapter.ReportCleanupIncomplete("placed-item");
+                Assert(emitted.Count == 1,
+                    "failure emission: cleanup incomplete emits exactly one one-shot line");
+                Assert(emitted[0].IndexOf("CleanupIncomplete") >= 0 &&
+                    emitted[0].IndexOf("placed-item") >= 0,
+                    "failure emission: emitted line carries the cleanup reason");
+            }
+            finally
+            {
+                InventoryDragPreviewAdapter.DiagnosticLogSink = previous;
+            }
+
+            var gateEmitted = new System.Collections.Generic.List<string>();
+            var previousGate = InventorySurfaceLifecycleAdapter.DiagnosticLogSink;
+            InventorySurfaceLifecycleAdapter.DiagnosticLogSink = line => gateEmitted.Add(line);
+            try
+            {
+                // Surface no-active-session reason must be reachable as a
+                // one-shot emitted line (the lifecycle silent-return reason).
+                var reason = InventorySurfaceLifecycleAdapter.DescribeNoActiveSession(
+                    dashboardActive: false, isStoring: false, isStorageTrunk: false,
+                    connected: false, hasActiveSession: false);
+                InventorySurfaceLifecycleAdapter.EmitDiagnosticOnce(reason);
+                Assert(gateEmitted.Count == 1 && gateEmitted[0].IndexOf("no-active-session") >= 0,
+                    "failure emission: surface no-active-session reason is emitted once");
+            }
+            finally
+            {
+                InventorySurfaceLifecycleAdapter.DiagnosticLogSink = previousGate;
+            }
         }
 
         private static TestSurfaceContext CreateTestSurface(ContainerKind kind, byte page, uint generation)

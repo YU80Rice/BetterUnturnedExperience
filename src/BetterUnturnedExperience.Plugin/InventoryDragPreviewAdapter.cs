@@ -111,6 +111,10 @@ namespace BetterUnturnedExperience.Plugin
                     postfix: new HarmonyMethod(typeof(InventoryDragPreviewAdapter), nameof(DashboardUpdatePostfix)));
                 hooksInstalled = true;
                 ActiveAdapter = this;
+                // DEV-16G slice B: bind the one-shot failure sink to this
+                // adapter's BepInEx log source so runtime isolations emit a
+                // "reason:" line exactly once.
+                DiagnosticLogSink = line => log?.LogWarning("[BUE-DRAG] event=diagnostic-failure " + line + " diagnosticId=BUE-DRAG-003");
                 log?.LogInfo("[BUE-DRAG] event=hooks-installed targets=updateDraggedItem diagnosticId=BUE-DRAG-001");
             }
             catch (Exception error)
@@ -447,11 +451,35 @@ namespace BetterUnturnedExperience.Plugin
             LastCleanupDiagnostics = BuildCleanupIncompleteDiagnostics(stage,
                 "errorType=" + error.GetType().FullName + " message=" + error.Message);
             LastPollDiagnostics = stage + " cleanup failed: " + error.GetType().FullName + ": " + error.Message;
+            EmitDiagnosticOnce(LastCleanupDiagnostics);
         }
 
         internal static void ReportCleanupIncomplete(string stage)
         {
             LastCleanupDiagnostics = BuildCleanupIncompleteDiagnostics(stage, "result=false");
+            EmitDiagnosticOnce(LastCleanupDiagnostics);
+        }
+
+        // GPT watermark: DEV-16G slice B. Static one-shot diagnostic emission
+        // seam shared with InventorySurfaceLifecycleAdapter. Production binds a
+        // BepInEx log writer during Activate; tests swap in a recorder to
+        // assert a real failure emits its "reason:" line. "Once" here means one
+        // line per failure stage (a compound failure may emit one line per
+        // stage); the terminal isolation guard keeps the total bounded.
+        internal static System.Action<string> DiagnosticLogSink = null;
+
+        internal static void EmitDiagnosticOnce(string line)
+        {
+            if (string.IsNullOrEmpty(line)) return;
+            var sink = DiagnosticLogSink;
+            if (sink != null)
+            {
+                sink(line);
+                return;
+            }
+            // No bound sink in this host (headless / test): the line is still
+            // retained in LastCleanupDiagnostics for runtime consumption (the
+            // IsolateAndDispatch guard and InvokePollGuarded append read it).
         }
 
         private static string BuildCleanupIncompleteDiagnostics(string stage, string detail)

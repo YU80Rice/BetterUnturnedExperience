@@ -810,6 +810,93 @@ namespace BetterUnturnedExperience.Plugin
         private static readonly byte[] SupportedSurfacePages =
             { HandsPage, BackpackPage, VestPage, ShirtPage, PantsPage, StoragePage };
 
+        // GPT watermark: DEV-16G slice A. Per-page readiness state tracker that
+        // converts the old per-frame `surface-not-ready` flood into one-shot
+        // state-transition lines. A page that stays in the same readiness state
+        // is SILENT every frame; only a transition emits one line:
+        //   not-ready -> ready: "event=surface-ready page=N"
+        //   ready -> not-ready: "event=surface-not-ready page=N reason=<reason>"
+        // The gate is pure C# (no Unity), so host tests drive it directly; the
+        // production Poll feeds each page's observed readiness each frame.
+        internal sealed class SurfaceReadinessGate
+        {
+            private sealed class PageState
+            {
+                internal bool Ready;
+                internal bool HasObserved;
+            }
+
+            private readonly System.Collections.Generic.Dictionary<byte, PageState> states =
+                new System.Collections.Generic.Dictionary<byte, PageState>();
+
+            // Returns true when a state transition occurred (caller should log
+            // one line). logLine carries the ready/failed line to emit.
+            internal bool Observe(byte page, bool ready, string notReadyReason, out string logLine)
+            {
+                logLine = null;
+                PageState state;
+                if (!states.TryGetValue(page, out state))
+                {
+                    state = new PageState();
+                    states[page] = state;
+                }
+
+                if (!state.HasObserved)
+                {
+                    // First observation: seed the state WITHOUT emitting, so the
+                    // steady-state flood is silent from the start.
+                    state.Ready = ready;
+                    state.HasObserved = true;
+                    return false;
+                }
+
+                if (state.Ready == ready)
+                {
+                    return false;
+                }
+
+                state.Ready = ready;
+                if (ready)
+                {
+                    logLine = "[BUE-INVENTORY] event=surface-ready page=" + page
+                        + " diagnosticId=BUE-INVENTORY-001";
+                }
+                else
+                {
+                    logLine = "[BUE-INVENTORY] event=surface-not-ready page=" + page
+                        + " reason=" + (notReadyReason ?? "unknown")
+                        + " diagnosticId=BUE-INVENTORY-004";
+                }
+                return true;
+            }
+        }
+
+        // GPT watermark: DEV-16G slice B. Static diagnostic emission seam. The
+        // rich one-shot failure reasons (LastPollDiagnostics, Describe*) were
+        // built but never logged in production; this sink routes them to the
+        // BepInEx log per failure stage. Tests swap in a recorder to assert the
+        // line is emitted with the reason intact.
+        internal static System.Action<string> DiagnosticLogSink = null;
+
+        internal static void EmitDiagnosticOnce(string line)
+        {
+            if (string.IsNullOrEmpty(line)) return;
+            var sink = DiagnosticLogSink;
+            if (sink != null)
+            {
+                sink(line);
+                return;
+            }
+            // Production default: no-op unless an adapter binds its log source.
+            // Adapters set DiagnosticLogSink during Activate so runtime failures
+            // surface in the BepInEx log; the sink is a static seam kept
+            // separate from the per-instance log for testability.
+        }
+
+        // GPT watermark: DEV-16G slice A. Per-page readiness gate instance fed
+        // by Poll every frame; it emits only on state transitions.
+        private readonly SurfaceReadinessGate surfaceReadinessGate = new SurfaceReadinessGate();
+
         // GPT watermark: R13-3 page-local dispatch seam. Removing a rebuilt
         // page must preserve every other live native surface.
         internal static bool RemoveDispatchedSurfaceForPage<T>(
@@ -876,6 +963,10 @@ namespace BetterUnturnedExperience.Plugin
                 harmony.Patch(target, postfix: new HarmonyMethod(typeof(InventorySurfaceLifecycleAdapter), nameof(PlayerUIUpdatePostfix)));
                 hooksInstalled = true;
                 ActiveAdapter = this;
+                // DEV-16G slice B: bind the one-shot failure sink to this
+                // adapter's BepInEx log source so lifecycle isolations emit a
+                // "reason:" line exactly once.
+                DiagnosticLogSink = line => log?.LogWarning("[BUE-INVENTORY] event=diagnostic-failure " + line + " diagnosticId=BUE-INVENTORY-003");
                 log?.LogInfo("[BUE-INVENTORY] event=polling-hook-installed target=PlayerUI.Update diagnosticId=BUE-INVENTORY-001");
             }
             catch (Exception error)
@@ -1122,11 +1213,24 @@ namespace BetterUnturnedExperience.Plugin
                 // Shirt/Pants = 2..6) is PlayerInventory regardless of storage.
                 var kind = page == PlayerInventory.STORAGE
                     ? tracker.Kind : ContainerSessionKind.PlayerInventory;
-                var context = BuildSurfaceContext(kind, page, generation);
+                string notReadyReason;
+                var context = BuildSurfaceContext(kind, page, generation, out notReadyReason);
                 if (context == null)
                 {
-                    log?.LogInfo("[BUE-INVENTORY] event=surface-not-ready page=" + page + " diagnosticId=BUE-INVENTORY-004");
+                    // DEV-16G slice A: per-page readiness gate turns the old
+                    // per-frame surface-not-ready flood into one-shot
+                    // state-transition lines (silent while the state is stable).
+                    string gateLine;
+                    if (surfaceReadinessGate.Observe(page, false, notReadyReason, out gateLine) && gateLine != null)
+                    {
+                        log?.LogInfo(gateLine);
+                    }
                     continue;
+                }
+                string readyLine;
+                if (surfaceReadinessGate.Observe(page, true, null, out readyLine) && readyLine != null)
+                {
+                    log?.LogInfo(readyLine);
                 }
                 openDispatcher(context);
                 RememberDispatchedSurface(page, new DispatchedSurfaceState(generation, context.NativeItems,
@@ -1197,27 +1301,29 @@ namespace BetterUnturnedExperience.Plugin
                 scroll?.Parent, grid?.Parent, panel?.Parent);
         }
 
-        internal UnturnedInventorySurfaceContext BuildSurfaceContext(ContainerSessionKind kind, byte page, uint generation)
+        internal UnturnedInventorySurfaceContext BuildSurfaceContext(ContainerSessionKind kind, byte page, uint generation,
+            out string notReadyReason)
         {
+            notReadyReason = null;
             var player = Player.LocalPlayer;
-            if (player == null) return null;
+            if (player == null) { notReadyReason = "no-player"; return null; }
             var playerInventory = player.inventory;
-            if (playerInventory == null || playerInventory.items == null) return null;
-            if (page >= PlayerInventory.PAGES || playerInventory.items[page] == null) return null;
+            if (playerInventory == null || playerInventory.items == null) { notReadyReason = "no-inventory"; return null; }
+            if (page >= PlayerInventory.PAGES || playerInventory.items[page] == null) { notReadyReason = "no-items"; return null; }
 
-            if (UnturnedInventorySurfaceContext.DashboardItemsField == null) return null;
+            if (UnturnedInventorySurfaceContext.DashboardItemsField == null) { notReadyReason = "no-dashboard-field"; return null; }
             var dashboardItems = UnturnedInventorySurfaceContext.DashboardItemsField.GetValue(null) as Array;
             var dashboardIndex = page - PlayerInventory.SLOTS;
-            if (dashboardItems == null || dashboardIndex < 0 || dashboardIndex >= dashboardItems.Length) return null;
+            if (dashboardItems == null || dashboardIndex < 0 || dashboardIndex >= dashboardItems.Length) { notReadyReason = "no-dashboard-items"; return null; }
 
             var sleekItems = dashboardItems.GetValue(dashboardIndex) as SleekItems;
-            if (sleekItems == null) return null;
+            if (sleekItems == null) { notReadyReason = "no-sleek-items"; return null; }
 
             var dataItems = playerInventory.items[page];
             // A dashboard page can exist as a SleekItems object before its
             // native inventory has been populated (Storage is height=0 until
             // a container opens). It is not a live target surface yet.
-            if (dataItems.width == 0 || dataItems.height == 0) return null;
+            if (dataItems.width == 0 || dataItems.height == 0) { notReadyReason = "empty-grid"; return null; }
 
             var nativeScroll = UnturnedInventorySurfaceContext.NativeScrollField == null ? null : UnturnedInventorySurfaceContext.NativeScrollField.GetValue(sleekItems) as ISleekScrollView;
             var nativeGrid = UnturnedInventorySurfaceContext.NativeGridField == null ? null : UnturnedInventorySurfaceContext.NativeGridField.GetValue(sleekItems) as ISleekElement;
@@ -1227,10 +1333,10 @@ namespace BetterUnturnedExperience.Plugin
                     nativeScroll?.Parent, nativeGrid?.Parent, nativePanel?.Parent);
             if (!hierarchyLive)
             {
-                log?.LogInfo("[BUE-INVENTORY] event=surface-not-ready reason=native-hierarchy-incomplete page=" + page + " diagnosticId=BUE-INVENTORY-004");
+                notReadyReason = "native-hierarchy-incomplete";
                 return null;
             }
-            if (PlayerUI.container == null) return null;
+            if (PlayerUI.container == null) { notReadyReason = "no-player-ui"; return null; }
             var topLevel = new UnturnedVisualContainer(PlayerUI.container);
             if (nativePanel == null || nativeGrid == null || nativeScroll == null)
                 throw new InvalidOperationException("native inventory hierarchy disappeared during surface build");
@@ -1250,9 +1356,9 @@ namespace BetterUnturnedExperience.Plugin
                 // the dashboard opens the native scroll view is not laid out yet,
                 // so its absolute size is 0/NaN. This is a transient not-ready
                 // condition, not a fatal error: return null so Poll() retries next
-                // frame (existing surface-not-ready path) instead of throwing and
+                // frame (existing not-ready path) instead of throwing and
                 // isolating the whole feature.
-                log?.LogInfo("[BUE-INVENTORY] event=surface-not-ready reason=scroll-viewport-not-laid-out page=" + page + " diagnosticId=BUE-INVENTORY-004");
+                notReadyReason = "scroll-viewport-not-laid-out";
                 return null;
             }
             var scrollPixelsX = 0f;
