@@ -1,7 +1,7 @@
 # 交付报告 — DEV-16D-R13-R7-BAND 边缘感应带自动旋转修复候选
 
 > CaseId：`DEV-16D-R13-R7-BAND-20260902` · CandidateBuild：`DEV-16D-R13-R7-BAND-20260902`
-> 归档 DLL：`audit/2026-09-01/artifacts/BetterUnturnedExperience-DIAG-R13SILENCE-r5-band-20260902.dll`
+> 归档 DLL：`audit/2026-09-02/BetterUnturnedExperience-DIAG-R13SILENCE-r5-band-20260902.dll`
 > SHA-256：`CC8BC4831AF9F5CE78BFACEC1797655E83AF748FF18A5790448ADE04B6470296`（237056 bytes）
 > 源码快照：`576cbed`（实现提交，位于决议冻结 `135be62` 之上）
 > 性质：**边缘感应带自动旋转修复候选**（ADR-0003 Rev 2026-09-02 / spec §11），仍保留 `[DEBUG-]` 判别日志；非 DEV-16E 资格候选。
@@ -76,7 +76,7 @@ R4 edgefix DLL（`3AF8DC...`）实机复测（`UMM-诊断包_20260902_085838`）
 ## 7. 部署与复测（现在可以开始）
 
 1. **完全退出 Unturned。**
-2. 复制 `D:\Agent-工作目录\DevelopMyUNMultiplayerModAndModloader\更好的UN体验\audit\2026-09-01\artifacts\BetterUnturnedExperience-DIAG-R13SILENCE-r5-band-20260902.dll`
+2. 复制 `D:\Agent-工作目录\DevelopMyUNMultiplayerModAndModloader\更好的UN体验\audit\2026-09-02\BetterUnturnedExperience-DIAG-R13SILENCE-r5-band-20260902.dll`
    到 `E:\Steam\steamapps\common\Unturned\BepInEx\plugins\`，重命名为 `BetterUnturnedExperience.dll`（**先删除旧 BUE DLL**：R4 `...-r4-edgefix-...`、R3 `...-r3-fix-...`、R2/R1 与 `...-1925.dll`）。
 3. 核对哈希（期望 `CC8BC4831AF9F5CE78BFACEC1797655E83AF748FF18A5790448ADE04B6470296`）：
    ```powershell

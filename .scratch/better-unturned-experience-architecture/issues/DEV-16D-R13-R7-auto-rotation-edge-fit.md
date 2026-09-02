@@ -83,5 +83,5 @@ R5 实机（`UMM-诊断包_20260902_085838`，部署 R4 edgefix `3AF8DC...`）�
 - 红测状态：`--dev16d-r13-corner-lift-red`（左下角保持/上提转竖/下拉回横/13×13 左带 X==0）红→绿；`--dev16d-r13-edge-rot-red`（扩为感应带）、`--dev16d-r13-symrot-red`（窄缝）、`--dev16d-r13-symrot-wide-red`（D2 守卫，断言未翻转）保持绿。
 - 全量验证：Release 0/0、七项目全 PASS（含 Placement.Tests 零分配）、R13 定向 15/15、UI token 0、diff-check 0。
 - 双轴独立审查：Standards CLEAN / Spec CLEAN（可延后项：`rotation` 参数未用、`ProjectAxis` 与 `Project` 重复、测试红声明注释校正——DEV-16E 轮消解）。
-- 交付物：`audit/2026-09-01/artifacts/BetterUnturnedExperience-DIAG-R13SILENCE-r5-band-20260902.dll`（sha256 `CC8BC4831AF9F5CE78BFACEC1797655E83AF748FF18A5790448ADE04B6470296`），交付报告 `audit/2026-09-01/Delivery-DEV16D-R13-R7-BAND-20260902.md`，哈希记录 `audit/2026-09-01/r7-band-dll-sha256.txt`。
+- 交付物：`audit/2026-09-02/BetterUnturnedExperience-DIAG-R13SILENCE-r5-band-20260902.dll`（sha256 `CC8BC4831AF9F5CE78BFACEC1797655E83AF748FF18A5790448ADE04B6470296`），交付报告 `audit/2026-09-02/Delivery-DEV16D-R13-R7-BAND-20260902.md`，哈希记录 `audit/2026-09-02/r7-band-dll-sha256.txt`。
 - 实机复测判读矩阵见交付报告 §6；待用户实机确认后关闭 R7 支线并进入 DEV-16E 资格轮（届时清理 `[DEBUG-]`）。
