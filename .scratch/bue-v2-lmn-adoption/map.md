@@ -1,7 +1,7 @@
 # V2 第一阶段：LMN 官方纳入与 BueNetworkApi（Wayfinder 地图）
 
 Type: task
-Status: charted（2026-09-03，7 张子票已建立）
+Status: **completed（2026-09-03 7/7 子票全部解决，地图走完，可交 `/to-spec`）**
 Label: wayfinder:map
 Parent: 无（V2 开放运行时平台方向，来自 CONTEXT.md 已冻结的 BUE V2 产品方向）
 Author: GPT（本会话 charting）
@@ -27,13 +27,16 @@ Author: GPT（本会话 charting）
 - [V1 兼容路径设计](issues/V2-T4-v1-compat-path.md)：V1 兼容 = 旧插件**无改动运行**（Q1）；帧识别在 API 接收面 + 兼容策略为官方功能可关（Q2）；BUE 接管 LMN 注册入口、旧插件二进制不动（Q3）；退出度量 = 官方全 V2 + 已知插件迁移比例（Q4）；V1 兼容层故障只隔离 V1（Q5）；V1 帧结构代码内固化（Q6）；验收 = 旧 V1 no-op 插件不改代码能收发（Q8）；依赖 T5 先接管（Q9）。**T8 回填（含作者修正）：LIT/LIR/LHT 源码已迁 V2 但验证未闭环 → 退出阈值须叠加"迁移验证闭环"维度，V1 兼容长期保留。**
 - [V1 数字频道生态插件盘点](issues/V2-T8-v1-ecosystem-inventory.md)：V1 判据可执行（`int virtualChannel` API 调用面）；已知生态 = YU80Rice 单作者 mod 家族；LIT/LIR/LHT 源码 3/3 已迁 V2（发布提交存在）但**作者确认未测试、归档未闭环区**；唯一仍用 V1 的 SecureContainer 未发布；非穷举（外部/创意工坊未知项显式声明）。完整报告 `research/V2-T8-v1-ecosystem-inventory.md`。
 - [独立 LMN 共存接管机制](issues/V2-T5-lmn-coexistence-takeover.md)：检测 = `Chainloader.PluginInfos.ContainsKey(LMN_GUID)`（零扫描）；停用 = Harmony `Priority.First` 前缀抢占 `NetMessages.ReceiveMessageFromClient/Server`（唯一可行，LMN Prefix 永不被调）；`BepInIncompatibility` 红线禁止（连坐硬依赖插件）。grilling 拍板：全帧接管（Q1）、接受残响（Q2）、禁连坐（Q3）、面板带停药按钮（Q4）、只处理已加载（Q5）、不需排序依赖（Q6）。**用户方向：LMN/LIT/LIR/LHT 并入 BUE 官方功能，不再独立维护**。完整报告 `research/V2-T5-lmn-takeover-mechanism.md`。解锁 T6。
+- [LMN 配置迁移映射](issues/V2-T6-lmn-config-migration.md)：**LMN V5 无配置系统 → 空迁移（no-op）**——映射表为空，无文件可破坏、可回滚自动满足。grilling 拍板：接受空迁移（Q1）、日志+面板行记录（Q2）、面板显示"无独立配置可迁移"说明（Q3）、YAGNI 不预留适配器（Q4）、协议常数不暴露为配置（Q5）。完整报告 `research/V2-T6-lmn-config-migration.md`。**V2 第一阶段地图 7/7 全部解决。**
 
 ## Not yet specified
 
 - 本地联机、性能优化、背包整理等能力迁移（确认稿明确第一阶段不迁移，属后续阶段）。
 - 第三方生态功能生产接入的完整工具链（SCR-GPT18-001 冻结后的 SDK/文档形态——T3 Q8 已定方向：第三方只拿规范实现，不接触帧字节）。
-- V1 兼容过渡期的具体退出时点（由迁移覆盖率与生态准备程度决定，非日期；T4 Q4 已定度量方式，阈值待 T8 数据）。
+- V1 兼容过渡期的具体退出时点（T4 Q4 已定度量方式 + T8 数据已回填：已发布已知生态 100% 源码已迁但验证未闭环 → 长期保留 V1 兼容；退出时点待 LIT/LIR/LHT 在 V2 下实机验证闭环）。
 - **实施依赖（T1 带入，随 T3 毕业）**：`Libs\SDG.NetTransport.dll` 与游戏安装二进制漂移的 SDK 基线锁定 + `ITransportConnection` 成员清单固化。
+- **实施前置（T8 带入）**：LIT/LIR/LHT 的 V2 迁移验证（归档区未闭环）→ V2 网络层落地后逐个实机验证。
+- **若 LMN 未来引入配置**：按 T6 研究"未来键的预留"节重新评估迁移（当前 YAGNI）。
 
 ## Out of scope
 
