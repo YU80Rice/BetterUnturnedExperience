@@ -14,6 +14,7 @@
     <Compile Include="..\BetterUnturnedExperience.Core\Network\BueEnvelopeCodec.cs"><Link>EmbeddedCore\Network\BueEnvelopeCodec.cs</Link></Compile>
     <Compile Include="..\BetterUnturnedExperience.Core\Network\BueNetworkProtocol.cs"><Link>EmbeddedCore\Network\BueNetworkProtocol.cs</Link></Compile>
     <Compile Include="..\BetterUnturnedExperience.Core\Network\LocalLoopbackTransport.cs"><Link>EmbeddedCore\Network\LocalLoopbackTransport.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Core\Network\BueNetworkRuntime.cs"><Link>EmbeddedCore\Network\BueNetworkRuntime.cs</Link></Compile>
     <Compile Include="..\BetterUnturnedExperience.Core\Placement\PlacementCandidateEvaluator.cs"><Link>EmbeddedCore\Placement\PlacementCandidateEvaluator.cs</Link></Compile>
     <Compile Include="..\BetterUnturnedExperience.Core\Registration\FeatureRegistrationRuntime.cs"><Link>EmbeddedCore\Registration\FeatureRegistrationRuntime.cs</Link></Compile>
     <Compile Include="..\BetterUnturnedExperience.Core\Settings\SettingsRuntime.cs"><Link>EmbeddedCore\Settings\SettingsRuntime.cs</Link></Compile>

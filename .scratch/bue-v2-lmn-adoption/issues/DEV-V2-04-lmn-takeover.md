@@ -26,3 +26,8 @@ Spec: `../spec-V2-phase1-lmn-adoption.md`（Implementation Decisions「接管机
 ## 不做
 
 - 不做 V1 兼容层（DEV-V2-05）；不删除/修改 LMN DLL；不实现运行时卸载（BepInEx 5 不支持）。
+
+## DEV-V2-03 移交范围补充（Spec R3 建议，2026-09-03）
+
+- **可靠透传（wire reliability bit）**：DEV-V2-03 的 `Send*` 接受 `reliable` 布尔但未写入帧（`SendFrame` 无可靠位）；DEV-V2-04 真实传输接线时映射 `ENetReliability` 并补帧可靠位。
+- **按帧来源解析分发会话**：DEV-V2-03 的 `DispatchData` 以"首个会话"为接收上下文（单会话 loopback 正确）；DEV-V2-04 帧携带发送者身份后按来源解析到正确会话。

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using BetterUnturnedExperience.Contracts;
+using BetterUnturnedExperience.Contracts.BueNetwork;
 using BetterUnturnedExperience.Core.Registration;
 using BetterUnturnedExperience.NoOpFixture;
 using BetterUnturnedExperience.Plugin;
@@ -186,6 +187,11 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     AssertBueNetworkContract();
                     return 0;
                 }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--bue-network-runtime-red")
+                {
+                    AssertBueNetworkRuntime();
+                    return 0;
+                }
                 AssertSingleDllAssemblyClosure();
                 AssertExternalSdkAssemblyIdentity();
                 Assert(BootstrapGuard.Decide(false, false, true) == BootstrapDecision.Client, "client decision");
@@ -257,6 +263,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 AssertLoggingAggregateSuccess();
                 AssertSdkNetTransportBaseline();
                 AssertBueNetworkContract();
+                AssertBueNetworkRuntime();
                 AssertRuntimeCompletionBarrierIsolates();
                 AssertManagementPanelConsumesRuntimeCatalog();
                 AssertManagementPanelOpenHooks();
@@ -1549,6 +1556,93 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 sendToClient.GetParameters().Length == 4 &&
                 sendToClient.GetParameters()[1].ParameterType == sessionType,
                 "Q9: SendToClient(channel, IConnectionSession, payload, reliable) — session is the target context, no peer FeatureId");
+        }
+
+        // GPT watermark: DEV-V2-03 red regression. The BueNetworkApi runtime
+        // implements the frozen BueNetwork contract surface on top of an
+        // INetworkTransport seam (Host-internal, pure C#). This red test drives
+        // two runtimes over a LocalLoopbackPair: channel registration, version
+        // negotiation (ContractIncompatible), Hello/Ack peer handshake (session
+        // established on BOTH sides and Connected fired), and a round-trip
+        // send/receive with payload integrity. RED until StartSession and the
+        // handshake exist (compile CS0234 / runtime assertion).
+        private static void AssertBueNetworkRuntime()
+        {
+            var pair = BetterUnturnedExperience.Core.Network.LocalLoopbackTransport.CreatePair();
+            var localContract = new ContractVersion(2, 0);
+            var a = new BetterUnturnedExperience.Core.Network.BueNetworkRuntime(pair.First, localContract, 1002UL);
+            var b = new BetterUnturnedExperience.Core.Network.BueNetworkRuntime(pair.Second, localContract, 2002UL);
+
+            // Q1: register one named channel per module (FeatureId is the name).
+            var channel = new FeatureId("com.example.chat");
+            var register = a.RegisterChannel(channel, localContract, 1);
+            Assert(register.Accepted && register.Channel.Value == channel.Value && register.Reason == FeatureRegistrationReason.None,
+                "Q1: fresh channel registration is accepted");
+
+            // Q2: version negotiation — a channel demanding a higher contract
+            // than the local runtime is rejected with ContractIncompatible.
+            var tooNew = new ContractVersion(3, 0);
+            var incompatible = a.RegisterChannel(new FeatureId("com.example.future"), tooNew, 1);
+            Assert(!incompatible.Accepted && incompatible.Reason == FeatureRegistrationReason.ContractIncompatible,
+                "Q2: contract-incompatible registration returns ContractIncompatible");
+
+            // Q4: Hello/Ack handshake — StartSession on A establishes a session
+            // on BOTH sides; Connected fires on both.
+            var aConnected = 0;
+            var bConnected = 0;
+            var aSession = a.StartSession(2002UL);
+            aSession.Connected += () => aConnected++;
+            pair.First.Pump(); pair.Second.Pump(); // A Hello -> B (B creates session, sends Ack)
+            pair.First.Pump();                      // B Ack -> A (A establishes, fires Connected)
+            Assert(aConnected == 1,
+                "Q4/F2: initiator Connected fires after Ack (Hello/Ack handshake complete)");
+            Assert(b.Sessions.Count == 1 && b.Sessions[0].PeerSteamId == 1002UL,
+                "Q4: peer runtime created a session for the initiator after Hello");
+            var bSession = b.Sessions[0];
+            bSession.Connected += () => bConnected++;
+            Assert(bConnected == 0,
+                "Q4: peer session was established during handshake (no late Connected)");
+            Assert(bSession.PeerContract.Major == localContract.Major,
+                "Q10: peer session carries the negotiated contract");
+
+            // Q9+reliability: round-trip send over the loopback with payload
+            // integrity; receiver's Subscribe handler gets the bytes.
+            var received = new System.Collections.Generic.List<byte[]>();
+            var subscription = b.Subscribe(channel, (session, payload) => received.Add(payload));
+            var payload = new byte[] { 1, 2, 3, 4, 0xAA, 0xBB };
+            var send = a.SendToClient(channel, aSession, payload, reliable: true);
+            Assert(send == NetworkSendResult.Sent,
+                "Q9/Q3: SendToClient(session) returns Sent on the loopback");
+            pair.First.Pump(); pair.Second.Pump();
+            Assert(received.Count == 1 && received[0].Length == payload.Length &&
+                received[0][4] == 0xAA && received[0][5] == 0xBB,
+                "runtime: receiver's Subscribe handler receives the exact payload");
+            subscription.Dispose();
+
+            // Contract-incompatible peer: Hello is rejected, no session on the
+            // peer, initiator Connected never fires.
+            var pair2 = BetterUnturnedExperience.Core.Network.LocalLoopbackTransport.CreatePair();
+            var c = new BetterUnturnedExperience.Core.Network.BueNetworkRuntime(pair2.First, localContract, 3003UL);
+            var d = new BetterUnturnedExperience.Core.Network.BueNetworkRuntime(pair2.Second, new ContractVersion(3, 0), 4004UL);
+            var cConnected = 0;
+            var cSession = c.StartSession(4004UL);
+            cSession.Connected += () => cConnected++;
+            pair2.First.Pump(); pair2.Second.Pump(); // C Hello -> D (D rejects, sends Reject)
+            pair2.First.Pump();                      // D Reject -> C (no Connected, pending session torn down)
+            Assert(cConnected == 0 && d.Sessions.Count == 0,
+                "Q2/F1: contract-incompatible Hello is rejected (no session, no Connected)");
+            Assert(c.Sessions.Count == 0,
+                "S3: rejected handshake tears down the initiator's pending session (no ghost)");
+
+            // No-session error: SendToClient with a session context from a
+            // different runtime fails. Register the channel on C first so the
+            // path under test is the ownership check (NoSession), not an
+            // unregistered-channel error.
+            var cRegister = c.RegisterChannel(channel, localContract, 1);
+            Assert(cRegister.Accepted, "setup: C registers the chat channel before the detached-send check");
+            var detached = c.SendToClient(channel, bSession, payload, reliable: true);
+            Assert(detached == NetworkSendResult.NoSession,
+                "runtime: send targeting a session not owned by this runtime returns NoSession");
         }
 
         private static TestSurfaceContext CreateTestSurface(ContainerKind kind, byte page, uint generation)
