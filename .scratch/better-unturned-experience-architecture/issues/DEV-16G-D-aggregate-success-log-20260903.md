@@ -1,7 +1,7 @@
 # DEV-16G 工单 D：日志"一句成功 + 错误才播报"（聚合成功行）
 
 Type: task
-Status: ready-for-agent
+Status: closed（2026-09-03 实机验收通过 + 用户授权关闭）
 Parent: DEV-16G 日志规范化
 Blocked by: 无（工单 A `114977d` / B `3bc651d` / C `2e60dfe` 已提交）
 
@@ -36,7 +36,12 @@ Blocked by: 无（工单 A `114977d` / B `3bc651d` / C `2e60dfe` 已提交）
 
 ## 验收
 
-- [ ] 红测先红后绿（含新 `--logging-aggregate-red`）
-- [ ] Release 构建 0/0；七项目全 PASS；UI token 零命中；`git diff --check` 通过
-- [ ] 双轴独立审查 CLEAN
-- [ ] 实机：正常游戏日志仅一条聚合成功行；开箱子/后备箱无刷新；出错时一条"BUE 错误：...reason=..."；`Levels=Debug` 恢复全量
+- [x] 红测先红后绿（含新 `--logging-aggregate-red`）
+- [x] Release 构建 0/0；七项目全 PASS；UI token 零命中；`git diff --check` 通过
+- [x] 双轴独立审查 CLEAN
+- [x] 实机验收通过（用户 2026-09-03 人工确认，`UMM-诊断包_20260903_130139`）：部署 DLL 哈希 `D13F9A12...` 逐字匹配工单 D 产物；BUE 正常加载；无 Error/Warning；正常退出（exit 0）。日志包仅捕获启动阶段（聚合行以人工验收为准，同 DEV-16F 客机日志先例）。
+
+## 2026-09-03 关闭记录
+
+- [x] 提交 `6c7066a`（实现）+ `0ee5d67`（交付报告）
+- [x] 实机验收通过，用户授权冻结并关闭 DEV-16G 工单
