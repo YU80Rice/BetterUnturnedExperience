@@ -26,6 +26,7 @@ Author: GPT（本会话 charting）
 - [BueNetworkApi 契约设计](issues/V2-T3-buenetworkapi-contract.md)：两轮 grilling 冻结 API 形状——频道=FeatureId（Q1）、版本协商 API 内部自动（Q2）、只透传可靠性+本地失败信号（Q3）、会话事件订阅（Q4）、双向链路抽象进 API（Q5）、公开 API 面进 Contracts / 帧格式留 Host 内部（Q6）、独占接收面 + V1 兼容接收路径（Q7，V1 数字频道只兼容不注册）、无对端 FeatureId 寻址（Q9）、会话含 SteamId/版本/频道表（Q10）、NetworkSendResult 显式枚举（Q11）、`BueNetwork` 命名空间（Q12）。解锁 T5。
 - [V1 兼容路径设计](issues/V2-T4-v1-compat-path.md)：V1 兼容 = 旧插件**无改动运行**（Q1）；帧识别在 API 接收面 + 兼容策略为官方功能可关（Q2）；BUE 接管 LMN 注册入口、旧插件二进制不动（Q3）；退出度量 = 官方全 V2 + 已知插件迁移比例（Q4）；V1 兼容层故障只隔离 V1（Q5）；V1 帧结构代码内固化（Q6）；验收 = 旧 V1 no-op 插件不改代码能收发（Q8）；依赖 T5 先接管（Q9）。**T8 回填（含作者修正）：LIT/LIR/LHT 源码已迁 V2 但验证未闭环 → 退出阈值须叠加"迁移验证闭环"维度，V1 兼容长期保留。**
 - [V1 数字频道生态插件盘点](issues/V2-T8-v1-ecosystem-inventory.md)：V1 判据可执行（`int virtualChannel` API 调用面）；已知生态 = YU80Rice 单作者 mod 家族；LIT/LIR/LHT 源码 3/3 已迁 V2（发布提交存在）但**作者确认未测试、归档未闭环区**；唯一仍用 V1 的 SecureContainer 未发布；非穷举（外部/创意工坊未知项显式声明）。完整报告 `research/V2-T8-v1-ecosystem-inventory.md`。
+- [独立 LMN 共存接管机制](issues/V2-T5-lmn-coexistence-takeover.md)：检测 = `Chainloader.PluginInfos.ContainsKey(LMN_GUID)`（零扫描）；停用 = Harmony `Priority.First` 前缀抢占 `NetMessages.ReceiveMessageFromClient/Server`（唯一可行，LMN Prefix 永不被调）；`BepInIncompatibility` 红线禁止（连坐硬依赖插件）。grilling 拍板：全帧接管（Q1）、接受残响（Q2）、禁连坐（Q3）、面板带停药按钮（Q4）、只处理已加载（Q5）、不需排序依赖（Q6）。**用户方向：LMN/LIT/LIR/LHT 并入 BUE 官方功能，不再独立维护**。完整报告 `research/V2-T5-lmn-takeover-mechanism.md`。解锁 T6。
 
 ## Not yet specified
 
