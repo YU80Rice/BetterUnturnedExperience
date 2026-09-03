@@ -1,7 +1,7 @@
 # DEV-16G：日志规范化（工单 A：候选 1+2）
 
 Type: task
-Status: ready-for-agent
+Status: closed（2026-09-03 并入 DEV-16G 整体实机验收，随工单 D 关闭冻结）
 Parent: 无（代码健康维护，来自 `/improve-codebase-architecture` 评审）
 Blocked by: 无
 

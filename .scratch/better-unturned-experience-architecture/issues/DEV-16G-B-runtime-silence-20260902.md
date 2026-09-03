@@ -1,7 +1,7 @@
 # DEV-16G 工单 B：日志运行时静默（候选 3 扩展——用户新语义）
 
 Type: task
-Status: resolved（B 实现已提交 `3bc651d`；C 修正已提交 `(待填)`）
+Status: closed（2026-09-03 并入 DEV-16G 整体实机验收，随工单 D 关闭冻结）
 Parent: DEV-16G 日志规范化
 Blocked by: 无（工单 A 已提交 `114977d`，实机已确认刷屏消除）
 

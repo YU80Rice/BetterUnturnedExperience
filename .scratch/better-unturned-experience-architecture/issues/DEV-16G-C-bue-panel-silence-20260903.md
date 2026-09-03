@@ -1,7 +1,7 @@
 # DEV-16G 工单 C：BUE 面板日志静默 + projection-timed-out 误报修正
 
 Type: task
-Status: resolved（已实现、双轴 CLEAN、提交）
+Status: closed（2026-09-03 并入 DEV-16G 整体实机验收，随工单 D 关闭冻结）
 Parent: DEV-16G 日志规范化
 Blocked by: 无（工单 A `114977d` + 工单 B `3bc651d` 已提交）
 
