@@ -24,8 +24,8 @@ Author: GPT（本会话 charting）
 - [ITransportConnection 真实形态查证](issues/V2-T1-itransportconnection-shape.md)：`ITransportConnection` 是 Unturned 原生接口（`SDG.NetTransport`），LMN 是消费者；BUE 自建网络层可行（高级语义需自实现）；客户端→服务器方向走 `IClientTransport`（不对称）。完整报告 `research/V2-T1-itransportconnection-shape.md`；解锁 T3、T5。
 - [官方网络模块成熟度定级](issues/V2-T7-network-module-maturity-tier.md)：网络模块归**核心**（BUE"吃掉"LMN 消化为专属网络层）；与 BueNetworkApi 分开定级（API=核心基础设施，不参与面板开关）；故障边界拆开（网络层故障仅隔离网络功能，不触发全局核心安全降级——BII 等本地功能不受影响，U3DS 已验证）。
 - [BueNetworkApi 契约设计](issues/V2-T3-buenetworkapi-contract.md)：两轮 grilling 冻结 API 形状——频道=FeatureId（Q1）、版本协商 API 内部自动（Q2）、只透传可靠性+本地失败信号（Q3）、会话事件订阅（Q4）、双向链路抽象进 API（Q5）、公开 API 面进 Contracts / 帧格式留 Host 内部（Q6）、独占接收面 + V1 兼容接收路径（Q7，V1 数字频道只兼容不注册）、无对端 FeatureId 寻址（Q9）、会话含 SteamId/版本/频道表（Q10）、NetworkSendResult 显式枚举（Q11）、`BueNetwork` 命名空间（Q12）。解锁 T5。
-- [V1 兼容路径设计](issues/V2-T4-v1-compat-path.md)：V1 兼容 = 旧插件**无改动运行**（Q1）；帧识别在 API 接收面 + 兼容策略为官方功能可关（Q2）；BUE 接管 LMN 注册入口、旧插件二进制不动（Q3）；退出度量 = 官方全 V2 + 已知插件迁移比例，阈值待 T8 生态盘点（Q4）；V1 兼容层故障只隔离 V1（Q5）；V1 帧结构代码内固化（Q6）；验收 = 旧 V1 no-op 插件不改代码能收发（Q8）；依赖 T5 先接管（Q9）。**T8 回填：已发布 V1 频道持有者 3/3=100% 已迁 V2，阈值已满足；未知第三方为显式未知项，长期保留 V1 兼容。**
-- [V1 数字频道生态插件盘点](issues/V2-T8-v1-ecosystem-inventory.md)：V1 判据可执行（`int virtualChannel` API 调用面）；已知生态 = YU80Rice 单作者 mod 家族；LIT/LIR/LHT 3/3 已迁 V2（100%）；唯一仍用 V1 的 SecureContainer 未发布；非穷举（外部/创意工坊未知项显式声明）。完整报告 `research/V2-T8-v1-ecosystem-inventory.md`。
+- [V1 兼容路径设计](issues/V2-T4-v1-compat-path.md)：V1 兼容 = 旧插件**无改动运行**（Q1）；帧识别在 API 接收面 + 兼容策略为官方功能可关（Q2）；BUE 接管 LMN 注册入口、旧插件二进制不动（Q3）；退出度量 = 官方全 V2 + 已知插件迁移比例（Q4）；V1 兼容层故障只隔离 V1（Q5）；V1 帧结构代码内固化（Q6）；验收 = 旧 V1 no-op 插件不改代码能收发（Q8）；依赖 T5 先接管（Q9）。**T8 回填（含作者修正）：LIT/LIR/LHT 源码已迁 V2 但验证未闭环 → 退出阈值须叠加"迁移验证闭环"维度，V1 兼容长期保留。**
+- [V1 数字频道生态插件盘点](issues/V2-T8-v1-ecosystem-inventory.md)：V1 判据可执行（`int virtualChannel` API 调用面）；已知生态 = YU80Rice 单作者 mod 家族；LIT/LIR/LHT 源码 3/3 已迁 V2（发布提交存在）但**作者确认未测试、归档未闭环区**；唯一仍用 V1 的 SecureContainer 未发布；非穷举（外部/创意工坊未知项显式声明）。完整报告 `research/V2-T8-v1-ecosystem-inventory.md`。
 
 ## Not yet specified
 
