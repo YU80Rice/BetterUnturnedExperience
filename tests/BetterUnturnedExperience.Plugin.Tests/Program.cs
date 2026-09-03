@@ -171,6 +171,11 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     AssertLoggingTimeoutIsNotError();
                     return 0;
                 }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--logging-aggregate-red")
+                {
+                    AssertLoggingAggregateSuccess();
+                    return 0;
+                }
                 AssertSingleDllAssemblyClosure();
                 AssertExternalSdkAssemblyIdentity();
                 Assert(BootstrapGuard.Decide(false, false, true) == BootstrapDecision.Client, "client decision");
@@ -239,6 +244,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 AssertLoggingRuntimeVerbosity();
                 AssertLoggingBueRuntimeClassification();
                 AssertLoggingTimeoutIsNotError();
+                AssertLoggingAggregateSuccess();
                 AssertRuntimeCompletionBarrierIsolates();
                 AssertManagementPanelConsumesRuntimeCatalog();
                 AssertManagementPanelOpenHooks();
@@ -1315,16 +1321,16 @@ namespace BetterUnturnedExperience.Plugin.Tests
             Assert(BetterUnturnedExperience.Plugin.BueRuntimeLog.IsRuntimeEvent("heartbeat"),
                 "BUE panel heartbeat is a runtime event");
 
-            Assert(!BetterUnturnedExperience.Plugin.BueRuntimeLog.IsRuntimeEvent("constructed"),
-                "constructed is a load one-shot (Info)");
-            Assert(!BetterUnturnedExperience.Plugin.BueRuntimeLog.IsRuntimeEvent("initialize-complete"),
-                "initialize-complete is a load one-shot (Info)");
-            Assert(!BetterUnturnedExperience.Plugin.BueRuntimeLog.IsRuntimeEvent("patch-installed"),
-                "patch-installed is a load one-shot (Info)");
-            Assert(!BetterUnturnedExperience.Plugin.BueRuntimeLog.IsRuntimeEvent("host-ui-tick"),
-                "host-ui-tick is a load one-shot (Info)");
-            Assert(!BetterUnturnedExperience.Plugin.BueRuntimeLog.IsRuntimeEvent("first-tick"),
-                "first-tick is a load one-shot (Info)");
+            Assert(BetterUnturnedExperience.Plugin.BueRuntimeLog.IsRuntimeEvent("constructed"),
+                "DEV-16G-D: constructed is demoted to runtime (Debug) — aggregate line replaces per-subsystem Info");
+            Assert(BetterUnturnedExperience.Plugin.BueRuntimeLog.IsRuntimeEvent("initialize-complete"),
+                "DEV-16G-D: initialize-complete is demoted to runtime (Debug) — aggregate line replaces per-subsystem Info");
+            Assert(BetterUnturnedExperience.Plugin.BueRuntimeLog.IsRuntimeEvent("patch-installed"),
+                "DEV-16G-D: patch-installed is demoted to runtime (Debug) — aggregate line replaces per-subsystem Info");
+            Assert(BetterUnturnedExperience.Plugin.BueRuntimeLog.IsRuntimeEvent("host-ui-tick"),
+                "DEV-16G-D: host-ui-tick is demoted to runtime (Debug) — aggregate line replaces per-subsystem Info");
+            Assert(BetterUnturnedExperience.Plugin.BueRuntimeLog.IsRuntimeEvent("first-tick"),
+                "DEV-16G-D: first-tick is demoted to runtime (Debug) — aggregate line replaces per-subsystem Info");
         }
 
         // GPT watermark: DEV-16G ticket-C red regression. The user reported a
@@ -1356,6 +1362,69 @@ namespace BetterUnturnedExperience.Plugin.Tests
             finally
             {
                 BetterUnturnedExperience.Plugin.BueRuntimeLog.Recorder = previous;
+            }
+        }
+
+        // GPT watermark: DEV-16G ticket-D red regression. The user wants the
+        // whole load story collapsed into ONE aggregate success line after
+        // RuntimeReady ("加载成功，界面已注入"), all per-subsystem load Info
+        // demoted to Debug, and surface-not-ready split by reason (critical
+        // hierarchy-incomplete -> Error; benign empty-grid/scroll -> Debug).
+        // This red test drives the seams that do not exist yet.
+        private static void AssertLoggingAggregateSuccess()
+        {
+            var recorded = new System.Collections.Generic.List<string>();
+            var previous = BetterUnturnedExperience.Plugin.BueRuntimeLog.Recorder;
+            BetterUnturnedExperience.Plugin.BueRuntimeLog.Recorder = line => recorded.Add(line);
+            try
+            {
+                // Aggregate success line: exactly one, at Info, with the
+                // user-facing wording.
+                BetterUnturnedExperience.Plugin.BueRuntimeLog.ResetReadyAnnouncement();
+                BetterUnturnedExperience.Plugin.BueRuntimeLog.AnnounceReady(false);
+                BetterUnturnedExperience.Plugin.BueRuntimeLog.AnnounceReady(false);
+                Assert(recorded.Count == 1,
+                    "aggregate success line emits exactly once (guard suppresses repeats)");
+                Assert(recorded[0].IndexOf("Info") >= 0 &&
+                    recorded[0].IndexOf("加载成功") >= 0 && recorded[0].IndexOf("界面已注入") >= 0,
+                    "aggregate success line is Info and carries the user-facing wording");
+
+                // Headless variant announces load without UI.
+                recorded.Clear();
+                BetterUnturnedExperience.Plugin.BueRuntimeLog.ResetReadyAnnouncement();
+                BetterUnturnedExperience.Plugin.BueRuntimeLog.AnnounceReady(true);
+                Assert(recorded.Count == 1 && recorded[0].IndexOf("Info") >= 0 &&
+                    recorded[0].IndexOf("无界面") >= 0,
+                    "headless aggregate line announces load without UI");
+
+                // Per-subsystem load events are demoted to Debug (silent).
+                Assert(BetterUnturnedExperience.Plugin.BueRuntimeLog.IsRuntimeEvent("hooks-installed"),
+                    "DEV-16G-D: hooks-installed is demoted to runtime (Debug)");
+                Assert(BetterUnturnedExperience.Plugin.BueRuntimeLog.IsRuntimeEvent("polling-hook-installed"),
+                    "DEV-16G-D: polling-hook-installed is demoted to runtime (Debug)");
+                Assert(BetterUnturnedExperience.Plugin.BueRuntimeLog.IsRuntimeEvent("surface-context-dispatched"),
+                    "DEV-16G-D: surface-context-dispatched is demoted to runtime (Debug)");
+                Assert(BetterUnturnedExperience.Plugin.BueRuntimeLog.IsRuntimeEvent("surface-ready"),
+                    "DEV-16G-D: surface-ready is demoted to runtime (Debug)");
+                Assert(BetterUnturnedExperience.Plugin.BueRuntimeLog.IsRuntimeEvent("surface-discarded"),
+                    "DEV-16G-D: surface-discarded is demoted to runtime (Debug)");
+                Assert(BetterUnturnedExperience.Plugin.BueRuntimeLog.IsRuntimeEvent("wiring-enabled"),
+                    "DEV-16G-D: wiring-enabled is demoted to runtime (Debug)");
+
+                // surface-not-ready: critical reason -> Error, benign -> Debug.
+                Assert(!BetterUnturnedExperience.Plugin.BueRuntimeLog.IsRuntimeEvent("surface-not-ready"),
+                    "DEV-16G-D: surface-not-ready stays a distinct event (reason decides severity)");
+                Assert(BetterUnturnedExperience.Plugin.BueRuntimeLog.IsCriticalNotReadyReason("native-hierarchy-incomplete"),
+                    "DEV-16G-D: native-hierarchy-incomplete is a critical not-ready reason (Error)");
+                Assert(!BetterUnturnedExperience.Plugin.BueRuntimeLog.IsCriticalNotReadyReason("empty-grid"),
+                    "DEV-16G-D: empty-grid is a benign not-ready reason (Debug)");
+                Assert(!BetterUnturnedExperience.Plugin.BueRuntimeLog.IsCriticalNotReadyReason("scroll-viewport-not-laid-out"),
+                    "DEV-16G-D: scroll-viewport-not-laid-out is a benign not-ready reason (Debug)");
+            }
+            finally
+            {
+                BetterUnturnedExperience.Plugin.BueRuntimeLog.Recorder = previous;
+                BetterUnturnedExperience.Plugin.BueRuntimeLog.ResetReadyAnnouncement();
             }
         }
 

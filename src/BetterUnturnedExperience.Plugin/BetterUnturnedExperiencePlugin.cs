@@ -28,6 +28,7 @@ namespace BetterUnturnedExperience.Plugin
         private BueRuntimeCompletionBarrier completionBarrier;
         private InventorySurfaceLifecycleAdapter inventoryLifecycleAdapter;
         private InventoryDragPreviewAdapter inventoryDragAdapter;
+        private bool isHeadlessDecision;
 
         // DEV-16D R5: the drag adapter depends on the inventory lifecycle
         // heartbeat.  Keep the activation decision at one host-testable seam so
@@ -50,7 +51,8 @@ namespace BetterUnturnedExperience.Plugin
                 BueRuntimeLog.Bind(Logger);
                 var isBatchMode = Application.isBatchMode;
                 var decision = BootstrapGuard.Decide(isBatchMode, isBatchMode, !isBatchMode);
-                Logger.LogInfo("[BUE-UI-TRACE] plugin=io.github.yu80rice.betterunturnedexperience diagnosticId=BUE-BOOTSTRAP-002 event=runtime-gate decision=" + decision + " batchMode=" + isBatchMode + " headless=" + isBatchMode);
+                isHeadlessDecision = decision == BootstrapDecision.Headless;
+                BueRuntimeLog.Runtime("[BUE-UI-TRACE] plugin=io.github.yu80rice.betterunturnedexperience diagnosticId=BUE-BOOTSTRAP-002 event=runtime-gate decision=" + decision + " batchMode=" + isBatchMode + " headless=" + isBatchMode);
                 var runtime = new FeatureRegistrationRuntime();
                 BueRuntimeHost.Bind(runtime);
                 runtime.OpenRegistration();
@@ -110,7 +112,7 @@ namespace BetterUnturnedExperience.Plugin
                         clientUiComposition.OfficialComponent.RegisterCleanupResult(() => inventoryDragAdapter.IsolateAndDetach(false));
                         inventoryLifecycleAdapter.Activate();
                         if (inventoryLifecycleAdapter.HooksInstalled)
-                            Logger.LogInfo("BUE inventory lifecycle wiring enabled diagnosticId=BUE-INVENTORY-001");
+                            BueRuntimeLog.Runtime("BUE inventory lifecycle wiring enabled diagnosticId=BUE-INVENTORY-001");
                         else
                             Logger.LogWarning("BUE inventory lifecycle wiring disabled diagnosticId=BUE-INVENTORY-003 diagnostics=" + inventoryLifecycleAdapter.GateDiagnostics);
                         // [DEV-16D] Drag preview/commit adapter driven by the same
@@ -126,26 +128,29 @@ namespace BetterUnturnedExperience.Plugin
                             Logger.LogWarning("BUE drag preview wiring disabled because inventory lifecycle is unavailable diagnosticId=BUE-DRAG-003");
                         }
                         clientUiComposition.OfficialComponent.ProjectionSink = new LoggingInventoryProjectionSink(Logger);
-                        Logger.LogInfo(inventoryDragAdapter.HooksInstalled
-                            ? "BUE drag preview wiring enabled diagnosticId=BUE-DRAG-001"
-                            : "BUE drag preview wiring disabled diagnosticId=BUE-DRAG-003 diagnostics=" + inventoryDragAdapter.GateDiagnostics);
-                        Logger.LogInfo("BUE client UI composition ready featureId=io.github.yu80rice.bue.better-item-interaction diagnosticId=BUE-CLIENTUI-002");
+                        if (inventoryDragAdapter.HooksInstalled)
+                            BueRuntimeLog.Runtime("BUE drag preview wiring enabled diagnosticId=BUE-DRAG-001");
+                        else
+                            Logger.LogWarning("BUE drag preview wiring disabled diagnosticId=BUE-DRAG-003 diagnostics=" + inventoryDragAdapter.GateDiagnostics);
+                        BueRuntimeLog.Runtime("BUE client UI composition ready featureId=io.github.yu80rice.bue.better-item-interaction diagnosticId=BUE-CLIENTUI-002");
                     }
                 }
                 SceneManager.sceneLoaded += OnSceneLoaded;
                 sceneLoadedSubscribed = true;
-                Logger.LogInfo("Better Unturned Experience featureId=" + FeatureId + " status=BootstrapReady decision=" + decision + " diagnosticId=" + DiagnosticId);
-                Logger.LogInfo("Better Item Interaction featureId=" + officialRegistration.Feature.Value + " accepted=" + officialRegistration.Accepted + " reason=" + officialRegistration.Reason + " diagnosticId=" + officialRegistration.DiagnosticId);
+                BueRuntimeLog.Runtime("Better Unturned Experience featureId=" + FeatureId + " status=BootstrapReady decision=" + decision + " diagnosticId=" + DiagnosticId);
+                BueRuntimeLog.Runtime("Better Item Interaction featureId=" + officialRegistration.Feature.Value + " accepted=" + officialRegistration.Accepted + " reason=" + officialRegistration.Reason + " diagnosticId=" + officialRegistration.DiagnosticId);
             }
             catch (System.Exception error)
             {
-                Logger.LogError("Better Unturned Experience featureId=" + FeatureId + " status=BootstrapFailed diagnosticId=" + DiagnosticId + " errorType=" + error.GetType().FullName + " message=" + error.Message);
+                // DEV-16G ticket D: user-facing error lines carry the Chinese
+                // "BUE 错误：" prefix in front of the structured tokens.
+                BueRuntimeLog.ErrorFriendly("Better Unturned Experience featureId=" + FeatureId + " status=BootstrapFailed diagnosticId=" + DiagnosticId + " errorType=" + error.GetType().FullName + " message=" + error.Message);
             }
         }
 
         public void Start()
         {
-            Logger.LogInfo("[BUE-UI-TRACE] plugin=io.github.yu80rice.betterunturnedexperience diagnosticId=BUE-MANAGEMENT-TRACE-002 event=start-entered");
+            BueRuntimeLog.Runtime("[BUE-UI-TRACE] plugin=io.github.yu80rice.betterunturnedexperience diagnosticId=BUE-MANAGEMENT-TRACE-002 event=start-entered");
             TryCompleteRuntime();
         }
 
@@ -157,7 +162,7 @@ namespace BetterUnturnedExperience.Plugin
             {
                 runtimePump = runtimePumpSlot.GetOrCreate(OnRuntimePumpTick);
                 runtimePumpBehaviour = BueRuntimePumpBehaviour.Attach(runtimePump);
-                Logger.LogInfo("[BUE-UI-TRACE] plugin=io.github.yu80rice.betterunturnedexperience diagnosticId=BUE-MANAGEMENT-TRACE-003 event=runtime-pump-created object=BUE.RuntimePump");
+                BueRuntimeLog.Runtime("[BUE-UI-TRACE] plugin=io.github.yu80rice.betterunturnedexperience diagnosticId=BUE-MANAGEMENT-TRACE-003 event=runtime-pump-created object=BUE.RuntimePump");
             }
             catch (Exception error)
             {
@@ -185,7 +190,7 @@ namespace BetterUnturnedExperience.Plugin
             runtimePumpTickCount++;
             if (runtimePumpTickCount == 1)
             {
-                Logger.LogInfo("[BUE-UI-TRACE] plugin=io.github.yu80rice.betterunturnedexperience diagnosticId=BUE-MANAGEMENT-TRACE-003 event=runtime-pump-tick count=1");
+                BueRuntimeLog.Runtime("[BUE-UI-TRACE] plugin=io.github.yu80rice.betterunturnedexperience diagnosticId=BUE-MANAGEMENT-TRACE-003 event=runtime-pump-tick count=1");
             }
             try
             {
@@ -238,12 +243,16 @@ namespace BetterUnturnedExperience.Plugin
             if (completionBarrier == null) completionBarrier = new BueRuntimeCompletionBarrier(CompleteRuntimeOnce, LogRuntimeCompletionIsolated);
             if (!completionBarrier.TryComplete()) return;
             runtimeReadyLogged = true;
-            Logger.LogInfo("Better Unturned Experience featureId=" + FeatureId + " status=RuntimeReady diagnosticId=BUE-BOOTSTRAP-003");
+            // DEV-16G ticket D: the ONE aggregate success line. All per-subsystem
+            // load Info is demoted to Debug; this is the only load-stage
+            // announcement a normal play session sees. Headless announces load
+            // without UI.
+            BueRuntimeLog.AnnounceReady(isHeadlessDecision);
         }
 
         private void LogRuntimeCompletionIsolated(Exception error)
         {
-            Logger.LogError("Better Unturned Experience featureId=" + FeatureId + " status=RuntimeCompletionIsolated decision=Isolate errorType=" + error.GetType().FullName + " diagnosticId=" + DiagnosticId + " message=" + error.Message);
+            BueRuntimeLog.ErrorFriendly("Better Unturned Experience featureId=" + FeatureId + " status=RuntimeCompletionIsolated decision=Isolate errorType=" + error.GetType().FullName + " diagnosticId=" + DiagnosticId + " message=" + error.Message);
         }
 
         private bool CompleteRuntimeOnce()
@@ -289,6 +298,10 @@ namespace BetterUnturnedExperience.Plugin
                         hash = BitConverter.ToString(sha.ComputeHash(stream)).Replace("-", string.Empty);
                     }
                 }
+                // DEV-16G ticket D exception: assembly-identity carries the DLL
+                // sha256, the evidence anchor for three-environment verification
+                // (logs must embed the deployed hash). One line per session, not
+                // noise — stays Info while other load one-shots drop to Debug.
                 Logger.LogInfo("[BUE-UI-TRACE] plugin=io.github.yu80rice.betterunturnedexperience diagnosticId=BUE-MANAGEMENT-TRACE-002 event=assembly-identity path=" + location + " sha256=" + hash);
             }
             catch (Exception error)
@@ -317,7 +330,7 @@ namespace BetterUnturnedExperience.Plugin
                 {
                     UnsubscribeSceneLoaded();
                     if (pluginUpdateDriver != null) pluginUpdateDriver.Clear();
-                    Logger.LogInfo("[BUE-UI-TRACE] plugin=io.github.yu80rice.betterunturnedexperience event=host-destroyed state=preserved patches-kept=true diagnosticId=BUE-CLIENTUI-005");
+                    BueRuntimeLog.Runtime("[BUE-UI-TRACE] plugin=io.github.yu80rice.betterunturnedexperience event=host-destroyed state=preserved patches-kept=true diagnosticId=BUE-CLIENTUI-005");
                 }
                 catch (System.Exception error)
                 {

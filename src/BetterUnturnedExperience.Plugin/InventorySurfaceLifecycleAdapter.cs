@@ -966,8 +966,11 @@ namespace BetterUnturnedExperience.Plugin
                 // DEV-16G slice B: bind the one-shot failure sink to this
                 // adapter's BepInEx log source so lifecycle isolations emit a
                 // "reason:" line exactly once.
-                DiagnosticLogSink = line => log?.LogWarning("[BUE-INVENTORY] event=diagnostic-failure " + line + " diagnosticId=BUE-INVENTORY-003");
-                log?.LogInfo("[BUE-INVENTORY] event=polling-hook-installed target=PlayerUI.Update diagnosticId=BUE-INVENTORY-001");
+                DiagnosticLogSink = line => BueRuntimeLog.ErrorFriendly("[BUE-INVENTORY] event=diagnostic-failure " + line + " diagnosticId=BUE-INVENTORY-003");
+                // DEV-16G ticket D: polling-hook-installed is a per-subsystem
+                // load one-shot, demoted to Debug; the aggregate ready line is
+                // the only load-stage Info announcement.
+                BueRuntimeLog.Runtime("[BUE-INVENTORY] event=polling-hook-installed target=PlayerUI.Update diagnosticId=BUE-INVENTORY-001");
             }
             catch (Exception error)
             {
@@ -1220,24 +1223,32 @@ namespace BetterUnturnedExperience.Plugin
                     // DEV-16G slice A: per-page readiness gate turns the old
                     // per-frame surface-not-ready flood into one-shot
                     // state-transition lines (silent while the state is stable).
+                    // DEV-16G ticket D: benign reasons (empty-grid / scroll
+                    // not-yet-laid-out) are Debug; only structural faults
+                    // (native-hierarchy-incomplete) are loud Error.
                     string gateLine;
                     if (surfaceReadinessGate.Observe(page, false, notReadyReason, out gateLine) && gateLine != null)
                     {
-                        log?.LogInfo(gateLine);
+                        if (BueRuntimeLog.IsCriticalNotReadyReason(notReadyReason))
+                            BueRuntimeLog.ErrorFriendly(gateLine);
+                        else
+                            BueRuntimeLog.Runtime(gateLine);
                     }
                     continue;
                 }
                 string readyLine;
                 if (surfaceReadinessGate.Observe(page, true, null, out readyLine) && readyLine != null)
                 {
-                    log?.LogInfo(readyLine);
+                    BueRuntimeLog.Runtime(readyLine);
                 }
                 openDispatcher(context);
                 RememberDispatchedSurface(page, new DispatchedSurfaceState(generation, context.NativeItems,
                     context.NativeScroll, context.NativeGrid, context.NativeItemsPanel));
                 // [DEV-16C] Geometry calibration readout for the real machine:
                 // these are the approximate viewport values DEV-16D consumes.
-                log?.LogInfo("[BUE-INVENTORY] event=surface-context-dispatched kind=" + kind + " page=" + page + " generation=" + generation
+                // DEV-16G ticket D: demoted to Debug (surface open is a normal
+                // in-game event, not a load announcement).
+                BueRuntimeLog.Runtime("[BUE-INVENTORY] event=surface-context-dispatched kind=" + kind + " page=" + page + " generation=" + generation
                     + " viewportOrigin=" + context.Viewport.OriginX + "," + context.Viewport.OriginY + " (approx)"
                     + " grid=" + context.Viewport.GridWidth + "x" + context.Viewport.GridHeight
                     + " clip=" + context.Viewport.ClipWidth + "x" + context.Viewport.ClipHeight
@@ -1262,7 +1273,9 @@ namespace BetterUnturnedExperience.Plugin
         {
             var wasDispatched = RemoveDispatchedSurfaceForPage(dispatchedSurfaces, page);
             if (!wasDispatched) return false;
-            log?.LogInfo("[BUE-INVENTORY] event=surface-discarded reason=" + reason + " diagnosticId=BUE-INVENTORY-005");
+            // DEV-16G ticket D: surface-discarded is a normal in-game lifecycle
+            // transition, demoted to Debug (silent in normal play).
+            BueRuntimeLog.Runtime("[BUE-INVENTORY] event=surface-discarded reason=" + reason + " diagnosticId=BUE-INVENTORY-005");
             if (discardPageDispatcher != null) discardPageDispatcher(page);
             else if (dispatchedSurfaces.Count == 0)
             {

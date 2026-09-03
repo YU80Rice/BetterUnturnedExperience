@@ -114,8 +114,11 @@ namespace BetterUnturnedExperience.Plugin
                 // DEV-16G slice B: bind the one-shot failure sink to this
                 // adapter's BepInEx log source so runtime isolations emit a
                 // "reason:" line exactly once.
-                DiagnosticLogSink = line => log?.LogWarning("[BUE-DRAG] event=diagnostic-failure " + line + " diagnosticId=BUE-DRAG-003");
-                log?.LogInfo("[BUE-DRAG] event=hooks-installed targets=updateDraggedItem diagnosticId=BUE-DRAG-001");
+                DiagnosticLogSink = line => BueRuntimeLog.ErrorFriendly("[BUE-DRAG] event=diagnostic-failure " + line + " diagnosticId=BUE-DRAG-003");
+                // DEV-16G ticket D: hooks-installed is a per-subsystem load
+                // one-shot, demoted to Debug; the aggregate ready line is the
+                // only load-stage Info announcement.
+                BueRuntimeLog.Runtime("[BUE-DRAG] event=hooks-installed targets=updateDraggedItem diagnosticId=BUE-DRAG-001");
             }
             catch (Exception error)
             {

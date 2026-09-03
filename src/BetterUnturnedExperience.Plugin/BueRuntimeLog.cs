@@ -35,8 +35,10 @@ namespace BetterUnturnedExperience.Plugin
             log?.LogDebug(line);
         }
 
-        // Load/inject stage one-shots (wiring, hooks-installed, surface
-        // dispatch): Info level -> always announced.
+        // DEV-16G ticket D: production load one-shots are all demoted to Debug;
+        // this Info emitter is retained as the level-prefix contract anchor for
+        // the ticket-B verbosity test and as the seam the aggregate ready line
+        // conceptually belongs to. Normal play sees only AnnounceReady.
         internal static void Load(string line)
         {
             var recorder = Recorder;
@@ -61,6 +63,14 @@ namespace BetterUnturnedExperience.Plugin
             log?.LogError(line);
         }
 
+        // DEV-16G ticket D: error lines get a human-readable Chinese prefix in
+        // front of the structured tokens so a user sees "BUE 错误:" at a glance
+        // while the machine-readable featureId/diagnosticId/reason stay intact.
+        internal static void ErrorFriendly(string line)
+        {
+            Error("BUE 错误：" + line);
+        }
+
         // Pure classifier for BueNativeManagementPanel events: recurring
         // in-game events (menu open / UI rebuild / surface open / heartbeat)
         // are Runtime (Debug, silent); load one-shots are Info. Used by the
@@ -77,10 +87,56 @@ namespace BetterUnturnedExperience.Plugin
                 case "add-child-success":
                 case "container-state":
                 case "heartbeat":
+                // DEV-16G ticket D: every per-subsystem load one-shot is
+                // demoted to Debug; only the aggregate ready line stays Info.
+                case "constructed":
+                case "initialize-complete":
+                case "patch-installed":
+                case "host-ui-tick":
+                case "first-tick":
+                case "hooks-installed":
+                case "polling-hook-installed":
+                case "surface-context-dispatched":
+                case "surface-ready":
+                case "surface-discarded":
+                case "wiring-enabled":
                     return true;
                 default:
                     return false;
             }
+        }
+
+        // DEV-16G ticket D: surface-not-ready reasons that indicate a genuine
+        // structural fault (loud Error) vs benign transient states (Debug).
+        internal static bool IsCriticalNotReadyReason(string reason)
+        {
+            return reason == "native-hierarchy-incomplete";
+        }
+
+        // DEV-16G ticket D: the aggregate "loaded" line. Emits exactly once at
+        // Info (normal play sees a single confirmation); subsequent calls are
+        // suppressed. Headless variant announces load without UI.
+        private static bool readyAnnounced;
+
+        internal static void AnnounceReady(bool headless)
+        {
+            if (readyAnnounced) return;
+            readyAnnounced = true;
+            var line = headless
+                ? "Better Unturned Experience 加载成功（无界面）"
+                : "Better Unturned Experience 加载成功，界面已注入";
+            var recorder = Recorder;
+            if (recorder != null)
+            {
+                recorder("Info " + line);
+                return;
+            }
+            log?.LogInfo(line);
+        }
+
+        internal static void ResetReadyAnnouncement()
+        {
+            readyAnnounced = false;
         }
     }
 }
