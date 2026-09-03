@@ -1,6 +1,6 @@
 # DEV-07：CandidateBuild + 三环境同哈希验收与发布门禁
 
-Status: ready-for-human
+Status: resolved（2026-09-03 人工批准 V1 闭环收尾：以 DEV-16E/F/G 实机证据作为覆盖）
 Owner: GPT（总维护者/后端与发布门禁）
 Required reviewer: Gemini（前端消费与验收）
 Human approval: 必须在 `ready-for-human` 后明确批准

@@ -1,6 +1,6 @@
 # DEV-08：Runtime Evidence Package + Three-Environment Gate
 
-Status: ready-for-human
+Status: resolved（2026-09-03 人工批准 V1 闭环收尾：以 DEV-16E/F/G 实机证据作为覆盖）
 Owner: GPT（总维护者/后端与发布门禁）
 Required reviewer: Gemini（前端消费与验收）
 Human approval: 真实证据齐全且独立审计通过后仍需人工批准

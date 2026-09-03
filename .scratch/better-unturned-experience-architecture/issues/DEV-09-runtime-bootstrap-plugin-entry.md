@@ -1,6 +1,6 @@
 # DEV-09：Runtime Bootstrap + BepInEx Plugin Entry
 
-Status: ready-for-human
+Status: resolved（2026-09-03 人工批准 V1 闭环收尾：以 DEV-16E/F/G 实机证据作为覆盖）
 Owner: GPT（总维护者/后端运行时）
 Required reviewer: Gemini（前端消费与 Headless 边界）
 Baseline: BUE-V1-RT01-20260824
