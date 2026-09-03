@@ -241,6 +241,18 @@ _避免_：单字段回调、可变设置字典
 客户端连接多人服务器期间消费的服务器设置快照；它只决定当前连接的有效值，断线即清除且不覆盖客户端持久化偏好。
 _避免_：服务器配置下载、永久同步
 
+**Unturned 官方（SDG）**：
+《未转变者》游戏本体及其原生接口与运行时（`ITransportConnection`、`IClientTransport`、`SDG.NetTransport`、`NetMessages`、SteamNetworkingSockets 等）的所属方；它是 BUE 与所有功能模块只能消费、不能拥有的地基。
+_避免_：把原生接口能力当作 BUE 自有、修改或重定义 Unturned 原生语义
+
+**BUE 官方**：
+由 BUE 发行版内置并承担维护、兼容与资格责任的功能模块与平台能力（BII、管理面板、BueNetworkApi、未来的 LMN 网络模块等）的所属方；它决定什么进入官方发行版、按什么契约表达。
+_避免_：把第三方功能未经验证地称为 BUE 官方、把 BUE 官方能力与 Unturned 原生能力混为一谈
+
+**客户端间第三方通信平台**：
+Unturned 官方与 BepInEx 官方都没有提供的、供第三方插件在客户端之间直接交流消息的标准化平台（类似 Minecraft Forge 的 mod 间网络能力）；BUE 作为 Forge-like 功能平台，通过纳入 LMN 并提供 BueNetworkApi 来补足这个缺口。
+_避免_：把原版协议包当作插件通信通道、要求玩家额外安装独立网络 DLL 才能获得官方功能
+
 **频道协商**：
 LaunchMultiplayerNet 对双方是否接受某个命名频道及频道版本的传输层确认；它不证明功能兼容，也不授予权限。
 _避免_：插件握手、身份认证
