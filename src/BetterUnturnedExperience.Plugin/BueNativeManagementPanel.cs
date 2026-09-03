@@ -990,14 +990,18 @@ namespace BetterUnturnedExperience.Plugin
             LogTrace(eventName, details, false);
         }
 
-        // isRuntime=true emits at Debug level (silent in normal play, per the
-        // user's log policy); false (default) emits at Info (load one-shots).
+        // DEV-16G ticket C: recurring in-game panel events (menu open / UI
+        // rebuild / surface open / heartbeat) route through BueRuntimeLog's
+        // classifier -> Debug (silent in normal play). Load one-shots and
+        // errors bypass the silent gate (Info / Error). The explicit isRuntime
+        // flag remains for callers that know the classification up front (e.g.
+        // the heartbeat) and is OR-ed with the classifier.
         private void LogTrace(string eventName, string details, bool isRuntime)
         {
             var line = "[BUE-UI-TRACE] plugin=" + PluginId + " featureId=" + FeatureId + " version=" + Version
                 + " environmentRole=Client scenario=" + GetScenario() + " diagnosticId=" + TraceDiagnosticId
                 + " event=" + eventName + " " + details;
-            if (isRuntime)
+            if (isRuntime || BueRuntimeLog.IsRuntimeEvent(eventName))
             {
                 BueRuntimeLog.Runtime(line);
                 return;

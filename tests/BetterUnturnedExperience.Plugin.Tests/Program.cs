@@ -161,6 +161,16 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     AssertLoggingRuntimeVerbosity();
                     return 0;
                 }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--logging-bue-runtime-red")
+                {
+                    AssertLoggingBueRuntimeClassification();
+                    return 0;
+                }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--logging-timeout-red")
+                {
+                    AssertLoggingTimeoutIsNotError();
+                    return 0;
+                }
                 AssertSingleDllAssemblyClosure();
                 AssertExternalSdkAssemblyIdentity();
                 Assert(BootstrapGuard.Decide(false, false, true) == BootstrapDecision.Client, "client decision");
@@ -227,6 +237,8 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 AssertLoggingSurfaceReadinessGate();
                 AssertLoggingFailureEmission();
                 AssertLoggingRuntimeVerbosity();
+                AssertLoggingBueRuntimeClassification();
+                AssertLoggingTimeoutIsNotError();
                 AssertRuntimeCompletionBarrierIsolates();
                 AssertManagementPanelConsumesRuntimeCatalog();
                 AssertManagementPanelOpenHooks();
@@ -1271,6 +1283,75 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 BetterUnturnedExperience.Plugin.BueRuntimeLog.Error("event=projection-timed-out reason=timeout");
                 Assert(recorded.Count == 1 && recorded[0].IndexOf("Error") >= 0,
                     "runtime verbosity: ERROR_ALWAYS is not swallowed by the runtime-silent gate");
+            }
+            finally
+            {
+                BetterUnturnedExperience.Plugin.BueRuntimeLog.Recorder = previous;
+            }
+        }
+
+        // GPT watermark: DEV-16G ticket-C red regression. The user reported the
+        // BUE management-panel still spams `[BUE-UI-TRACE] event=surface-opened /
+        // constructor-postfix / create-button-* / add-child-success /
+        // container-state` on every menu open and UI rebuild. These are
+        // recurring in-game events and must be SILENT (Debug), while true
+        // load one-shots (constructed / initialize-complete / patch-installed /
+        // host-ui-tick / first-tick) stay Info. RED until the classifier seam
+        // (BueRuntimeLog.IsRuntimeEvent) exists.
+        private static void AssertLoggingBueRuntimeClassification()
+        {
+            Assert(BetterUnturnedExperience.Plugin.BueRuntimeLog.IsRuntimeEvent("surface-opened"),
+                "BUE panel surface-opened is a runtime event (silent in normal play)");
+            Assert(BetterUnturnedExperience.Plugin.BueRuntimeLog.IsRuntimeEvent("constructor-postfix"),
+                "BUE panel constructor-postfix is a runtime event (UI rebuild)");
+            Assert(BetterUnturnedExperience.Plugin.BueRuntimeLog.IsRuntimeEvent("create-button-begin"),
+                "BUE panel create-button-begin is a runtime event (menu open)");
+            Assert(BetterUnturnedExperience.Plugin.BueRuntimeLog.IsRuntimeEvent("create-button-result"),
+                "BUE panel create-button-result is a runtime event (menu open)");
+            Assert(BetterUnturnedExperience.Plugin.BueRuntimeLog.IsRuntimeEvent("add-child-success"),
+                "BUE panel add-child-success is a runtime event (menu open)");
+            Assert(BetterUnturnedExperience.Plugin.BueRuntimeLog.IsRuntimeEvent("container-state"),
+                "BUE panel container-state is a runtime event (menu state)");
+            Assert(BetterUnturnedExperience.Plugin.BueRuntimeLog.IsRuntimeEvent("heartbeat"),
+                "BUE panel heartbeat is a runtime event");
+
+            Assert(!BetterUnturnedExperience.Plugin.BueRuntimeLog.IsRuntimeEvent("constructed"),
+                "constructed is a load one-shot (Info)");
+            Assert(!BetterUnturnedExperience.Plugin.BueRuntimeLog.IsRuntimeEvent("initialize-complete"),
+                "initialize-complete is a load one-shot (Info)");
+            Assert(!BetterUnturnedExperience.Plugin.BueRuntimeLog.IsRuntimeEvent("patch-installed"),
+                "patch-installed is a load one-shot (Info)");
+            Assert(!BetterUnturnedExperience.Plugin.BueRuntimeLog.IsRuntimeEvent("host-ui-tick"),
+                "host-ui-tick is a load one-shot (Info)");
+            Assert(!BetterUnturnedExperience.Plugin.BueRuntimeLog.IsRuntimeEvent("first-tick"),
+                "first-tick is a load one-shot (Info)");
+        }
+
+        // GPT watermark: DEV-16G ticket-C red regression. The user reported a
+        // log ERROR (projection-timed-out) while the feature worked fine. Root
+        // cause: the AwaitingProjectionController visual budget (2000ms) expired
+        // — the placement was ALREADY submitted natively and is authoritative;
+        // the timeout only stops the VISUAL wait (no fake rollback). Logging it
+        // at Error level is a false-positive severity. It must be emitted at
+        // Debug (Runtime), never Error. RED until the sink stops using
+        // BueRuntimeLog.Error for this benign condition.
+        private static void AssertLoggingTimeoutIsNotError()
+        {
+            var recorded = new System.Collections.Generic.List<string>();
+            var previous = BetterUnturnedExperience.Plugin.BueRuntimeLog.Recorder;
+            BetterUnturnedExperience.Plugin.BueRuntimeLog.Recorder = line => recorded.Add(line);
+            try
+            {
+                var sink = new LoggingInventoryProjectionSink(new BepInEx.Logging.ManualLogSource("test"));
+                sink.OnProjectionTimedOut();
+                Assert(recorded.Count == 1,
+                    "projection timeout emits exactly one line");
+                Assert(recorded[0].IndexOf("Debug") >= 0,
+                    "projection timeout is a benign visual-budget expiry, emitted at Debug not Error");
+                Assert(recorded[0].IndexOf("Error") < 0,
+                    "projection timeout must not be logged as Error (placement is authoritative)");
+                Assert(recorded[0].IndexOf("reason=native-convergence-timeout") >= 0,
+                    "projection timeout Debug line retains the reason for triage");
             }
             finally
             {

@@ -60,5 +60,27 @@ namespace BetterUnturnedExperience.Plugin
             }
             log?.LogError(line);
         }
+
+        // Pure classifier for BueNativeManagementPanel events: recurring
+        // in-game events (menu open / UI rebuild / surface open / heartbeat)
+        // are Runtime (Debug, silent); load one-shots are Info. Used by the
+        // panel's LogTrace to route the same event names consistently with the
+        // rest of the plugin's verbosity policy.
+        internal static bool IsRuntimeEvent(string eventName)
+        {
+            switch (eventName)
+            {
+                case "surface-opened":
+                case "constructor-postfix":
+                case "create-button-begin":
+                case "create-button-result":
+                case "add-child-success":
+                case "container-state":
+                case "heartbeat":
+                    return true;
+                default:
+                    return false;
+            }
+        }
     }
 }

@@ -1,7 +1,7 @@
 # DEV-16G 工单 B：日志运行时静默（候选 3 扩展——用户新语义）
 
 Type: task
-Status: ready-for-agent
+Status: resolved（B 实现已提交 `3bc651d`；C 修正已提交 `(待填)`）
 Parent: DEV-16G 日志规范化
 Blocked by: 无（工单 A 已提交 `114977d`，实机已确认刷屏消除）
 
@@ -58,6 +58,24 @@ Blocked by: 无（工单 A 已提交 `114977d`，实机已确认刷屏消除）
 
 - 新增 `BueRuntimeLog` 静态 seam：`Runtime()`→LogDebug（BepInEx 默认过滤）、`Load()`→LogInfo、`Error()`→LogError；`Bind(Logger)` 在 Awake；`Recorder` 测试注入。
 - 18 处 RUNTIME_RECURRING 事件 LogInfo→`BueRuntimeLog.Runtime`（drag-started/cancelled、preview×6、inventory-events-subscribed、placed-item-rebound、placement-passthrough×3、placement-decision、projection-submitted、native-inventory-snapshot、双心跳）。
-- 严重度修正：host-destroyed Warning→Info；projection-submitted Warning→Debug；projection-timed-out 保持 Error + 加 reason。
+- 严重度修正：host-destroyed Warning→Info；projection-submitted Warning→Debug；projection-timed-out 保持 Error + 加 reason（**C 修正后降为 Debug**）。
 - 错误路径补 `message=`：BootstrapFailed、runtime-pump-create-failed、runtime-pump-failed、RuntimeCompletionIsolated。
-- 提交：`(待填)`
+- 提交：`3bc651d`
+
+## 2026-09-03 实机复测 → C 修正（BUE 面板静默 + projection-timed-out 误报）
+
+用户复测（`UMM-诊断包_20260903_112448`）：BII 不再刷日志 ✓，但 **BUE 管理面板仍在刷**（`surface-opened`/`constructor-postfix`/`create-button-*`/`add-child-success`/`container-state` 每次开菜单/UI 重建 ~40 行），且 **`projection-timed-out` 报 Error 但功能正常**。
+
+### C 根因
+
+1. BUE 面板事件走 `LogTrace` 全部 Info——未复用工单 B 的 `BueRuntimeLog` 静默策略。
+2. `projection-timed-out` 被工单 B 标为 Error（按 walk 建议），但实机证明是**良性视觉预算到期**：放置已通过原生 `sendDragItem` 提交且服务端权威，2000ms 预算只停视觉等待（`ItemInteractionUiComponent` "No fake rollback"）——**误报严重度**。
+
+### C 修复（提交 `(待填)`）
+
+- [x] `BueRuntimeLog.IsRuntimeEvent(eventName)` 纯分类器：7 个循环面板事件（surface-opened/constructor-postfix/create-button-begin/result/add-child-success/container-state/heartbeat）→ Runtime（Debug 静默）；加载一次性保持 Info。
+- [x] `BueNativeManagementPanel.LogTrace` 路由经分类器（`isRuntime || IsRuntimeEvent`）。
+- [x] `OnProjectionTimedOut` Error→Runtime（Debug），reason 保留。
+- [x] 红测：`--logging-bue-runtime-red`（分类器双向断言，先 CS0117 红）+ `--logging-timeout-red`（timeout 为 Debug 非 Error + reason 保留，先运行时红），并入全套。
+- [x] Release 构建 0/0；七项目全 PASS；UI token 零命中；`git diff --check` 通过；双轴独立审查 CLEAN（Standards 2 项 + Spec 4 项可延后，均已列名）。
+- [ ] 待实机确认：正常游戏 BUE 面板也静默；无 Error 误报。

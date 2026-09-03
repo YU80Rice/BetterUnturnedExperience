@@ -34,9 +34,12 @@ namespace BetterUnturnedExperience.Plugin
 
         public void OnProjectionTimedOut()
         {
-            // Real abnormal condition: keep loud with a reason so the user can
-            // tell placement confirmation failed.
-            BueRuntimeLog.Error("[BUE-DRAG] event=projection-timed-out reason=native-convergence-timeout diagnosticId=BUE-DRAG-002");
+            // DEV-16G ticket C: this is a benign visual-budget expiry, NOT a
+            // functional error. The placement was already submitted natively
+            // (sendDragItem) and is authoritative on the server; the 2000ms
+            // budget only stops the VISUAL wait (no fake rollback). Log at
+            // Debug so a normal play session stays silent.
+            BueRuntimeLog.Runtime("[BUE-DRAG] event=projection-timed-out reason=native-convergence-timeout diagnosticId=BUE-DRAG-002");
         }
 
         public AwaitingProjectionState ProjectionState { get { return AwaitingProjectionState.Idle; } }
