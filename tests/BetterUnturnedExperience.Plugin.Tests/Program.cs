@@ -181,6 +181,11 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     AssertSdkNetTransportBaseline();
                     return 0;
                 }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--bue-network-contract-red")
+                {
+                    AssertBueNetworkContract();
+                    return 0;
+                }
                 AssertSingleDllAssemblyClosure();
                 AssertExternalSdkAssemblyIdentity();
                 Assert(BootstrapGuard.Decide(false, false, true) == BootstrapDecision.Client, "client decision");
@@ -251,6 +256,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 AssertLoggingTimeoutIsNotError();
                 AssertLoggingAggregateSuccess();
                 AssertSdkNetTransportBaseline();
+                AssertBueNetworkContract();
                 AssertRuntimeCompletionBarrierIsolates();
                 AssertManagementPanelConsumesRuntimeCatalog();
                 AssertManagementPanelOpenHooks();
@@ -1474,6 +1480,75 @@ namespace BetterUnturnedExperience.Plugin.Tests
             var reliability = typeof(SDG.NetTransport.ENetReliability);
             Assert(reliability.IsEnum && System.Enum.GetNames(reliability).Length == 2,
                 "ENetReliability has exactly Reliable/Unreliable (2 values)");
+        }
+
+        // GPT watermark: DEV-V2-02 red regression. T3 Q1-Q12 froze the
+        // BueNetworkApi public contract shape. This red test pins the
+        // BueNetwork namespace types before they exist (compile-red CS0246),
+        // then asserts their surface after implementation:
+        // - Channel = FeatureId, version negotiation returns ContractIncompatible
+        // - NetworkSendResult explicit enum (localizable, no exceptions)
+        // - IConnectionSession carries SessionId (generation) + events +
+        //   Send + PeerSteamId + PeerFeatureVersion + Channels
+        // - Send targets by connection context (SendToServer/SendToClients/
+        //   SendToClient(session)), no peer-FeatureId addressing
+        private static void AssertBueNetworkContract()
+        {
+            // Q12: public types live in the BueNetwork namespace.
+            var apiType = typeof(BetterUnturnedExperience.Contracts.BueNetwork.IBueNetworkApi);
+            var sessionType = typeof(BetterUnturnedExperience.Contracts.BueNetwork.IConnectionSession);
+            var sendResultType = typeof(BetterUnturnedExperience.Contracts.BueNetwork.NetworkSendResult);
+            var registrationResultType = typeof(BetterUnturnedExperience.Contracts.BueNetwork.ChannelRegistrationResult);
+
+            Assert(apiType.Namespace == "BetterUnturnedExperience.Contracts.BueNetwork",
+                "Q12: BueNetworkApi public types live in BueNetwork namespace");
+            Assert(sendResultType.IsEnum,
+                "Q11: NetworkSendResult is an explicit enum");
+
+            // Q1: channel = FeatureId (one module = one named channel).
+            var register = apiType.GetMethod("RegisterChannel");
+            Assert(register != null,
+                "Q1: IBueNetworkApi.RegisterChannel(FeatureId, ContractVersion, ushort) exists");
+            if (register != null)
+            {
+                var ps = register.GetParameters();
+                Assert(ps.Length == 3 &&
+                    ps[0].ParameterType == typeof(BetterUnturnedExperience.Contracts.FeatureId) &&
+                    ps[1].ParameterType == typeof(BetterUnturnedExperience.Contracts.ContractVersion),
+                    "Q1/Q2: RegisterChannel takes (FeatureId, MinimumBueContract, featureVersion)");
+            }
+
+            // Q2: registration result reuses FeatureRegistrationReason (ContractIncompatible).
+            var reasonProp = registrationResultType.GetProperty("Reason");
+            Assert(reasonProp != null && reasonProp.PropertyType == typeof(BetterUnturnedExperience.Contracts.FeatureRegistrationReason),
+                "Q2: ChannelRegistrationResult.Reason is FeatureRegistrationReason");
+
+            // Q4/Q10: session carries generation + events + peer identity + channels.
+            Assert(sessionType.GetProperty("SessionId") != null &&
+                sessionType.GetProperty("SessionId").PropertyType == typeof(ulong),
+                "Q4: IConnectionSession.SessionId (connection generation)");
+            Assert(sessionType.GetProperty("PeerSteamId") != null &&
+                sessionType.GetProperty("PeerSteamId").PropertyType == typeof(ulong),
+                "Q10: IConnectionSession.PeerSteamId");
+            Assert(sessionType.GetProperty("PeerFeatureVersion") != null,
+                "Q10: IConnectionSession.PeerFeatureVersion");
+            Assert(sessionType.GetProperty("Channels") != null,
+                "Q10: IConnectionSession.Channels (negotiated channel version table)");
+            Assert(sessionType.GetEvent("Connected") != null &&
+                sessionType.GetEvent("Disconnected") != null &&
+                sessionType.GetEvent("GenerationChanged") != null,
+                "Q4: IConnectionSession Connected/Disconnected/GenerationChanged events");
+
+            // Q9: send by connection context, no peer-FeatureId addressing.
+            Assert(apiType.GetMethod("SendToServer") != null &&
+                apiType.GetMethod("SendToClients") != null &&
+                apiType.GetMethod("SendToClient") != null,
+                "Q9: SendToServer/SendToClients/SendToClient(session) — connection-context addressing");
+            var sendToClient = apiType.GetMethod("SendToClient");
+            Assert(sendToClient != null &&
+                sendToClient.GetParameters().Length == 4 &&
+                sendToClient.GetParameters()[1].ParameterType == sessionType,
+                "Q9: SendToClient(channel, IConnectionSession, payload, reliable) — session is the target context, no peer FeatureId");
         }
 
         private static TestSurfaceContext CreateTestSurface(ContainerKind kind, byte page, uint generation)
