@@ -1,9 +1,9 @@
 # 独立 LMN 共存接管机制
 
 Type: wayfinder:research
-Status: open
+Status: claimed（2026-09-03 本会话认领，research 子代理已触发）
 Parent: V2 第一阶段：LMN 官方纳入与 BueNetworkApi（Wayfinder 地图）
-Blocked by: V2-T1-itransportconnection-shape（先查证 LMN/原生传输内部）
+Blocked by: V2-T1-itransportconnection-shape（已 resolved；先查证 LMN/原生传输内部）
 
 ## Question
 

@@ -1,7 +1,7 @@
 # V1 数字频道生态插件盘点
 
 Type: wayfinder:research
-Status: open
+Status: resolved（2026-09-03 盘点完成，报告落盘）
 Parent: V2 第一阶段：LMN 官方纳入与 BueNetworkApi（Wayfinder 地图）
 Blocked by: 无（与 T5 并行）
 
@@ -18,4 +18,9 @@ LMN 生态中实际使用 V1 数字频道（`virtualChannel` int 频道）的插
 
 ## 答案
 
-（resolved 时记录生态清单 + 迁移比例基线）
+- **V1 判据（可执行）**："用 V1" = 对 LMN 调用 `int virtualChannel` 形态 API（`ModTransport.Register*Handler(int,...)` / `SendToServer|SendToClient|BroadcastToAllClients(int,...)` / `BuildMessage(EModMessage,...)`）或经由 `MOD` 魔数帧；仅 `[BepInDependency]` 编译期引用不算 V1 消费方（`Routing/ModTransport.cs:137,159,186,216,415,456,495,818`；`Routing/ModRouter.cs:13-16,40-51,73-107`）。
+- **已知生态 = YU80Rice 单作者 mod 家族**（LMN + 全部发布消费方 git remote 均 `github.com/YU80Rice/*`；本机无外部第三方下游）。
+- **迁移基线**：已发布 V1 频道持有者 LIT(100)/LIR(101)/LHT(102) **3/3 = 100% 已迁 V2**；唯一仍用 V1 的 LaunchSecureContainer（频 103）未发布、无部署、无 git；AcidBalance/EntityCuller 仅编译期引用；FlowFieldNav 工程残缺。本机已装 BepInEx 插件仅 BUE + SteamP2PFriends（均无 LMN 引用），BUE 尚未接入 LMN。
+- **局限（显式声明）**：非穷举——外部/线下/创意工坊未知第三方无法枚举（bsk 无浏览器、web_search 无有效信号）；阈值 = **已知样本下限基线**。
+- 完整报告：`research/V2-T8-v1-ecosystem-inventory.md`。
+- **给 T4**："已发布已知生态"口径迁移比例已 100%；长期 V1 兼容的理由转为主要由"未知第三方/未发现旧装"承担，作为 T4 阈值的显式未知项。
