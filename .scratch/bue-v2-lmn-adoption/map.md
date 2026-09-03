@@ -22,6 +22,7 @@ Author: GPT（本会话 charting）
 
 - [SCR-GPT18-001 契约批准与冻结](issues/V2-T2-scr-gpt18-001-approval.md)：人工开发者 2026-09-03 批准并冻结外部功能注册/LoadSet 契约（Gemini ACCEPT + GPT 审计 PASS 背书）；契约写入 `ContractTypes.cs` 另立 DEV 工单实施；T4 V1 兼容路径阻塞解除。
 - [ITransportConnection 真实形态查证](issues/V2-T1-itransportconnection-shape.md)：`ITransportConnection` 是 Unturned 原生接口（`SDG.NetTransport`），LMN 是消费者；BUE 自建网络层可行（高级语义需自实现）；客户端→服务器方向走 `IClientTransport`（不对称）。完整报告 `research/V2-T1-itransportconnection-shape.md`；解锁 T3、T5。
+- [官方网络模块成熟度定级](issues/V2-T7-network-module-maturity-tier.md)：网络模块归**核心**（BUE"吃掉"LMN 消化为专属网络层）；与 BueNetworkApi 分开定级（API=核心基础设施，不参与面板开关）；故障边界拆开（网络层故障仅隔离网络功能，不触发全局核心安全降级——BII 等本地功能不受影响，U3DS 已验证）。
 
 ## Not yet specified
 
