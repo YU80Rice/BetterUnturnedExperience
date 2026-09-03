@@ -1,12 +1,19 @@
 # DEV-15E-HUMAN：Better Item Interaction 真实运行证据采集
 
 Type: task
-Status: ready-for-human
+Status: ready-for-human（2026-09-03 V1 闭环收尾：候选哈希已更新为当前 DEV-16G D 产物，待人工批准）
 Owner: 人工开发者（运行环境采集）
 Reviewer: GPT（证据包校验与资格裁决） / Gemini（前端消费复核）
 Depends on: DEV-15E
-Candidate DLL: `src/BetterUnturnedExperience.Plugin/bin/Release/BetterUnturnedExperience.dll`
-Candidate DLL SHA-256: `A13695A1EF1CF99DC9EFDFA8698A1C79CA7D8CDE0A1C123C0F00FFE205E47B16`
+Candidate DLL: `audit/2026-09-02/artifacts/DEV-16G-D-20260903/BetterUnturnedExperience.dll`
+Candidate DLL SHA-256: `D13F9A12F0076E9BBA25378EBBC5EA0536C298C3E514FE9F1D2207E0836108CE`
+
+## 2026-09-03 V1 闭环收尾说明
+
+- 候选哈希由旧 `A13695A1...`（DEV-15E 时代）更新为当前 V1 最终产物 `D13F9A12...`（DEV-16G D，工单 D 提交 `6c7066a`）。
+- 三环境证据义务已由后续工单实质履行：DEV-16E 三环境资格证据与人工批准（`audit/2026-09-02/DEV-16E-*`）、DEV-16F 三环境人工验收（`UMM-诊断包_20260902_20*`）、DEV-16G 实机验收（`UMM-诊断包_20260903_*`，含最终 DLL 哈希逐字核对）。
+- **待人工批准**：批准后标记 `resolved`，并入 V1 冻结快照。
+
 
 ## 目标
 
