@@ -1,9 +1,9 @@
 # LMN 配置迁移映射
 
 Type: wayfinder:research
-Status: open
+Status: claimed（2026-09-03 本会话认领，research 子代理已触发）
 Parent: V2 第一阶段：LMN 官方纳入与 BueNetworkApi（Wayfinder 地图）
-Blocked by: V2-T5-lmn-coexistence-takeover（接管机制定了才能谈迁移时序）
+Blocked by: V2-T5-lmn-coexistence-takeover（已 resolved；接管机制定了才能谈迁移时序）
 
 ## Question
 
