@@ -253,6 +253,22 @@ _避免_：客户端自报授权、版本字符串比较
 一次具体连接与应用握手的本地单调身份；重连、换服或 transport identity 改变会创建新代际并使旧消息、快照和缓存失效。
 _避免_：SteamID、认证令牌
 
+**注册阶段**：
+BUE Host 从启动到运行的就绪状态机（HostStarting → RegistrationOpen → CatalogFrozen → RuntimeReady），只有 RegistrationOpen 接受功能注册，之后一律拒绝并返回稳定原因码。
+_避免_：任意时刻注册、按插件到达顺序决定身份
+
+**CatalogRevision**：
+全部功能注册完成并规范化后，按 FeatureId/digest 确定性排序生成的目录修订；它取代"谁先注册谁优先"的到达顺序，作为对外投影的稳定身份事实。
+_避免_：插件到达顺序、运行时增量修订
+
+**LoadSetIdentity**：
+BUE Host、已装功能 DLL、ClientUi satellite、Definition Artifact 与 reference-set 的身份与哈希按稳定序序列化后的 canonical 摘要；证据案例必须绑定完全相同的 LoadSetIdentity，单个 DLL 哈希不能代表完整部署环境。
+_避免_：单一 BUE DLL 哈希冒充整体环境、路径/顺序相关的可变身份
+
+**功能表现状态**：
+核心功能成功但 ClientUi satellite 缺失或失败时的只读表现投影（Available / PresentationDegraded / HeadlessOnly / Failed），与功能运行状态分离；表现降级不影响 Settings Facet 可用性。
+_避免_：把表现状态混入功能状态、缺 UI 等于功能失败
+
 **功能隔离**：
 单个功能发生未处理异常后，核心停止其新回调、撤销登记资源并保持其他功能与原版游戏继续运行的局部降级状态。
 _避免_：插件整体崩溃、自动重启循环

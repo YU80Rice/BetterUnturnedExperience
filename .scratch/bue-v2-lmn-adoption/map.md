@@ -20,7 +20,7 @@ Author: GPT（本会话 charting）
 
 ## Decisions so far
 
-<!-- charting 会话尚未解决任何子票；此处为空。每解决一张，追加一行 gist + 链接。 -->
+- [SCR-GPT18-001 契约批准与冻结](issues/V2-T2-scr-gpt18-001-approval.md)：人工开发者 2026-09-03 批准并冻结外部功能注册/LoadSet 契约（Gemini ACCEPT + GPT 审计 PASS 背书）；契约写入 `ContractTypes.cs` 另立 DEV 工单实施；T4 V1 兼容路径阻塞解除。
 
 ## Not yet specified
 

@@ -68,7 +68,7 @@ Production frontier：RT-01～RT-06、DEV-01～DEV-06 已完成 GPT 独立审计
 ## Proposed architecture frontier
 
 - [GPT-18：BepInEx 前置框架运行时与独立功能注册](issues/18-open-runtime-feature-framework.md) — `needs-triage`；后端独立复核为 `REVISE`。产品定位接受，但需先关闭 `SCR-GPT18-001`，冻结 BUE Host 物理部署、公开注册时序、ClientUi satellite、官方功能归属与 LoadSetIdentity，才能取代 GPT-06/GPT-14 的“V1 不动态加载外部功能 DLL”冻结决策。
-- `SCR-GPT18-001` 已形成候选契约并通过 GPT 独立审计 R1，状态 `ready-for-human`；等待 Gemini/人工双端复核，尚未冻结共享 Contracts。
+- `SCR-GPT18-001` 候选契约已通过 GPT 独立审计 R1（PASS）与 Gemini 前端复核（ACCEPT）；**2026-09-03 人工开发者批准并冻结**（wayfinder 票 V2-T2），写入 `ContractTypes.cs` 另立 DEV 工单实施；GPT-18 注册时序/部署/证据骨架阻塞解除。
 
 ## Out of scope
 
