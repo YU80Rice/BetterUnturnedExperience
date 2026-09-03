@@ -17,6 +17,13 @@ Blocked by: V2-T1-itransportconnection-shape（先查证 LMN/原生传输内部�
 4. 诊断/恢复：接管状态如何可诊断、可恢复（面板显示"已由 BUE 接管"）。
 5. 证据：LMN 源码/反编译事实 + 文件路径 + 行号；必要时用 browser-skill 查公开仓库（Forge 的模块接管/冲突处理实现可作对照）。
 
+## 已预埋事实（T1 查证，research 直接引用不必重查）
+
+- LMN 是 BepInEx 插件（`LaunchMultiplayerNet.dll`），其 Harmony Prefix 拦截目标 = `NetMessages.ReceiveMessageFromClient(ITransportConnection, byte[], int, int)`（U3-SDK `NetMessages.cs:123`）；帧识别靠魔数 + `ModRouter.BuildModPacket`（LMN `Routing\ModTransport.cs:714-726`）。
+- LMN 程序集引用集：`mscorlib, BepInEx, 0Harmony, com.rlabrecque.steamworks.net, SDG.NetTransport, Assembly-CSharp, UnityEngine.CoreModule, System`（T1 反编译确认）。
+- LMN V2 命名频道 = pluginGuid 路由；V1 = int virtualChannel——两种帧都在 `ITransportConnection.Send` 之上（T1 报告）。
+- 停用需满足：不删除 DLL、不误伤不相关插件、可诊断可恢复（CONTEXT.md「网络能力接管」L69-71 +「独立 LMN 文件处理」L81-83）。
+
 ## 答案
 
 （resolved 时记录机制选型 + 证据）
