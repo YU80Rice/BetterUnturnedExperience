@@ -197,6 +197,11 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     AssertBueTakeover();
                     return 0;
                 }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--bue-v1-compat-red")
+                {
+                    AssertBueV1Compat();
+                    return 0;
+                }
                 AssertSingleDllAssemblyClosure();
                 AssertExternalSdkAssemblyIdentity();
                 Assert(BootstrapGuard.Decide(false, false, true) == BootstrapDecision.Client, "client decision");
@@ -270,6 +275,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 AssertBueNetworkContract();
                 AssertBueNetworkRuntime();
                 AssertBueTakeover();
+                AssertBueV1Compat();
                 AssertRuntimeCompletionBarrierIsolates();
                 AssertManagementPanelConsumesRuntimeCatalog();
                 AssertManagementPanelOpenHooks();
@@ -1700,6 +1706,248 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 "takeover: LMN2 frame short-circuits when active");
             Assert(!coordinator.ShouldShortCircuit(new byte[] { 0x00, 0x01, 0x02, 0x03 }),
                 "takeover: non-LMN frame passes through even when active");
+        }
+
+        // GPT watermark: DEV-V2-05 red regression. The V1 numeric-channel
+        // compatibility path (T4): legacy plugins speak int virtual channels
+        // over the "MOD" magic frame (["MOD" 3x][channel:1byte][payload] —
+        // LMN ModRouter.cs:13-16 and 40-51; handlers keyed by int channel,
+        // ModTransport.cs:137,159; range validation ModTransport.cs:695-704).
+        // BUE's compat layer is Host-internal (never in Contracts): parse the
+        // channel byte, route frames into a registry that mimics the V1
+        // registration semantics, honour the official on/off switch
+        // (independent from the network module switch), and isolate any fault
+        // to the single V1 frame with a diagnostic. RED until LmnV1FrameCodec
+        // / LmnV1CompatRegistry / LmnV1CompatLayer exist (CS0234).
+        private static void AssertBueV1Compat()
+        {
+            // Wire format: ["MOD" 3x][channel:1byte][payload]. The codec owns
+            // V1 parse/build only — LMN2 (V2 namespaced) frames are never V1.
+            byte[] modFrame = { 0x4D, 0x4F, 0x44, 0x67, 0x0A, 0x0B };
+            Assert(BetterUnturnedExperience.Core.Network.LmnV1FrameCodec.IsV1Frame(modFrame),
+                "v1compat: MOD magic frame is a V1 frame");
+            Assert(!BetterUnturnedExperience.Core.Network.LmnV1FrameCodec.IsV1Frame(
+                    new byte[] { 0x4C, 0x4D, 0x4E, 0x32, 0x01 }),
+                "v1compat: LMN2 namespaced frame is not a V1 frame");
+            Assert(!BetterUnturnedExperience.Core.Network.LmnV1FrameCodec.IsV1Frame(null),
+                "v1compat: null frame is not a V1 frame");
+            Assert(!BetterUnturnedExperience.Core.Network.LmnV1FrameCodec.IsV1Frame(new byte[] { 0x4D, 0x4F }),
+                "v1compat: truncated frame is not a V1 frame");
+            Assert(!BetterUnturnedExperience.Core.Network.LmnV1FrameCodec.IsV1Frame(new byte[] { 0x4D, 0x4F, 0x44 }),
+                "v1compat: bare magic without a channel byte is not a routable V1 frame");
+
+            int channel;
+            byte[] payload;
+            Assert(BetterUnturnedExperience.Core.Network.LmnV1FrameCodec.TryParse(modFrame, out channel, out payload),
+                "v1compat: MOD frame parses");
+            Assert(channel == 0x67,
+                "v1compat: the first byte after the magic is the int channel (0..255)");
+            Assert(payload.Length == 2 && payload[0] == 0x0A && payload[1] == 0x0B,
+                "v1compat: the payload is the frame remainder after magic and channel");
+            Assert(!BetterUnturnedExperience.Core.Network.LmnV1FrameCodec.TryParse(
+                    new byte[] { 0x4D, 0x4F, 0x44 }, out channel, out payload),
+                "v1compat: magic without a channel byte does not parse");
+            Assert(BetterUnturnedExperience.Core.Network.LmnV1FrameCodec.TryParse(
+                    new byte[] { 0x4D, 0x4F, 0x44, 0x00 }, out channel, out payload),
+                "v1compat: channel 0 with an empty payload parses");
+            Assert(channel == 0 && payload.Length == 0,
+                "v1compat: channel 0 boundary keeps an empty payload");
+            Assert(!BetterUnturnedExperience.Core.Network.LmnV1FrameCodec.TryParse(null, out channel, out payload),
+                "v1compat: null frame does not parse");
+
+            byte[] built;
+            Assert(BetterUnturnedExperience.Core.Network.LmnV1FrameCodec.TryBuild(103, new byte[] { 0x01, 0x02 }, out built),
+                "v1compat: an outgoing V1 frame builds for a legacy channel");
+            Assert(built.Length == 6 && built[0] == 0x4D && built[1] == 0x4F && built[2] == 0x44
+                && built[3] == 103 && built[4] == 0x01 && built[5] == 0x02,
+                "v1compat: built frame is byte-exact [MOD 3x][channel][payload] (LMN BuildModPacket shape)");
+            Assert(BetterUnturnedExperience.Core.Network.LmnV1FrameCodec.TryBuild(0, null, out built)
+                && built.Length == 4 && built[3] == 0,
+                "v1compat: null payload builds as an empty payload");
+            Assert(!BetterUnturnedExperience.Core.Network.LmnV1FrameCodec.TryBuild(256, new byte[0], out built),
+                "v1compat: channel above 255 is rejected (legacy range validation, ModTransport.cs:695-704)");
+            Assert(!BetterUnturnedExperience.Core.Network.LmnV1FrameCodec.TryBuild(-1, new byte[0], out built),
+                "v1compat: negative channel is rejected");
+
+            // Registry: mimics the V1 registration semantics — server handlers
+            // keyed by int channel receive the sender's 64-bit steam id plus a
+            // reader over the payload, client handlers receive the reader
+            // (ModTransport.cs:137,159,186,216). The 64-bit steam id is carried
+            // in its ulong form so the Core stays pure C#.
+            var registry = new BetterUnturnedExperience.Core.Network.LmnV1CompatRegistry();
+            ulong sender = 76561198000000123UL;
+            ulong gotSender = 0;
+            byte[] gotPayload = null;
+            registry.RegisterServerHandler(103, (fromId, reader) =>
+            {
+                gotSender = fromId;
+                gotPayload = reader.ReadBytes((int)(reader.BaseStream.Length - reader.BaseStream.Position));
+            });
+            Assert(registry.DispatchServer(103, sender, new byte[] { 0x0A, 0x0B }),
+                "v1compat: a registered server handler receives its channel's payload");
+            Assert(gotSender == sender && gotPayload != null && gotPayload.Length == 2 && gotPayload[0] == 0x0A,
+                "v1compat: the handler sees the sender's 64-bit steam id and the exact payload");
+            Assert(!registry.DispatchServer(100, sender, new byte[] { 0x0A }),
+                "v1compat: an unregistered channel reports not-handled");
+
+            int clientCalls = 0;
+            registry.RegisterClientHandler(103, reader => { clientCalls++; reader.ReadByte(); });
+            Assert(registry.DispatchClient(103, new byte[] { 0x01 }),
+                "v1compat: a registered client handler receives its channel's payload");
+            Assert(clientCalls == 1, "v1compat: the client handler is invoked exactly once");
+
+            registry.UnregisterServerHandler(103);
+            registry.UnregisterClientHandler(103);
+            Assert(!registry.DispatchServer(103, sender, new byte[] { 0x0A }),
+                "v1compat: unregister removes the server handler");
+            Assert(!registry.DispatchClient(103, new byte[] { 0x01 }),
+                "v1compat: unregister removes the client handler");
+            // Idempotence: unregistering an absent handler must not throw.
+            registry.UnregisterServerHandler(103);
+
+            int lastWins = 0;
+            registry.RegisterServerHandler(104, (fromId, reader) => { lastWins = 1; });
+            registry.RegisterServerHandler(104, (fromId, reader) => { lastWins = 2; });
+            Assert(registry.DispatchServer(104, sender, new byte[0]) && lastWins == 2,
+                "v1compat: re-registering a channel replaces the previous handler (V1 table semantics)");
+
+            bool rangeRejected = false;
+            try { registry.RegisterServerHandler(256, (fromId, reader) => { }); }
+            catch (ArgumentOutOfRangeException) { rangeRejected = true; }
+            Assert(rangeRejected,
+                "v1compat: registration validates the 0..255 legacy channel range");
+
+            // Official switch: V1 compat is an official feature the player can
+            // turn off (independent from the network module switch). Off hands
+            // the frame back unconsumed; on consumes V1 frames only — V2 and
+            // vanilla traffic are never touched by this layer.
+            var layer = new BetterUnturnedExperience.Core.Network.LmnV1CompatLayer(registry);
+            Assert(layer.Enabled, "v1compat: the official switch defaults to enabled");
+            Assert(layer.Registry == registry, "v1compat: the layer routes through the injected registry");
+
+            Assert(!layer.RouteFromClient(new byte[] { 0x4C, 0x4D, 0x4E, 0x32, 0x01 }, sender),
+                "v1compat: the layer never consumes LMN2 (V2) frames");
+            Assert(!layer.RouteFromClient(new byte[] { 0x00, 0x01 }, sender),
+                "v1compat: the layer never consumes non-LMN frames");
+
+            byte[] v1Frame;
+            Assert(BetterUnturnedExperience.Core.Network.LmnV1FrameCodec.TryBuild(103, new byte[] { 0x0A }, out v1Frame),
+                "setup: the V1 frame for the routing checks builds");
+
+            layer.Enabled = false;
+            Assert(!layer.RouteFromClient(v1Frame, sender),
+                "v1compat: switch off hands the V1 frame back unconsumed (vanilla keeps it)");
+            Assert(!layer.TryBuildOutgoingFrame(103, new byte[] { 0x0A }, out built),
+                "v1compat: switch off refuses outgoing V1 frames");
+
+            layer.Enabled = true;
+            byte[] received = null;
+            registry.RegisterServerHandler(103, (fromId, reader) =>
+            {
+                received = reader.ReadBytes((int)(reader.BaseStream.Length - reader.BaseStream.Position));
+            });
+            Assert(layer.RouteFromClient(v1Frame, sender),
+                "v1compat: switch on consumes the V1 frame into the compat registry");
+            Assert(received != null && received.Length == 1 && received[0] == 0x0A,
+                "v1compat: the routed frame reaches the handler with its payload intact");
+
+            int clientGot = 0;
+            registry.RegisterClientHandler(101, reader => { clientGot += reader.ReadByte(); });
+            byte[] fromServerFrame;
+            Assert(BetterUnturnedExperience.Core.Network.LmnV1FrameCodec.TryBuild(101, new byte[] { 0x07 }, out fromServerFrame),
+                "setup: the client-side inbound frame builds");
+            Assert(layer.RouteFromServer(fromServerFrame) && clientGot == 7,
+                "v1compat: client-side receive routes to client handlers");
+            Assert(layer.TryBuildOutgoingFrame(103, new byte[] { 0x0A }, out built) && built[3] == 103,
+                "v1compat: switch on builds outgoing V1 frames with the channel byte");
+
+            // Fault isolation: a handler fault must never propagate — the
+            // frame is dropped with a diagnostic and the layer stays healthy.
+            var diagnostics = new List<string>();
+            var previousSink = BetterUnturnedExperience.Core.Network.LmnV1CompatLayer.DiagnosticLogSink;
+            BetterUnturnedExperience.Core.Network.LmnV1CompatLayer.DiagnosticLogSink = line => diagnostics.Add(line);
+            try
+            {
+                registry.RegisterServerHandler(105, (fromId, reader) => { throw new InvalidOperationException("v1-compat-handler-fault"); });
+                byte[] faultFrame;
+                Assert(BetterUnturnedExperience.Core.Network.LmnV1FrameCodec.TryBuild(105, new byte[] { 0x0B }, out faultFrame),
+                    "setup: the fault-injection frame builds");
+                Assert(layer.RouteFromClient(faultFrame, sender),
+                    "v1compat: a throwing handler still consumes the frame — the fault never propagates to V2 or vanilla");
+                Assert(diagnostics.Count > 0 && diagnostics[0].Contains("BUE-V1COMPAT-001"),
+                    "v1compat: a handler fault emits a diagnostic carrying the compat diagnosticId");
+
+                received = null;
+                Assert(layer.RouteFromClient(v1Frame, sender) && received != null,
+                    "v1compat: the layer stays healthy after a handler fault (isolation is per-frame)");
+
+                byte[] unknownFrame;
+                Assert(BetterUnturnedExperience.Core.Network.LmnV1FrameCodec.TryBuild(200, new byte[] { 0x0C }, out unknownFrame),
+                    "setup: the unknown-channel frame builds");
+                Assert(layer.RouteFromClient(unknownFrame, sender),
+                    "v1compat: an enabled layer consumes a V1 frame with no registered channel (drop, never leak)");
+                Assert(diagnostics.Count > 1,
+                    "v1compat: an unknown-channel drop emits a diagnostic too");
+            }
+            finally
+            {
+                BetterUnturnedExperience.Core.Network.LmnV1CompatLayer.DiagnosticLogSink = previousSink;
+            }
+
+            // Acceptance fixture (decision record 2026-09-03): a no-op plugin
+            // compiled against the LMN V1 numeric-channel API surface (int
+            // channel register / int channel send) must keep working through
+            // the compat layer without code changes. The LMN sources live
+            // outside this repository (the T8 research is the authority), so
+            // the fixture replays the V1 call shape host-side.
+            var fixture = new LmnV1NoOpPluginFixture(103);
+            fixture.Attach(layer);
+            byte[] outgoing = fixture.SendToServer(new byte[] { 0x11, 0x22 });
+            Assert(outgoing != null && outgoing.Length == 6 && outgoing[0] == 0x4D
+                && outgoing[1] == 0x4F && outgoing[2] == 0x44 && outgoing[3] == 103
+                && outgoing[4] == 0x11 && outgoing[5] == 0x22,
+                "fixture: the old plugin's send leaves as a legacy MOD frame carrying the int channel byte");
+            byte[] fixtureInbound;
+            Assert(BetterUnturnedExperience.Core.Network.LmnV1FrameCodec.TryBuild(103, new byte[] { 0x33 }, out fixtureInbound),
+                "setup: the fixture inbound frame builds");
+            Assert(layer.RouteFromClient(fixtureInbound, sender),
+                "fixture: an inbound legacy frame routes to the old plugin's registration");
+            Assert(fixture.Received != null && fixture.Received.Length == 1 && fixture.Received[0] == 0x33
+                && fixture.LastSender == sender,
+                "fixture: the old plugin receives sender + payload intact, with no code changes");
+        }
+
+        // Host-side stand-in for a legacy V1 consumer: it registers by int
+        // virtual channel and sends by int virtual channel (the LMN V1 API
+        // shape, ModTransport.cs:137,415) — the exact contract the compat
+        // layer must keep alive for old binaries.
+        private sealed class LmnV1NoOpPluginFixture
+        {
+            private readonly int virtualChannel;
+            private BetterUnturnedExperience.Core.Network.LmnV1CompatLayer layer;
+            private byte[] received;
+            private ulong lastSender;
+
+            internal LmnV1NoOpPluginFixture(int virtualChannel) { this.virtualChannel = virtualChannel; }
+
+            internal byte[] Received { get { return received; } }
+            internal ulong LastSender { get { return lastSender; } }
+
+            internal void Attach(BetterUnturnedExperience.Core.Network.LmnV1CompatLayer compatLayer)
+            {
+                layer = compatLayer;
+                layer.Registry.RegisterServerHandler(virtualChannel, (fromId, reader) =>
+                {
+                    lastSender = fromId;
+                    received = reader.ReadBytes((int)(reader.BaseStream.Length - reader.BaseStream.Position));
+                });
+            }
+
+            internal byte[] SendToServer(byte[] payload)
+            {
+                byte[] frame;
+                return layer.TryBuildOutgoingFrame(virtualChannel, payload, out frame) ? frame : null;
+            }
         }
 
         private static TestSurfaceContext CreateTestSurface(ContainerKind kind, byte page, uint generation)
