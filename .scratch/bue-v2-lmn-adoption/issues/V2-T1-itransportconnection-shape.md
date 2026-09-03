@@ -1,7 +1,7 @@
 # ITransportConnection 真实形态查证
 
 Type: wayfinder:research
-Status: open
+Status: resolved（2026-09-03 查证完成，报告落盘）
 Parent: V2 第一阶段：LMN 官方纳入与 BueNetworkApi（Wayfinder 地图）
 Blocked by: 无（先行票）
 
@@ -18,4 +18,9 @@ Blocked by: 无（先行票）
 
 ## 答案
 
-（resolved 时记录于此）
+- **`ITransportConnection` 是 Unturned 原生接口**（`SDG.NetTransport.dll`，命名空间 `SDG.NetTransport`），不是 LMN 定义。
+- **LMN 是消费者**：编译期 `using SDG.NetTransport;`，通过 `SteamPlayer.transportConnection`（public 属性，父类 `SteamConnectedClientBase`）拿实例，`transport.Send(packet, len, reliable)` 发送；V2 命名频道/频道版本 Hello-Ack 握手全部是构建在 `Send` 之上的应用层封装，接口本身无频道/命名/版本成员。
+- **BUE 自建层可行性**：接口能力薄（4 查询 + `Send(buffer,size,ENetReliability)` + `CloseConnection()`），可靠/不可靠仅两值 `ENetReliability` 透传 SteamNetworkingSockets；高级语义（命名/版本/ACK/RPC）需 BUE 在接口之上自实现——LMN 已验证此路径可行。
+- **注意不对称**：客户端→服务器发送走 `Provider.clientTransport`（`IClientTransport`，需反射），不经 `ITransportConnection`；服务器端接收 `NetMessages.ReceiveMessageFromClient` 参数才是 `ITransportConnection`（LMN 用 Harmony Prefix 拦截）。
+- 完整报告：`research/V2-T1-itransportconnection-shape.md`（含反编译证据、LMN 源码行号、5 条待格审项）。
+- **解锁**：T3（BueNetworkApi 契约设计）、T5（LMN 共存接管机制）。

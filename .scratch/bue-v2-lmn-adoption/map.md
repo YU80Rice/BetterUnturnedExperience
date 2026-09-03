@@ -21,6 +21,7 @@ Author: GPT（本会话 charting）
 ## Decisions so far
 
 - [SCR-GPT18-001 契约批准与冻结](issues/V2-T2-scr-gpt18-001-approval.md)：人工开发者 2026-09-03 批准并冻结外部功能注册/LoadSet 契约（Gemini ACCEPT + GPT 审计 PASS 背书）；契约写入 `ContractTypes.cs` 另立 DEV 工单实施；T4 V1 兼容路径阻塞解除。
+- [ITransportConnection 真实形态查证](issues/V2-T1-itransportconnection-shape.md)：`ITransportConnection` 是 Unturned 原生接口（`SDG.NetTransport`），LMN 是消费者；BUE 自建网络层可行（高级语义需自实现）；客户端→服务器方向走 `IClientTransport`（不对称）。完整报告 `research/V2-T1-itransportconnection-shape.md`；解锁 T3、T5。
 
 ## Not yet specified
 
@@ -28,6 +29,7 @@ Author: GPT（本会话 charting）
 - 第三方生态功能生产接入的完整工具链（SCR-GPT18-001 冻结后的 SDK/文档形态）。
 - V1 兼容过渡期的具体退出时点（由迁移覆盖率与生态准备程度决定，非日期）。
 - BueNetworkApi 是否需要公开订阅/事件流原语（等 T1 查证原生传输能力后定）。
+- **T1 遗留待格审项（从研究毕业）**：接收面所有权边界（BUE 接管 vs 叠加 LMN 拦截）；客户端 `IClientTransport` 不对称纳入设计；`ENetReliability` 无交付反馈的可靠性边界；`Libs\SDG.NetTransport.dll` 与游戏安装二进制漂移的 SDK 基线锁定；`ITransportConnection` 接口成员清单作为 BUE 依赖文档。
 
 ## Out of scope
 
