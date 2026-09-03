@@ -192,6 +192,11 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     AssertBueNetworkRuntime();
                     return 0;
                 }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--bue-takeover-red")
+                {
+                    AssertBueTakeover();
+                    return 0;
+                }
                 AssertSingleDllAssemblyClosure();
                 AssertExternalSdkAssemblyIdentity();
                 Assert(BootstrapGuard.Decide(false, false, true) == BootstrapDecision.Client, "client decision");
@@ -264,6 +269,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 AssertSdkNetTransportBaseline();
                 AssertBueNetworkContract();
                 AssertBueNetworkRuntime();
+                AssertBueTakeover();
                 AssertRuntimeCompletionBarrierIsolates();
                 AssertManagementPanelConsumesRuntimeCatalog();
                 AssertManagementPanelOpenHooks();
@@ -1643,6 +1649,57 @@ namespace BetterUnturnedExperience.Plugin.Tests
             var detached = c.SendToClient(channel, bSession, payload, reliable: true);
             Assert(detached == NetworkSendResult.NoSession,
                 "runtime: send targeting a session not owned by this runtime returns NoSession");
+        }
+
+        // GPT watermark: DEV-V2-04 red regression. The takeover mechanism
+        // (T5): detect standalone LMN via Chainloader.PluginInfos (injected as
+        // a Func<bool> seam for tests), then short-circuit MOD/LMN2 frames with
+        // a Priority.First prefix so LMN's own prefix never runs. This red test
+        // pins the pure-C# decision core: frame classification (MOD legacy /
+        // LMN2 namespaced magic bytes), takeover-active gating (no false
+        // positive when LMN is absent), and the panel recovery signal. RED
+        // until LmnFrameClassifier / LmnTakeoverCoordinator exist (CS0234).
+        private static void AssertBueTakeover()
+        {
+            // Frame classification: MOD legacy magic (0x4D 0x4F 0x44) and LMN2
+            // namespaced magic (0x4C 0x4D 0x4E 0x32) are the LMN wire identity
+            // (LMN ModRouter.cs:13-24). Everything else must pass through.
+            Assert(BetterUnturnedExperience.Core.Network.LmnFrameClassifier.IsLmnFrame(
+                new byte[] { 0x4D, 0x4F, 0x44, 0x01, 0xAA }),
+                "takeover: MOD legacy frame is classified as LMN");
+            Assert(BetterUnturnedExperience.Core.Network.LmnFrameClassifier.IsLmnFrame(
+                new byte[] { 0x4C, 0x4D, 0x4E, 0x32, 0x01, 0xBB }),
+                "takeover: LMN2 namespaced frame is classified as LMN");
+            Assert(!BetterUnturnedExperience.Core.Network.LmnFrameClassifier.IsLmnFrame(
+                new byte[] { 0x00, 0x01, 0x02, 0x03 }),
+                "takeover: non-LMN frame is not classified");
+            Assert(!BetterUnturnedExperience.Core.Network.LmnFrameClassifier.IsLmnFrame(
+                new byte[] { 0x4D, 0x4F }),
+                "takeover: truncated frame is not classified");
+
+            // Takeover gating: active only when standalone LMN is actually
+            // loaded; short-circuits LMN frames only while active.
+            var lmnLoaded = false;
+            var coordinator = new BetterUnturnedExperience.Core.Network.LmnTakeoverCoordinator(
+                () => lmnLoaded);
+            Assert(!coordinator.TakeoverActive,
+                "takeover: not active before refresh (default)");
+            coordinator.Refresh();
+            Assert(!coordinator.TakeoverActive,
+                "takeover: not active when standalone LMN is absent (no false positive)");
+            Assert(!coordinator.ShouldShortCircuit(new byte[] { 0x4D, 0x4F, 0x44, 0x01 }),
+                "takeover: LMN frame passes through when takeover inactive (no short-circuit)");
+
+            lmnLoaded = true;
+            coordinator.Refresh();
+            Assert(coordinator.TakeoverActive,
+                "takeover: active when standalone LMN is loaded");
+            Assert(coordinator.ShouldShortCircuit(new byte[] { 0x4D, 0x4F, 0x44, 0x01, 0xAA }),
+                "takeover: MOD frame short-circuits when active");
+            Assert(coordinator.ShouldShortCircuit(new byte[] { 0x4C, 0x4D, 0x4E, 0x32, 0x01 }),
+                "takeover: LMN2 frame short-circuits when active");
+            Assert(!coordinator.ShouldShortCircuit(new byte[] { 0x00, 0x01, 0x02, 0x03 }),
+                "takeover: non-LMN frame passes through even when active");
         }
 
         private static TestSurfaceContext CreateTestSurface(ContainerKind kind, byte page, uint generation)
