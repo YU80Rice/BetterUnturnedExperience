@@ -1,7 +1,7 @@
 # DEV-V2-01：SDK 网络基线锁定
 
 Type: task
-Status: ready-for-agent
+Status: resolved（2026-09-03 交付，双轴审查 CLEAN，提交）
 Parent: spec-V2-phase1-lmn-adoption（V2 第一阶段）
 Blocked by: 无（先行票，可立即开始）
 Spec: `../spec-V2-phase1-lmn-adoption.md`（实施依赖清单第 1 项）
@@ -16,9 +16,18 @@ Spec: `../spec-V2-phase1-lmn-adoption.md`（实施依赖清单第 1 项）
 
 ## 验收条件
 
-- [ ] `Libs\SDG.NetTransport.dll` 哈希与游戏安装版一致（刷新完成）。
-- [ ] `ITransportConnection` 成员清单文档落盘，含反编译签名 + 日期 + 刷新前后哈希。
-- [ ] 构建仍 0/0（刷新不破坏现有引用）；七项目测试 PASS。
+- [x] `Libs\SDG.NetTransport.dll` 哈希与游戏安装版一致（`D512DB03...`，旧版备份 `bak-20260811` 留档）。
+- [x] `ITransportConnection` 成员清单文档落盘（`research/V2-NET-BASELINE-sdg-nettransport-20260903.md`，含签名 + 日期 + 刷新前后哈希）。
+- [x] 构建 0/0（刷新不破坏现有引用）；七项目测试 PASS；token 扫描零命中；`git diff --check` 通过。
+- [x] 基线红测 `--sdk-net-baseline-red`（反射断言接口成员清单 + `ENetReliability` 两值）已加入全套——SDK 接口漂移时先在此红。
+
+## 交付记录（2026-09-03）
+
+- 刷新 `Libs\SDG.NetTransport.dll`：`9B4D27A8...`（08/11）→ `D512DB03...`（09/01，与游戏安装逐字一致）。
+- 基线文档：`.scratch/bue-v2-lmn-adoption/research/V2-NET-BASELINE-sdg-nettransport-20260903.md`。
+- 红测锚点：`--sdk-net-baseline-red`（Plugin.Tests）+ 全套调用。
+- 测试 csproj 新增 `SDG.NetTransport` 引用。
+- 解锁：DEV-V2-03（BueNetworkApi 运行时）。
 
 ## 不做
 

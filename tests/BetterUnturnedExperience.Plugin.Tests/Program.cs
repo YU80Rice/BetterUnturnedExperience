@@ -176,6 +176,11 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     AssertLoggingAggregateSuccess();
                     return 0;
                 }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--sdk-net-baseline-red")
+                {
+                    AssertSdkNetTransportBaseline();
+                    return 0;
+                }
                 AssertSingleDllAssemblyClosure();
                 AssertExternalSdkAssemblyIdentity();
                 Assert(BootstrapGuard.Decide(false, false, true) == BootstrapDecision.Client, "client decision");
@@ -245,6 +250,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 AssertLoggingBueRuntimeClassification();
                 AssertLoggingTimeoutIsNotError();
                 AssertLoggingAggregateSuccess();
+                AssertSdkNetTransportBaseline();
                 AssertRuntimeCompletionBarrierIsolates();
                 AssertManagementPanelConsumesRuntimeCatalog();
                 AssertManagementPanelOpenHooks();
@@ -1426,6 +1432,48 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 BetterUnturnedExperience.Plugin.BueRuntimeLog.Recorder = previous;
                 BetterUnturnedExperience.Plugin.BueRuntimeLog.ResetReadyAnnouncement();
             }
+        }
+
+        // GPT watermark: DEV-V2-01 SDK baseline lock. The BUE network module is
+        // built on the vanilla ITransportConnection interface (SDG.NetTransport).
+        // This red test pins the interface member surface so an Unturned SDK
+        // update that changes the interface (compilation-breaking) is caught
+        // here first, before any network code consumes it. Baseline document:
+        // .scratch/bue-v2-lmn-adoption/research/V2-NET-BASELINE-sdg-nettransport-20260903.md
+        private static void AssertSdkNetTransportBaseline()
+        {
+            var transportType = typeof(SDG.NetTransport.ITransportConnection);
+            Assert(transportType != null, "SDG.NetTransport.ITransportConnection resolves (Libs refreshed)");
+
+            var iface = transportType.GetInterfaces();
+            Assert(System.Array.Exists(iface, i => i.Name == "IEquatable`1"),
+                "ITransportConnection implements IEquatable<ITransportConnection>");
+
+            var methods = transportType.GetMethods();
+            string[] expected = {
+                "TryGetIPv4Address", "TryGetPort", "TryGetSteamId",
+                "GetAddress", "GetAddressString", "CloseConnection", "Send"
+            };
+            foreach (var name in expected)
+            {
+                Assert(System.Array.Exists(methods, m => m.Name == name),
+                    "ITransportConnection member " + name + " present (SDK baseline locked)");
+            }
+
+            var send = System.Array.Find(methods, m => m.Name == "Send");
+            Assert(send != null && send.GetParameters().Length == 3,
+                "Send(buffer, size, ENetReliability) signature (3 params)");
+            if (send != null)
+            {
+                var sendParams = send.GetParameters();
+                Assert(sendParams[0].ParameterType == typeof(byte[]) &&
+                    sendParams[1].ParameterType == typeof(long) &&
+                    sendParams[2].ParameterType == typeof(SDG.NetTransport.ENetReliability),
+                    "Send parameter types bound (byte[], long, ENetReliability)");
+            }
+            var reliability = typeof(SDG.NetTransport.ENetReliability);
+            Assert(reliability.IsEnum && System.Enum.GetNames(reliability).Length == 2,
+                "ENetReliability has exactly Reliable/Unreliable (2 values)");
         }
 
         private static TestSurfaceContext CreateTestSurface(ContainerKind kind, byte page, uint generation)
