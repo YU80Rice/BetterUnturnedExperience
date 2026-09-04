@@ -50,3 +50,5 @@ Spec: `../spec-V2-phase1-lmn-adoption.md`（Testing Decisions「三环境验证�
 > **⑤ kit 工具修复（审计工具，非生产源码）**：老版 Newtonsoft `DateParseHandling.Auto` 在 JObject.Parse 时把 ISO 时间戳魔转为文化格式串（`'09/04/2026 16:25:00'`），`ParseExact("O")` 必炸——潜伏自本票建票以来（此前 case.json 均为 TODO 未触达该路径）。修复=`JsonConvert.DeserializeObject<JObject>(…, DateParseHandling.None)`+ParseUtc 值内嵌报错。红=本日观察到的 FormatException，绿=gate exit 0。同轮修复 case.json 转义（JSON 反斜杠）与 caseId 布局。
 >
 > **⑥ 遗留具名（均不阻塞）**：DEV-V2-12（sender=0 双到达，open-deferred）；DEV-V2-09（主菜单间距，needs-triage）；「BUE V1 兼容层」条目无单独截图（可选补）；V1 镜像「时机」归因已由 10/11 勘误（类型名为唯一根因）。
+
+> 2026-09-05 人工验收授权（用户原话：「ok，我正式授权DEV-V2-07工单关闭，人工验收通过」）：用户正式确认人工验收通过并授权本票关闭。本票至此完全闭环：agent 侧装备/审查/证据链 + 人工实机采集 + 修复轮（10/11）+ 资格门禁 TechnicallyQualified + 人工验收授权，全链留档。**注意：本授权针对工单验收关闭；发布批准（BuildIdentity `01BFF640…` / DLL `5B4E948E…` 的对外发布）仍为独立人工动作，本评论不构成发布批准。**
