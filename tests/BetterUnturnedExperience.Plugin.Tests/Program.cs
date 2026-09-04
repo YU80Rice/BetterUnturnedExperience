@@ -229,6 +229,11 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     AssertBueNetworkKillSwitchLifecycle();
                     return 0;
                 }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--bue-lmn-type-names-red")
+                {
+                    AssertBueLmnTypeNameAnchor();
+                    return 0;
+                }
                 AssertSingleDllAssemblyClosure();
                 AssertExternalSdkAssemblyIdentity();
                 Assert(BootstrapGuard.Decide(false, false, true) == BootstrapDecision.Client, "client decision");
@@ -308,6 +313,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 AssertBueNetworkRegistrationDefinitions();
                 AssertBueNetworkPanelEntries();
                 AssertBueNetworkKillSwitchLifecycle();
+                AssertBueLmnTypeNameAnchor();
                 AssertRuntimeCompletionBarrierIsolates();
                 AssertManagementPanelConsumesRuntimeCatalog();
                 AssertManagementPanelOpenHooks();
@@ -2113,11 +2119,22 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     && FakeLmnModRouter.ClientCalls == 1 && FakeLmnModRouter.LastPacket == lmn2Frame
                     && FakeLmnModRouter.LastOffset == 0 && FakeLmnModRouter.LastSize == lmn2Frame.Length,
                     "takeover: LMN2 frames delegate to LMN's own router with the packet window untouched");
+                // DEV-V2-11 (Spec GAP-1): LMN logs nothing per frame, so a
+                // delegated frame is indistinguishable from LMN's own prefix
+                // path — the delegate emits a one-shot record on its first
+                // consumed frame so the real-machine retest can prove the
+                // delegation actually happens.
+                Assert(CountToken(diagnostics, "event=lmn2-delegate result=delegated") == 1,
+                    "takeover: the first consumed LMN2 delegation emits exactly one delegated record");
                 Assert(takeover.ShouldConsumeInbound(false, 0UL, lmn2Frame, 0, lmn2Frame.Length, null) && FakeLmnModRouter.ServerCalls == 1,
                     "takeover: the server-direction router delegate is invoked for ReceiveMessageFromServer frames");
+                Assert(CountToken(diagnostics, "event=lmn2-delegate result=delegated") == 1,
+                    "takeover: the delegated record stays one-shot across further delegations");
                 FakeLmnModRouter.NextResult = false;
                 Assert(!takeover.ShouldConsumeInbound(true, 0UL, lmn2Frame, 0, lmn2Frame.Length, null),
                     "takeover: an unhandled LMN2 frame passes through (LMN's prefix keeps its self-heal path)");
+                Assert(CountToken(diagnostics, "event=lmn2-delegate result=delegated") == 1,
+                    "takeover: an unhandled LMN2 pass-through emits no delegated record");
 
                 var broken = new NetworkModuleAdapter(adapterRoot, () => true, () => null, () => typeof(FakeLmnModRouter), () => { });
                 broken.ActivateCore();
@@ -2499,6 +2516,42 @@ namespace BetterUnturnedExperience.Plugin.Tests
             finally
             {
                 NetworkModuleAdapter.DiagnosticLogSink = previousSink;
+            }
+        }
+
+        // GPT watermark: DEV-V2-11 red regression (F-C, real-machine retest
+        // audit configB-retest-verification-r1). The standalone LMN type
+        // names are an external contract; the authority is the LMN repository
+        // source (Routing/ModTransport.cs + ModRouter.cs, both `namespace
+        // LaunchMultiplayerNet`). Both production constants were transcribed
+        // with an extra ".Routing" level, never resolved on any real machine,
+        // so the V1 mirror and the LMN2 delegate silently never happened and
+        // the deferred retry spammed a HarmonyX warning per attempt (63-169
+        // per session). The anchor pins the production constants to the LMN
+        // source names verbatim, and pins the resolver's silence: a missing
+        // type must return null with zero log output.
+        private static void AssertBueLmnTypeNameAnchor()
+        {
+            Assert(NetworkModuleFeatureRegistration.ModTransportTypeName == "LaunchMultiplayerNet.ModTransport",
+                "lmn types: the ModTransport type name matches the LMN source full name (namespace LaunchMultiplayerNet, no .Routing segment)");
+            Assert(NetworkModuleFeatureRegistration.ModRouterTypeName == "LaunchMultiplayerNet.ModRouter",
+                "lmn types: the ModRouter type name matches the LMN source full name (namespace LaunchMultiplayerNet, no .Routing segment)");
+
+            var routed = new List<string>();
+            var previousRecorder = BueRuntimeLog.Recorder;
+            BueRuntimeLog.Recorder = line => routed.Add(line);
+            try
+            {
+                Assert(NetworkModuleFeatureRegistration.TryFindLoadedType("BetterUnturnedExperience.Plugin.Tests.Program") != null,
+                    "lmn types: the silent resolver finds a loaded type by full name");
+                Assert(NetworkModuleFeatureRegistration.TryFindLoadedType("LaunchMultiplayerNet.Routing.ModTransport") == null,
+                    "lmn types: the silent resolver returns null for an absent type (the old wrong name must stay absent)");
+                Assert(routed.Count == 0,
+                    "lmn types: resolving a missing type emits zero log output (the deferred retry stays silent)");
+            }
+            finally
+            {
+                BueRuntimeLog.Recorder = previousRecorder;
             }
         }
 

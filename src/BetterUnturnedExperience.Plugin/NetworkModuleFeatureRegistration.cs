@@ -1,7 +1,6 @@
 using System;
 using System.IO;
 using BetterUnturnedExperience.Contracts;
-using HarmonyLib;
 
 namespace BetterUnturnedExperience.Plugin
 {
@@ -24,8 +23,36 @@ namespace BetterUnturnedExperience.Plugin
         private const string FeatureId = "io.github.yu80rice.bue.network";
         private const string V1CompatFeatureId = "io.github.yu80rice.bue.network.v1compat";
         private const string StandaloneLmnGuid = "com.yu80rice.launchmultiplayernet";
-        private const string ModTransportTypeName = "LaunchMultiplayerNet.Routing.ModTransport";
-        private const string ModRouterTypeName = "LaunchMultiplayerNet.Routing.ModRouter";
+
+        // DEV-V2-11: the standalone LMN type names are an EXTERNAL contract —
+        // the authority is the LMN repository source (LaunchMultiplayerNet/
+        // Routing/ModTransport.cs + ModRouter.cs, both `namespace
+        // LaunchMultiplayerNet`, no `.Routing` segment in the full names).
+        // Both were once transcribed with an extra ".Routing" level and never
+        // resolved on the real machine (DEV-V2-10 retest F-C); the red-test
+        // anchor pins them to the LMN source names verbatim.
+        internal const string ModTransportTypeName = "LaunchMultiplayerNet.ModTransport";
+        internal const string ModRouterTypeName = "LaunchMultiplayerNet.ModRouter";
+
+        /// <summary>
+        /// DEV-V2-11: resolves a type by full name across the already-loaded
+        /// assemblies WITHOUT any logging. AccessTools.TypeByName logs a
+        /// HarmonyX Warning on every miss, and the deferred-mirror retry
+        /// re-resolves every few seconds while LMN has not loaded yet — that
+        /// SpamFlooded real sessions with 63-169 warnings. A silent miss is
+        /// the whole point of the deferred retry.
+        /// </summary>
+        internal static Type TryFindLoadedType(string fullName)
+        {
+            foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                Type type;
+                try { type = assembly.GetType(fullName, false); }
+                catch (Exception) { continue; }
+                if (type != null) return type;
+            }
+            return null;
+        }
 
         internal static NetworkModuleAdapter WiredAdapter { get; private set; }
 
@@ -90,8 +117,8 @@ namespace BetterUnturnedExperience.Plugin
             var adapter = new NetworkModuleAdapter(
                 settingsRoot,
                 isStandaloneLmnLoaded: () => BepInEx.Bootstrap.Chainloader.PluginInfos.ContainsKey(StandaloneLmnGuid),
-                resolveModTransportType: () => AccessTools.TypeByName(ModTransportTypeName),
-                resolveModRouterType: () => AccessTools.TypeByName(ModRouterTypeName),
+                resolveModTransportType: () => TryFindLoadedType(ModTransportTypeName),
+                resolveModRouterType: () => TryFindLoadedType(ModRouterTypeName),
                 refreshPanel: () => { });
             adapter.BindProductionLog();
             adapter.ActivateCore();

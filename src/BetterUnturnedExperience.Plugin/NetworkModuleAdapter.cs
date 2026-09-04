@@ -267,7 +267,13 @@ namespace BetterUnturnedExperience.Plugin
                 var args = fromClient
                     ? new object[] { connection, packet, offset, size }
                     : new object[] { packet, offset, size };
-                return routerMethod.Invoke(null, args) is bool handled && handled;
+                var handled = routerMethod.Invoke(null, args) is bool consumed && consumed;
+                if (handled && !delegatedRecorded)
+                {
+                    delegatedRecorded = true;
+                    Emit("[BUE-V2NET] event=lmn2-delegate result=delegated decision=consume");
+                }
+                return handled;
             }
             catch (Exception error)
             {
@@ -314,6 +320,11 @@ namespace BetterUnturnedExperience.Plugin
         // keeping P5's zero-false-positive ERROR budget for real faults.
         private bool mirrorPending;
         private int deferredMirrorTicks;
+        // DEV-V2-11 (Spec GAP-1): LMN logs nothing per frame, so a delegated
+        // LMN2 frame is indistinguishable from LMN's own prefix path. The
+        // first consumed delegation emits a one-shot record so the real
+        // -machine retest can prove the delegation actually happens.
+        private bool delegatedRecorded;
 
         /// <summary>
         /// Mirrors the legacy handler table while the takeover is active.
