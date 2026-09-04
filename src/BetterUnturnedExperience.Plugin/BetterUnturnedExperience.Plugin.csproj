@@ -6,7 +6,7 @@
     <TargetFrameworkVersion>v4.7.2</TargetFrameworkVersion><LangVersion>10.0</LangVersion><Deterministic>true</Deterministic><DebugType>none</DebugType>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' "><Optimize>true</Optimize><OutputPath>bin\Release\</OutputPath><DefineConstants>TRACE</DefineConstants><WarningLevel>4</WarningLevel><TreatWarningsAsErrors>true</TreatWarningsAsErrors></PropertyGroup>
-  <ItemGroup><Reference Include="System" /><Reference Include="System.Core" /><Reference Include="BepInEx"><HintPath>..\..\..\Libs\BepInEx.dll</HintPath><Private>False</Private></Reference><Reference Include="HarmonyLib"><HintPath>..\..\..\Libs\0Harmony.dll</HintPath><Private>False</Private></Reference><Reference Include="Assembly-CSharp"><HintPath>..\..\..\Libs\Assembly-CSharp.dll</HintPath><Private>False</Private></Reference><Reference Include="SDG.Glazier.Runtime"><HintPath>..\..\..\Libs\SDG.Glazier.Runtime.dll</HintPath><Private>False</Private></Reference><Reference Include="UnityEngine"><HintPath>..\..\..\Libs\UnityEngine.dll</HintPath><Private>False</Private></Reference><Reference Include="UnityEngine.CoreModule"><HintPath>..\..\..\Libs\UnityEngine.CoreModule.dll</HintPath><Private>False</Private></Reference><Reference Include="UnityEngine.InputLegacyModule"><HintPath>..\..\..\Libs\UnityEngine.InputLegacyModule.dll</HintPath><Private>False</Private></Reference><Reference Include="UnityEngine.TextRenderingModule"><HintPath>..\..\..\Libs\UnityEngine.TextRenderingModule.dll</HintPath><Private>False</Private></Reference></ItemGroup>
+  <ItemGroup><Reference Include="System" /><Reference Include="System.Core" /><Reference Include="BepInEx"><HintPath>..\..\..\Libs\BepInEx.dll</HintPath><Private>False</Private></Reference><Reference Include="HarmonyLib"><HintPath>..\..\..\Libs\0Harmony.dll</HintPath><Private>False</Private></Reference><Reference Include="Assembly-CSharp"><HintPath>..\..\..\Libs\Assembly-CSharp.dll</HintPath><Private>False</Private></Reference><Reference Include="SDG.NetTransport"><HintPath>..\..\..\Libs\SDG.NetTransport.dll</HintPath><Private>False</Private></Reference><Reference Include="SDG.Glazier.Runtime"><HintPath>..\..\..\Libs\SDG.Glazier.Runtime.dll</HintPath><Private>False</Private></Reference><Reference Include="UnityEngine"><HintPath>..\..\..\Libs\UnityEngine.dll</HintPath><Private>False</Private></Reference><Reference Include="UnityEngine.CoreModule"><HintPath>..\..\..\Libs\UnityEngine.CoreModule.dll</HintPath><Private>False</Private></Reference><Reference Include="UnityEngine.InputLegacyModule"><HintPath>..\..\..\Libs\UnityEngine.InputLegacyModule.dll</HintPath><Private>False</Private></Reference><Reference Include="UnityEngine.TextRenderingModule"><HintPath>..\..\..\Libs\UnityEngine.TextRenderingModule.dll</HintPath><Private>False</Private></Reference></ItemGroup>
   <ItemGroup>
     <Compile Include="..\BetterUnturnedExperience.Contracts\ContractTypes.cs"><Link>EmbeddedContracts\ContractTypes.cs</Link></Compile>
     <Compile Include="..\BetterUnturnedExperience.Core\CoreAssemblyMarker.cs"><Link>EmbeddedCore\CoreAssemblyMarker.cs</Link></Compile>
@@ -20,6 +20,8 @@
     <Compile Include="..\BetterUnturnedExperience.Core\Network\LmnV1FrameCodec.cs"><Link>EmbeddedCore\Network\LmnV1FrameCodec.cs</Link></Compile>
     <Compile Include="..\BetterUnturnedExperience.Core\Network\LmnV1CompatRegistry.cs"><Link>EmbeddedCore\Network\LmnV1CompatRegistry.cs</Link></Compile>
     <Compile Include="..\BetterUnturnedExperience.Core\Network\LmnV1CompatLayer.cs"><Link>EmbeddedCore\Network\LmnV1CompatLayer.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Core\Network\HostNetworkTransportAdapter.cs"><Link>EmbeddedCore\Network\HostNetworkTransportAdapter.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Core\Network\LmnV1TableMirror.cs"><Link>EmbeddedCore\Network\LmnV1TableMirror.cs</Link></Compile>
     <Compile Include="..\BetterUnturnedExperience.Core\Placement\PlacementCandidateEvaluator.cs"><Link>EmbeddedCore\Placement\PlacementCandidateEvaluator.cs</Link></Compile>
     <Compile Include="..\BetterUnturnedExperience.Core\Registration\FeatureRegistrationRuntime.cs"><Link>EmbeddedCore\Registration\FeatureRegistrationRuntime.cs</Link></Compile>
     <Compile Include="..\BetterUnturnedExperience.Core\Settings\SettingsRuntime.cs"><Link>EmbeddedCore\Settings\SettingsRuntime.cs</Link></Compile>
@@ -28,6 +30,9 @@
     <Compile Include="BootstrapGuard.cs" />
     <Compile Include="BueRuntimeHost.cs" />
     <Compile Include="OfficialFeatureRegistration.cs" />
+    <Compile Include="NetworkModuleAdapter.cs" />
+    <Compile Include="NetworkModuleFeatureRegistration.cs" />
+    <Compile Include="NetworkSettingsEditor.cs" />
     <Compile Include="BetterUnturnedExperiencePlugin.cs" />
     <Compile Include="BueRuntimePump.cs" />
     <!-- DEV-16A: embed the pure-C# ClientUi seam into the single runtime assembly. -->

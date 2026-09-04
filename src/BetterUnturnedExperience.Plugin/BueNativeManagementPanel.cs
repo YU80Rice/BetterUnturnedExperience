@@ -722,6 +722,10 @@ namespace BetterUnturnedExperience.Plugin
                 }
                 AddDetailLabel(ref y, "功能状态：" + selected.FeatureState, ESleekFontSize.Small);
                 AddDetailLabel(ref y, "表现状态：" + selected.Presentation.State, ESleekFontSize.Small);
+                // DEV-V2-06: the network module's card carries the takeover
+                // status, the no-op config migration line, and the reversible
+                // hand-back button while the takeover is active.
+                if (selected.StableId == NetworkModuleAdapter.NetworkFeature.Value) RenderNetworkTakeoverDetails(ref y);
             }
             else
             {
@@ -768,6 +772,33 @@ namespace BetterUnturnedExperience.Plugin
                     return result.Accepted;
                 });
             }
+        }
+
+        // DEV-V2-06: takeover status + empty-migration line + the reversible
+        // "hand back to standalone LMN" button. The button only turns the
+        // official network switch off through the settings contract — LMN's
+        // own prefix then resumes standalone, and turning the switch back on
+        // re-arms the takeover (no files are touched).
+        private void RenderNetworkTakeoverDetails(ref int y)
+        {
+            var adapter = NetworkModuleFeatureRegistration.WiredAdapter;
+            if (adapter == null) return;
+            AddDetailLabel(ref y, "接管状态：" + adapter.TakeoverStatus, ESleekFontSize.Small);
+            AddDetailLabel(ref y, "配置迁移：" + adapter.ConfigMigrationStatus, ESleekFontSize.Small);
+            if (!adapter.TakeoverActive) return;
+            var revertButton = Glazier.Get().CreateButton();
+            revertButton.PositionOffset_Y = y;
+            revertButton.SizeOffset_X = 220f;
+            revertButton.SizeOffset_Y = 32f;
+            revertButton.Text = "让我改回独立 LMN";
+            revertButton.OnClicked += delegate(ISleekElement ignored)
+            {
+                var result = runtime.Model.TryEditBueSetting(NetworkModuleAdapter.NetworkFeature, "network.enabled", PluginConfigValue.BooleanValue(false));
+                SetStatus(result.Accepted ? "BUE 网络模块已关闭，独立 LMN 恢复运行。" : "BUE 设置被拒绝。", !result.Accepted);
+                if (result.Accepted) RenderDetails();
+            };
+            detailScroll.AddChild(revertButton);
+            y += 40;
         }
 
         private void AddPluginConfigControl(ref int y, ManagementEntryView row, PluginConfigEntryView entry)

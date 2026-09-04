@@ -1,7 +1,7 @@
 # DEV-V2-06：配置迁移（空迁移）与网络模块设置
 
 Type: task
-Status: ready-for-agent
+Status: resolved（2026-09-04 交付，双轴审查 R1 CLEAN，提交；真机面板/Harmony 安装/三环境验证按拍板归 DEV-V2-07）
 Parent: spec-V2-phase1-lmn-adoption（V2 第一阶段）
 Blocked by: DEV-V2-04-lmn-takeover
 Spec: `../spec-V2-phase1-lmn-adoption.md`（Implementation Decisions「配置迁移」+「成熟度定级」）
@@ -17,12 +17,12 @@ Spec: `../spec-V2-phase1-lmn-adoption.md`（Implementation Decisions「配置迁
 
 ## 验收条件
 
-- [ ] 红测先行：`--bue-config-migration-red` 断言空迁移记录（日志行 + 面板状态）——先红后绿。
-- [ ] 网络模块开关通过 `SettingsRuntime` + `FileSettingsPersistence` 原子提交持久化。
-- [ ] 面板显示「无独立配置可迁移」行（与「已由 BUE 接管」卡联动）。
-- [ ] 接管接线（DEV-V2-04 移交）：`Priority.First` Prefix 在 LMN 已加载时短路 MOD/LMN2 帧、LMN 缺席零误报 + 面板「已由 BUE 接管」+「让我改回独立 LMN」可逆钮（`BueNativeManagementPanel` seam）。
-- [ ] 可靠位 + 按来源解析分发（DEV-V2-03/04 移交）在真实传输接线下单机环回验证。
-- [ ] 构建 0/0；七项目测试 PASS。
+- [x] 红测先行：`--bue-config-migration-red` 断言空迁移记录（日志行 + 面板状态）——先红后绿。（red-config-migration-r2 真红 → 锚点 exit=0）
+- [x] 网络模块开关通过 `SettingsRuntime` + `FileSettingsPersistence` 原子提交持久化。（红测第 1 段双 facet 往返）
+- [x] 面板显示「无独立配置可迁移」行（与「已由 BUE 接管」卡联动）。（RenderNetworkTakeoverDetails 代码级 + 状态行 headless 断言；真机渲染待补归 07）
+- [x] 接管接线（DEV-V2-04 移交）：`Priority.First` Prefix 在 LMN 已加载时短路 MOD/LMN2 帧、LMN 缺席零误报 + 面板「已由 BUE 接管」+「让我改回独立 LMN」可逆钮（`BueNativeManagementPanel` seam）。（决策核九段断言 + 生产安装路径；真机观测待补归 07）
+- [x] 可靠位 + 按来源解析分发（DEV-V2-03/04 移交）在真实传输接线下单机环回验证。（红测第 8 段三 runtime hub 拓扑）
+- [x] 构建 0/0；七项目测试 PASS。（gates-summary-r1）
 
 ## 不做
 

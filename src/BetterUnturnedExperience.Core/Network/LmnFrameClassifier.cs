@@ -20,12 +20,33 @@ namespace BetterUnturnedExperience.Core.Network
         private const byte Namespaced2 = 0x4E; // N
         private const byte Namespaced3 = 0x32; // 2
 
+        private const int LegacyFrameLength = 3;
+        private const int NamespacedFrameLength = 4;
+
         public static bool IsLmnFrame(byte[] frame)
         {
             if (frame == null) return false;
-            if (frame.Length >= 3 && frame[0] == Legacy0 && frame[1] == Legacy1 && frame[2] == Legacy2) return true;
-            if (frame.Length >= 4 && frame[0] == Namespaced0 && frame[1] == Namespaced1 && frame[2] == Namespaced2 && frame[3] == Namespaced3) return true;
-            return false;
+            return IsLmnFrame(frame, 0, frame.Length);
+        }
+
+        // DEV-V2-06: offset-aware hot-path overloads — the takeover decision
+        // core classifies every inbound packet window zero-copy, without
+        // materializing a sub-array per frame.
+        public static bool IsLmnFrame(byte[] packet, int offset, int size)
+        {
+            return IsLegacyV1Frame(packet, offset, size) || IsNamespacedV2Frame(packet, offset, size);
+        }
+
+        public static bool IsLegacyV1Frame(byte[] packet, int offset, int size)
+        {
+            return packet != null && offset >= 0 && size >= LegacyFrameLength && offset + size <= packet.Length
+                && packet[offset] == Legacy0 && packet[offset + 1] == Legacy1 && packet[offset + 2] == Legacy2;
+        }
+
+        public static bool IsNamespacedV2Frame(byte[] packet, int offset, int size)
+        {
+            return packet != null && offset >= 0 && size >= NamespacedFrameLength && offset + size <= packet.Length
+                && packet[offset] == Namespaced0 && packet[offset + 1] == Namespaced1 && packet[offset + 2] == Namespaced2 && packet[offset + 3] == Namespaced3;
         }
     }
 }

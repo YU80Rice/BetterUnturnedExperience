@@ -57,10 +57,15 @@ namespace BetterUnturnedExperience.Plugin
                 BueRuntimeHost.Bind(runtime);
                 runtime.OpenRegistration();
                 var officialRegistration = BetterItemInteractionFeatureRegistration.Register();
+                // DEV-V2-06: the network module (LMN takeover + BueNetworkApi)
+                // registers in the global zone — Headless hosts need the
+                // network module too; the client-only branch below only adds
+                // the panel wiring.
+                var networkRegistration = NetworkModuleFeatureRegistration.Register();
                 if (decision == BootstrapDecision.Client)
                 {
                     pluginUpdateDriver = new BuePluginUpdateDriver(OnPluginUpdateTick);
-                    clientUiComposition = new BueClientUiCompositionRoot();
+                    clientUiComposition = new BueClientUiCompositionRoot(NetworkModuleFeatureRegistration.WiredAdapter);
                     if (!clientUiComposition.Initialize(isBatchMode, isBatchMode, BueNativeManagementPanel.CanBindNativeUi()))
                     {
                         Logger.LogWarning("BUE client UI composition unavailable diagnosticId=BUE-CLIENTUI-001");
@@ -139,6 +144,7 @@ namespace BetterUnturnedExperience.Plugin
                 sceneLoadedSubscribed = true;
                 BueRuntimeLog.Runtime("Better Unturned Experience featureId=" + FeatureId + " status=BootstrapReady decision=" + decision + " diagnosticId=" + DiagnosticId);
                 BueRuntimeLog.Runtime("Better Item Interaction featureId=" + officialRegistration.Feature.Value + " accepted=" + officialRegistration.Accepted + " reason=" + officialRegistration.Reason + " diagnosticId=" + officialRegistration.DiagnosticId);
+                BueRuntimeLog.Runtime("BUE Network Module featureId=" + networkRegistration.Feature.Value + " accepted=" + networkRegistration.Accepted + " reason=" + networkRegistration.Reason + " diagnosticId=" + networkRegistration.DiagnosticId);
             }
             catch (System.Exception error)
             {
@@ -347,6 +353,9 @@ namespace BetterUnturnedExperience.Plugin
                 if (nativeManagementPanel != null) nativeManagementPanel.Destroy();
                 if (inventoryDragAdapter != null) inventoryDragAdapter.IsolateAndDetach();
                 if (inventoryLifecycleAdapter != null) inventoryLifecycleAdapter.IsolateAndDetach();
+                // DEV-V2-06: hand the network back (unhook the takeover
+                // patches) before the plugin unloads.
+                if (NetworkModuleFeatureRegistration.WiredAdapter != null) NetworkModuleFeatureRegistration.WiredAdapter.IsolateAndDetach();
                 if (clientUiComposition != null) clientUiComposition.Destroy();
             }
             catch (System.Exception error)

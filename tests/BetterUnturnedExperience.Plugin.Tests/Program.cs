@@ -8,6 +8,8 @@ using BetterUnturnedExperience.Plugin;
 using BetterUnturnedExperience.ClientUi.Internal;
 using HarmonyLib;
 using SDG.Unturned;
+using System.IO;
+using BetterUnturnedExperience.Core.Settings;
 
 namespace BetterUnturnedExperience.Plugin.Tests
 {
@@ -202,6 +204,11 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     AssertBueV1Compat();
                     return 0;
                 }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--bue-config-migration-red")
+                {
+                    AssertBueConfigMigration();
+                    return 0;
+                }
                 AssertSingleDllAssemblyClosure();
                 AssertExternalSdkAssemblyIdentity();
                 Assert(BootstrapGuard.Decide(false, false, true) == BootstrapDecision.Client, "client decision");
@@ -276,6 +283,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 AssertBueNetworkRuntime();
                 AssertBueTakeover();
                 AssertBueV1Compat();
+                AssertBueConfigMigration();
                 AssertRuntimeCompletionBarrierIsolates();
                 AssertManagementPanelConsumesRuntimeCatalog();
                 AssertManagementPanelOpenHooks();
@@ -1947,6 +1955,367 @@ namespace BetterUnturnedExperience.Plugin.Tests
             {
                 byte[] frame;
                 return layer.TryBuildOutgoingFrame(virtualChannel, payload, out frame) ? frame : null;
+            }
+        }
+
+        // GPT watermark: DEV-V2-06 red regression. The takeover wiring +
+        // config migration ticket: the network module and its V1 compat
+        // switch become official Settings Facets persisted atomically through
+        // FileSettingsPersistence, the empty LMN config migration is recorded
+        // as a structured no-op diagnostic (T6: LMN V5 has no config
+        // system), the standalone LMN V1 handler table is mirrored via
+        // reflection so legacy frames keep flowing, LMN2 frames delegate to
+        // LMN's own router (BUE stays the only patch decision point), the
+        // network module switch is reversible (off hands everything back),
+        // the frame format v2 carries the sender's steam id so dispatch
+        // resolves the session by source (never "first session") with the
+        // reliability bit passed through, and a routing settings editor lets
+        // the panel submit network facet edits without touching the BII
+        // editor. RED until NetworkModuleAdapter /
+        // HostNetworkTransportAdapter / SettingsRuntimeBueEditor /
+        // RoutingBueSettingsEditor exist (CS0234).
+        private static void AssertBueConfigMigration()
+        {
+            // 1. Dual-facet persistence roundtrip: both official switches
+            //    survive a FileSettingsPersistence atomic commit + reload.
+            var persistenceRoot = Path.Combine(Path.GetTempPath(), "bue-v2net-red-" + Guid.NewGuid().ToString("N"));
+            var networkDescriptors = NetworkModuleAdapter.CreateNetworkDescriptors();
+            var v1CompatDescriptors = NetworkModuleAdapter.CreateV1CompatDescriptors();
+            Assert(networkDescriptors.Count == 1 && v1CompatDescriptors.Count == 1,
+                "migration: each network facet declares exactly one switch descriptor");
+            Assert(networkDescriptors[0].SettingId == "network.enabled" && v1CompatDescriptors[0].SettingId == "v1compat.enabled",
+                "migration: the facet switches keep their frozen setting ids");
+            Assert(networkDescriptors[0].Kind == SettingKind.Toggle && networkDescriptors[0].Authority == SettingAuthority.ClientLocal
+                && networkDescriptors[0].SchemaVersion == 1,
+                "migration: the network descriptor is a schema-1 client-local toggle");
+            var networkRuntime = new SettingsRuntime(NetworkModuleAdapter.NetworkFeature, networkDescriptors, new FileSettingsPersistence(persistenceRoot));
+            var v1Runtime = new SettingsRuntime(NetworkModuleAdapter.V1CompatFeature, v1CompatDescriptors, new FileSettingsPersistence(persistenceRoot));
+            Assert(networkRuntime.Submit(new ScopedSettingChangeRequest(11UL, SettingRevisionScope.ClientPreference,
+                networkRuntime.GetSnapshot(SettingRevisionScope.ClientPreference).Revision,
+                new[] { new SettingMutation("network.enabled", SettingValue.Toggle(false)) })).Accepted,
+                "migration: the network facet submits an atomic toggle change");
+            Assert(v1Runtime.Submit(new ScopedSettingChangeRequest(12UL, SettingRevisionScope.ClientPreference,
+                v1Runtime.GetSnapshot(SettingRevisionScope.ClientPreference).Revision,
+                new[] { new SettingMutation("v1compat.enabled", SettingValue.Toggle(false)) })).Accepted,
+                "migration: the V1 compat facet submits an atomic toggle change");
+            SettingValue persisted;
+            uint persistedRevision;
+            var reloadedNetwork = new SettingsRuntime(NetworkModuleAdapter.NetworkFeature, networkDescriptors, new FileSettingsPersistence(persistenceRoot));
+            Assert(reloadedNetwork.TryGet("network.enabled", out persisted, out persistedRevision) && !persisted.Boolean,
+                "migration: the network switch survives a FileSettingsPersistence roundtrip");
+            var reloadedV1 = new SettingsRuntime(NetworkModuleAdapter.V1CompatFeature, v1CompatDescriptors, new FileSettingsPersistence(persistenceRoot));
+            Assert(reloadedV1.TryGet("v1compat.enabled", out persisted, out persistedRevision) && !persisted.Boolean,
+                "migration: the V1 compat switch survives the same roundtrip");
+
+            // 2.+3. Adapter at probe false: own facets, panel status lines,
+            //        the structured no-op migration record, zero false positives.
+            var diagnostics = new List<string>();
+            var previousSink = NetworkModuleAdapter.DiagnosticLogSink;
+            NetworkModuleAdapter.DiagnosticLogSink = line => diagnostics.Add(line);
+            byte[] modFrame = { 0x4D, 0x4F, 0x44, 0x67, 0x0A };
+            byte[] lmn2Frame = { 0x4C, 0x4D, 0x4E, 0x32, 0x01, 0xBB };
+            try
+            {
+                var adapterRoot = Path.Combine(Path.GetTempPath(), "bue-v2net-red-" + Guid.NewGuid().ToString("N"));
+                var dormant = new NetworkModuleAdapter(adapterRoot, () => false, () => null, () => null, () => { });
+                dormant.ActivateCore();
+                Assert(dormant.NetworkSettings.Feature.Value == NetworkModuleAdapter.NetworkFeature.Value
+                    && dormant.V1CompatSettings.Feature.Value == NetworkModuleAdapter.V1CompatFeature.Value,
+                    "migration: the adapter owns one settings runtime per official facet");
+                Assert(dormant.NetworkSettings.GetSnapshot(SettingRevisionScope.ClientPreference).Entries.Count == 1
+                    && dormant.V1CompatSettings.GetSnapshot(SettingRevisionScope.ClientPreference).Entries.Count == 1,
+                    "migration: each facet exposes exactly its own switch (no migrated entries exist)");
+                Assert(!string.IsNullOrEmpty(dormant.TakeoverStatus),
+                    "migration: the takeover status line is always present for the panel");
+                Assert(dormant.ConfigMigrationStatus.Contains("无独立配置可迁移"),
+                    "migration: the panel line reports the LMN no-config no-op");
+                Assert(diagnostics.Exists(line => line.Contains("BUE-V2NET-001") && line.Contains("result=no-op")),
+                    "migration: the empty migration is recorded with the structured diagnostic (BUE-V2NET-001)");
+                Assert(!dormant.TakeoverActive,
+                    "migration: the takeover stays inactive when standalone LMN is absent (no false positive)");
+                Assert(!dormant.ShouldConsumeInbound(true, 1UL, modFrame, 0, modFrame.Length, null),
+                    "migration: legacy V1 frames pass through while the takeover is inactive");
+                Assert(!dormant.ShouldConsumeInbound(false, 0UL, lmn2Frame, 0, lmn2Frame.Length, null),
+                    "migration: LMN2 frames pass through while the takeover is inactive");
+                Assert(!dormant.ShouldConsumeInbound(true, 1UL, new byte[] { 0x00, 0x01 }, 0, 2, null),
+                    "migration: vanilla frames always pass through (zero false positive)");
+
+                // 4.-7. Probe true: the V1 table mirrors from the standalone
+                //        LMN process, LMN2 delegates to LMN's own router, the
+                //        v1compat switch gates only the legacy path, a failed
+                //        mirror degrades to the drop path, and the network
+                //        module switch is the reversible kill switch.
+                FakeLmnModTransport.Reset();
+                FakeLmnModRouter.Reset();
+                FakeLmnModTransport.ServerHandlers[103] = (sender, reader) =>
+                {
+                    FakeLmnModTransport.LastSender = sender.Value;
+                    FakeLmnModTransport.LastPayload = reader.ReadBytes((int)(reader.BaseStream.Length - reader.BaseStream.Position));
+                };
+                FakeLmnModTransport.ClientHandlers[103] = reader => { FakeLmnModTransport.ClientCalls++; };
+                var takeover = new NetworkModuleAdapter(adapterRoot, () => true, () => typeof(FakeLmnModTransport), () => typeof(FakeLmnModRouter), () => { });
+                takeover.ActivateCore();
+                Assert(takeover.TakeoverActive, "takeover: the decision core arms when standalone LMN is present");
+                Assert(takeover.TakeoverStatus.Contains("已由 BUE 接管"),
+                    "takeover: the panel status reports the takeover");
+                byte[] v1Frame;
+                Assert(BetterUnturnedExperience.Core.Network.LmnV1FrameCodec.TryBuild(103, new byte[] { 0x11, 0x22 }, out v1Frame),
+                    "setup: the V1 mirror frame builds");
+                Assert(takeover.ShouldConsumeInbound(true, 424242UL, v1Frame, 0, v1Frame.Length, null),
+                    "takeover: the mirrored V1 table consumes the legacy frame");
+                Assert(FakeLmnModTransport.LastSender == 424242UL && FakeLmnModTransport.LastPayload != null
+                    && FakeLmnModTransport.LastPayload.Length == 2 && FakeLmnModTransport.LastPayload[0] == 0x11,
+                    "takeover: the legacy handler receives the steam id (ulong converted) and payload intact");
+                Assert(takeover.ShouldConsumeInbound(false, 0UL, v1Frame, 0, v1Frame.Length, null) && FakeLmnModTransport.ClientCalls == 1,
+                    "takeover: the client-side receive routes to the mirrored client handler");
+
+                Assert(takeover.V1CompatSettings.Submit(new ScopedSettingChangeRequest(21UL, SettingRevisionScope.ClientPreference,
+                    takeover.V1CompatSettings.GetSnapshot(SettingRevisionScope.ClientPreference).Revision,
+                    new[] { new SettingMutation("v1compat.enabled", SettingValue.Toggle(false)) })).Accepted,
+                    "setup: the V1 compat switch is submitted through its facet runtime");
+                takeover.RefreshSwitches();
+                Assert(!takeover.ShouldConsumeInbound(true, 424242UL, v1Frame, 0, v1Frame.Length, null),
+                    "takeover: v1compat off hands legacy frames back unconsumed");
+                Assert(takeover.V1CompatSettings.Submit(new ScopedSettingChangeRequest(22UL, SettingRevisionScope.ClientPreference,
+                    takeover.V1CompatSettings.GetSnapshot(SettingRevisionScope.ClientPreference).Revision,
+                    new[] { new SettingMutation("v1compat.enabled", SettingValue.Toggle(true)) })).Accepted,
+                    "setup: the V1 compat switch is re-enabled");
+                takeover.RefreshSwitches();
+                Assert(takeover.ShouldConsumeInbound(true, 424242UL, v1Frame, 0, v1Frame.Length, null),
+                    "takeover: v1compat on restores the legacy consumption path");
+
+                FakeLmnModRouter.NextResult = true;
+                Assert(takeover.ShouldConsumeInbound(true, 0UL, lmn2Frame, 0, lmn2Frame.Length, null)
+                    && FakeLmnModRouter.ClientCalls == 1 && FakeLmnModRouter.LastPacket == lmn2Frame
+                    && FakeLmnModRouter.LastOffset == 0 && FakeLmnModRouter.LastSize == lmn2Frame.Length,
+                    "takeover: LMN2 frames delegate to LMN's own router with the packet window untouched");
+                Assert(takeover.ShouldConsumeInbound(false, 0UL, lmn2Frame, 0, lmn2Frame.Length, null) && FakeLmnModRouter.ServerCalls == 1,
+                    "takeover: the server-direction router delegate is invoked for ReceiveMessageFromServer frames");
+                FakeLmnModRouter.NextResult = false;
+                Assert(!takeover.ShouldConsumeInbound(true, 0UL, lmn2Frame, 0, lmn2Frame.Length, null),
+                    "takeover: an unhandled LMN2 frame passes through (LMN's prefix keeps its self-heal path)");
+
+                var broken = new NetworkModuleAdapter(adapterRoot, () => true, () => null, () => typeof(FakeLmnModRouter), () => { });
+                broken.ActivateCore();
+                Assert(diagnostics.Exists(line => line.Contains("BUE-V2NET-002")),
+                    "takeover: a failed handler-table mirror emits the mirror diagnostic (BUE-V2NET-002)");
+                Assert(broken.ShouldConsumeInbound(true, 424242UL, v1Frame, 0, v1Frame.Length, null),
+                    "takeover: with no mirrored table the legacy frame is still consumed (unknown-channel drop, never a crash)");
+
+                Assert(takeover.NetworkSettings.Submit(new ScopedSettingChangeRequest(31UL, SettingRevisionScope.ClientPreference,
+                    takeover.NetworkSettings.GetSnapshot(SettingRevisionScope.ClientPreference).Revision,
+                    new[] { new SettingMutation("network.enabled", SettingValue.Toggle(false)) })).Accepted,
+                    "setup: the network module switch is turned off");
+                takeover.RefreshSwitches();
+                Assert(!takeover.ShouldConsumeInbound(true, 424242UL, v1Frame, 0, v1Frame.Length, null),
+                    "recovery: network module off hands every legacy frame back (LMN resumes standalone)");
+                Assert(!takeover.ShouldConsumeInbound(false, 0UL, lmn2Frame, 0, lmn2Frame.Length, null),
+                    "recovery: network module off passes LMN2 frames through");
+                Assert(takeover.NetworkSettings.Submit(new ScopedSettingChangeRequest(32UL, SettingRevisionScope.ClientPreference,
+                    takeover.NetworkSettings.GetSnapshot(SettingRevisionScope.ClientPreference).Revision,
+                    new[] { new SettingMutation("network.enabled", SettingValue.Toggle(true)) })).Accepted,
+                    "setup: the network module switch is re-enabled");
+                takeover.RefreshSwitches();
+                FakeLmnModRouter.NextResult = true;
+                Assert(takeover.ShouldConsumeInbound(false, 0UL, lmn2Frame, 0, lmn2Frame.Length, null),
+                    "recovery: re-enabling the network module re-arms the takeover (reversible switch)");
+            }
+            finally
+            {
+                NetworkModuleAdapter.DiagnosticLogSink = previousSink;
+            }
+
+            // 8. Frame format v2 over the real-transport seam: three runtimes
+            //    on a hub topology prove sender-carried source dispatch, the
+            //    reliability bit, and targeted sends.
+            System.Action<byte[]> hubReceiver = null;
+            System.Action<byte[]> peerBReceiver = null;
+            System.Action<byte[]> peerCReceiver = null;
+            var hubLastReliable = false;
+            var hubLastTarget = 0UL;
+            var transportHub = new BetterUnturnedExperience.Core.Network.HostNetworkTransportAdapter((frame, reliable, target) =>
+            {
+                hubLastReliable = reliable;
+                hubLastTarget = target;
+                if (target == 0UL)
+                {
+                    if (peerBReceiver != null) peerBReceiver(frame);
+                    if (peerCReceiver != null) peerCReceiver(frame);
+                }
+                else if (target == 200UL && peerBReceiver != null) peerBReceiver(frame);
+                else if (target == 300UL && peerCReceiver != null) peerCReceiver(frame);
+                return true;
+            }, callback => hubReceiver = callback);
+            var transportB = new BetterUnturnedExperience.Core.Network.HostNetworkTransportAdapter(
+                (frame, reliable, target) => { if (hubReceiver != null) hubReceiver(frame); return true; },
+                callback => peerBReceiver = callback);
+            var transportC = new BetterUnturnedExperience.Core.Network.HostNetworkTransportAdapter(
+                (frame, reliable, target) => { if (hubReceiver != null) hubReceiver(frame); return true; },
+                callback => peerCReceiver = callback);
+            var trioContract = new ContractVersion(2, 0);
+            var runtimeHub = new BetterUnturnedExperience.Core.Network.BueNetworkRuntime(transportHub, trioContract, 100UL);
+            var runtimePeerB = new BetterUnturnedExperience.Core.Network.BueNetworkRuntime(transportB, trioContract, 200UL);
+            var runtimePeerC = new BetterUnturnedExperience.Core.Network.BueNetworkRuntime(transportC, trioContract, 300UL);
+            var trioChannel = new FeatureId("io.example.v2net");
+            Assert(runtimeHub.RegisterChannel(trioChannel, trioContract, 1).Accepted
+                && runtimePeerB.RegisterChannel(trioChannel, trioContract, 1).Accepted
+                && runtimePeerC.RegisterChannel(trioChannel, trioContract, 1).Accepted,
+                "setup: all three trio runtimes register the channel");
+            IConnectionSession lastContext = null;
+            byte[] lastPayload = null;
+            runtimeHub.Subscribe(trioChannel, (session, payload) => { lastContext = session; lastPayload = payload; });
+            runtimePeerB.StartSession(100UL);
+            runtimePeerC.StartSession(100UL);
+            transportB.Pump();
+            transportC.Pump();
+            transportHub.Pump();
+            transportHub.Pump();
+            transportB.Pump();
+            transportC.Pump();
+            Assert(runtimeHub.Sessions.Count == 2,
+                "frame v2: the hub holds one session per peer after both handshakes");
+            var hubSessionB = runtimeHub.Sessions[0].PeerSteamId == 200UL ? runtimeHub.Sessions[0] : runtimeHub.Sessions[1];
+            Assert(runtimePeerB.SendToServer(trioChannel, new byte[] { 0x0B }, true) == NetworkSendResult.Sent,
+                "setup: the first peer sends to the hub");
+            transportHub.Pump();
+            Assert(lastContext != null && lastContext.PeerSteamId == 200UL && lastPayload != null && lastPayload[0] == 0x0B,
+                "frame v2: dispatch resolves the session by the frame's sender field (source-addressed, never first-session)");
+            Assert(runtimePeerC.SendToServer(trioChannel, new byte[] { 0x0C }, true) == NetworkSendResult.Sent,
+                "setup: the second peer sends to the hub");
+            transportHub.Pump();
+            Assert(lastContext != null && lastContext.PeerSteamId == 300UL,
+                "frame v2: the second peer's frame resolves to its own session (first-session shortcut falsified)");
+            var hubToB = 0;
+            var hubToC = 0;
+            runtimePeerB.Subscribe(trioChannel, (session, payload) => hubToB++);
+            runtimePeerC.Subscribe(trioChannel, (session, payload) => hubToC++);
+            Assert(runtimeHub.SendToClients(trioChannel, new byte[] { 0x1F }, true) == NetworkSendResult.Sent,
+                "setup: the hub broadcasts");
+            Assert(hubLastReliable, "frame v2: SendToClients forwards the reliability bit to the transport seam");
+            transportB.Pump();
+            transportC.Pump();
+            Assert(hubToB == 1 && hubToC == 1, "frame v2: an untargeted server broadcast reaches both peers");
+            Assert(runtimeHub.SendToClient(trioChannel, hubSessionB, new byte[] { 0x2F }, false) == NetworkSendResult.Sent,
+                "setup: the hub targets the first peer");
+            Assert(hubLastTarget == 200UL && !hubLastReliable,
+                "frame v2: SendToClient targets the session's peer steam id and honors the unreliable flag");
+            transportB.Pump();
+            transportC.Pump();
+            Assert(hubToB == 2 && hubToC == 1, "frame v2: the targeted send reaches only the addressed session's peer");
+
+            // 9. Routing settings editor: the network facet submits through
+            //    its own runtime; every other feature falls back to the BII
+            //    editor.
+            var routingRoot = Path.Combine(Path.GetTempPath(), "bue-v2net-red-" + Guid.NewGuid().ToString("N"));
+            var routedRuntime = new SettingsRuntime(NetworkModuleAdapter.NetworkFeature, NetworkModuleAdapter.CreateNetworkDescriptors(), new FileSettingsPersistence(routingRoot));
+            var routedEditor = new SettingsRuntimeBueEditor(routedRuntime);
+            var fallbackCalls = 0;
+            var routing = new RoutingBueSettingsEditor(new CountingSettingsEditor(() => fallbackCalls++),
+                (NetworkModuleAdapter.NetworkFeature, routedEditor));
+            var routedApply = routing.Apply(NetworkModuleAdapter.NetworkFeature,
+                routing.GetSnapshot(NetworkModuleAdapter.NetworkFeature).Revision,
+                new SettingMutation("network.enabled", SettingValue.Toggle(false)));
+            Assert(routedApply.Accepted && fallbackCalls == 0,
+                "editor routing: the network facet submits through its own SettingsRuntime editor");
+            Assert(routedRuntime.TryGet("network.enabled", out persisted, out persistedRevision) && !persisted.Boolean,
+                "editor routing: the routed edit persisted through the facet runtime");
+            Assert(!routing.Apply(new FeatureId("com.example.unrelated"), 0, new SettingMutation("anything", SettingValue.Toggle(true))).Accepted
+                && fallbackCalls == 1,
+                "editor routing: an unmatched feature falls back to the BII editor");
+        }
+
+        // Host-side stand-in for the Steamworks CSteamID value the LMN V1
+        // handler table is keyed by: the mirror constructs the first handler
+        // parameter via a public ulong constructor (production passes
+        // Steamworks.CSteamID, tests pass this shape).
+        private sealed class FakeSteamId
+        {
+            public FakeSteamId(ulong value) { Value = value; }
+            public ulong Value { get; }
+        }
+
+        // Host-side stand-in for LMN's ModTransport static handler tables:
+        // same field names ("ServerHandlers"/"ClientHandlers") and the same
+        // (steamId, BinaryReader) / (BinaryReader) delegate shapes, with the
+        // engine steam id replaced by FakeSteamId.
+        private static class FakeLmnModTransport
+        {
+            internal static readonly Dictionary<int, System.Action<FakeSteamId, BinaryReader>> ServerHandlers =
+                new Dictionary<int, System.Action<FakeSteamId, BinaryReader>>();
+            internal static readonly Dictionary<int, System.Action<BinaryReader>> ClientHandlers =
+                new Dictionary<int, System.Action<BinaryReader>>();
+            internal static ulong LastSender;
+            internal static byte[] LastPayload;
+            internal static int ClientCalls;
+
+            internal static void Reset()
+            {
+                ServerHandlers.Clear();
+                ClientHandlers.Clear();
+                LastSender = 0UL;
+                LastPayload = null;
+                ClientCalls = 0;
+            }
+        }
+
+        // Host-side stand-in for LMN's ModRouter reflection target: the same
+        // static TryHandleFromClient/TryHandleFromServer member names and
+        // shapes (the engine ITransportConnection first parameter widens to
+        // object under reflection invoke).
+        private static class FakeLmnModRouter
+        {
+            internal static bool NextResult;
+            internal static int ClientCalls;
+            internal static int ServerCalls;
+            internal static object LastConnection;
+            internal static byte[] LastPacket;
+            internal static int LastOffset;
+            internal static int LastSize;
+
+            internal static void Reset()
+            {
+                NextResult = false;
+                ClientCalls = 0;
+                ServerCalls = 0;
+                LastConnection = null;
+                LastPacket = null;
+                LastOffset = 0;
+                LastSize = 0;
+            }
+
+            internal static bool TryHandleFromClient(object connection, byte[] packet, int offset, int size)
+            {
+                ClientCalls++;
+                LastConnection = connection;
+                LastPacket = packet;
+                LastOffset = offset;
+                LastSize = size;
+                return NextResult;
+            }
+
+            internal static bool TryHandleFromServer(byte[] packet, int offset, int size)
+            {
+                ServerCalls++;
+                LastPacket = packet;
+                LastOffset = offset;
+                LastSize = size;
+                return NextResult;
+            }
+        }
+
+        private sealed class CountingSettingsEditor : IBueSettingsEditor
+        {
+            private readonly System.Action onApply;
+            internal CountingSettingsEditor(System.Action onApply) { this.onApply = onApply ?? throw new ArgumentNullException(nameof(onApply)); }
+            public FeatureSettingsSnapshot GetSnapshot(FeatureId feature)
+            {
+                return new FeatureSettingsSnapshot(feature, 1, SettingRevisionScope.ClientPreference, 0,
+                    SettingSyncState.Unavailable, SettingSnapshotSource.SafeDefault, new SettingEntryView[0]);
+            }
+            public SettingChangeResult Apply(FeatureId feature, uint expectedRevision, SettingMutation mutation)
+            {
+                onApply();
+                return new SettingChangeResult(false, FrameworkErrorCode.SettingRejected, 0, GetSnapshot(feature));
             }
         }
 

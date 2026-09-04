@@ -20,11 +20,13 @@ namespace BetterUnturnedExperience.Plugin
         private readonly BetterItemInteractionSettingsState settingsState;
         private readonly BueManagementPanelRuntime managementPanel;
         private readonly LoadedPluginCatalogAdapter loadedPluginAdapter;
+        private readonly NetworkModuleAdapter networkAdapter;
         private readonly bool clientUiAvailable;
         private int factoryInvocationCount;
 
-        internal BueClientUiCompositionRoot()
+        internal BueClientUiCompositionRoot(NetworkModuleAdapter networkAdapter = null)
         {
+            this.networkAdapter = networkAdapter;
             settingsState = new BetterItemInteractionSettingsState();
             var feature = BetterItemInteractionSettingsState.Feature;
             var registry = new GeneratedClientUiRegistry(new[]
@@ -37,7 +39,17 @@ namespace BetterUnturnedExperience.Plugin
             // Keep construction free of Unity static calls so headless/test hosts
             // can probe the composition root without invoking native ECalls.
             var preferencesPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "BetterUnturnedExperience", "management.preferences");
-            managementPanel = new BueManagementPanelRuntime(preferencesPath, new BetterItemInteractionSettingsEditor(settingsState), loadedPluginAdapter);
+            // DEV-V2-06: when the network module is wired, the panel editor
+            // routes the two network facets to their own SettingsRuntime
+            // editors (edits take effect via RefreshSwitches) and everything
+            // else falls back to the BII editor unchanged.
+            IBueSettingsEditor bueSettingsEditor = networkAdapter == null
+                ? new BetterItemInteractionSettingsEditor(settingsState)
+                : new RoutingBueSettingsEditor(
+                    new BetterItemInteractionSettingsEditor(settingsState),
+                    (NetworkModuleAdapter.NetworkFeature, new SettingsRuntimeBueEditor(networkAdapter.NetworkSettings, networkAdapter.RefreshSwitches)),
+                    (NetworkModuleAdapter.V1CompatFeature, new SettingsRuntimeBueEditor(networkAdapter.V1CompatSettings, networkAdapter.RefreshSwitches)));
+            managementPanel = new BueManagementPanelRuntime(preferencesPath, bueSettingsEditor, loadedPluginAdapter);
         }
 
         internal bool IsReady { get { return composition.State == ClientUiCompositionState.Ready; } }
@@ -83,10 +95,27 @@ namespace BetterUnturnedExperience.Plugin
         {
             var feature = entry.Definition.Feature;
             if (feature.Value == BetterItemInteractionSettingsState.Feature.Value) return OfficialManagementEntry();
+            if (feature.Value == NetworkModuleAdapter.NetworkFeature.Value) return NetworkManagementEntry(NetworkModuleAdapter.NetworkFeature, "BUE 网络模块");
+            if (feature.Value == NetworkModuleAdapter.V1CompatFeature.Value) return NetworkManagementEntry(NetworkModuleAdapter.V1CompatFeature, "BUE V1 兼容层");
             var presentation = entry.ClientUi == null
                 ? new FeaturePresentationView(feature, FeaturePresentationState.PresentationDegraded, "BUE-UI-SATELLITE-001", 1)
                 : new FeaturePresentationView(feature, FeaturePresentationState.Available, string.Empty, 1);
             return new BueFeatureManagementEntry(feature, feature.Value, "0.0.0", FeatureState.Running, presentation, default(FeatureSettingsSnapshot));
+        }
+
+        // DEV-V2-06: the network facets carry their live SettingsRuntime
+        // snapshot (switch toggle + revision) instead of the external-feature
+        // empty snapshot; no ClientUi satellite exists (headless-capable), so
+        // the presentation stays Available like the official BII entry.
+        private BueFeatureManagementEntry NetworkManagementEntry(FeatureId feature, string displayName)
+        {
+            var snapshot = networkAdapter == null
+                ? default(FeatureSettingsSnapshot)
+                : feature.Value == NetworkModuleAdapter.NetworkFeature.Value
+                    ? networkAdapter.NetworkSettings.GetSnapshot(SettingRevisionScope.ClientPreference)
+                    : networkAdapter.V1CompatSettings.GetSnapshot(SettingRevisionScope.ClientPreference);
+            var presentation = new FeaturePresentationView(feature, FeaturePresentationState.Available, string.Empty, 1);
+            return new BueFeatureManagementEntry(feature, displayName, "0.0.0", FeatureState.Running, presentation, snapshot);
         }
 
         internal void OpenInventory(IClientUiInventorySurface surface)

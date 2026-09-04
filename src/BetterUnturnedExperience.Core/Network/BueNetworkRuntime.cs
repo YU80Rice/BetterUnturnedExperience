@@ -13,8 +13,12 @@ namespace BetterUnturnedExperience.Core.Network
     /// INetworkTransport seam. Real IClientTransport / ITransportConnection
     /// wiring (client→server vs server→client asymmetry) is DEV-V2-04; here the
     /// transport is injected (LocalLoopbackTransport in tests).
-    /// Frame format is internal (magic "BUE2" + kind byte + length-prefixed
-    /// channel id + payload) and never leaves this namespace into Contracts.
+    /// Frame format (DEV-V2-06 v2) is internal: magic "BUE2" + kind byte +
+    /// length-prefixed channel id + the sender's steam id (8 bytes LE) +
+    /// payload — never exposed into Contracts. The sender field lets the
+    /// receiver resolve the dispatch context by source instead of "first
+    /// session"; sends carry the reliability bit and either an untargeted
+    /// target (0) or the addressed session's peer steam id.
     /// Frame kinds: 0=Data, 1=Hello, 2=Ack, 3=Reject (control frames carry an
     /// empty channel id).
     /// </summary>
@@ -88,7 +92,7 @@ namespace BetterUnturnedExperience.Core.Network
             {
                 if (!channels.ContainsKey(channel.Value)) return NetworkSendResult.ChannelNotRegistered;
                 if (sessions.Count == 0) return NetworkSendResult.NoSession;
-                return SendFrame(KindData, channel.Value, payload);
+                return SendFrame(KindData, channel.Value, payload, reliable, 0UL);
             }
         }
 
@@ -98,7 +102,7 @@ namespace BetterUnturnedExperience.Core.Network
             {
                 if (!channels.ContainsKey(channel.Value)) return NetworkSendResult.ChannelNotRegistered;
                 if (sessions.Count == 0) return NetworkSendResult.NoSession;
-                return SendFrame(KindData, channel.Value, payload);
+                return SendFrame(KindData, channel.Value, payload, reliable, 0UL);
             }
         }
 
@@ -109,7 +113,7 @@ namespace BetterUnturnedExperience.Core.Network
             {
                 if (!channels.ContainsKey(channel.Value)) return NetworkSendResult.ChannelNotRegistered;
                 if (!sessions.ContainsKey(session.SessionId)) return NetworkSendResult.NoSession;
-                return SendFrame(KindData, channel.Value, payload);
+                return SendFrame(KindData, channel.Value, payload, reliable, session.PeerSteamId);
             }
         }
 
@@ -150,7 +154,7 @@ namespace BetterUnturnedExperience.Core.Network
                 var id = unchecked((ulong)System.Threading.Interlocked.Increment(ref nextSessionId));
                 var session = new BueNetworkSession(id, peerSteamId, localContract);
                 sessions[id] = session;
-                SendFrame(KindHello, string.Empty, EncodeControl(localSteamId, localContract));
+                SendFrame(KindHello, string.Empty, EncodeControl(localSteamId, localContract), true, 0UL);
                 return session;
             }
         }
@@ -159,17 +163,21 @@ namespace BetterUnturnedExperience.Core.Network
         {
             byte kind;
             string channelId;
+            ulong sender;
             byte[] payload;
             lock (sync)
             {
                 if (frame == null || frame.Length < 6 || Encoding.ASCII.GetString(frame, 0, 4) != FrameMagic) return;
                 kind = frame[4];
                 var channelLength = frame[5];
-                if (frame.Length < 6 + channelLength) return;
-                if (frame.Length - 6 - channelLength > 16 * 1024) return; // cap before allocation (S4)
+                if (frame.Length < 14 + channelLength) return; // header: magic 4 + kind 1 + chanLen 1 + sender 8
                 channelId = Encoding.UTF8.GetString(frame, 6, channelLength);
-                payload = new byte[frame.Length - 6 - channelLength];
-                Buffer.BlockCopy(frame, 6 + channelLength, payload, 0, payload.Length);
+                sender = Read64(frame, 6 + channelLength);
+                var headerLength = 6 + channelLength + 8;
+                var payloadLength = frame.Length - headerLength;
+                if (payloadLength > 16 * 1024) return; // cap before allocation (S4)
+                payload = new byte[payloadLength];
+                Buffer.BlockCopy(frame, headerLength, payload, 0, payloadLength);
             }
             // Dispatch is a separate linearization seam: state protection never
             // spans external code (repo convention, cf. ReadyFrameFence). Handlers
@@ -177,7 +185,7 @@ namespace BetterUnturnedExperience.Core.Network
             switch (kind)
             {
                 case KindData:
-                    DispatchData(channelId, payload);
+                    DispatchData(channelId, payload, sender);
                     break;
                 case KindHello:
                     HandleHello(payload);
@@ -205,13 +213,13 @@ namespace BetterUnturnedExperience.Core.Network
                 {
                     // Reject carries the initiator's steam id so its pending
                     // session can be cleaned up (S3).
-                    SendFrame(KindReject, string.Empty, EncodeControl(peerSteamId, localContract));
+                    SendFrame(KindReject, string.Empty, EncodeControl(peerSteamId, localContract), true, 0UL);
                     return;
                 }
                 var id = unchecked((ulong)System.Threading.Interlocked.Increment(ref nextSessionId));
                 session = new BueNetworkSession(id, peerSteamId, peerContract);
                 sessions[id] = session;
-                SendFrame(KindAck, string.Empty, EncodeControl(localSteamId, localContract));
+                SendFrame(KindAck, string.Empty, EncodeControl(localSteamId, localContract), true, 0UL);
             }
             if (session != null) session.MarkEstablished(); // fires Connected outside the lock
         }
@@ -251,7 +259,7 @@ namespace BetterUnturnedExperience.Core.Network
             }
         }
 
-        private void DispatchData(string channelId, byte[] payload)
+        private void DispatchData(string channelId, byte[] payload, ulong sender)
         {
             if (payload == null || payload.Length > 16 * 1024) return;
             List<Action<IConnectionSession, byte[]>> copy;
@@ -259,9 +267,16 @@ namespace BetterUnturnedExperience.Core.Network
             lock (sync)
             {
                 if (!handlers.TryGetValue(channelId, out var list) || list.Count == 0) return;
-                copy = new List<Action<IConnectionSession, byte[]>>(list);
+                // Frame v2: the sender's steam id rides the header, so the
+                // dispatch context resolves by source; a frame from an unknown
+                // peer is dropped instead of falling back to "first session".
                 context = null;
-                foreach (var s in sessions.Values) { context = s; break; }
+                foreach (var s in sessions.Values)
+                {
+                    if (s.PeerSteamId == sender) { context = s; break; }
+                }
+                if (context == null) return;
+                copy = new List<Action<IConnectionSession, byte[]>>(list);
             }
             // Handlers run outside the lock (repo dispatch convention).
             foreach (var handler in copy) handler(context, payload);
@@ -276,18 +291,19 @@ namespace BetterUnturnedExperience.Core.Network
             return bytes;
         }
 
-        private NetworkSendResult SendFrame(byte kind, string channelId, byte[] payload)
+        private NetworkSendResult SendFrame(byte kind, string channelId, byte[] payload, bool reliable, ulong target)
         {
             var channelBytes = Encoding.UTF8.GetBytes(channelId ?? string.Empty);
             if (channelBytes.Length > byte.MaxValue) return NetworkSendResult.PayloadTooLarge;
             if (payload == null || payload.Length > 16 * 1024) return NetworkSendResult.PayloadTooLarge;
-            var frame = new byte[6 + channelBytes.Length + payload.Length];
+            var frame = new byte[6 + channelBytes.Length + 8 + payload.Length];
             Encoding.ASCII.GetBytes(FrameMagic, 0, 4, frame, 0);
             frame[4] = kind;
             frame[5] = (byte)channelBytes.Length;
             Buffer.BlockCopy(channelBytes, 0, frame, 6, channelBytes.Length);
-            Buffer.BlockCopy(payload, 0, frame, 6 + channelBytes.Length, payload.Length);
-            return transport.Send(frame) ? NetworkSendResult.Sent : NetworkSendResult.LocalTransportUnavailable;
+            Write64(frame, 6 + channelBytes.Length, localSteamId);
+            Buffer.BlockCopy(payload, 0, frame, 6 + channelBytes.Length + 8, payload.Length);
+            return transport.Send(frame, reliable, target) ? NetworkSendResult.Sent : NetworkSendResult.LocalTransportUnavailable;
         }
 
         private static void Write16(byte[] b, int o, ushort v) { b[o] = (byte)v; b[o + 1] = (byte)(v >> 8); }
