@@ -39,3 +39,27 @@ defer/重试机制保留为无害纵深防御）。已向 `../DEV-V2-07/configB-
 镜像/LMN2 委托首次真实生效且有正向锚。剩余 DEV-V2-07 链条收尾步骤：
 ① 两条网络条目截图（可选补强，功能链已证）；② case.json 填实（用候选 `DEV-V2-11-CLEAN-20260904` 的
 candidate.json）→ QualificationGateRunner gate → 人工批准。
+
+---
+
+## 附记（2026-09-05，用户质询「dropped outbound target=0」触发的补充调查）
+
+**现象**：主机与 U3DS 服务器各 4 条 `[Error :LaunchMultiplayerNet] [ModTransport] dropped outbound
+server->client message: transport not found (target=0, channel=250)`（07 三份归档中为 0）。
+
+**机制（已实证）**：该 Error 是 **LMN 自己的出站守卫**——`ModTransport.SendToClient(CSteamID target,…)`
+按 steamId 查 `ITransportConnection`，查不到即丢帧并记 Error（`ModTransport.cs:488`）。BUE 的接管只拦截
+入站（`NetMessages.Receive*` 前缀），出站路径不经 BUE。直接触发链：fixture 的 server handler 以
+**sender=0** 收到 ping（每会话 20 条，仅 VM 客户端入网后开始，每 ping 周期一条）→ 排队 pong 给 target=0
+→ LMN 拒发。同一会话真实 id 的送达与 pong（45 条中 25 条）全部正常，V1/V2 双向 seq 对齐，pong 1:1 无重复
+投递——**功能无损，P5 判据（BUE 错误行）不受影响**（此为 LMN 自己的 Error 级日志）。
+
+**新发现 F-E（立案 DEV-V2-12）**：sender=0 的送达是本轮镜像生效后才出现的第二投递路径——同一 seq 的
+ping 既以 sender=0 到达一次、又以真实 id 到达一次（V1 与 V2 named 两条协议路径同 pattern）。即镜像活了
+之后，存在一条**丢失发送者身份的送达路径**（候选：BUE 前缀 `TryGetConnectionSteamId` 反射对某类连接/
+第二传输副本解析失败回 0；或 SteamP2PFriends 中继副本）。对 fixture 无害（pong 被 LMN 安全拒发），但对
+**依赖 sender steamId 的真实旧插件是行为级风险**（回调收到 0），且「同帧两次到达」与接管「恰好消费一次」
+的设计语义不符。需要归因后修复（候选方向：BUE 前缀对 sender 解析失败的帧放行给 LMN 原生路径，而非以 0
+派发）。
+
+**本票（DEV-V2-11）结论不变**：其 Scope（类型名/静默解析/委托锚）与验收全数达成，resolved 维持；F-E 走新票。
