@@ -5,6 +5,7 @@ using System.IO;
 using System.Security.Cryptography;
 using System.Text;
 using BetterUnturnedExperience.Release;
+using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
 namespace QualificationGateRunner
@@ -134,7 +135,7 @@ namespace QualificationGateRunner
             var packageDir = RequireValue(args, "--package");
             var candidateFile = RequireValue(args, "--candidate");
 
-            var candidateJson = JObject.Parse(File.ReadAllText(candidateFile));
+            var candidateJson = JsonConvert.DeserializeObject<JObject>(File.ReadAllText(candidateFile), new JsonSerializerSettings { DateParseHandling = DateParseHandling.None });
             var candidate = CandidateBuildDescriptor.Create(
                 (string)candidateJson["sourceSnapshotId"],
                 (string)candidateJson["definitionSetDigest"],
@@ -162,7 +163,7 @@ namespace QualificationGateRunner
                     Console.Error.WriteLine("gate-error missing case.json in " + caseDir);
                     return 1;
                 }
-                var json = JObject.Parse(File.ReadAllText(caseFile));
+                var json = JsonConvert.DeserializeObject<JObject>(File.ReadAllText(caseFile), new JsonSerializerSettings { DateParseHandling = DateParseHandling.None });
                 if (collector == null) collector = RequiredText(json, "collector");
                 var caseId = RequiredText(json, "caseId");
                 var role = (EvidenceEnvironmentRole)Enum.Parse(typeof(EvidenceEnvironmentRole), RequiredText(json, "role"), true);
@@ -285,7 +286,9 @@ namespace QualificationGateRunner
 
         private static DateTime ParseUtc(string value)
         {
-            var parsed = DateTime.ParseExact(value, "O", CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
+            DateTime parsed;
+            try { parsed = DateTime.ParseExact(value, "O", CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind); }
+            catch (FormatException error) { throw new FormatException("invalid UTC 'O' timestamp: '" + value + "'", error); }
             if (parsed.Kind != DateTimeKind.Utc) throw new ArgumentException("case time must be a UTC 'O' timestamp: " + value);
             return parsed;
         }
