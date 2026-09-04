@@ -218,6 +218,10 @@ namespace BetterUnturnedExperience.Plugin
         private void Update()
         {
             if (pluginUpdateDriver != null) pluginUpdateDriver.Update();
+            // DEV-V2-10 F-A: drives the deferred V1 mirror retry once LMN's
+            // assembly loads (BUE bootstraps first under BepInEx name order);
+            // throttled and silent inside the adapter, headless included.
+            NetworkModuleFeatureRegistration.WiredAdapter?.RetryPendingMirror();
             // Some BepInEx/Unity hosts do not dispatch a plugin Start message
             // before the first frame. Keep the same host-owned barrier as a
             // one-shot next-frame fallback; external features still cannot

@@ -33,6 +33,11 @@ namespace QualificationGateRunner
         // (OfficialFeatureRegistration.cs + NetworkModuleFeatureRegistration.cs).
         // Digest256 text = 4 x X16 parts (the Core linker's DigestText convention).
         // Payload hex is the UTF-8 encoding of the payload text constant.
+        // DEV-V2-10: the network payload digest is CORRECTED (the baked values
+        // never matched the payload's SHA-256 — real machine BUE-REG-004) and
+        // the V1 compat facet joins the official definition set
+        // (spec-V2-phase1 L74); both are computed in production
+        // (NetworkModuleFeatureRegistration.ComputePayloadDigest).
         private sealed class DefinitionEntry
         {
             public string FeatureId;
@@ -56,8 +61,15 @@ namespace QualificationGateRunner
             {
                 FeatureId = "io.github.yu80rice.bue.network", Version = 1, Name = "bue-network-v1",
                 D0 = 1UL, D1 = 0UL, D2 = 0UL, D3 = 16UL,
-                P0 = 11400714816950841075UL, P1 = 17426045655985939034UL, P2 = 13878537219987991745UL, P3 = 9961398425803426691UL,
+                P0 = 3513462337615412056UL, P1 = 9811700189201168883UL, P2 = 15092958732532668990UL, P3 = 2856094613919016762UL,
                 PayloadText = "BUE-NET-V1"
+            },
+            new DefinitionEntry
+            {
+                FeatureId = "io.github.yu80rice.bue.network.v1compat", Version = 1, Name = "bue-network-v1compat-v1",
+                D0 = 1UL, D1 = 0UL, D2 = 0UL, D3 = 17UL,
+                P0 = 8807006363499442750UL, P1 = 313719394671523987UL, P2 = 6741820503722070260UL, P3 = 9757911435375117733UL,
+                PayloadText = "BUE-NET-V1C"
             }
         };
 

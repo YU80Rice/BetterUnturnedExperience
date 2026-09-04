@@ -209,6 +209,26 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     AssertBueConfigMigration();
                     return 0;
                 }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--bue-v1-mirror-timing-red")
+                {
+                    AssertBueV1MirrorTiming();
+                    return 0;
+                }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--bue-network-definitions-red")
+                {
+                    AssertBueNetworkRegistrationDefinitions();
+                    return 0;
+                }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--bue-network-panel-red")
+                {
+                    AssertBueNetworkPanelEntries();
+                    return 0;
+                }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--bue-network-killswitch-red")
+                {
+                    AssertBueNetworkKillSwitchLifecycle();
+                    return 0;
+                }
                 AssertSingleDllAssemblyClosure();
                 AssertExternalSdkAssemblyIdentity();
                 Assert(BootstrapGuard.Decide(false, false, true) == BootstrapDecision.Client, "client decision");
@@ -284,6 +304,10 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 AssertBueTakeover();
                 AssertBueV1Compat();
                 AssertBueConfigMigration();
+                AssertBueV1MirrorTiming();
+                AssertBueNetworkRegistrationDefinitions();
+                AssertBueNetworkPanelEntries();
+                AssertBueNetworkKillSwitchLifecycle();
                 AssertRuntimeCompletionBarrierIsolates();
                 AssertManagementPanelConsumesRuntimeCatalog();
                 AssertManagementPanelOpenHooks();
@@ -2097,8 +2121,11 @@ namespace BetterUnturnedExperience.Plugin.Tests
 
                 var broken = new NetworkModuleAdapter(adapterRoot, () => true, () => null, () => typeof(FakeLmnModRouter), () => { });
                 broken.ActivateCore();
-                Assert(diagnostics.Exists(line => line.Contains("BUE-V2NET-002")),
-                    "takeover: a failed handler-table mirror emits the mirror diagnostic (BUE-V2NET-002)");
+                // DEV-V2-10 F-A: an unresolvable LMN type is a deferral now —
+                // the mirror diagnostic (BUE-V2NET-002) is emitted once with
+                // result=deferred, never result=failed (P5 zero false positive).
+                Assert(diagnostics.Exists(line => line.Contains("BUE-V2NET-002") && line.Contains("result=deferred")),
+                    "takeover: an unavailable handler-table mirror defers with the mirror diagnostic (BUE-V2NET-002)");
                 Assert(broken.ShouldConsumeInbound(true, 424242UL, v1Frame, 0, v1Frame.Length, null),
                     "takeover: with no mirrored table the legacy frame is still consumed (unknown-channel drop, never a crash)");
 
@@ -2301,6 +2328,259 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 LastSize = size;
                 return NextResult;
             }
+        }
+
+        // GPT watermark: DEV-V2-10 red regression (F-A, real-machine audit
+        // configB-verification-r1). BepInEx loads plugins by file-name order,
+        // so BUE (B) bootstraps BEFORE the standalone LMN (L) assembly is
+        // loaded and its ModTransport handler tables exist — and the legacy
+        // plugins register their channels in their own Awake, after LMN's.
+        // The bootstrap mirror used to emit result=failed
+        // errorType=ArgumentException — one "BUE 错误" line per session (P5
+        // violation) and a permanently dead mirror. The anchor replays the
+        // real timeline through the PRODUCTION log route
+        // (BindProductionLog + BueRuntimeLog): chainloader manifest lists
+        // LMN while its assembly is missing (deferred) → LMN's assembly
+        // loads but its tables are still EMPTY (the retry stays armed) →
+        // the legacy plugin registers channel 250 late (the deferred retry
+        // completes the mirror) — every step below the Error level.
+        private static void AssertBueV1MirrorTiming()
+        {
+            var routed = new List<string>();
+            var previousRecorder = BueRuntimeLog.Recorder;
+            var previousSink = NetworkModuleAdapter.DiagnosticLogSink;
+            var previousCompatSink = BetterUnturnedExperience.Core.Network.LmnV1CompatLayer.DiagnosticLogSink;
+            BueRuntimeLog.Recorder = line => routed.Add(line);
+            try
+            {
+                var adapterRoot = Path.Combine(Path.GetTempPath(), "bue-v2net-red-" + Guid.NewGuid().ToString("N"));
+                Type modTransportType = null; // BUE bootstraps before the LMN assembly loads
+                var adapter = new NetworkModuleAdapter(adapterRoot, () => true, () => modTransportType, () => null, () => { });
+                adapter.BindProductionLog();
+                adapter.ActivateCore();
+                Assert(adapter.TakeoverActive,
+                    "mirror timing: the takeover arms from the chainloader manifest even before LMN's assembly loads");
+                Assert(routed.Exists(line => line.StartsWith("Debug ") && line.Contains("event=v1-table-mirror") && line.Contains("result=deferred")),
+                    "mirror timing: an LMN-not-ready bootstrap mirror defers below the Error level (P5 zero false positive)");
+                Assert(CountToken(routed, "result=deferred") == 1,
+                    "mirror timing: the deferral is recorded exactly once (silent retries, no spam)");
+                Assert(!routed.Exists(line => line.StartsWith("Error ")),
+                    "mirror timing: an LMN-not-ready bootstrap emits no ERROR line through the production route");
+
+                // LMN's assembly loads (the type resolves) but its handler
+                // tables are still EMPTY — the legacy plugins register later.
+                FakeLmnModTransport.Reset();
+                modTransportType = typeof(FakeLmnModTransport);
+                for (var tick = 0; tick < 2 * NetworkModuleAdapter.DeferredMirrorTickInterval; tick++) adapter.RetryPendingMirror();
+                Assert(!routed.Exists(line => line.Contains("result=mirrored")),
+                    "mirror timing: an empty handler table is not a completed mirror — the retry stays armed");
+                Assert(!routed.Exists(line => line.StartsWith("Error ")),
+                    "mirror timing: retrying against an empty table emits no ERROR line");
+
+                // The legacy plugin registers channel 250 AFTER the takeover
+                // armed (the DEV-V2-07 fixture shape, LMN ModTransport table).
+                ulong lateSender = 0;
+                byte[] latePayload = null;
+                FakeLmnModTransport.ServerHandlers[250] = (sender, reader) =>
+                {
+                    lateSender = sender.Value;
+                    latePayload = reader.ReadBytes((int)(reader.BaseStream.Length - reader.BaseStream.Position));
+                };
+                FakeLmnModTransport.ClientHandlers[250] = reader => FakeLmnModTransport.ClientCalls++;
+
+                // The plugin Update tick drives the deferred retry on its
+                // cadence; the mirror must now complete, still without any
+                // error line.
+                for (var tick = 0; tick < 3 * NetworkModuleAdapter.DeferredMirrorTickInterval; tick++) adapter.RetryPendingMirror();
+                byte[] lateFrame;
+                Assert(BetterUnturnedExperience.Core.Network.LmnV1FrameCodec.TryBuild(250, new byte[] { 0x5A }, out lateFrame),
+                    "setup: the late-registered V1 frame builds");
+                Assert(adapter.ShouldConsumeInbound(true, 424242UL, lateFrame, 0, lateFrame.Length, null),
+                    "mirror timing: after the deferred retry the late-registered channel routes through the compat layer");
+                Assert(lateSender == 424242UL && latePayload != null && latePayload.Length == 1 && latePayload[0] == 0x5A,
+                    "mirror timing: the late legacy handler receives the sender and payload intact");
+                Assert(adapter.ShouldConsumeInbound(false, 0UL, lateFrame, 0, lateFrame.Length, null),
+                    "mirror timing: the mirrored client-side receive consumes the legacy frame as well");
+                Assert(FakeLmnModTransport.ClientCalls == 1,
+                    "mirror timing: the late-registered client channel routes as well");
+                Assert(routed.Exists(line => line.StartsWith("Debug ") && line.Contains("event=v1-table-mirror") && line.Contains("result=mirrored") && line.Contains("deferred=true")),
+                    "mirror timing: the deferred mirror completes with one mirrored record below the Error level");
+                Assert(CountToken(routed, "event=v1-table-mirror result=mirrored") == 1,
+                    "mirror timing: the mirror completion is recorded exactly once");
+                Assert(!routed.Exists(line => line.StartsWith("Error ")),
+                    "mirror timing: the whole late-registration timeline stays free of ERROR lines (P5)");
+            }
+            finally
+            {
+                BueRuntimeLog.Recorder = previousRecorder;
+                NetworkModuleAdapter.DiagnosticLogSink = previousSink;
+                BetterUnturnedExperience.Core.Network.LmnV1CompatLayer.DiagnosticLogSink = previousCompatSink;
+                FakeLmnModTransport.Reset();
+            }
+        }
+
+        // GPT watermark: DEV-V2-10 red regression (F-B, real-machine audit
+        // configB-verification-r1). The real machine rejected the official
+        // network registration with reason=InvalidDefinitionArtifact
+        // (BUE-REG-004): the baked ArtifactPayloadDigest did not match the
+        // payload's SHA-256, so the feature never entered the catalog. The
+        // official network definitions must validate through a real
+        // FeatureRegistrationRuntime — the payload digest is computed from
+        // the payload, never transcribed by hand.
+        private static void AssertBueNetworkRegistrationDefinitions()
+        {
+            var runtime = new FeatureRegistrationRuntime();
+            runtime.OpenRegistration();
+            var registrations = NetworkModuleFeatureRegistration.CreateOfficialRegistrations();
+            Assert(registrations.Length == 2,
+                "definitions: the network module registers its two official facets (network + V1 compat, spec-V2-phase1 L74)");
+            // DEV-V2-10 R3 (Standards H5): the digest is self-consistent by
+            // construction, so it can never catch a payload TYPO — pin the
+            // documented payload texts themselves; the qualification kit's
+            // definition table must describe exactly these bytes.
+            Assert(PayloadText(NetworkModuleFeatureRegistration.CreateNetworkDefinition()) == "BUE-NET-V1",
+                "definitions: the network payload is exactly the documented 'BUE-NET-V1' text");
+            Assert(PayloadText(NetworkModuleFeatureRegistration.CreateV1CompatDefinition()) == "BUE-NET-V1C",
+                "definitions: the V1 compat payload is exactly the documented 'BUE-NET-V1C' text");
+            for (var index = 0; index < registrations.Length; index++)
+            {
+                var result = runtime.Register(registrations[index]);
+                Assert(result.Accepted,
+                    "definitions: official network definition '" + registrations[index].Definition.Feature.Value
+                    + "' is accepted by the real registration runtime (got " + result.Reason + " " + result.DiagnosticId + ")");
+            }
+        }
+
+        // DEV-V2-10 R3 (Standards H3/H4) red regression: the persisted
+        // kill-switch lifecycle. (a) With network.enabled persisted OFF, the
+        // module must perform zero mirror work — no LMN type resolution, no
+        // deferred diagnostic, and the deferred retry stays inert (the
+        // DEV-V2-06 zero-false-positive rule extends to the mirror). (b) A
+        // module that STARTS disabled must still re-arm its takeover patches
+        // when the player re-enables it (handbook B6): the re-enable path
+        // must attempt the patch install instead of silently skipping
+        // because the patch desire was never recorded at bootstrap. The test
+        // host has no Assembly-CSharp, so the re-arm attempt surfaces as the
+        // documented fail-closed takeover-patch diagnostic — its PRESENCE is
+        // the anchor.
+        private static void AssertBueNetworkKillSwitchLifecycle()
+        {
+            var diagnostics = new List<string>();
+            var previousSink = NetworkModuleAdapter.DiagnosticLogSink;
+            NetworkModuleAdapter.DiagnosticLogSink = line => diagnostics.Add(line);
+            try
+            {
+                var adapterRoot = Path.Combine(Path.GetTempPath(), "bue-v2net-red-" + Guid.NewGuid().ToString("N"));
+                var persisted = new NetworkModuleAdapter(adapterRoot, () => true, () => null, () => null, () => { });
+                Assert(persisted.NetworkSettings.Submit(new ScopedSettingChangeRequest(41UL, SettingRevisionScope.ClientPreference,
+                    persisted.NetworkSettings.GetSnapshot(SettingRevisionScope.ClientPreference).Revision,
+                    new[] { new SettingMutation("network.enabled", SettingValue.Toggle(false)) })).Accepted,
+                    "setup: the kill switch persists off");
+
+                var off = new NetworkModuleAdapter(adapterRoot, () => true, () => null, () => null, () => { });
+                off.ActivateCore();
+                Assert(!off.TakeoverActive,
+                    "kill switch: the takeover stays inactive while the module is off");
+                off.ApplyNetworkPatches();
+                Assert(!diagnostics.Exists(line => line.Contains("event=v1-table-mirror")),
+                    "kill switch: a disabled module performs no mirror work at all (zero reflection)");
+                for (var tick = 0; tick < 3 * NetworkModuleAdapter.DeferredMirrorTickInterval; tick++) off.RetryPendingMirror();
+                Assert(!diagnostics.Exists(line => line.Contains("event=v1-table-mirror")),
+                    "kill switch: the deferred retry stays inert while the module is off");
+
+                Assert(off.NetworkSettings.Submit(new ScopedSettingChangeRequest(42UL, SettingRevisionScope.ClientPreference,
+                    off.NetworkSettings.GetSnapshot(SettingRevisionScope.ClientPreference).Revision,
+                    new[] { new SettingMutation("network.enabled", SettingValue.Toggle(true)) })).Accepted,
+                    "setup: the kill switch is re-enabled");
+                off.RefreshSwitches();
+                Assert(diagnostics.Exists(line => line.Contains("event=takeover-patch")),
+                    "kill switch: re-enabling a startup-disabled module re-arms the takeover patches (handbook B6)");
+            }
+            finally
+            {
+                NetworkModuleAdapter.DiagnosticLogSink = previousSink;
+            }
+        }
+
+        private static string PayloadText(FeatureDefinitionArtifact definition)
+        {
+            var bytes = new byte[definition.CanonicalPayload.Count];
+            for (var index = 0; index < bytes.Length; index++) bytes[index] = definition.CanonicalPayload[index];
+            return System.Text.Encoding.UTF8.GetString(bytes);
+        }
+
+        // GPT watermark: DEV-V2-10 red regression (F-B, panel half). The real
+        // machine's sidebar lacked the network entries because the official
+        // network registration was REJECTED (BUE-REG-004) — production does
+        // not throw on that, the entries are simply missing. The anchor
+        // replays the production sequence exactly: Awake registers the three
+        // official features, the composition Initialize performs its
+        // pre-completion refresh (catalog not yet built — the network entries
+        // must be ABSENT), then the host barrier completes and the plugin's
+        // completion path (TryRefreshAfterCompletion → RefreshManagementPanel,
+        // BetterUnturnedExperiencePlugin.cs) refreshes again — the entries
+        // must appear for the handbook B4-B6 / P4b takeover card steps.
+        private static void AssertBueNetworkPanelEntries()
+        {
+            var previousRuntime = BueRuntimeHost.CurrentRuntime;
+            try
+            {
+                var hostRuntime = new FeatureRegistrationRuntime();
+                BueRuntimeHost.Bind(hostRuntime);
+                hostRuntime.OpenRegistration();
+                // Awake-time registrations. A rejected facet is NOT fatal in
+                // production (it logs a runtime line) — replay that honestly:
+                // the entries assertion below is what catches the rejection.
+                Assert(BetterItemInteractionFeatureRegistration.Register().Accepted,
+                    "setup: the official BII registration is accepted through the host bridge");
+                var registrations = NetworkModuleFeatureRegistration.CreateOfficialRegistrations();
+                for (var index = 0; index < registrations.Length; index++)
+                {
+                    BueRuntimeHost.Register(registrations[index]);
+                }
+
+                var adapterRoot = Path.Combine(Path.GetTempPath(), "bue-v2net-red-" + Guid.NewGuid().ToString("N"));
+                var composition = new BueClientUiCompositionRoot(new NetworkModuleAdapter(adapterRoot, () => false, () => null, () => null, () => { }));
+                Assert(composition.Initialize(false, false, true), "setup: the composition initializes");
+                var beforeCompletion = composition.ManagementPanel.Model.GetEntries();
+                Assert(!HasManagementEntry(beforeCompletion, "io.github.yu80rice.bue.network", "BUE 网络模块")
+                    && !HasManagementEntry(beforeCompletion, "io.github.yu80rice.bue.network.v1compat", "BUE V1 兼容层"),
+                    "panel: the pre-completion refresh (unfrozen catalog) has no network entries yet");
+
+                // The host barrier completes and the plugin's completion path
+                // refreshes the panel (TryRefreshAfterCompletion seam).
+                Assert(hostRuntime.CompleteRuntime(), "setup: the host barrier completes");
+                composition.RefreshManagementPanel();
+                var entries = composition.ManagementPanel.Model.GetEntries();
+                Assert(HasManagementEntry(entries, "io.github.yu80rice.bue.network", "BUE 网络模块"),
+                    "panel: after the completion refresh the catalog projects the BUE 网络模块 entry");
+                Assert(HasManagementEntry(entries, "io.github.yu80rice.bue.network.v1compat", "BUE V1 兼容层"),
+                    "panel: after the completion refresh the catalog projects the BUE V1 兼容层 entry");
+                composition.Destroy();
+            }
+            finally
+            {
+                BueRuntimeHost.Bind(previousRuntime);
+            }
+        }
+
+        private static bool HasManagementEntry(IReadOnlyList<ManagementEntryView> entries, string stableId, string displayName)
+        {
+            for (var index = 0; index < entries.Count; index++)
+            {
+                if (entries[index].StableId == stableId && entries[index].DisplayName == displayName) return true;
+            }
+            return false;
+        }
+
+        private static int CountToken(List<string> lines, string token)
+        {
+            var count = 0;
+            for (var index = 0; index < lines.Count; index++)
+            {
+                if (lines[index].Contains(token)) count++;
+            }
+            return count;
         }
 
         private sealed class CountingSettingsEditor : IBueSettingsEditor

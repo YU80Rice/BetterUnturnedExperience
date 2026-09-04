@@ -21,7 +21,9 @@ namespace BetterUnturnedExperience.Plugin
     /// <see cref="ShouldConsumeInbound"/> in production; tests drive the
     /// decision core directly and never install patches. Diagnostic ids:
     /// BUE-V2NET-001 = migration record, BUE-V2NET-002 = takeover plumbing
-    /// fault (mirror / router delegate / patch failure), BUE-V2NET-003 =
+    /// fault (mirror / router delegate / patch failure; the mirror's
+    /// LMN-not-ready DEFERRAL shares the id but stays below error level —
+    /// result=failed is reserved for real shape faults), BUE-V2NET-003 =
     /// takeover lifecycle (patch installed, module isolated).
     /// </summary>
     internal sealed class NetworkModuleAdapter
@@ -59,7 +61,6 @@ namespace BetterUnturnedExperience.Plugin
         private string takeoverStatus = string.Empty;
         private string configMigrationStatus = string.Empty;
         private bool patchesInstalled;
-        private bool patchesDesired;
         private bool isolated;
         private bool routerResolved;
         private MethodInfo routerClientMethod;
@@ -107,18 +108,45 @@ namespace BetterUnturnedExperience.Plugin
             if (isolated) return;
             coordinator.Refresh();
             ApplySwitchesFromSettings();
-            if (coordinator.TakeoverActive) MirrorLegacyHandlersSafe();
+            // DEV-V2-10 R3 (Standards H3): a disabled module does zero mirror
+            // work — no LMN type resolution, no deferred diagnostic — same
+            // zero-reflection rule RefreshSwitches already follows.
+            if (networkEnabled && coordinator.TakeoverActive) MirrorLegacyHandlersSafe();
             RecordEmptyConfigMigration();
             UpdateTakeoverStatus();
             ActiveAdapter = this;
         }
 
         /// <summary>
+        /// DEV-V2-10 seam: the deferred-mirror retry cadence in plugin Update
+        /// ticks (~5s at 60fps). BepInEx loads plugins by file-name order, so
+        /// BUE (B) bootstraps before the standalone LMN (L) assembly exists —
+        /// the bootstrap mirror defers and the tick retry completes it once
+        /// LMN's table is reachable.
+        /// </summary>
+        internal const int DeferredMirrorTickInterval = 300;
+
+        /// <summary>
+        /// Driven by the plugin Update tick (all bootstrap decisions — the
+        /// headless host has no client UI but still mirrors the V1 table).
+        /// Throttled and silent while LMN stays unresolved, so a broken
+        /// install can never spam the log.
+        /// </summary>
+        internal void RetryPendingMirror()
+        {
+            if (!mirrorPending || isolated || !networkEnabled || !coordinator.TakeoverActive) return;
+            if (++deferredMirrorTicks < DeferredMirrorTickInterval) return;
+            deferredMirrorTicks = 0;
+            MirrorLegacyHandlersSafe();
+        }
+
+        /// <summary>
         /// Production-only: installs the Priority.First prefixes on the shared
         /// intercept points. Hard zero-false-positive rule — when the probe is
         /// false or the module is switched off nothing is patched and nothing
-        /// reflects. Idempotent; remembers the intent so a switch-off/on cycle
-        /// can re-arm.
+        /// reflects. Idempotent; the takeover-active refresh path re-runs it
+        /// so a switch-off/on cycle (or a startup-disabled module being
+        /// re-enabled) always re-arms.
         /// </summary>
         internal void ApplyNetworkPatches()
         {
@@ -141,7 +169,6 @@ namespace BetterUnturnedExperience.Plugin
                 harmony.Patch(receiveFromClient, prefix: new HarmonyLib.HarmonyMethod(typeof(NetworkModuleAdapter), nameof(ReceiveFromClientPrefix)) { priority = HarmonyLib.Priority.First });
                 harmony.Patch(receiveFromServer, prefix: new HarmonyLib.HarmonyMethod(typeof(NetworkModuleAdapter), nameof(ReceiveFromServerPrefix)) { priority = HarmonyLib.Priority.First });
                 patchesInstalled = true;
-                patchesDesired = true;
                 Emit("[BUE-V2NET] event=takeover-patch result=installed priority=first targets=NetMessages.ReceiveMessageFromClient,NetMessages.ReceiveMessageFromServer diagnosticId=" + LifecycleDiagnosticId);
             }
             catch (Exception error)
@@ -154,7 +181,8 @@ namespace BetterUnturnedExperience.Plugin
         /// Re-reads both facet switches after a panel edit: the V1 compat
         /// toggle gates only the legacy path; the network module toggle is the
         /// reversible kill switch — off unhooks the takeover (LMN's own prefix
-        /// resumes standalone), on re-arms it when the patches were desired.
+        /// resumes standalone), on re-arms it through the idempotent patch
+        /// install.
         /// </summary>
         internal void RefreshSwitches()
         {
@@ -170,7 +198,13 @@ namespace BetterUnturnedExperience.Plugin
             if (coordinator.TakeoverActive)
             {
                 MirrorLegacyHandlersSafe();
-                if (patchesDesired && !patchesInstalled) ApplyNetworkPatches();
+                // DEV-V2-10 R3 (Standards H4): always attempt the (idempotent)
+                // install on the active path — a module that STARTED disabled
+                // never recorded a patch desire at bootstrap, so a desire-flag
+                // guard would silently skip the re-arm the reversible switch
+                // promises (handbook B6). ApplyNetworkPatches self-guards on
+                // patchesInstalled.
+                ApplyNetworkPatches();
             }
         }
 
@@ -272,16 +306,62 @@ namespace BetterUnturnedExperience.Plugin
             return null;
         }
 
+        // DEV-V2-10 F-A mirror timing state. BepInEx loads plugins by
+        // file-name order, so BUE (B) bootstraps before the standalone LMN
+        // (L) assembly is loaded: an unresolvable ModTransport type is a
+        // TIMING state, not a fault. The mirror defers (one deferred line,
+        // throttled silent retries from the plugin tick) instead of failing,
+        // keeping P5's zero-false-positive ERROR budget for real faults.
+        private bool mirrorPending;
+        private int deferredMirrorTicks;
+
+        /// <summary>
+        /// Mirrors the legacy handler table while the takeover is active.
+        /// Three outcomes: an unresolvable LMN type defers silently
+        /// (result=deferred, retried on the tick cadence); a reachable but
+        /// EMPTY table is not a completed mirror either — the legacy plugins
+        /// register their channels in their own Awake, after LMN's, so the
+        /// mirror stays pending until something actually mirrors; a
+        /// resolved-but-foreign table is the only real fault (result=failed,
+        /// no retry — legacy frames take the unknown-channel drop path). A
+        /// completed mirror never blocks the takeover either way: LMN's own
+        /// prefix keeps its self-heal chain.
+        /// </summary>
         private void MirrorLegacyHandlersSafe()
         {
             try
             {
                 var modTransportType = resolveModTransportType();
-                if (modTransportType == null) throw new ArgumentException("the standalone LMN ModTransport type could not be resolved");
-                LmnV1TableMirror.MirrorLegacyHandlers(modTransportType, compatRegistry);
+                if (modTransportType == null)
+                {
+                    if (!mirrorPending)
+                    {
+                        // Log the deferral once per episode; the throttled
+                        // retries stay silent until the outcome changes.
+                        mirrorPending = true;
+                        deferredMirrorTicks = 0;
+                        Emit("[BUE-V2NET] event=v1-table-mirror result=deferred reason=lmn-not-ready decision=retry-on-tick diagnosticId=" + FaultDiagnosticId);
+                    }
+                    return;
+                }
+                var mirrored = LmnV1TableMirror.MirrorLegacyHandlers(modTransportType, compatRegistry);
+                if (mirrored == 0)
+                {
+                    // The table is reachable but no legacy channel has
+                    // registered yet — keep the retry armed and stay silent.
+                    mirrorPending = true;
+                    deferredMirrorTicks = 0;
+                    return;
+                }
+                var wasDeferred = mirrorPending;
+                mirrorPending = false;
+                deferredMirrorTicks = 0;
+                Emit("[BUE-V2NET] event=v1-table-mirror result=mirrored channels=" + mirrored + (wasDeferred ? " deferred=true" : string.Empty));
             }
             catch (Exception error)
             {
+                mirrorPending = false;
+                deferredMirrorTicks = 0;
                 // A failed mirror never blocks the takeover: legacy frames fall
                 // through to the compat layer's unknown-channel drop path.
                 Emit("[BUE-V2NET] event=v1-table-mirror result=failed errorType=" + error.GetType().Name + " decision=drop-path diagnosticId=" + FaultDiagnosticId);
