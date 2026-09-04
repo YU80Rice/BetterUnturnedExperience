@@ -72,10 +72,39 @@
 ## 6. kit 身份工具同步（DEV-V2-07 交付物的必要跟踪）
 
 `kit/QualificationGateRunner/Program.cs` 的 `OfficialDefinitions` 表同步三条官方定义：BII（不变）、
-network（P 值更正为真 SHA-256）、**v1compat（新增，"BUE-NET-V1C"）**。runner 已重建
-（`build-kit-runner-r2-dev-v2-10.log`）。独立复算 DefinitionSetDigest =
-`5E16717666CF098FA2247A7DB41275EBE9B25B610CB29BBB54F5F9C68BA22F01`（与 runner identity 模式输出交叉验证见 §7）。
+network（P 值更正为真 SHA-256）、**v1compat（新增，"BUE-NET-V1C"）**。runner 已重建并刷新部署目录
+`kit/out/`（`build-kit-runner-r2-dev-v2-10.log`）。独立复算 DefinitionSetDigest 与 runner identity 输出一致 =
+`38D66989136D008A1AE27732544F9680F35C5C75BB12BFDDA570BD5844C8B854`
+（配方细节：规范串每条目后均含 `\n`——含末条尾随换行；§6 首稿漏计尾随换行的 5E16… 值作废，以此为准）。
 此为身份工具跟踪官方定义集的必要动作，不属「不改候选身份流程」的禁止面（配方/流程/工具均未变，变的只有官方定义全集本身）。
 
-## 7. 候选身份（提交后授予，补记于文末）
+## 7. 候选身份（提交后授予）
 
+候选从提交树 `e8c3a522939044a4635d4f3043584f7d44f4cfc3`（`e8c3a52`，含本票全部源码/测试/kit/票面/本报告）Release 重建，
+**确定性复核通过**（二次重建 SHA-256 逐字节一致）：
+
+| 项 | 值 |
+|---|---|
+| CandidateBuild | `DEV-V2-10-CLEAN-20260904` |
+| CaseId | `DEV-V2-10-20260904` |
+| SourceSnapshotId | `e8c3a522939044a4635d4f3043584f7d44f4cfc3`（e8c3a52） |
+| DLL SHA-256 | `C3A35B07E7825002D8302D8D1135B78677806738367705CCE01979EFDA0E4224`（268288 字节） |
+| BuildIdentity | `75DA7E6D01372420A092213030AADDF9AE923AFE2179F93911AB07C5865A03FD` |
+| DefinitionSetDigest | `38D66989136D008A1AE27732544F9680F35C5C75BB12BFDDA570BD5844C8B854` |
+| ReferenceSet（Client+U3DS） | `Libs-ReferenceSet-951EFCD4E73C37E2D514B6B7D05AE8FDF2141F3C18A9C60D37192BD068775030` |
+| ToolchainIdentity | `MSBuild-18.9.0.32302|.NETFramework-4.7.2|CSharp-10` |
+
+归档：`audit/2026-09-04/artifacts/DEV-V2-10-20260904/{BetterUnturnedExperience.dll, candidate.json}`；
+身份记录 `audit/2026-09-04/DEV-V2-10-dll-sha256.txt`（runner identity 模式实码计算，方法沿 DEV-V2-07 §5）。
+DEV-V2-07 归档实机证据与候选（`14A98FC8…` / `85FAEA17…`）原样未动。
+
+## 8. 人工复测指引（本票完成后停于此）
+
+部署新候选 DLL（sha `C3A35B07…`，日志 assembly-identity 行须与此哈希一致）后，按手册补采：
+1. **P5 零误报**：四端日志无任何「BUE 错误：」行（F-A 修复判据；Player.log Debug 通道应见
+   `v1-table-mirror result=deferred` 一次 + `result=mirrored channels=N deferred=true`）。
+2. **P2/B4**：管理面板侧栏出现「BUE 网络模块」「BUE V1 兼容层」两条目，网络 entry 接管卡显示
+   「已由 BUE 接管」+「配置迁移：无独立配置可迁移(LMN 无配置文件)」。
+3. **B5/B6**：「让我改回独立 LMN」关→`takeover-patch result=removed`→面板变「已改回独立 LMN」；
+   再开→`takeover-patch result=installed` 再现（含开局即关的重开场景）。
+4. **P4b**：面板重镜像后 `[V1FIX] recv-from-client` 恢复（本票后 P4a 开箱即应通过——镜像不再依赖面板操作）。
