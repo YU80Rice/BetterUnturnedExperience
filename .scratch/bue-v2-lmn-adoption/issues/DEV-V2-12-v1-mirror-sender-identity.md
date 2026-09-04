@@ -1,7 +1,7 @@
 # DEV-V2-12：V1 镜像路径 sender 身份丢失（sender=0 双到达）归因与修复
 
 Type: task
-Status: open（2026-09-05 建票；DEV-V2-11 候选实机复核附记触发，见 `audit/2026-09-04/DEV-V2-11/configB-retest-verification-r1.md` 附记）
+Status: open-deferred（2026-09-05 用户拍板：非阻塞、延后处理；DEV-V2-11 候选实机复核附记触发，见 `audit/2026-09-04/DEV-V2-11/configB-retest-verification-r1.md` 附记）
 Parent: spec-V2-phase1-lmn-adoption（DEV-V2-11 后续）
 Blocked by: 无（证据已归档）
 Blocks: 无（不阻塞 DEV-V2-07 gate；但属接管语义正确性缺陷，建议 gate 前或下轮一并修）
@@ -49,3 +49,8 @@ Error（`dropped outbound … transport not found (target=0, channel=250)`，`Mo
 
 > 2026-09-05 建票（agent）：用户质询实机日志 `dropped outbound target=0` 触发调查，机制与影响见
 > DEV-V2-11 复核记录附记。功能无损但属接管语义正确性缺陷，建议与 DEV-V2-07 gate 并行排期。
+
+> 2026-09-05 用户拍板（agent 记录）：**非阻塞，延后处理**。理由：fixture 生态零功能损害（pong 1:1、
+> 真实通路完好、P5 判据不受影响），影响面仅限未来「依赖 sender steamId 的真实旧插件」。归属判断：
+> BUE 至少参与（镜像派发以 sender=0 进行属 BUE 语义，解析失败应放行而非派发），双到达源头未归因
+> （候选含 SteamP2PFriends 中继副本——外部件）。与 DEV-V2-07 gate 解耦，恢复时机=真实旧插件接入前。
