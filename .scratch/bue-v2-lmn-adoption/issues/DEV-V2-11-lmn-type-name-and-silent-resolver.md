@@ -1,7 +1,7 @@
 # DEV-V2-11：LMN 类型名修正（镜像+LMN2 委托真生效）+ 解析静默化 + 面板四步补采
 
 Type: task
-Status: claimed（2026-09-04，agent；DEV-V2-10 候选实机复核 `audit/2026-09-04/DEV-V2-10/configB-retest-verification-r1.md` 触发的 real-machine-test-loop 修复轮）
+Status: resolved（2026-09-05，agent；实机复核 `audit/2026-09-04/DEV-V2-11/configB-retest-verification-r1.md` 全绿闭环）
 Parent: spec-V2-phase1-lmn-adoption（DEV-V2-10 后续）
 Blocked by: 无（DEV-V2-10 已 resolved，候选 C3A35B07… 已实机四端部署验证）
 Blocks: DEV-V2-07（面板四步补采 + P3 口径更正后的实机确认 → gate → 人工批准）
@@ -51,3 +51,13 @@ Blocks: DEV-V2-07（面板四步补采 + P3 口径更正后的实机确认 → g
 
 > 2026-09-04 建票并认领（agent）：DEV-V2-10 候选四端复核触发。功能面（V1/V2 双向、BII、P5 字面）全过，
 > 本票修守护层真根因与警告噪音，并把面板四步证据缺口并入下轮复测。
+
+> 2026-09-05 resolved（agent）：新候选 `DEV-V2-11-CLEAN-20260904`（DLL `5B4E948E…5BCD`，BuildIdentity
+> `01BFF640…`，提交 6907a1a+c468858）四端实机复核**全绿**：部署指纹四端一致；零「BUE 错误」行；**零
+> TypeByName 警告**（上轮 63~169 条/会话——唯一存留的宽匹配警告来自 SteamP2PFriends 自身探测，非 BUE）；
+> 镜像锚 `result=mirrored channels=2`（bootstrap + 可逆钮重臂各一）与委托锚
+> `event=lmn2-delegate result=delegated` 各恰一条；`unknown-channel-dropped` 归零（V1 首次真正经 BUE
+> 兼容层消费）；B5/B6 `installed→removed→installed` 行为级证明面板条目/接管卡/可逆钮可达且工作；V1/V2
+> seq 双向仍通。**机制勘误**：BepInEx 发现阶段预载全部程序集，时机窗口不存在——类型名是 07 以来唯一根因
+> （defer/重试保留为无害纵深防御）。具名遗留（gate 前，可选）：「BUE V1 兼容层」条目无单独截图（「网络
+> 模块」条目已由 B5/B6 行为证明）。剩余 DEV-V2-07 链条：case.json 填实 → gate → 人工批准。
