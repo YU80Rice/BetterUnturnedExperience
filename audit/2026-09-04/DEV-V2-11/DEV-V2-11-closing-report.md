@@ -43,5 +43,32 @@ Warning → 四端每会话 63~169 条刷屏。
 
 Release `-t:Rebuild` 0 警告 0 错误；七运行器全 exit=0；NoUiTokens Core/ClientUi PASS；`git diff --check` 干净。
 
-## 5. 候选身份（提交后授予，补记于文末）
+## 5. 候选身份（提交后授予）
+
+候选从提交树 `6907a1a831ca4708e32153ac0f873f4145ea197c`（`6907a1a`，含本票全部源码/测试/票面/本报告）Release 重建，
+确定性复核通过（二次重建 SHA-256 逐字节一致）。**DefinitionSetDigest 与 DEV-V2-10 候选一致**（`38D66989…B854`）——
+本票只改类型名常量与运行时行为，官方定义集未动，交叉验证自洽。
+
+| 项 | 值 |
+|---|---|
+| CandidateBuild | `DEV-V2-11-CLEAN-20260904` |
+| CaseId | `DEV-V2-11-20260904` |
+| SourceSnapshotId | `6907a1a831ca4708e32153ac0f873f4145ea197c`（6907a1a） |
+| DLL SHA-256 | `5B4E948E5A81FB75B05D017BF0958C11B4B0C75279DB6F21D2151CA8C84C5BCD`（268800 字节） |
+| BuildIdentity | `01BFF64000C29FC1FEA8B2C13C8A4EC19EFD0A1A55D8743E512B8D6797FC86B5` |
+| DefinitionSetDigest | `38D66989136D008A1AE27732544F9680F35C5C75BB12BFDDA570BD5844C8B854` |
+| ReferenceSet（Client+U3DS） | `Libs-ReferenceSet-951EFCD4E73C37E2D514B6B7D05AE8FDF2141F3C18A9C60D37192BD068775030` |
+| ToolchainIdentity | `MSBuild-18.9.0.32302|.NETFramework-4.7.2|CSharp-10` |
+
+归档：`audit/2026-09-04/artifacts/DEV-V2-11-20260904/{BetterUnturnedExperience.dll, candidate.json}`；
+身份记录 `audit/2026-09-04/DEV-V2-11-dll-sha256.txt`。前两轮候选（`14A98FC8…`/`C3A35B07…`）归档原样未动。
+
+## 6. 人工复测清单（本票完成后停于此）
+
+部署新 DLL（两端 plugins 替换，certutil 核对 `5B4E948E…`；assembly-identity 行须一致）后：
+1. **开 Debug**：`BepInEx\config\BepInEx.cfg` → `[Logging.Disk]` → `LogLevels` 加 `Debug`（或每会话归档 Unity Player.log）。
+2. **P5**：四端零「BUE 错误：」行，且**零 `AccessTools.TypeByName … ModTransport` 警告**（上轮 63~169 条）。
+3. **正向锚**：`event=v1-table-mirror result=mirrored channels=N deferred=true` + `event=lmn2-delegate result=delegated decision=consume` 各恰一条（Debug 通道）。
+4. **面板四步**：两条目可见+接管卡两行+「让我改回独立 LMN」关→开（`removed`→`installed`），全部截图。
+5. **P3/P4a/P4b**：V1/V2 seq 对齐仍通（P3 证据须含委托锚——仅 [V2FIX] 对齐不再足以证明 BUE 委托路径）。
 
