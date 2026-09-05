@@ -351,16 +351,15 @@ namespace BetterUnturnedExperience.Plugin
                 LogTrace("create-button-begin", "surface=MenuDashboardUI source=" + source);
                 dashboardButton = Glazier.Get().CreateButton();
                 if (dashboardButton == null) throw new InvalidOperationException("Glazier.CreateButton returned null");
-                // Left button column, directly below the item-store entry the
-                // game inserts at y=410 (the column runs y=170 with a 60px
-                // pitch: Play/Survivors/Configuration/Workshop/Store/...).
-                // Glazier exposes no public child enumeration, so nudging the
-                // vanilla store button is not robustly possible - BUE takes
-                // the next free slot (user-specified y=460) instead.
-                dashboardButton.PositionOffset_X = 0f;
-                dashboardButton.PositionOffset_Y = 460f;
-                dashboardButton.SizeOffset_X = 200f;
-                dashboardButton.SizeOffset_Y = 50f;
+                // Left button column, one vanilla pitch slot below the
+                // item-store entry (y=410). Geometry and the vanilla rhythm
+                // it tracks are pinned in BueMenuEntryLayout (DEV-V2-09);
+                // Glazier exposes no public child enumeration, so the slot is
+                // fixed rather than derived from the vanilla buttons.
+                dashboardButton.PositionOffset_X = BueMenuEntryLayout.MainMenuColumnButtonX;
+                dashboardButton.PositionOffset_Y = BueMenuEntryLayout.MainMenuBueSlotY;
+                dashboardButton.SizeOffset_X = BueMenuEntryLayout.MainMenuColumnButtonWidth;
+                dashboardButton.SizeOffset_Y = BueMenuEntryLayout.MainMenuColumnButtonHeight;
                 dashboardButton.Text = "BUE 插件管理";
                 dashboardButton.TooltipText = "查看已加载的 BepInEx 插件，并可在游戏内修改其配置";
                 dashboardButton.FontSize = ESleekFontSize.Medium;

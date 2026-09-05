@@ -48,6 +48,7 @@
     <Compile Include="BueManagementPanelRuntime.cs" />
     <Compile Include="LoadedPluginCatalogAdapter.cs" />
     <Compile Include="BueNativeManagementPanel.cs" />
+    <Compile Include="BueMenuEntryLayout.cs" />
     <Compile Include="InventorySurfaceLifecycleAdapter.cs" />
     <Compile Include="NativeItemGridOccupancySnapshot.cs" />
     <Compile Include="InventoryLifecycle.cs" />

@@ -269,6 +269,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 AssertRuntimePumpBridge();
                 AssertPluginUpdateDriverForwardsButtonInjection();
                 AssertButtonInjectionRoutesAreLocallyIsolated();
+                AssertMainMenuEntryLayoutMatchesVanillaRhythm();
                 AssertRuntimeDriverDispatchesButtonInjectionSeam();
                 AssertPanelDispatchReachesButtonInjectionSeam();
                 AssertDragPreviewHasPluginOwnedUpdateDriver();
@@ -3558,6 +3559,22 @@ namespace BetterUnturnedExperience.Plugin.Tests
             routes.Inject();
             Assert(dashboard == 1 && workshop == 1 && pause == 1, "one failed entry does not block other menu routes");
             Assert(failures == 1, "failed entry emits one local diagnostic");
+        }
+
+        // DEV-V2-09: the injected main-menu entry must occupy the next vanilla
+        // pitch slot below the item-store entry, not the store button's bottom
+        // edge. Vanilla MenuDashboardUI left column: 200x50 buttons on a 60px
+        // pitch (Play 170 / Survivors 230 / Configuration 290 / Workshop 350 /
+        // item-store 410), so adjacent items leave a 10px visual gap; the old
+        // hardcoded y=460 sat flush against the store button (0px gap).
+        private static void AssertMainMenuEntryLayoutMatchesVanillaRhythm()
+        {
+            Assert(BueMenuEntryLayout.MainMenuColumnButtonX == 0f, "BUE main-menu entry aligns with the vanilla left column edge");
+            Assert(BueMenuEntryLayout.MainMenuColumnButtonWidth == 200f && BueMenuEntryLayout.MainMenuColumnButtonHeight == 50f, "BUE main-menu entry size matches the vanilla 200x50 button geometry");
+            Assert(BueMenuEntryLayout.MainMenuColumnSlotPitch == 60f, "BUE main-menu column pitch matches the vanilla 60px rhythm");
+            Assert(BueMenuEntryLayout.MainMenuStoreSlotY == 410f, "item-store slot anchor matches the vanilla MenuDashboardUI layout");
+            Assert(BueMenuEntryLayout.MainMenuBueSlotY == BueMenuEntryLayout.MainMenuStoreSlotY + BueMenuEntryLayout.MainMenuColumnSlotPitch, "BUE main-menu entry occupies the next pitch slot below the store entry");
+            Assert(BueMenuEntryLayout.MainMenuBueSlotY == 470f, "BUE main-menu entry slot is 410 + 60 = 470, restoring the vanilla 10px visual gap");
         }
 
         private static void AssertRuntimeDriverDispatchesButtonInjectionSeam()
