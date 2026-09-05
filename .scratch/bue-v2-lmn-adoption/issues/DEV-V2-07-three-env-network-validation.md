@@ -1,7 +1,7 @@
 # DEV-V2-07：三环境网络层验证与证据包
 
 Type: task
-Status: resolved（2026-09-05，agent；新候选 DEV-V2-11-CLEAN-20260904 四角色资格门禁 TechnicallyQualified（gate exit 0），8 条完成标准全满足；发布授权按票面定义为独立人工批准，见 Comments 尾条）
+Status: resolved（2026-09-05，agent；新候选 DEV-V2-11-CLEAN-20260904 四角色资格门禁 TechnicallyQualified（gate exit 0），8 条完成标准全满足；人工发布批准已给出（2026-09-05，见 Comments 尾条）——本票及发布链完全闭环）
 Parent: spec-V2-phase1-lmn-adoption（V2 第一阶段）
 Blocked by: DEV-V2-03-buenetworkapi-runtime, DEV-V2-04-lmn-takeover, DEV-V2-05-v1-compat-layer, DEV-V2-06-config-migration-network-settings
 Spec: `../spec-V2-phase1-lmn-adoption.md`（Testing Decisions「三环境验证」）
@@ -52,3 +52,5 @@ Spec: `../spec-V2-phase1-lmn-adoption.md`（Testing Decisions「三环境验证�
 > **⑥ 遗留具名（均不阻塞）**：DEV-V2-12（sender=0 双到达，open-deferred）；DEV-V2-09（主菜单间距，needs-triage）；「BUE V1 兼容层」条目无单独截图（可选补）；V1 镜像「时机」归因已由 10/11 勘误（类型名为唯一根因）。
 
 > 2026-09-05 人工验收授权（用户原话：「ok，我正式授权DEV-V2-07工单关闭，人工验收通过」）：用户正式确认人工验收通过并授权本票关闭。本票至此完全闭环：agent 侧装备/审查/证据链 + 人工实机采集 + 修复轮（10/11）+ 资格门禁 TechnicallyQualified + 人工验收授权，全链留档。**注意：本授权针对工单验收关闭；发布批准（BuildIdentity `01BFF640…` / DLL `5B4E948E…` 的对外发布）仍为独立人工动作，本评论不构成发布批准。**
+
+> 2026-09-05 人工发布批准（独立发布授权，用户原话：「关于①，我已人工授权 V2-07 工单关闭」）：该表态是对「人工发布批准」请求（上条评论④所留缺口）的应答，**构成 ④ 所指的独立人工发布批准**——批准对象 = BuildIdentity `01BFF64000C29FC1FEA8B2C13C8A4EC19EFD0A1A55D8743E512B8D6797FC86B5`、DLL sha256 `5B4E948E…C5BCD`（268800 字节）及其 LoadSetIdentity 绑定（caseId `DEV-V2-07-20260904`，包 canonicalDigest `F05F7CC3…`）。至此本票全链闭环：资格门禁 TechnicallyQualified + 人工验收授权 + 人工发布批准。**边界注记**：本批准绑定上述候选身份；DEV-V2-12 修复如产出新候选，须按 10→11 先例另走资格门禁 + 人工批准，不自动继承本批准。
