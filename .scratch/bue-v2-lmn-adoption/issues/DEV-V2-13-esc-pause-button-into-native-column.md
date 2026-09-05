@@ -1,7 +1,7 @@
 # DEV-V2-13：ESC 暂停菜单 BUE 入口并入原生按钮列
 
 Type: task
-Status: 停等人工实机验收（2026-09-05，agent 实施闭环：红0+红1/2/3→绿、R1→R2→R3→R4→R5 五轮双轴到双 CLEAN（R2 起按用户拍板固定 standards-reviewer/Spec-Reviewer 专用子代理）；候选 DLL SHA-256 35670269…aef6（275456B 两轮重建一致），提交见 git log；剩人工步骤=部署新 DLL+ESC 界面截图验收，清单见 Comments）
+Status: resolved（2026-09-05，agent；用户实机测试「BUE 面板和原版功能都无异常」+ 授权关闭（原话「人工核验通过，我同意关闭工单」）。日志复核零异议：指纹 sha256=35670269…aef6 精确匹配、pause-column-shift anchored=9、退出 restored=9/failed=0、BUE 零 Error 行（仅 2 行 SteamP2PFriends 第三方自身错误，非 BUE）、镜像 channels=2 健康。实施链=红0+红1/2/3→绿、R1→R5 五轮双轴双 CLEAN，提交 ac08916）
 Parent: spec-V2-phase1-lmn-adoption；前置同根票 DEV-V2-09（主菜单列已修，模式沿用）
 Source: 用户 2026-09-05 需求 + ESC 界面截图（暂停菜单「BUE 插件管理」凸块）
 
@@ -33,7 +33,7 @@ Source: 用户 2026-09-05 需求 + ESC 界面截图（暂停菜单「BUE 插件�
 
 **Acceptance criteria:**
 - [x] 红测先行：红0 编译红（CS0117×26+CS0246×2）+ **红1** 十字段对真实程序集解析（exitButton NonPublic 漏解析实锤）+ **红2** Equals 相撞键独立锚定 + **红3** Restore 失败保锚可重试，三红留证后转绿。
-- [ ] 实机截图：BUE 按钮在「返回」下一行，上下间隙 == 原版节距；右侧凸块消失。（停等人工，清单见 Comments）
+- [x] 实机截图：BUE 按钮在「返回」下一行，上下间隙 == 原版节距；右侧凸块消失。（用户截图验收通过：`audit/2026-09-05/DEV-V2-13/retest-esc-user-acceptance.png`）
 - [x] 自杀禁用标签随按钮同移（在移位清单内）。
 - [x] 现有七套测试全绿；MenuDashboardUI / MenuWorkshopUI 注入不受影响（R3/R4 复审确认零改动）。
 - [x] 双轴评审 CLEAN 后出独立增量（R1→R5 五轮，R3/R4 Standards CLEAN、R4/R5 Spec CLEAN；链路见 `audit/2026-09-05/DEV-V2-13/DEV-V2-13-closing-report.md`）。
@@ -57,3 +57,16 @@ Source: 用户 2026-09-05 需求 + ESC 界面截图（暂停菜单「BUE 插件�
 3. ESC 截图验收：进任意单机/联机存档按 ESC——「BUE 插件管理」应位于「返回」正下方第二槽，与上下按钮间距和原版一致（60px 节距/10px 视觉间隙），右侧凸块消失；下方「游戏选项→返回桌面」逐项下移一格、间距不变。
 4. 回归确认：ESC 各原版按钮（游戏选项/自杀/返回菜单/返回桌面等）功能正常；主菜单（09 修复）与面板开关不受影响。
 5. 对照通过 → 本票置 resolved；不通过 → 回炉。
+
+## 复测记录（2026-09-05）
+
+用户部署候选 DLL（35670269…aef6）后实机测试：ESC 界面截图（归档 `audit/2026-09-05/DEV-V2-13/retest-esc-user-acceptance.png`）显示「BUE 插件管理」位于「返回」正下方第二槽、右侧凸块消失、下方原版项逐项下移且间距与原版一致；用户原话「BUE面板和原版功能都无异常，人工核验通过，我同意关闭工单」。
+
+日志复核（UMM 诊断包 20260905_204812，归档 `audit/2026-09-05/evidence/DEV-V2-13-20260905/retest-r1/`）零异议：
+- 指纹 `event=assembly-identity sha256=3567026930757FFB…` 与候选精确一致；
+- `pause-column-ready ready=true` 一次翻转、`pause-column-shift anchored=9`（十清单减可选 invite，单机正确）、退出 `pause-column-restore restored=9 dropped=0 failed=0` 全量干净还原；
+- `pause-shift-failed`/`pause-restore-failed`/`pause-element-read-failed`/`pause-shift-fields-missing` 全零；
+- P5：BUE 零 Error 行；LogOutput 仅 2 行 `[Error :SteamP2PFriends]`（第三方实验插件自身 UI 探测与 ResourceObs 观测，非 BUE，同 12 复测先例）；
+- 回归：三入口（MenuDashboardUI/MenuWorkshopUI/PlayerPauseUI）创建成功，`v1-table-mirror result=mirrored channels=2 deferred=true` 镜像链健康，退出 `hand-back-to-lmn` 清理线正常。
+
+验收清单 5/5 达成，票 resolved。

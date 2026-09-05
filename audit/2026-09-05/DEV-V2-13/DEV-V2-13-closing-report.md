@@ -39,6 +39,10 @@
 - `tests/.../Program.cs`：+`AssertPauseMenuEntryLayoutMatchesNativeColumn`（常量+清单钉死）、`AssertPauseColumnShiftAnchorsWithoutDrift`（锚定/幂等/独立锚/重试/引用键/快照/弃锚）、`AssertPauseShiftFieldsResolveAgainstVanillaAssembly`（十字段解析）。
 - csproj：+`BuePauseColumnShift.cs`。
 
+## 实机复测（2026-09-05，闭环）
+
+用户部署候选 DLL（35670269…aef6）后实机测试通过（截图 `retest-esc-user-acceptance.png`：BUE 按钮位于「返回」正下方第二槽、凸块消失、间距与原版一致；用户原话「BUE面板和原版功能都无异常，人工核验通过，我同意关闭工单」）。日志复核（证据 `../evidence/DEV-V2-13-20260905/retest-r1/`）：指纹精确匹配、`pause-column-shift anchored=9`、退出 `restored=9/failed=0`、四类失败事件全零、BUE 零 Error 行（仅 SteamP2PFriends 第三方 2 行，非 BUE）、镜像链 channels=2 健康。具名延期 1（实机截图验收）就此闭合——具名延期余 2-5（见上节，均为有意不动的设计取舍/可延期 smell）。工单 resolved。
+
 ## 身份（双 CLEAN 后授予）
 
 - 产物：`src/BetterUnturnedExperience.Plugin/bin/Release/BetterUnturnedExperience.dll`
