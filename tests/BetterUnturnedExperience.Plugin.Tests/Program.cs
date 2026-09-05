@@ -234,6 +234,11 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     AssertBueLmnTypeNameAnchor();
                     return 0;
                 }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--bue-v2-sender-identity-red")
+                {
+                    AssertBueV2SenderIdentity();
+                    return 0;
+                }
                 AssertSingleDllAssemblyClosure();
                 AssertExternalSdkAssemblyIdentity();
                 Assert(BootstrapGuard.Decide(false, false, true) == BootstrapDecision.Client, "client decision");
@@ -314,6 +319,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 AssertBueNetworkPanelEntries();
                 AssertBueNetworkKillSwitchLifecycle();
                 AssertBueLmnTypeNameAnchor();
+                AssertBueV2SenderIdentity();
                 AssertRuntimeCompletionBarrierIsolates();
                 AssertManagementPanelConsumesRuntimeCatalog();
                 AssertManagementPanelOpenHooks();
@@ -1537,6 +1543,19 @@ namespace BetterUnturnedExperience.Plugin.Tests
             var reliability = typeof(SDG.NetTransport.ENetReliability);
             Assert(reliability.IsEnum && System.Enum.GetNames(reliability).Length == 2,
                 "ENetReliability has exactly Reliable/Unreliable (2 values)");
+
+            // DEV-V2-12: the sender identity arrives as the out ulong itself.
+            // The old resolver read it through a CSteamID field and threw to 0
+            // for every connection — pin the SDK shape so any drift fails here.
+            var tryGetSteamId = System.Array.Find(methods, m => m.Name == "TryGetSteamId");
+            Assert(tryGetSteamId != null && tryGetSteamId.GetParameters().Length == 1,
+                "TryGetSteamId has exactly one parameter (SDK baseline locked)");
+            if (tryGetSteamId != null)
+            {
+                var steamIdParam = tryGetSteamId.GetParameters()[0];
+                Assert(steamIdParam.IsOut && steamIdParam.ParameterType.GetElementType() == typeof(ulong),
+                    "TryGetSteamId(out ulong) signature (the resolved sender is the out value itself)");
+            }
         }
 
         // GPT watermark: DEV-V2-02 red regression. T3 Q1-Q12 froze the
@@ -2347,6 +2366,37 @@ namespace BetterUnturnedExperience.Plugin.Tests
             }
         }
 
+        // DEV-V2-12: host-side ITransportConnection stand-in — only the steam
+        // id resolution behavior is parameterized (mirrors the SDK shape the
+        // production resolver reflects against); everything else is inert.
+        private sealed class FakeTransportConnection : SDG.NetTransport.ITransportConnection
+        {
+            private readonly ulong steamId;
+            private readonly bool resolves;
+
+            internal FakeTransportConnection(ulong steamId, bool resolves)
+            {
+                this.steamId = steamId;
+                this.resolves = resolves;
+            }
+
+            public bool TryGetSteamId(out ulong steamId)
+            {
+                steamId = this.steamId;
+                return this.resolves;
+            }
+
+            public bool TryGetIPv4Address(out uint address) { address = 0U; return false; }
+            public bool TryGetPort(out ushort port) { port = 0; return false; }
+            public System.Net.IPAddress GetAddress() { return null; }
+            public string GetAddressString(bool withPort) { return string.Empty; }
+            public void CloseConnection() { }
+            public void Send(byte[] buffer, long size, SDG.NetTransport.ENetReliability reliability) { }
+            public bool Equals(SDG.NetTransport.ITransportConnection other) { return ReferenceEquals(this, other); }
+            public override bool Equals(object obj) { return ReferenceEquals(this, obj); }
+            public override int GetHashCode() { return steamId.GetHashCode(); }
+        }
+
         // GPT watermark: DEV-V2-10 red regression (F-A, real-machine audit
         // configB-verification-r1). BepInEx loads plugins by file-name order,
         // so BUE (B) bootstraps BEFORE the standalone LMN (L) assembly is
@@ -2552,6 +2602,192 @@ namespace BetterUnturnedExperience.Plugin.Tests
             finally
             {
                 BueRuntimeLog.Recorder = previousRecorder;
+            }
+        }
+
+        // DEV-V2-12 (F-E): the takeover's inbound dispatch lost the sender
+        // identity and delivered every LMN frame twice on the real machine.
+        // Root causes (audit 2026-09-04/DEV-V2-11 retest appendix + LMN
+        // source): (1) Harmony runs ALL prefixes even after a higher-priority
+        // one votes to skip the original, so LMN's own prefix dispatched the
+        // same frame BUE had dispatched; (2) the production sender resolver
+        // read TryGetSteamId's out value through a CSteamID field while the
+        // SDK signature is TryGetSteamId(out ulong) — the read threw to 0 for
+        // every connection. Red anchor: resolvable connections yield their
+        // real steam id, a live LMN native prefix makes BUE RELEASE instead
+        // of dispatching, and an unresolvable client sender is never
+        // dispatched as 0.
+        private static void AssertBueV2SenderIdentity()
+        {
+            Assert(NetworkModuleAdapter.LmnPatchOwner == "com.yu80rice.launchmultiplayernet",
+                "sender identity: the LMN patch owner matches LMN's Harmony instance id (LaunchMultiplayerNetPlugin.cs:59)");
+            Assert(NetworkModuleAdapter.TryGetConnectionSteamId(new FakeTransportConnection(76561199030780228UL, true)) == 76561199030780228UL,
+                "sender identity: a resolvable connection yields its real steam id (TryGetSteamId's out ulong is read directly, never through CSteamID fields)");
+            Assert(NetworkModuleAdapter.TryGetConnectionSteamId(null) == 0UL,
+                "sender identity: a null connection yields 0");
+            Assert(NetworkModuleAdapter.TryGetConnectionSteamId(new FakeTransportConnection(0UL, false)) == 0UL,
+                "sender identity: an unresolvable connection yields 0");
+
+            var diagnostics = new List<string>();
+            var previousSink = NetworkModuleAdapter.DiagnosticLogSink;
+            NetworkModuleAdapter.DiagnosticLogSink = line => diagnostics.Add(line);
+            byte[] lmn2Frame = { 0x4C, 0x4D, 0x4E, 0x32, 0x01, 0xBB };
+            try
+            {
+                FakeLmnModTransport.Reset();
+                FakeLmnModRouter.Reset();
+                FakeLmnModTransport.ServerHandlers[103] = (sender, reader) =>
+                {
+                    FakeLmnModTransport.LastSender = sender.Value;
+                    FakeLmnModTransport.LastPayload = reader.ReadBytes((int)(reader.BaseStream.Length - reader.BaseStream.Position));
+                };
+                FakeLmnModTransport.ClientHandlers[103] = reader => { FakeLmnModTransport.ClientCalls++; };
+                byte[] v1Frame;
+                Assert(BetterUnturnedExperience.Core.Network.LmnV1FrameCodec.TryBuild(103, new byte[] { 0x11, 0x22 }, out v1Frame),
+                    "setup: the V1 mirror frame builds");
+
+                // LMN-native-dispatch LIVE world (the real machine: LMN's own
+                // prefix sits next to BUE's on the same intercept points). BUE
+                // must RELEASE every LMN frame — LMN's prefix dispatches it,
+                // and a BUE dispatch delivered the SAME frame twice.
+                var live = new NetworkModuleAdapter(
+                    Path.Combine(Path.GetTempPath(), "bue-v2-sender-live-" + Guid.NewGuid().ToString("N")),
+                    () => true, () => typeof(FakeLmnModTransport), () => typeof(FakeLmnModRouter), () => { },
+                    isLmnNativeClientDispatchLive: () => true);
+                live.ActivateCore();
+                Assert(live.LmnNativeClientDispatchLive && live.LmnNativeServerDispatchLive && live.LmnNativeDispatchLive,
+                    "takeover: the LMN-native-dispatch live state is observable on the adapter");
+                Assert(!live.ShouldConsumeInbound(true, 424242UL, v1Frame, 0, v1Frame.Length, null),
+                    "takeover: with LMN's native dispatch live the legacy frame is released, never dispatched (exactly-once)");
+                Assert(FakeLmnModTransport.LastSender == 0UL && FakeLmnModTransport.LastPayload == null,
+                    "takeover: the released legacy frame never reaches the mirrored handler through BUE");
+                Assert(!live.ShouldConsumeInbound(false, 0UL, v1Frame, 0, v1Frame.Length, null) && FakeLmnModTransport.ClientCalls == 0,
+                    "takeover: the server-direction legacy frame is released while LMN's native dispatch is live");
+                FakeLmnModRouter.NextResult = true;
+                Assert(!live.ShouldConsumeInbound(true, 0UL, lmn2Frame, 0, lmn2Frame.Length, null) && FakeLmnModRouter.ClientCalls == 0,
+                    "takeover: an LMN2 frame is released while LMN's native dispatch is live (the router is LMN's prefix business)");
+                Assert(CountToken(diagnostics, "event=v1-frame-release result=released decision=lmn-native-dispatch diagnosticId=BUE-V2NET-003") == 1
+                    && CountToken(diagnostics, "event=lmn2-frame-release result=released decision=lmn-native-dispatch diagnosticId=BUE-V2NET-003") == 1,
+                    "takeover: the first released frame of each kind emits exactly one structured release record (the retest's positive anchor)");
+
+                // LMN-native-dispatch INERT world (LMN's patch failed): BUE
+                // keeps the dispatch path as the only dispatcher, but a client
+                // frame whose sender cannot be resolved is released — never
+                // dispatched as sender=0 (the F-E identity defect).
+                var inert = new NetworkModuleAdapter(
+                    Path.Combine(Path.GetTempPath(), "bue-v2-sender-inert-" + Guid.NewGuid().ToString("N")),
+                    () => true, () => typeof(FakeLmnModTransport), () => typeof(FakeLmnModRouter), () => { });
+                inert.ActivateCore();
+                Assert(!inert.LmnNativeDispatchLive,
+                    "takeover: without LMN's native dispatch the inert state is observable");
+                Assert(inert.ShouldConsumeInbound(true, 424242UL, v1Frame, 0, v1Frame.Length, null),
+                    "takeover: with LMN's native dispatch inert the resolved legacy frame is dispatched (BUE is the only dispatcher)");
+                Assert(FakeLmnModTransport.LastSender == 424242UL,
+                    "takeover: the inert-world dispatch carries the resolved sender");
+                FakeLmnModTransport.LastSender = 0UL;
+                FakeLmnModTransport.LastPayload = null;
+                Assert(!inert.ShouldConsumeInbound(true, 0UL, v1Frame, 0, v1Frame.Length, null),
+                    "takeover: an unresolvable client sender is released — never dispatched as sender=0 (the F-E anchor)");
+                Assert(FakeLmnModTransport.LastPayload == null,
+                    "takeover: the sender=0 frame never reaches the mirrored handler");
+                Assert(CountToken(diagnostics, "event=v1-frame-release result=released decision=unresolved-sender diagnosticId=BUE-V2NET-003") == 1,
+                    "takeover: the inert-world unresolved-sender drop emits exactly one boundary record (release is a deliberate non-delivery there)");
+                FakeLmnModRouter.Reset();
+                FakeLmnModRouter.NextResult = true;
+                Assert(inert.ShouldConsumeInbound(true, 0UL, lmn2Frame, 0, lmn2Frame.Length, null) && FakeLmnModRouter.ClientCalls == 1,
+                    "takeover: with LMN's native dispatch inert the LMN2 frame still delegates to LMN's router (unchanged)");
+
+                // DEV-V2-12 R2 (Standards S1): the bootstrap-time probe runs
+                // BEFORE LMN's Awake installs its prefixes (BUE bootstraps
+                // first by file-name order), so the cached inert state is
+                // legitimate at startup — the tick path must re-probe on the
+                // throttled cadence until LMN's native dispatch appears, or
+                // BUE keeps dispatching next to LMN's live prefix (double
+                // delivery on the real machine).
+                bool lateProbe = false;
+                var late = new NetworkModuleAdapter(
+                    Path.Combine(Path.GetTempPath(), "bue-v2-sender-late-" + Guid.NewGuid().ToString("N")),
+                    () => true, () => typeof(FakeLmnModTransport), () => typeof(FakeLmnModRouter), () => { },
+                    isLmnNativeClientDispatchLive: () => lateProbe);
+                late.ActivateCore();
+                Assert(!late.LmnNativeDispatchLive,
+                    "setup: the probe reports inert at bootstrap (LMN's prefixes are not installed yet)");
+                Assert(late.ShouldConsumeInbound(true, 424242UL, v1Frame, 0, v1Frame.Length, null),
+                    "setup: while inert the adapter still dispatches the resolved legacy frame");
+                FakeLmnModTransport.LastSender = 0UL;
+                FakeLmnModTransport.LastPayload = null;
+                lateProbe = true; // LMN's Awake ran sometime after BUE's bootstrap
+                for (var tick = 0; tick < NetworkModuleAdapter.DeferredMirrorTickInterval; tick++) late.RetryPendingMirror();
+                Assert(late.LmnNativeDispatchLive,
+                    "takeover: the throttled tick re-probe latches LMN's live dispatch once it appears");
+                Assert(!late.ShouldConsumeInbound(true, 424242UL, v1Frame, 0, v1Frame.Length, null) && FakeLmnModTransport.LastPayload == null,
+                    "takeover: once the tick re-probe latches live, frames are released (never dispatched next to LMN's live prefix)");
+
+                // DEV-V2-12 R2 (Spec P5): per-direction liveness — LMN's
+                // install is not strictly atomic (a failed server patch can
+                // leave the client patch in place). The live direction
+                // releases, the inert direction keeps BUE as its only
+                // dispatcher; neither direction doubles.
+                var partial = new NetworkModuleAdapter(
+                    Path.Combine(Path.GetTempPath(), "bue-v2-sender-partial-" + Guid.NewGuid().ToString("N")),
+                    () => true, () => typeof(FakeLmnModTransport), () => typeof(FakeLmnModRouter), () => { },
+                    isLmnNativeClientDispatchLive: () => true, isLmnNativeServerDispatchLive: () => false);
+                partial.ActivateCore();
+                Assert(partial.LmnNativeClientDispatchLive && !partial.LmnNativeServerDispatchLive && !partial.LmnNativeDispatchLive,
+                    "takeover: the partial state is observable per direction");
+                Assert(!partial.ShouldConsumeInbound(true, 424242UL, v1Frame, 0, v1Frame.Length, null) && FakeLmnModTransport.LastPayload == null,
+                    "takeover: the live direction releases its frames");
+                Assert(partial.ShouldConsumeInbound(false, 0UL, v1Frame, 0, v1Frame.Length, null),
+                    "takeover: the inert direction still dispatches (BUE is that direction's only dispatcher)");
+
+                // DEV-V2-12 R3 (Standards R3): the tick re-probe must run
+                // while ANY direction is still inert. A partial install whose
+                // server prefix arrives late would otherwise keep BUE
+                // dispatching server-direction frames next to LMN's live
+                // server prefix — the double delivery returns on that
+                // direction.
+                bool serverLateClientProbe = true;
+                bool serverLateServerProbe = false;
+                var serverLate = new NetworkModuleAdapter(
+                    Path.Combine(Path.GetTempPath(), "bue-v2-sender-serverlate-" + Guid.NewGuid().ToString("N")),
+                    () => true, () => typeof(FakeLmnModTransport), () => typeof(FakeLmnModRouter), () => { },
+                    isLmnNativeClientDispatchLive: () => serverLateClientProbe, isLmnNativeServerDispatchLive: () => serverLateServerProbe);
+                serverLate.ActivateCore();
+                Assert(serverLate.LmnNativeClientDispatchLive && !serverLate.LmnNativeServerDispatchLive,
+                    "setup: the partial snapshot latches client live while the server prefix is absent");
+                Assert(serverLate.ShouldConsumeInbound(false, 0UL, v1Frame, 0, v1Frame.Length, null),
+                    "setup: the inert server direction still dispatches");
+                serverLateServerProbe = true; // LMN's server prefix installs late
+                for (var tick = 0; tick < NetworkModuleAdapter.DeferredMirrorTickInterval; tick++) serverLate.RetryPendingMirror();
+                Assert(serverLate.LmnNativeServerDispatchLive,
+                    "takeover: the tick re-probe keeps probing while ANY direction is still inert");
+                Assert(!serverLate.ShouldConsumeInbound(false, 0UL, v1Frame, 0, v1Frame.Length, null),
+                    "takeover: the late-live server direction releases (the double delivery never returns)");
+
+                // DEV-V2-12 R2 (Spec P2): exactly-once DECISION composition.
+                // The real machine runs BUE's prefix AND LMN's prefix on the
+                // same intercept points; the retest observed LMN's prefix
+                // dispatching every LMN frame while live (the second arrival)
+                // and nothing while inert. The LMN-side counts below are that
+                // frozen causal model (not an in-host fake), and the asserted
+                // variable is BUE's own decision: (BUE dispatched ? 1 : 0) +
+                // (LMN prefix live ? 1 : 0) must be exactly 1 in every
+                // quadrant — BUE's release in the live world is what keeps
+                // LMN's 1 from becoming 2.
+                FakeLmnModTransport.LastSender = 0UL;
+                FakeLmnModTransport.LastPayload = null;
+                Assert((live.ShouldConsumeInbound(true, 424242UL, v1Frame, 0, v1Frame.Length, null) ? 1 : 0) + 1 == 1,
+                    "decision-composition: live client — BUE decides release (0 dispatches), LMN native model constant 1, total 1");
+                Assert((live.ShouldConsumeInbound(false, 0UL, v1Frame, 0, v1Frame.Length, null) ? 1 : 0) + 1 == 1,
+                    "decision-composition: live server — BUE decides release (0 dispatches), LMN native model constant 1, total 1");
+                Assert((inert.ShouldConsumeInbound(true, 424242UL, v1Frame, 0, v1Frame.Length, null) ? 1 : 0) + 0 == 1,
+                    "decision-composition: inert client — BUE dispatches 1, LMN inert model constant 0, total 1");
+                Assert((inert.ShouldConsumeInbound(false, 0UL, v1Frame, 0, v1Frame.Length, null) ? 1 : 0) + 0 == 1,
+                    "decision-composition: inert server — BUE dispatches 1, LMN inert model constant 0, total 1");
+            }
+            finally
+            {
+                NetworkModuleAdapter.DiagnosticLogSink = previousSink;
             }
         }
 

@@ -17,7 +17,11 @@ namespace BetterUnturnedExperience.Plugin
     /// standalone LMN V1 handler table while the takeover is active, delegates
     /// LMN2 frames to LMN's own router, and records the empty LMN config
     /// migration (T6: LMN has no config system — a no-op by design, never
-    /// persisted). The Harmony prefixes are the ONLY callers of
+    /// persisted). DEV-V2-12: while LMN's own prefix is live (the real
+    /// takeover state) the inbound decision RELEASES every LMN frame to
+    /// LMN's native dispatch — a BUE dispatch delivered the same frame twice
+    /// because Harmony runs all prefixes — and an unresolvable client sender
+    /// is never dispatched as 0. The Harmony prefixes are the ONLY callers of
     /// <see cref="ShouldConsumeInbound"/> in production; tests drive the
     /// decision core directly and never install patches. Diagnostic ids:
     /// BUE-V2NET-001 = migration record, BUE-V2NET-002 = takeover plumbing
@@ -37,13 +41,20 @@ namespace BetterUnturnedExperience.Plugin
         private const string FaultDiagnosticId = "BUE-V2NET-002";
         private const string LifecycleDiagnosticId = "BUE-V2NET-003";
 
+        /// <summary>
+        /// DEV-V2-12: the standalone LMN Harmony instance id (authority:
+        /// LaunchMultiplayerNet/Core/LaunchMultiplayerNetPlugin.cs:59). Its
+        /// prefixes on the shared NetMessages.Receive* intercept points are
+        /// LMN's own live dispatch path — see LmnNativeDispatchLive.
+        /// </summary>
+        internal const string LmnPatchOwner = "com.yu80rice.launchmultiplayernet";
+
         /// <summary>Host wiring binds this to the runtime log; tests capture the lines.</summary>
         internal static Action<string> DiagnosticLogSink = null;
 
         internal static NetworkModuleAdapter ActiveAdapter { get; private set; }
 
         private static readonly MethodInfo tryGetSteamIdMethod = AccessTools.Method(typeof(SDG.NetTransport.ITransportConnection), "TryGetSteamId");
-        private static readonly FieldInfo steamIdField = ResolveSteamIdField();
         // NetMessages is internal to Assembly-CSharp — resolved by reflection
         // exactly like the standalone LMN patches it, never via typeof.
         private static readonly Type netMessagesType = AccessTools.TypeByName("SDG.Unturned.NetMessages");
@@ -57,6 +68,8 @@ namespace BetterUnturnedExperience.Plugin
         private readonly SettingsRuntime networkSettings;
         private readonly SettingsRuntime v1CompatSettings;
         private readonly HarmonyLib.Harmony harmony = new HarmonyLib.Harmony("io.github.yu80rice.bue.network");
+        private readonly Func<bool> isLmnNativeClientDispatchLive;
+        private readonly Func<bool> isLmnNativeServerDispatchLive;
         private bool networkEnabled = true;
         private string takeoverStatus = string.Empty;
         private string configMigrationStatus = string.Empty;
@@ -65,8 +78,16 @@ namespace BetterUnturnedExperience.Plugin
         private bool routerResolved;
         private MethodInfo routerClientMethod;
         private MethodInfo routerServerMethod;
+        // DEV-V2-12: whether LMN's own prefix is live next to BUE's, per
+        // direction. While it is, LMN dispatches that direction's LMN frames
+        // itself and BUE must release — a BUE dispatch delivered the same
+        // frame twice (the F-E defect). LMN's install is not strictly atomic
+        // (a failed server patch leaves the client patch in place), so the
+        // two directions are probed independently.
+        private bool lmnNativeClientDispatchLive;
+        private bool lmnNativeServerDispatchLive;
 
-        internal NetworkModuleAdapter(string settingsRootPath, Func<bool> isStandaloneLmnLoaded, Func<Type> resolveModTransportType, Func<Type> resolveModRouterType, Action refreshPanel)
+        internal NetworkModuleAdapter(string settingsRootPath, Func<bool> isStandaloneLmnLoaded, Func<Type> resolveModTransportType, Func<Type> resolveModRouterType, Action refreshPanel, Func<bool> isLmnNativeClientDispatchLive = null, Func<bool> isLmnNativeServerDispatchLive = null)
         {
             networkSettings = new SettingsRuntime(NetworkFeature, CreateNetworkDescriptors(), new FileSettingsPersistence(settingsRootPath));
             v1CompatSettings = new SettingsRuntime(V1CompatFeature, CreateV1CompatDescriptors(), new FileSettingsPersistence(settingsRootPath));
@@ -76,6 +97,11 @@ namespace BetterUnturnedExperience.Plugin
             this.resolveModTransportType = resolveModTransportType ?? throw new ArgumentNullException(nameof(resolveModTransportType));
             this.resolveModRouterType = resolveModRouterType ?? throw new ArgumentNullException(nameof(resolveModRouterType));
             this.refreshPanel = refreshPanel ?? throw new ArgumentNullException(nameof(refreshPanel));
+            // Tests inject the per-direction live state (a null server probe
+            // mirrors the client one); production (both null) self-detects
+            // from the actual patch state on the intercept points.
+            this.isLmnNativeClientDispatchLive = isLmnNativeClientDispatchLive;
+            this.isLmnNativeServerDispatchLive = isLmnNativeServerDispatchLive ?? isLmnNativeClientDispatchLive;
             ApplySwitchesFromSettings();
             UpdateTakeoverStatus();
         }
@@ -85,6 +111,25 @@ namespace BetterUnturnedExperience.Plugin
         internal bool TakeoverActive { get { return !isolated && networkEnabled && coordinator.TakeoverActive; } }
         internal string TakeoverStatus { get { return takeoverStatus; } }
         internal string ConfigMigrationStatus { get { return configMigrationStatus; } }
+
+        /// <summary>
+        /// DEV-V2-12: per-direction live state of LMN's own prefix next to
+        /// BUE's. True means that direction's LMN frames are dispatched once
+        /// by LMN's native path and BUE must release them — a BUE dispatch
+        /// delivered the same frame twice (Harmony runs all prefixes; this
+        /// prefix's return-false skips only the vanilla method, never LMN's
+        /// lower-priority prefix). Cached from the injected probes (tests)
+        /// or the actual patch owners (production) whenever the takeover
+        /// arms, and re-probed on the throttled tick cadence while still
+        /// inert: BUE bootstraps BEFORE LMN's Awake installs its prefixes
+        /// (BepInEx loads by file-name order), so the bootstrap-time probe
+        /// is legitimately false. Once latched, the state stays: the
+        /// standalone LMN never unpatches mid-session (its unpatch is domain
+        /// shutdown only).
+        /// </summary>
+        internal bool LmnNativeClientDispatchLive { get { return lmnNativeClientDispatchLive; } }
+        internal bool LmnNativeServerDispatchLive { get { return lmnNativeServerDispatchLive; } }
+        internal bool LmnNativeDispatchLive { get { return lmnNativeClientDispatchLive && lmnNativeServerDispatchLive; } }
 
         internal static IReadOnlyList<SettingDescriptor> CreateNetworkDescriptors()
         {
@@ -112,6 +157,7 @@ namespace BetterUnturnedExperience.Plugin
             // work — no LMN type resolution, no deferred diagnostic — same
             // zero-reflection rule RefreshSwitches already follows.
             if (networkEnabled && coordinator.TakeoverActive) MirrorLegacyHandlersSafe();
+            RefreshLmnNativeDispatchLive();
             RecordEmptyConfigMigration();
             UpdateTakeoverStatus();
             ActiveAdapter = this;
@@ -134,7 +180,22 @@ namespace BetterUnturnedExperience.Plugin
         /// </summary>
         internal void RetryPendingMirror()
         {
-            if (!mirrorPending || isolated || !networkEnabled || !coordinator.TakeoverActive) return;
+            if (isolated || !networkEnabled || !coordinator.TakeoverActive) return;
+            // DEV-V2-12 R2/R3 (Standards S1): the bootstrap probe runs before
+            // LMN's Awake installs its prefixes, so the cached inert state is
+            // legitimate at startup — re-probe on the same throttled tick
+            // cadence while ANY direction is still inert (a partial install's
+            // late direction must still be discovered). Each direction is a
+            // monotonic latch (RefreshLmnNativeDispatchLive), so once both
+            // are live the re-probe stops: zero reflection afterwards. The
+            // standalone LMN never unpatches mid-session (its unpatch is
+            // domain shutdown only).
+            if ((!lmnNativeClientDispatchLive || !lmnNativeServerDispatchLive) && ++lmnProbeTicks >= DeferredMirrorTickInterval)
+            {
+                lmnProbeTicks = 0;
+                RefreshLmnNativeDispatchLive();
+            }
+            if (!mirrorPending) return;
             if (++deferredMirrorTicks < DeferredMirrorTickInterval) return;
             deferredMirrorTicks = 0;
             MirrorLegacyHandlersSafe();
@@ -169,6 +230,7 @@ namespace BetterUnturnedExperience.Plugin
                 harmony.Patch(receiveFromClient, prefix: new HarmonyLib.HarmonyMethod(typeof(NetworkModuleAdapter), nameof(ReceiveFromClientPrefix)) { priority = HarmonyLib.Priority.First });
                 harmony.Patch(receiveFromServer, prefix: new HarmonyLib.HarmonyMethod(typeof(NetworkModuleAdapter), nameof(ReceiveFromServerPrefix)) { priority = HarmonyLib.Priority.First });
                 patchesInstalled = true;
+                RefreshLmnNativeDispatchLive();
                 Emit("[BUE-V2NET] event=takeover-patch result=installed priority=first targets=NetMessages.ReceiveMessageFromClient,NetMessages.ReceiveMessageFromServer diagnosticId=" + LifecycleDiagnosticId);
             }
             catch (Exception error)
@@ -205,6 +267,7 @@ namespace BetterUnturnedExperience.Plugin
                 // promises (handbook B6). ApplyNetworkPatches self-guards on
                 // patchesInstalled.
                 ApplyNetworkPatches();
+                RefreshLmnNativeDispatchLive();
             }
         }
 
@@ -223,19 +286,34 @@ namespace BetterUnturnedExperience.Plugin
 
         /// <summary>
         /// The prefix decision core. Triple gate: network module on + takeover
-        /// active + an LMN frame. Legacy V1 frames route through the compat
-        /// layer (its official switch may hand them back); LMN2 frames
-        /// delegate to LMN's own router — true consumes (the prefix skips the
-        /// vanilla method and LMN's prefix), false or a fault hands the frame
-        /// back so the vanilla path and LMN's prefix keep their self-heal
-        /// chain. Non-LMN frames always pass through (zero false positive).
+        /// active + an LMN frame (V1 legacy or LMN2 namespaced; non-LMN frames
+        /// always pass through — zero false positive). DEV-V2-12 two-state
+        /// contract, per direction:
+        /// - LMN's own prefix live (the real takeover state): RELEASE — the
+        ///   frame is handed back so LMN's native path dispatches it exactly
+        ///   once with its own correct sender resolution. Dispatching here
+        ///   too delivered the same frame twice on the real machine (Harmony
+        ///   runs all prefixes; this prefix's return-false skips only the
+        ///   vanilla method, never LMN's lower-priority prefix).
+        /// - LMN's own prefix inert (its patch failed): BUE is the only
+        ///   dispatcher — V1 routes through the compat layer (the official
+        ///   switch may hand frames back), LMN2 delegates to LMN's router.
         /// </summary>
         internal bool ShouldConsumeInbound(bool fromClient, ulong senderSteamId, byte[] packet, int offset, int size, object connection)
         {
             if (isolated || !networkEnabled || !coordinator.TakeoverActive) return false;
             if (packet == null || offset < 0 || size < 0 || offset + size > packet.Length) return false;
-            if (LmnFrameClassifier.IsLegacyV1Frame(packet, offset, size)) return ConsumeLegacyFrame(fromClient, senderSteamId, packet, offset, size);
-            if (LmnFrameClassifier.IsNamespacedV2Frame(packet, offset, size)) return DelegateNamespacedFrame(fromClient, packet, offset, size, connection);
+            var nativeDispatchLive = fromClient ? lmnNativeClientDispatchLive : lmnNativeServerDispatchLive;
+            if (LmnFrameClassifier.IsLegacyV1Frame(packet, offset, size))
+            {
+                if (nativeDispatchLive) return ReleaseToNativeDispatchOnce(isV1: true);
+                return ConsumeLegacyFrame(fromClient, senderSteamId, packet, offset, size);
+            }
+            if (LmnFrameClassifier.IsNamespacedV2Frame(packet, offset, size))
+            {
+                if (nativeDispatchLive) return ReleaseToNativeDispatchOnce(isV1: false);
+                return DelegateNamespacedFrame(fromClient, packet, offset, size, connection);
+            }
             return false;
         }
 
@@ -250,9 +328,35 @@ namespace BetterUnturnedExperience.Plugin
             LmnV1CompatLayer.DiagnosticLogSink = line => BueRuntimeLog.Runtime(line);
         }
 
+        // DEV-V2-12 scope note: in the LIVE world (standalone LMN patched and
+        // dispatching) frames reach V1 handlers through LMN's own prefix
+        // regardless of the v1compat switch — it was so before this change
+        // too (LMN's prefix ran either way); the switch governs BUE's own V1
+        // dispatch (the inert world) and BUE-side diagnostics. A true V1 drop
+        // in the live world would require neutralizing LMN's dispatch — a
+        // named follow-up, deliberately out of scope here.
         private bool ConsumeLegacyFrame(bool fromClient, ulong senderSteamId, byte[] packet, int offset, int size)
         {
             if (!compatLayer.Enabled) return false;
+            // DEV-V2-12 (F-E): a client frame whose sender could not be
+            // resolved is RELEASED, never dispatched as sender=0 — a 0-sender
+            // callback is a behavior-level defect for any legacy plugin that
+            // trusts the steam id (the real machine queued pongs to target=0,
+            // which LMN's outbound guard then had to reject). Release is NOT
+            // a successful delivery: with LMN's native dispatch inert the
+            // released frame falls to the vanilla path, which does not know
+            // the MOD magic — the frame is deliberately dropped rather than
+            // delivered with a false identity. The first such drop emits a
+            // one-shot record (P6 boundary anchor).
+            if (fromClient && senderSteamId == 0UL)
+            {
+                if (!unresolvedSenderReleaseRecorded)
+                {
+                    unresolvedSenderReleaseRecorded = true;
+                    Emit("[BUE-V2NET] event=v1-frame-release result=released decision=unresolved-sender diagnosticId=" + LifecycleDiagnosticId);
+                }
+                return false;
+            }
             var frame = new byte[size];
             Buffer.BlockCopy(packet, offset, frame, 0, size);
             return fromClient ? compatLayer.RouteFromClient(frame, senderSteamId) : compatLayer.RouteFromServer(frame);
@@ -320,11 +424,50 @@ namespace BetterUnturnedExperience.Plugin
         // keeping P5's zero-false-positive ERROR budget for real faults.
         private bool mirrorPending;
         private int deferredMirrorTicks;
+        // DEV-V2-12 R2: throttled re-probe cadence state for the tick path
+        // (drives RefreshLmnNativeDispatchLive until LMN's prefixes appear).
+        private int lmnProbeTicks;
         // DEV-V2-11 (Spec GAP-1): LMN logs nothing per frame, so a delegated
         // LMN2 frame is indistinguishable from LMN's own prefix path. The
         // first consumed delegation emits a one-shot record so the real
         // -machine retest can prove the delegation actually happens.
         private bool delegatedRecorded;
+        // DEV-V2-12: one-shot positive anchors for the RELEASE decision — in
+        // the live world a released frame is dispatched once by LMN's native
+        // path, so these records replace the delegation/consumption records
+        // as the retest's per-kind proof the decision point was exercised.
+        private bool v1ReleaseRecorded;
+        private bool lmn2ReleaseRecorded;
+        // DEV-V2-12 (Spec R2 P6): one-shot record for the inert-world
+        // unresolved-sender drop (release is a deliberate non-delivery there).
+        private bool unresolvedSenderReleaseRecorded;
+
+        /// <summary>
+        /// DEV-V2-12: while LMN's own prefix is live it dispatches every LMN
+        /// frame itself, so a BUE dispatch delivered the SAME frame twice
+        /// (Harmony runs all prefixes — BUE's Priority.First return-false
+        /// skips only the original, never LMN's lower-priority prefix). BUE
+        /// releases the frame instead: LMN's native path keeps the single
+        /// dispatch with its own correct sender resolution.
+        /// </summary>
+        private bool ReleaseToNativeDispatchOnce(bool isV1)
+        {
+            if (isV1)
+            {
+                if (!v1ReleaseRecorded)
+                {
+                    v1ReleaseRecorded = true;
+                    Emit("[BUE-V2NET] event=v1-frame-release result=released decision=lmn-native-dispatch diagnosticId=" + LifecycleDiagnosticId);
+                }
+                return false;
+            }
+            if (!lmn2ReleaseRecorded)
+            {
+                lmn2ReleaseRecorded = true;
+                Emit("[BUE-V2NET] event=lmn2-frame-release result=released decision=lmn-native-dispatch diagnosticId=" + LifecycleDiagnosticId);
+            }
+            return false;
+        }
 
         /// <summary>
         /// Mirrors the legacy handler table while the takeover is active.
@@ -438,20 +581,21 @@ namespace BetterUnturnedExperience.Plugin
             catch (Exception) { }
         }
 
-        private static FieldInfo ResolveSteamIdField()
-        {
-            var steamIdType = AccessTools.TypeByName("Steamworks.CSteamID");
-            return steamIdType == null ? null : AccessTools.Field(steamIdType, "m_SteamID");
-        }
-
-        private static ulong TryGetConnectionSteamId(SDG.NetTransport.ITransportConnection connection)
+        // DEV-V2-12 internal for the red-test anchor: the resolution shape is
+        // the F-E defect surface. The SDK signature is TryGetSteamId(out
+        // ulong) (V2-T1 baseline, AssertSdkNetTransportBaseline pins it) —
+        // the resolved id IS the out value. The old code read it through a
+        // CSteamID.m_SteamID FieldInfo, which threw ArgumentException on the
+        // boxed ulong and swallowed to 0 for EVERY connection (DEV-V2-11
+        // retest F-E: every V1 dispatch carried sender=0).
+        internal static ulong TryGetConnectionSteamId(SDG.NetTransport.ITransportConnection connection)
         {
             try
             {
-                if (connection == null || tryGetSteamIdMethod == null || steamIdField == null) return 0UL;
+                if (connection == null || tryGetSteamIdMethod == null) return 0UL;
                 var args = new object[] { null };
                 if (!(tryGetSteamIdMethod.Invoke(connection, args) is bool ok) || !ok || args[0] == null) return 0UL;
-                return (ulong)steamIdField.GetValue(args[0]);
+                return (ulong)args[0];
             }
             catch (Exception)
             {
@@ -459,12 +603,59 @@ namespace BetterUnturnedExperience.Plugin
             }
         }
 
+        /// <summary>
+        /// DEV-V2-12: refreshes the cached per-direction LMN-native-dispatch
+        /// live state. Tests inject the probes; production self-detects by
+        /// looking for an LMN-owned prefix on each intercept point (LMN
+        /// fail-fasts when either patch fails, but a failed SERVER patch can
+        /// leave the CLIENT patch in place — the directions are checked
+        /// independently and the live direction releases while the inert
+        /// direction keeps BUE as its only dispatcher). Each direction is a
+        /// monotonic latch: once a live prefix is seen it stays live (the
+        /// standalone LMN never unpatches mid-session), and a latched
+        /// direction is never re-probed.
+        /// </summary>
+        private void RefreshLmnNativeDispatchLive()
+        {
+            if (!lmnNativeClientDispatchLive) lmnNativeClientDispatchLive = isLmnNativeClientDispatchLive != null ? isLmnNativeClientDispatchLive() : ProductionLmnNativeDispatchLive(clientDirection: true);
+            if (!lmnNativeServerDispatchLive) lmnNativeServerDispatchLive = isLmnNativeServerDispatchLive != null ? isLmnNativeServerDispatchLive() : ProductionLmnNativeDispatchLive(clientDirection: false);
+        }
+
+        private bool ProductionLmnNativeDispatchLive(bool clientDirection)
+        {
+            try
+            {
+                if (!patchesInstalled || netMessagesType == null) return false;
+                var receive = AccessTools.Method(netMessagesType, clientDirection ? "ReceiveMessageFromClient" : "ReceiveMessageFromServer");
+                if (receive == null) return false;
+                return HasLmnOwnedPrefix(receive);
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        private static bool HasLmnOwnedPrefix(MethodBase method)
+        {
+            var info = HarmonyLib.Harmony.GetPatchInfo(method);
+            if (info == null || info.Prefixes == null) return false;
+            foreach (var patch in info.Prefixes)
+            {
+                if (patch != null && patch.owner == LmnPatchOwner) return true;
+            }
+            return false;
+        }
+
         // Priority.First prefixes on the shared intercept points (LMN
         // NetMessagesReceiveClientPatch.cs:56 / ServerPatch.cs:55 target the
         // same methods). Direction guards mirror LMN's own (ClientPatch L58 /
-        // ServerPatch L57), so each frame is decided exactly once. Returning
-        // true lets the vanilla method (and LMN's lower-priority prefix) run;
-        // returning false short-circuits both.
+        // ServerPatch L57), so each frame is decided exactly once.
+        // DEV-V2-12 correction: returning false skips ONLY the vanilla
+        // method — Harmony still runs every lower-priority prefix, so LMN's
+        // own prefix dispatched the same frame BUE had dispatched. That is
+        // why the live state releases frames (LMN's native dispatch is the
+        // exactly-once path) instead of consuming them.
 
         internal static bool ReceiveFromClientPrefix(SDG.NetTransport.ITransportConnection transportConnection, byte[] packet, int offset, int size)
         {

@@ -1,7 +1,7 @@
 # DEV-V2-12：V1 镜像路径 sender 身份丢失（sender=0 双到达）归因与修复
 
 Type: task
-Status: open-deferred（2026-09-05 用户拍板：非阻塞、延后处理；DEV-V2-11 候选实机复核附记触发，见 `audit/2026-09-04/DEV-V2-11/configB-retest-verification-r1.md` 附记）
+Status: claimed（2026-09-05，agent 认领开工；用户指令恢复延后票。实机复测仍需人工执行，复测通过前不 resolved）
 Parent: spec-V2-phase1-lmn-adoption（DEV-V2-11 后续）
 Blocked by: 无（证据已归档）
 Blocks: 无（不阻塞 DEV-V2-07 gate；但属接管语义正确性缺陷，建议 gate 前或下轮一并修）
@@ -54,3 +54,37 @@ Error（`dropped outbound … transport not found (target=0, channel=250)`，`Mo
 > 真实通路完好、P5 判据不受影响），影响面仅限未来「依赖 sender steamId 的真实旧插件」。归属判断：
 > BUE 至少参与（镜像派发以 sender=0 进行属 BUE 语义，解析失败应放行而非派发），双到达源头未归因
 > （候选含 SteamP2PFriends 中继副本——外部件）。与 DEV-V2-07 gate 解耦，恢复时机=真实旧插件接入前。
+
+> 2026-09-05 认领开工（agent）：用户指令按冻结路线依赖图恢复本票（依赖图核实：Blocked by 无，
+> 前置链 01–07/10/11 全 resolved，可开工）。路线：归因（读 LMN prefix/router/transport 源码 +
+> BUE 兼容层/镜像源码）→ 红测先行（sender 语义锚 + 恰好一次消费锚）→ 最小修复 → 全量门禁 →
+> 双轴独立审查至双 CLEAN → 新候选身份。实机复测（判据：零 sender=0 送达、零 target=0 Error、
+> V1/V2 双向仍通、镜像/委托锚仍在）留给人工执行，通过前本票保持 claimed。注意：新候选不自动
+> 继承 DEV-V2-11 的发布批准，须另走资格门禁+人工批准。
+
+> 2026-09-05 实施+双轴闭环（agent）：**归因落定**。(1) 双到达=Harmony 语义：前缀返回 false 只跳过
+> 原方法，LMN 自己的低优先级前缀（owner=`com.yu80rice.launchmultiplayernet`，与 BUE 挂同一
+> `NetMessages.Receive*`，且调同一 `ModRouter`）仍会派发。实机形态吻合：V1 每 seq 一条 sender=0
+> （BUE 兼容层派发）+ 一条真实 id（LMN 原生派发）；V2 每 seq 两条**相同**真实 id（两前缀各调一次
+> router，DEV-V2-11 复测 u3ds-server 日志 56/57 行）。排除 SteamP2PFriends 线缆副本：副本假说预测
+> V1 两条 sender=0 / V2 四条送达，与日志不符；且 07 归档（镜像死→BUE 从不派发）三项全 0，时序仅随
+> DEV-V2-11 镜像/委托激活出现。(2) sender=0=BUE 反射 helper 按 `out CSteamID` 形状经
+> `CSteamID.m_SteamID` FieldInfo 读 `TryGetSteamId` 的 out 值，SDK 真签名 `TryGetSteamId(out ulong)`
+> （V2-T1 基线 L32），GetValue 对装箱 ulong 抛异常被吞→**恒 0**；真实 id 一直在 args[0] 被丢弃，
+> LMN 直调接口故得真 id。
+> **修复**（不动 LMN/SteamP2PFriends/fixture）：helper 直读 out ulong；接管决策核改两态契约——
+> LMN 原生前缀 live（实机常态；per-direction 单调 latch + tick 节流重探，BUE 按文件名序先于 LMN
+> 装补丁故启动时必 inert）→ BUE 放行（一次性锚 `v1/lmn2-frame-release result=released
+> decision=lmn-native-dispatch`）；inert → BUE 独派发，但 fromClient 且 sender==0 的帧放行、绝不以 0
+> 派发（一次性锚 `decision=unresolved-sender`）。
+> **口径变更（入档）**：live 世界委托不再发生 → 工单复测判据「委托锚」由 release 锚替代；镜像锚
+> `v1-table-mirror result=mirrored` 保留。v1compat 开关口径显式化：live 世界帧送达走 LMN 原生前缀、
+> 不受开关约束（变更前亦然，非本票行为变更）；live 世界真丢弃 V1 需中和 LMN 派发=具名后续票。
+> **红绿链**：red1（sender 解析恒 0）→ red2（live 未放行）→ red3（sender=0 仍派发）→ 绿；R2 red4
+> （tick 重探缺失）→ R3 red5（server 晚装不重探）→ green6（EXIT=0），见
+> `audit/2026-09-05/DEV-V2-12/red*-…log`。**门禁**：Release Rebuild 0 error/0 warning + 七运行器全
+> exit 0 + NoUiTokens Core/ClientUi PASS（同目录）。**双轴**：R1（Standards 3 + Spec 7 findings）→
+> R2 修复复审（1 blocking=per-direction 哨兵 + 2 should-fix）→ R3 修复复审**双 CLEAN**。
+> **待人工**：实机复测（判据=零 sender=0 送达、零 dropped outbound target=0、V1/V2 双向 seq 对齐、
+> 镜像锚+release 锚在场）→ case.json 填实 → QualificationGateRunner gate → 人工批准（新候选不继承
+> DEV-V2-11 批准）；复测通过前本票保持 claimed。
