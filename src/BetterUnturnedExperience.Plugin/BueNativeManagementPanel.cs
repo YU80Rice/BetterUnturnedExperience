@@ -99,6 +99,13 @@ namespace BetterUnturnedExperience.Plugin
         private ISleekElement mainParent;
         private ISleekElement dashboardParent;
         private ISleekElement pauseParent;
+        private readonly FieldInfo[] pauseShiftFields;
+        private readonly BuePauseColumnShift pauseColumnShift;
+        private readonly bool pauseRequiredShiftFieldsPresent;
+        private readonly string missingPauseShiftField;
+        private bool pauseFieldGapLogged;
+        private bool lastPauseColumnReady;
+        private readonly List<string> loggedPauseElementReadFailures = new List<string>();
         private SleekFullscreenBox hiddenOrigin;
         private bool opened;
         private bool destroyed;
@@ -150,6 +157,10 @@ namespace BetterUnturnedExperience.Plugin
             // the Workshop management page, not MenuDashboardUI.
             workshopContainerField = typeof(MenuWorkshopUI).GetField("container", BindingFlags.Static | BindingFlags.NonPublic);
             pauseContainerField = typeof(PlayerPauseUI).GetField("container", BindingFlags.Static | BindingFlags.NonPublic);
+            pauseShiftFields = ResolvePlayerPauseShiftFields();
+            pauseColumnShift = new BuePauseColumnShift(BueMenuEntryLayout.PauseColumnSlotPitch);
+            missingPauseShiftField = FindFirstMissingRequiredShiftField(pauseShiftFields);
+            pauseRequiredShiftFieldsPresent = missingPauseShiftField == null;
             harmony = new Harmony("io.github.yu80rice.bue.management-panel");
             tickDispatcher = new BueRuntimeTickDispatcher(TickCore, OnTickFailure, log == null ? (Func<int>)(() => -1) : GetFrameCountSafe);
             this.buttonInjectionSeam = buttonInjectionSeam ?? new NativeButtonInjectionSeam(this);
@@ -457,6 +468,18 @@ namespace BetterUnturnedExperience.Plugin
 
         internal void TryAddPauseButton(string source)
         {
+            // Fail closed when a required vanilla column field is missing:
+            // shifting part of the column would park the BUE entry on top of
+            // a native element (native fallback over a broken layout).
+            if (!pauseRequiredShiftFieldsPresent)
+            {
+                if (!pauseFieldGapLogged)
+                {
+                    pauseFieldGapLogged = true;
+                    LogTrace("pause-shift-fields-missing", "field=" + missingPauseShiftField + " decision=skip-pause-entry");
+                }
+                return;
+            }
             var parent = ReadContainer(pauseContainerField);
             if (parent != null && !IsAlive(parent))
             {
@@ -477,24 +500,66 @@ namespace BetterUnturnedExperience.Plugin
                 }
                 return;
             }
-            if (!RequiresParentRebind(pauseParent, parent)) return;
-            if (pauseParent != null)
+            // Runtime gate: every required column element must be readable and
+            // alive before the column is touched, so the entry never overlaps
+            // a half-shifted native column (rebuild windows resolve within a
+            // tick or two; while unresolved the pause entry stays native).
+            var elements = ResolvePauseColumnElements();
+            var columnReady = elements != null;
+            if (columnReady != lastPauseColumnReady)
             {
-                CleanupPauseButton(pauseParent);
-                pauseParent = null;
+                lastPauseColumnReady = columnReady;
+                LogTrace("pause-column-ready", "ready=" + (columnReady ? "true" : "false") + " source=" + source);
             }
+            if (!columnReady)
+            {
+                if (pauseParent != null)
+                {
+                    CleanupPauseButton(pauseParent);
+                    pauseParent = null;
+                }
+                return;
+            }
+            if (RequiresParentRebind(pauseParent, parent))
+            {
+                if (pauseParent != null)
+                {
+                    CleanupPauseButton(pauseParent);
+                    pauseParent = null;
+                }
+                CreatePauseButton(parent, source);
+            }
+            // Transactional tick: the column either shifts as a whole (and the
+            // freshly created button appears in its final slot) or the native
+            // layout is handed back untouched for a retry (R3 review).
+            if (!ApplyPauseColumnShift(elements, source))
+            {
+                if (pauseParent != null)
+                {
+                    CleanupPauseButton(pauseParent);
+                    pauseParent = null;
+                }
+            }
+        }
+
+        private void CreatePauseButton(ISleekElement parent, string source)
+        {
             try
             {
                 LogTrace("create-button-begin", "surface=PlayerPauseUI source=" + source);
                 pauseButton = Glazier.Get().CreateButton();
                 LogTrace("create-button-result", "surface=PlayerPauseUI created=" + (pauseButton != null) + " source=" + source);
                 if (pauseButton == null) throw new InvalidOperationException("Glazier.CreateButton returned null");
-                pauseButton.PositionOffset_X = 205f;
-                pauseButton.PositionOffset_Y = -290f;
+                // Native column slot directly below Return (DEV-V2-13);
+                // ApplyPauseColumnShift moves the vanilla elements below Return
+                // down one pitch and mirrors the column X so this entry also
+                // follows the vanilla spy-mode column move.
+                pauseButton.PositionOffset_X = BueMenuEntryLayout.PauseColumnButtonX;
+                pauseButton.PositionOffset_Y = BueMenuEntryLayout.PauseBueSlotY;
                 pauseButton.PositionScale_X = 0.5f;
                 pauseButton.PositionScale_Y = 0.5f;
-                pauseButton.SizeOffset_X = 200f;
-                pauseButton.SizeOffset_Y = 50f;
+                pauseButton.SizeOffset_X = BueMenuEntryLayout.PauseColumnButtonWidth;
+                pauseButton.SizeOffset_Y = BueMenuEntryLayout.PauseColumnButtonHeight;
                 pauseButton.Text = "BUE 插件管理";
                 pauseButton.OnClicked += OnPauseButtonClicked;
                 parent.AddChild(pauseButton);
@@ -508,6 +573,176 @@ namespace BetterUnturnedExperience.Plugin
                 Log("pause menu entry failed: " + error.Message);
                 throw;
             }
+        }
+
+        // DEV-V2-13: resolves the manifest elements for this tick. Returns
+        // null when a required element is absent, dead or unreadable - the
+        // column must never be partially shifted, so the pause entry stays
+        // native for that tick (fail closed, R2 review). Optional elements
+        // (inviteFriendsButton) may be absent and come back as null entries.
+        private ISleekElement[] ResolvePauseColumnElements()
+        {
+            var names = BueMenuEntryLayout.PauseShiftFieldNames;
+            var optional = BueMenuEntryLayout.PauseOptionalShiftFieldNames;
+            var elements = new ISleekElement[names.Length];
+            for (var index = 0; index < pauseShiftFields.Length; index++)
+            {
+                var fieldName = names[index];
+                ISleekElement element = null;
+                try
+                {
+                    if (pauseShiftFields[index] != null) element = pauseShiftFields[index].GetValue(null) as ISleekElement;
+                }
+                catch (Exception error)
+                {
+                    if (!loggedPauseElementReadFailures.Contains(fieldName))
+                    {
+                        loggedPauseElementReadFailures.Add(fieldName);
+                        LogTrace("pause-element-read-failed", "field=" + fieldName + " errorType=" + error.GetType().Name + " message=" + error.Message);
+                    }
+                    return null;
+                }
+                if (element == null || !IsAlive(element))
+                {
+                    if (Array.IndexOf(optional, fieldName) < 0) return null;
+                    continue;
+                }
+                elements[index] = element;
+            }
+            return elements;
+        }
+
+        // DEV-V2-13: moves every vanilla element below Return down one pitch
+        // (anchored via BuePauseColumnShift, so repeated ticks and UI rebuilds
+        // never drift) to free the second slot for the BUE entry, and mirrors
+        // the native column X (spy mode moves the column to -435 and vanilla
+        // never moves it back until the UI rebuilds - quirk kept).
+        // Transactional: reads all Ys first (any read failure aborts before
+        // anything moves); a write failure rolls the already-shifted elements
+        // back to their anchors. Returns false when the tick must hand the
+        // native column back untouched.
+        private bool ApplyPauseColumnShift(ISleekElement[] elements, string source)
+        {
+            var currentYs = new float[elements.Length];
+            for (var index = 0; index < elements.Length; index++)
+            {
+                var element = elements[index];
+                if (element == null) continue;
+                try
+                {
+                    currentYs[index] = element.PositionOffset_Y;
+                }
+                catch (Exception error)
+                {
+                    LogTrace("pause-shift-failed", "phase=read field=" + BueMenuEntryLayout.PauseShiftFieldNames[index] + " errorType=" + error.GetType().Name + " message=" + error.Message);
+                    return false;
+                }
+            }
+            var anchored = 0;
+            var columnX = 0f;
+            var haveColumnX = false;
+            for (var index = 0; index < elements.Length; index++)
+            {
+                var element = elements[index];
+                if (element == null) continue;
+                try
+                {
+                    if (pauseColumnShift.Apply(element, currentYs[index], value => element.PositionOffset_Y = value)) anchored++;
+                    if (!haveColumnX)
+                    {
+                        columnX = element.PositionOffset_X;
+                        haveColumnX = true;
+                    }
+                }
+                catch (Exception error)
+                {
+                    LogTrace("pause-shift-failed", "phase=write field=" + BueMenuEntryLayout.PauseShiftFieldNames[index] + " errorType=" + error.GetType().Name + " message=" + error.Message);
+                    RestorePauseColumn();
+                    return false;
+                }
+            }
+            try
+            {
+                if (haveColumnX && pauseButton != null && IsAlive(pauseButton) && Math.Abs(pauseButton.PositionOffset_X - columnX) > 0.01f)
+                {
+                    pauseButton.PositionOffset_X = columnX;
+                }
+            }
+            catch (Exception error)
+            {
+                LogTrace("pause-shift-failed", "phase=mirror errorType=" + error.GetType().Name + " message=" + error.Message);
+                RestorePauseColumn();
+                return false;
+            }
+            if (anchored > 0) LogTrace("pause-column-shift", "anchored=" + anchored + " source=" + source);
+            return true;
+        }
+
+        // Hands the vanilla layout back on BUE teardown or pause-UI rebind.
+        // Walks the anchor registry instead of the static fields (a rebuild
+        // may already have repointed those): live instances restore their
+        // captured Y, dead instances just drop their anchor, and a failed
+        // restore keeps its anchor for a retry. Nothing is swept while a
+        // retryable anchor remains.
+        private void RestorePauseColumn()
+        {
+            var restored = 0;
+            var dropped = 0;
+            var failed = 0;
+            foreach (var anchor in pauseColumnShift.SnapshotAnchors())
+            {
+                var element = anchor.Key as ISleekElement;
+                if (element == null || !IsAlive(element))
+                {
+                    pauseColumnShift.RemoveAnchor(anchor.Key);
+                    dropped++;
+                    continue;
+                }
+                try
+                {
+                    if (pauseColumnShift.Restore(element, value => element.PositionOffset_Y = value)) restored++;
+                }
+                catch (Exception error)
+                {
+                    failed++;
+                    LogTrace("pause-restore-failed", "errorType=" + error.GetType().Name + " message=" + error.Message);
+                }
+            }
+            if (restored > 0 || dropped > 0 || failed > 0) LogTrace("pause-column-restore", "restored=" + restored + " dropped=" + dropped + " failed=" + failed);
+        }
+
+        private static string FindFirstMissingRequiredShiftField(FieldInfo[] fields)
+        {
+            var optional = BueMenuEntryLayout.PauseOptionalShiftFieldNames;
+            for (var index = 0; index < fields.Length; index++)
+            {
+                if (fields[index] != null) continue;
+                var name = BueMenuEntryLayout.PauseShiftFieldNames[index];
+                var isOptional = false;
+                for (var optionalIndex = 0; optionalIndex < optional.Length; optionalIndex++)
+                {
+                    if (optional[optionalIndex] == name)
+                    {
+                        isOptional = true;
+                        break;
+                    }
+                }
+                if (!isOptional) return name;
+            }
+            return null;
+        }
+
+        internal static FieldInfo[] ResolvePlayerPauseShiftFields()
+        {
+            var names = BueMenuEntryLayout.PauseShiftFieldNames;
+            var fields = new FieldInfo[names.Length];
+            for (var index = 0; index < names.Length; index++)
+            {
+                // exitButton/quitButton are public static in PlayerPauseUI,
+                // the rest are non-public - both must resolve (DEV-V2-13 R1).
+                fields[index] = typeof(PlayerPauseUI).GetField(names[index], BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+            }
+            return fields;
         }
 
         // Optional secondary entry on the Workshop sub-page.  The Dashboard
@@ -1009,6 +1244,7 @@ namespace BetterUnturnedExperience.Plugin
 
         private void CleanupPauseButton(ISleekElement parent)
         {
+            RestorePauseColumn();
             if (pauseButton == null) return;
             try { pauseButton.OnClicked -= OnPauseButtonClicked; } catch (Exception) { }
             try { if (parent != null) parent.RemoveChild(pauseButton); } catch (Exception) { }

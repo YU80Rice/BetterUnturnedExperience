@@ -270,6 +270,9 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 AssertPluginUpdateDriverForwardsButtonInjection();
                 AssertButtonInjectionRoutesAreLocallyIsolated();
                 AssertMainMenuEntryLayoutMatchesVanillaRhythm();
+                AssertPauseMenuEntryLayoutMatchesNativeColumn();
+                AssertPauseColumnShiftAnchorsWithoutDrift();
+                AssertPauseShiftFieldsResolveAgainstVanillaAssembly();
                 AssertRuntimeDriverDispatchesButtonInjectionSeam();
                 AssertPanelDispatchReachesButtonInjectionSeam();
                 AssertDragPreviewHasPluginOwnedUpdateDriver();
@@ -3575,6 +3578,100 @@ namespace BetterUnturnedExperience.Plugin.Tests
             Assert(BueMenuEntryLayout.MainMenuStoreSlotY == 410f, "item-store slot anchor matches the vanilla MenuDashboardUI layout");
             Assert(BueMenuEntryLayout.MainMenuBueSlotY == BueMenuEntryLayout.MainMenuStoreSlotY + BueMenuEntryLayout.MainMenuColumnSlotPitch, "BUE main-menu entry occupies the next pitch slot below the store entry");
             Assert(BueMenuEntryLayout.MainMenuBueSlotY == 470f, "BUE main-menu entry slot is 410 + 60 = 470, restoring the vanilla 10px visual gap");
+        }
+
+        // DEV-V2-13: the pause-menu entry must join the native PlayerPauseUI
+        // column directly below Return, with every vanilla element below it
+        // shifted down exactly one slot. Vanilla column (decompiled): all
+        // buttons at X=-100, 200x50, PositionScale 0.5/0.5, Return at Y=-290,
+        // 60px pitch; spy mode (onSpyReady) moves the whole column to X=-435.
+        private static void AssertPauseMenuEntryLayoutMatchesNativeColumn()
+        {
+            Assert(BueMenuEntryLayout.PauseReturnSlotY == -290f, "pause Return slot anchor matches the vanilla PlayerPauseUI layout");
+            Assert(BueMenuEntryLayout.PauseColumnSlotPitch == 60f, "pause column pitch matches the vanilla 60px rhythm");
+            Assert(BueMenuEntryLayout.PauseBueSlotY == BueMenuEntryLayout.PauseReturnSlotY + BueMenuEntryLayout.PauseColumnSlotPitch, "BUE pause entry occupies the next pitch slot below Return");
+            Assert(BueMenuEntryLayout.PauseBueSlotY == -230f, "BUE pause entry slot is -290 + 60 = -230, directly below Return");
+            Assert(BueMenuEntryLayout.PauseColumnButtonX == -100f && BueMenuEntryLayout.PauseColumnButtonWidth == 200f && BueMenuEntryLayout.PauseColumnButtonHeight == 50f, "BUE pause entry matches the vanilla column geometry (X=-100, 200x50)");
+            Assert(BueMenuEntryLayout.PauseSpyColumnButtonX == -435f, "pause spy-mode column X matches the vanilla onSpyReady layout");
+            var expectedShiftFields = new[] { "inviteFriendsButton", "optionsButton", "displayButton", "graphicsButton", "controlsButton", "audioButton", "suicideButton", "suicideDisabledLabel", "exitButton", "quitButton" };
+            Assert(BueMenuEntryLayout.PauseShiftFieldNames.Length == expectedShiftFields.Length, "pause shift manifest covers exactly the ten vanilla elements below Return");
+            for (var index = 0; index < expectedShiftFields.Length; index++)
+            {
+                Assert(BueMenuEntryLayout.PauseShiftFieldNames[index] == expectedShiftFields[index], "pause shift manifest entry " + index + " matches the vanilla field name");
+            }
+            Assert(Array.IndexOf(BueMenuEntryLayout.PauseShiftFieldNames, "returnButton") < 0, "pause shift manifest excludes Return (BUE slots directly below it)");
+        }
+
+        // DEV-V2-13: the vanilla-column shift must be anchored to each
+        // element's captured Y (never accumulate), re-anchor new instances
+        // after a UI rebuild, and hand the original layout back on cleanup.
+        private static void AssertPauseColumnShiftAnchorsWithoutDrift()
+        {
+            var shift = new BuePauseColumnShift(60f);
+            var keyA = new object();
+            var keyB = new object();
+            var yA = 100f;
+            var yB = -230f;
+            var capturedA = shift.Apply(keyA, yA, value => yA = value);
+            Assert(capturedA && Math.Abs(yA - 160f) < 0.01f, "first Apply captures the vanilla Y and shifts exactly one pitch");
+            yA = 200f;
+            var capturedAgain = shift.Apply(keyA, yA, value => yA = value);
+            Assert(!capturedAgain && Math.Abs(yA - 160f) < 0.01f, "re-Apply re-anchors from the captured vanilla Y, never from drifted current Y");
+            var capturedB = shift.Apply(keyB, yB, value => yB = value);
+            Assert(capturedB && Math.Abs(yB - (-170f)) < 0.01f, "each element anchors its own vanilla Y independently");
+            var restoredA = shift.Restore(keyA, value => yA = value);
+            Assert(restoredA && Math.Abs(yA - 100f) < 0.01f, "Restore hands back the captured vanilla Y");
+            Assert(!shift.Restore(keyA, value => yA = value), "Restore without an anchor is a no-op");
+            Assert(shift.RemoveAnchor(keyB) && shift.AnchoredCount == 0, "cleanup drains the registry between UI builds");
+            var yC = -170f;
+            var keyC = new object();
+            var capturedC = shift.Apply(keyC, yC, value => yC = value);
+            Assert(capturedC && Math.Abs(yC - (-110f)) < 0.01f, "after the registry drains (UI rebuild) a fresh element anchors from its current vanilla Y");
+            var snapshot = shift.SnapshotAnchors();
+            Assert(snapshot != null && snapshot.Count == shift.AnchoredCount && snapshot.Count == 1 && ReferenceEquals(snapshot[0].Key, keyC), "snapshot mirrors the anchored registry for restoration walks");
+            Assert(shift.RemoveAnchor(keyC) && shift.AnchoredCount == 0, "a dead instance's anchor can be dropped for a rebuilt UI");
+            Assert(!shift.RemoveAnchor(keyC) && !shift.Restore(keyC, value => yC = value), "dropped anchors no longer restore");
+            var yD = -170f;
+            var keyD = new object();
+            var capturedD = shift.Apply(keyD, yD, value => yD = value);
+            Assert(capturedD && Math.Abs(yD - (-110f)) < 0.01f, "a fresh element after the drop anchors from its own current vanilla Y");
+            var keyR = new object();
+            var yR = -290f;
+            shift.Apply(keyR, yR, value => yR = value);
+            Assert(Math.Abs(yR - (-230f)) < 0.01f, "shift before a failed restore fixture");
+            var setterThrew = false;
+            try { shift.Restore(keyR, delegate { throw new InvalidOperationException("restore fixture failure"); }); }
+            catch (InvalidOperationException) { setterThrew = true; }
+            Assert(setterThrew, "Restore surfaces setter failures instead of swallowing them");
+            var yRetry = 0f;
+            var retried = shift.Restore(keyR, value => yRetry = value);
+            Assert(retried && Math.Abs(yRetry - (-290f)) < 0.01f, "Restore keeps the anchor on a failed attempt so the restore can be retried");
+            var collidingA = new CollidingShiftKey();
+            var collidingB = new CollidingShiftKey();
+            var yA2 = 100f;
+            var yB2 = 300f;
+            shift.Apply(collidingA, yA2, value => yA2 = value);
+            shift.Apply(collidingB, yB2, value => yB2 = value);
+            Assert(Math.Abs(yA2 - 160f) < 0.01f && Math.Abs(yB2 - 360f) < 0.01f, "distinct element instances anchor independently even when their Equals collides");
+        }
+
+        // DEV-V2-13: every manifest field must resolve against the real vanilla
+        // assembly (exitButton/quitButton are public static, the rest non-public),
+        // otherwise part of the column would stay put while the rest shifts.
+        private static void AssertPauseShiftFieldsResolveAgainstVanillaAssembly()
+        {
+            var resolved = BueNativeManagementPanel.ResolvePlayerPauseShiftFields();
+            Assert(resolved != null && resolved.Length == BueMenuEntryLayout.PauseShiftFieldNames.Length, "pause shift resolver covers the whole manifest");
+            for (var index = 0; index < resolved.Length; index++)
+            {
+                Assert(resolved[index] != null, "pause shift field resolves against the vanilla assembly: " + BueMenuEntryLayout.PauseShiftFieldNames[index]);
+            }
+        }
+
+        private sealed class CollidingShiftKey
+        {
+            public override bool Equals(object other) { return true; }
+            public override int GetHashCode() { return 0; }
         }
 
         private static void AssertRuntimeDriverDispatchesButtonInjectionSeam()
