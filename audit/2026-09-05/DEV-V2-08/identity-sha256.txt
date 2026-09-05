@@ -1,0 +1,11 @@
+# DEV-V2-08 交付 kit 身份（SHA-256，2026-09-05）
+# BUE = RELEASES 行 6 当前发布物（DEV-V2-13 候选，本票零修改复用）；
+# LMN = LMN 仓库 bin\Release 权威二进制（与 DEV-V2-07 kit 记录 06D8A454…3055 逐字节一致）；
+# LIT/LIR/LHT = 归档验收候选源码（Archive\2-未闭环验证项目）本票 Release 重建，
+#   `-t:Rebuild` 相邻两轮逐字节一致（build-{LIT,LIR,LHT}-rA/rB.log 留证；同日另有两次复建未留 log，哈希亦一致）。
+# 工具链：MSBuild 18.9.1.35102 | .NETFramework 4.7.2 | CSharp 10 | /deterministic+
+3567026930757ffbc5d40b2da12b148f470dba806b5ca08abf14ac6e4a2caef6 *BetterUnturnedExperience.dll (275456 B, RELEASES 行 6)
+7e35d7c7b90c6e25003f0644f746451d6bb75c193e539e86114b37b0793a5417 *LaunchInventoryTidy.dll (151040 B, 0.0.0 验收候选)
+6653035be15f5d88649e97442d9f41a55d9b4bc20bd96a37ac1434d25c68ac90 *LaunchInPlaceReload.dll (52736 B, 0.0.0 验收候选)
+6b935f5c47572004ffc8c0c1c448bae8d0a60c840b757faa5d263a75925ef995 *LaunchHordeTracker.dll (36864 B, 0.0.0 验收候选)
+06d8a45438c09fea65f3800bf01a7efb9302f2421bd76aa386f8828701a63055 *LaunchMultiplayerNet.dll (68096 B, v5.0.0.0 权威)
