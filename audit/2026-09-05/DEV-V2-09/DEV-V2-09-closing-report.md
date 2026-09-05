@@ -37,6 +37,10 @@ R1 Spec 各条处置：
 1. **F2 实机截图前后对照**：人工在游戏内验证「BUE 插件管理」与商店位间隙 == 原版相邻项间隙（部署新 DLL 后照工单验收清单执行）。
 2. **注入路径取值的 headless 不可直测**（triage 已具名的 seam gap）：`TryAddDashboardButton` 为 Glazier 绑定路径，headless 测试只能钉契约值，调用点绑定由双轴评审把关；值漂移由契约测试防复发。
 
+## 实机复测（2026-09-05，闭环）
+
+用户部署候选 DLL（3370F5D8…E007）后回传主菜单截图（`retest-menu-user-acceptance.png`）：BUE 按钮与商店位间隙 == 原版相邻项节奏（0px 贴合消失），用户确认「视觉验收没问题」。具名延期 F2（实机截图对照）就此闭合，F4 随 R2 双 CLEAN 已闭合——具名延期清零，工单 resolved。
+
 ## 身份（双 CLEAN 后授予）
 
 - 产物：`src/BetterUnturnedExperience.Plugin/bin/Release/BetterUnturnedExperience.dll`

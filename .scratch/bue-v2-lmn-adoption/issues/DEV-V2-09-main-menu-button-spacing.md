@@ -1,7 +1,7 @@
 # DEV-V2-09：主菜单注入按钮间距与原版图标节奏对齐
 
 Type: task
-Status: 停等人工实机复测（2026-09-05，agent /implement 闭环：红0编译红+红1行为红→绿、七套测试 PASS、R1 双轴（Standards CLEAN/Spec F1-F4）→修复→R2 双 CLEAN；增量候选 DLL SHA-256 3370F5D8…E007 已授予，提交见 git log；剩人工步骤=部署新 DLL+实机截图前后对照，清单见 Comments）
+Status: resolved（2026-09-05，用户实机截图视觉验收通过：BUE 按钮与商店位间隙已与原版相邻项节奏一致，0px 贴合消失；候选 DLL 3370F5D8…E007 部署生效。实施链=红0+红1→绿、R1 修复→R2 双 CLEAN，提交 c042bc0；证据 audit/2026-09-05/DEV-V2-09/retest-menu-user-acceptance.png）
 Parent: spec-V2-phase1-lmn-adoption（DEV-V2-07 配置 A 实机采集中发现）
 Source: DEV-V2-07 配置 A 复核记录 `audit/2026-09-04/DEV-V2-07/configA-verification-r1.md`（用户报告 + 主菜单截图）
 
@@ -18,12 +18,12 @@ Source: DEV-V2-07 配置 A 复核记录 `audit/2026-09-04/DEV-V2-07/configA-veri
 
 ## 验收条件
 
-- [ ] 红测先行：新增纯 C# 测试断言「BUE 主菜单插槽 Y == 商店槽位(410) + 原版节距(60) = 470」，先红后绿（布局值从注入路径抽成 headless 可断言的常量/纯类型）。
-- [ ] 注入路径不再内联布局字面量，改从抽取的布局契约取值；MenuWorkshopUI / PlayerPauseUI 注入按钮行为不变。
-- [ ] 实机截图前后对照：主菜单一列内「BUE 插件管理」与商店位间隙 == 原版相邻图标项间隙（10px 视觉 / 60px 节距）。
-- [ ] 不影响其它注入 UI（管理面板/背包面板）布局；现有 ClientUi / Plugin.Tests 全绿。
-- [ ] 走 output-review-loop：红测先行 + 双轴独立评审 CLEAN 后出独立增量（不回灌 07 已授予身份）。
-- [ ] 实施串行：DEV-V2-12 候选闭环之后才启动，不与其并行改 Plugin 源码。
+- [x] 红测先行：新增纯 C# 测试断言「BUE 主菜单插槽 Y == 商店槽位(410) + 原版节距(60) = 470」，先红后绿（红0 编译红 + 红1 行为红，布局值从注入路径抽成 headless 可断言的常量/纯类型）。
+- [x] 注入路径不再内联布局字面量，改从抽取的布局契约取值；MenuWorkshopUI / PlayerPauseUI 注入按钮行为不变。
+- [x] 实机截图前后对照：主菜单一列内「BUE 插件管理」与商店位间隙 == 原版相邻图标项间隙（10px 视觉 / 60px 节距）。（用户 2026-09-05 截图验收通过）
+- [x] 不影响其它注入 UI（管理面板/背包面板）布局；现有 ClientUi / Plugin.Tests 全绿。
+- [x] 走 output-review-loop：红测先行 + 双轴独立评审 CLEAN 后出独立增量（R2 双 CLEAN，不回灌 07 已授予身份）。
+- [x] 实施串行：DEV-V2-12 候选闭环之后才启动（其 resolved + 人工批准 eff5c0d 在先）。
 
 ## 不做
 
@@ -89,3 +89,7 @@ BUE 按钮占据原版节距的下一槽位 y=470：商店位存在时（常态�
 3. 截图对照：主菜单左列「BUE 插件管理」与上方商店位（UMarine Avenger）之间出现目测与原版相邻项一致的间隙（原版节奏=10px 视觉 / 60px 节距），修复前 0px 贴合。
 4. 回归确认：面板打开/关闭正常，管理面板与背包面板布局无异常。
 5. 对照通过 → 本票置 resolved；不通过 → 回炉。
+
+## 复测记录（2026-09-05）
+
+用户部署候选 DLL（3370F5D8…E007）后回传主菜单截图（归档 `audit/2026-09-05/DEV-V2-09/retest-menu-user-acceptance.png`）：左列节奏 开始游戏→角色设定→游戏设置→创意工坊→商店位（Knitted Sweater Maplestrike ¥7.00）→「BUE 插件管理」，BUE 按钮与商店位间隙与原版相邻项一致，0px 贴合消失。用户原话「视觉验收没问题」→ 验收清单 5/5 达成，票 resolved。
