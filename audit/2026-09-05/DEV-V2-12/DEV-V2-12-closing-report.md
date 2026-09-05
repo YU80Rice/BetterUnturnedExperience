@@ -131,3 +131,22 @@ Release 重建，**确定性复核通过**（两轮 `-t:Rebuild` SHA-256 逐字�
    - 锚：`v1-table-mirror result=mirrored` 在场；每会话恰一条 `v1-frame-release` 与
      `lmn2-frame-release result=released decision=lmn-native-dispatch`（替代旧委托锚）。
 2. `case.json` 填实 → `QualificationGateRunner gate`（四角色）→ 人工发布批准（不继承 DEV-V2-11）。
+
+## 8. 实机复核与资格门禁（2026-09-05 下午，闭环）
+
+**四端实机复测全绿**（采集=用户；复核记录 `retest-verification-r1.md`，证据
+`../evidence/DEV-V2-12-20260905/retest-r1/` 四包）：四端部署指纹 `B4E37FFA…` 一致；**零 sender=0 送达**；
+**零 dropped outbound target=0**；**每 seq 恰一次送达**（(FIX,seq,kind,sender) 重复键四端 0，上轮
+host 20 / u3ds-server 8——双投递消失）；pong 1:1（host 38/38、u3ds-server 32/32）；镜像锚 +
+`v1-frame-release`/`lmn2-frame-release` 各恰一条；**delegated 无回归**（0）；P5 干净；B5/B6 可逆链在；
+P3/P4a 对齐。具名观察 N-1（不阻塞）：u3ds-server 2 条 LMN 自身出站竞态 Error（target=真实 id，首 ping
+早于 SteamPlayer transport 可解析；seq=6 起全中；出站路径 BUE 未触碰，非 target=0 非 F-E 范围）。
+具名观察 N-2：横幅时间戳不可信（已知坑），会话真实性由部署指纹+新锚内容锚定。
+
+**四角色资格门禁 TechnicallyQualified**（exit 0，`gate-final-r1.log`）：SinglePlayer / SteamP2PHost /
+SteamP2PClient / U3dsHeadless = Fulfilled，U3dsClientUi = NotApplicable；包 canonicalDigest
+`9E731F7B5689DF258F85C236089575470BF32EAE841B4A77A447BE163EED915B`（证据包
+`../evidence/DEV-V2-12-20260905/`，P2P 主客成对 case 共用 CaseId `DEV-V2-12-20260905-P2P`）。
+
+**本票四条验收全数达成 → resolved。剩余独立动作 = 人工发布批准**（对象 BuildIdentity `C9EEF3B8…` /
+DLL `B4E37FFA…` + canonicalDigest `9E731F7B…`；不自动继承 DEV-V2-11 批准，由用户另行给出）。

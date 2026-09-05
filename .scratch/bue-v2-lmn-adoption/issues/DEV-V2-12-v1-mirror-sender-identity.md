@@ -1,7 +1,7 @@
 # DEV-V2-12：V1 镜像路径 sender 身份丢失（sender=0 双到达）归因与修复
 
 Type: task
-Status: claimed（2026-09-05，agent 认领开工；用户指令恢复延后票。实机复测仍需人工执行，复测通过前不 resolved）
+Status: resolved（2026-09-05，agent；四端实机复测全绿 + 四角色资格门禁 TechnicallyQualified exit 0，四条验收全达成。发布批准为独立动作，由用户对 BuildIdentity C9EEF3B8… 另行给出）
 Parent: spec-V2-phase1-lmn-adoption（DEV-V2-11 后续）
 Blocked by: 无（证据已归档）
 Blocks: 无（不阻塞 DEV-V2-07 gate；但属接管语义正确性缺陷，建议 gate 前或下轮一并修）
@@ -39,7 +39,7 @@ Error（`dropped outbound … transport not found (target=0, channel=250)`，`Mo
 - [x] 归因结论入审计（两条到达路径的准确定位）。
 - [x] 红测 observed red → green（sender 语义锚）。
 - [x] 七运行器 exit=0；0 error/0 warning。
-- [ ] 实机复测零 sender=0 送达、零 target=0 Error。
+- [x] 实机复测零 sender=0 送达、零 target=0 Error。
 
 ## 不做
 
@@ -98,3 +98,18 @@ Error（`dropped outbound … transport not found (target=0, channel=250)`，`Mo
 > 归档 `audit/2026-09-05/artifacts/DEV-V2-12-20260905/{BetterUnturnedExperience.dll, candidate.json}` +
 > `audit/2026-09-05/DEV-V2-12-dll-sha256.txt`；报告 §6 已回填。本候选**不自动继承** DEV-V2-11 发布批准——
 > 复测采证 → 4×case.json → 四角色资格门禁 → 人工批准后方可关单。
+
+> 2026-09-05 实机复测全绿 → **resolved**（agent；采集=用户，四端 UMM 诊断包×3 + U3DS LogOutput×1，
+> 证据 `audit/2026-09-05/evidence/DEV-V2-12-20260905/retest-r1/`，复核记录
+> `audit/2026-09-05/DEV-V2-12/retest-verification-r1.md`）。**判据实测**：四端部署指纹 `B4E37FFA…` 一致；
+> 零 sender=0 送达（上轮 20 条/会话）；零 dropped outbound target=0（上轮 8 条）；**每 seq 恰一次**——
+> recv (FIX,seq,kind,sender) 重复键四端 0（上轮 host 20 / u3ds-server 8，双投递消失）；pong 1:1（host
+> 38/38、u3ds-server 32/32）；镜像锚 + v1/lmn2-frame-release release 锚各恰一条；delegated=0（无回归）；
+> P5 干净；B5/B6 可逆链在；P3/P4a 对齐。具名观察 N-1（不阻塞）：u3ds-server 2 条 LMN 自身出站竞态
+> Error（target=真实 id，seq=5 首 ping 早于 SteamPlayer transport 可解析，seq=6 起全中；出站路径 BUE 未
+> 触碰，非 target=0 非 F-E 范围，如需根治=后续票）。具名观察 N-2：横幅时间戳不可信（已知坑），会话真实
+> 性由部署指纹+新锚内容锚定。**四角色资格门禁 TechnicallyQualified（exit 0，canonicalDigest
+> `9E731F7B5689DF258F85C236089575470BF32EAE841B4A77A447BE163EED915B`）**——SP/P2PHost/P2PClient/
+> U3dsHeadless 全 Fulfilled（P2P 主客成对 case 共用 CaseId `DEV-V2-12-20260905-P2P`，与 11 先例一致）。
+> 四条验收全达成，本票 resolved。**剩余独立动作 = 人工发布批准**（BuildIdentity `C9EEF3B8…` /
+> DLL `B4E37FFA…` / canonicalDigest `9E731F7B…`，不自动继承 DEV-V2-11 批准）。
