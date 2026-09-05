@@ -100,10 +100,27 @@ DEV-V2-11 批准）。
 Spec R1 两条 closed-by-documentation（复审认可拆分）：归因正式入档=本报告（结单文档动作）；
 v1compat 面板口径注明=上文 §2.3（实现注释已显式，面板文案如需调整归下轮）。
 
-## 6. 候选身份
+## 6. 候选身份（提交后授予，2026-09-05）
 
-见同目录 `candidate.json` 与 `audit/2026-09-05/DEV-V2-12-dll-sha256.txt`（本节在身份授予提交中
-回填；SourceSnapshotId=本票源码提交）。
+候选从提交树 `b6704744012794b72a0293f2ae122b995b1f28c4`（`b670474`，含本票全部源码/测试/票面/本报告）
+Release 重建，**确定性复核通过**（两轮 `-t:Rebuild` SHA-256 逐字节一致）。身份由 kit runner identity 模式
+实码计算（`audit/2026-09-04/DEV-V2-07/kit/out/QualificationGateRunner.exe identity …`，配方沿 DEV-V2-07 §5）。
+
+| 项 | 值 |
+|---|---|
+| CandidateBuild | `DEV-V2-12-CLEAN-20260905` |
+| CaseId | `DEV-V2-12-20260905` |
+| SourceSnapshotId | `b6704744012794b72a0293f2ae122b995b1f28c4`（b670474） |
+| DLL SHA-256 | `B4E37FFA7581CD70CDC552242F3A01CD62FC86095C99C857AB5FC3E51B33E959`（270336 字节） |
+| BuildIdentity | `C9EEF3B84B9F8C8CEBC37EE3046ED08CDF46AE5697D6B9622283A5EC44FFE272` |
+| DefinitionSetDigest | `38D66989136D008A1AE27732544F9680F35C5C75BB12BFDDA570BD5844C8B854`（与 DEV-V2-10/11 候选一致——官方定义集未动，交叉自洽） |
+| ReferenceSet（Client+U3DS） | `Libs-ReferenceSet-951EFCD4E73C37E2D514B6B7D05AE8FDF2141F3C18A9C60D37192BD068775030` |
+| ToolchainIdentity | `MSBuild-18.9.0.32302|.NETFramework-4.7.2|CSharp-10` |
+
+归档：`audit/2026-09-05/artifacts/DEV-V2-12-20260905/{BetterUnturnedExperience.dll, candidate.json}`；
+身份记录 `audit/2026-09-05/DEV-V2-12-dll-sha256.txt`。前置候选（DEV-V2-10 `C3A35B07…` / DEV-V2-11
+`5B4E948E…`）归档原样未动。**本候选不自动继承 DEV-V2-11 的发布批准**——实机复测采证后须另走
+四角色资格门禁 + 人工批准。
 
 ## 7. 待人工（关单前置）
 

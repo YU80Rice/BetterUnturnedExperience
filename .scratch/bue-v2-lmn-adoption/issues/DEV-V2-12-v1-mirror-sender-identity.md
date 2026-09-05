@@ -36,9 +36,9 @@ Error（`dropped outbound … transport not found (target=0, channel=250)`，`Mo
 
 ## 验收条件
 
-- [ ] 归因结论入审计（两条到达路径的准确定位）。
-- [ ] 红测 observed red → green（sender 语义锚）。
-- [ ] 七运行器 exit=0；0 error/0 warning。
+- [x] 归因结论入审计（两条到达路径的准确定位）。
+- [x] 红测 observed red → green（sender 语义锚）。
+- [x] 七运行器 exit=0；0 error/0 warning。
 - [ ] 实机复测零 sender=0 送达、零 target=0 Error。
 
 ## 不做
@@ -88,3 +88,13 @@ Error（`dropped outbound … transport not found (target=0, channel=250)`，`Mo
 > **待人工**：实机复测（判据=零 sender=0 送达、零 dropped outbound target=0、V1/V2 双向 seq 对齐、
 > 镜像锚+release 锚在场）→ case.json 填实 → QualificationGateRunner gate → 人工批准（新候选不继承
 > DEV-V2-11 批准）；复测通过前本票保持 claimed。
+
+> 2026-09-05 候选身份授予（agent）：源码提交 `b670474`（含全部源码/测试/票面/结单报告）后 Release 重建，
+> 两轮 `-t:Rebuild` SHA-256 逐字节一致（确定性复核通过）；身份由 kit runner identity 模式实码计算
+> （配方沿 DEV-V2-07 §5）。**CandidateBuild `DEV-V2-12-CLEAN-20260905`**（CaseId `DEV-V2-12-20260905`，
+> SourceSnapshotId `b6704744012794b72a0293f2ae122b995b1f28c4`，DLL SHA-256 `B4E37FFA7581CD70CDC552242F3A01CD62FC86095C99C857AB5FC3E51B33E959`
+> /270336 字节，**BuildIdentity `C9EEF3B84B9F8C8CEBC37EE3046ED08CDF46AE5697D6B9622283A5EC44FFE272`**，
+> DefinitionSetDigest `38D66989…B854` 与 DEV-V2-10/11 一致——官方定义集未动自洽，ReferenceSet/Toolchain 不变）。
+> 归档 `audit/2026-09-05/artifacts/DEV-V2-12-20260905/{BetterUnturnedExperience.dll, candidate.json}` +
+> `audit/2026-09-05/DEV-V2-12-dll-sha256.txt`；报告 §6 已回填。本候选**不自动继承** DEV-V2-11 发布批准——
+> 复测采证 → 4×case.json → 四角色资格门禁 → 人工批准后方可关单。
