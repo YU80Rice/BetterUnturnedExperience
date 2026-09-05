@@ -1,7 +1,7 @@
 # DEV-V2-12：V1 镜像路径 sender 身份丢失（sender=0 双到达）归因与修复
 
 Type: task
-Status: resolved（2026-09-05，agent；四端实机复测全绿 + 四角色资格门禁 TechnicallyQualified exit 0，四条验收全达成。发布批准为独立动作，由用户对 BuildIdentity C9EEF3B8… 另行给出）
+Status: resolved（2026-09-05，agent；四端实机复测全绿 + 四角色资格门禁 TechnicallyQualified exit 0，四条验收全达成。**人工发布批准已入档**——用户授权批准 DEV-V2-12 正式关闭，候选 DEV-V2-12-CLEAN-20260905 获正式发布资格）
 Parent: spec-V2-phase1-lmn-adoption（DEV-V2-11 后续）
 Blocked by: 无（证据已归档）
 Blocks: 无（不阻塞 DEV-V2-07 gate；但属接管语义正确性缺陷，建议 gate 前或下轮一并修）
@@ -113,3 +113,12 @@ Error（`dropped outbound … transport not found (target=0, channel=250)`，`Mo
 > U3dsHeadless 全 Fulfilled（P2P 主客成对 case 共用 CaseId `DEV-V2-12-20260905-P2P`，与 11 先例一致）。
 > 四条验收全达成，本票 resolved。**剩余独立动作 = 人工发布批准**（BuildIdentity `C9EEF3B8…` /
 > DLL `B4E37FFA…` / canonicalDigest `9E731F7B…`，不自动继承 DEV-V2-11 批准）。
+
+> 2026-09-05 人工发布批准入档（agent 记录）：用户（人工开发者）原话——**「作为人工开发，我授权批准
+> DEV-V2-12正式关闭，感谢你的付出」**。批准对象 = **DEV-V2-12-CLEAN-20260905**（BuildIdentity
+> `C9EEF3B84B9F8C8CEBC37EE3046ED08CDF46AE5697D6B9622283A5EC44FFE272` / DLL SHA-256
+> `B4E37FFA7581CD70CDC552242F3A01CD62FC86095C99C857AB5FC3E51B33E959` / 证据包 canonicalDigest
+> `9E731F7B5689DF258F85C236089575470BF32EAE841B4A77A447BE163EED915B`）。至此 12 全链闭环：归因 →
+> 红绿链 → 双轴双 CLEAN → 门禁 → 实机复测全绿 → 资格门禁 exit 0 → **人工批准**。ticket 状态维持
+> resolved（批准前已达成）；本批准使该候选获得正式发布资格（与 8ccbf80 对 DEV-V2-11 候选的批准同性质，
+> 不向下自动继承、不影响后续新候选）。

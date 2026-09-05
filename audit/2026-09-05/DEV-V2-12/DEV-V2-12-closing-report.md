@@ -150,3 +150,17 @@ SteamP2PClient / U3dsHeadless = Fulfilled，U3dsClientUi = NotApplicable；包 c
 
 **本票四条验收全数达成 → resolved。剩余独立动作 = 人工发布批准**（对象 BuildIdentity `C9EEF3B8…` /
 DLL `B4E37FFA…` + canonicalDigest `9E731F7B…`；不自动继承 DEV-V2-11 批准，由用户另行给出）。
+
+## 9. 人工发布批准（2026-09-05，全链闭环）
+
+用户（人工开发者）原话：**「作为人工开发，我授权批准DEV-V2-12正式关闭，感谢你的付出」**。
+
+| 批准对象 | 值 |
+|---|---|
+| CandidateBuild | `DEV-V2-12-CLEAN-20260905` |
+| BuildIdentity | `C9EEF3B84B9F8C8CEBC37EE3046ED08CDF46AE5697D6B9622283A5EC44FFE272` |
+| DLL SHA-256 | `B4E37FFA7581CD70CDC552242F3A01CD62FC86095C99C857AB5FC3E51B33E959`（270336 字节） |
+| 证据包 canonicalDigest | `9E731F7B5689DF258F85C236089575470BF32EAE841B4A77A447BE163EED915B` |
+
+12 链闭环：归因 → 红绿链（5 红→绿）→ 双轴 R1→R2→R3 双 CLEAN → 门禁×3 → 实机复测全绿 → 资格门禁
+exit 0 → **人工批准**。该候选获正式发布资格；批准不向下自动继承（后续新候选仍须另走门禁+批准）。
