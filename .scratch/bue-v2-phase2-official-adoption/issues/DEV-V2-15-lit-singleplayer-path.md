@@ -24,4 +24,8 @@ Spec: `../spec.md`（「三插件迁入形态」「功能身份与显示名」�
 - [x] 红测先行：策略替换（换 adapter 影响计划输出）/ `enabled=false` 原生回退 / InventorySolver 纯算法直测 / 夹具类型不在生产编译（编译期断言）——先红后绿（编译红 14 错 → 桩运行时红 NotSupported → 绿；锚点 `--bue-v2-lit-red` 折入默认套件）
 - [ ] 单人实机自验：点按钮 → 本地整理事务完成；关闭 → 原生回退（**待用户实机执行**；具名观察项：关闭时已注入按钮残留但点击已短路，见结单延期 1）
 - [x] 面板条目：FeatureId `io.github.yu80rice.bue.inventory-tidy` 身份 + 显示名「背包整理」（宿主测试已断言；实机观感随上项自验）
-- [x] 构建 0 警告；全套测试 PASS；双轴独立审查 CLEAN（R1 双 NOT CLEAN → 修复 → R2 双 CLEAN，链条见结单）
+- [x] 构建 0 警告；全套测试 PASS；双轴独立审查 CLEAN（R1 双 NOT CLEAN → 修复 → R2' 双 CLEAN；R3 追加 fresh 验证双 CLEAN——链条见结单与 Comments）
+
+## Comments
+
+- **轮次链登记（2026-09-06，Fresh-instance 规则 425c2aa）**：`R1`（双 NOT CLEAN：Standards=dispatcher 粘滞跨代际+署名缺失；Spec=solver 直测缺失+先装配后注册）→ 修复 → `R2`（**继承轮，作废，不计 CLEAN 链**——续用 R1 实例，违反 "Two fresh contexts, one per axis, every round"，主会话裁定）→ `R2'`（fresh，双 CLEAN：Standards CLEAN 6 项具名延期；Spec NOT CLEAN 2 项→编译列表断言修复+TidyCompleted 边界 rebuttal→CLEAN；报告归档 `audit/2026-09-06/DEV-V2-15/R2'-*.md`）→ `R3`（用户指定的追加 fresh 验证轮，双 CLEAN：Standards CLEAN；Spec 初始 BLOCKED 1 项→同轮补证重归类 [INFO]（实机自验=用户侧下游门禁，非增量保真缺陷）→CLEAN；报告归档 `R3-*.md`）。候选身份 `cacfa527…b040` 全程不变（R2'/R3 增量均在测试工程与审计文档，生产零改动）。**待办：用户单人实机自验 + RELEASES 行 8 人工批准。**
