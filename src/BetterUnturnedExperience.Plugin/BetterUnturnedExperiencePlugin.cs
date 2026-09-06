@@ -62,10 +62,14 @@ namespace BetterUnturnedExperience.Plugin
                 // network module too; the client-only branch below only adds
                 // the panel wiring.
                 var networkRegistration = NetworkModuleFeatureRegistration.Register();
+                // DEV-V2-15: the official inventory-tidy module registers in
+                // the global zone the same way; the tidy button patch and
+                // the local single-player transaction arm here.
+                var litRegistration = InventoryTidyFeatureRegistration.Register();
                 if (decision == BootstrapDecision.Client)
                 {
                     pluginUpdateDriver = new BuePluginUpdateDriver(OnPluginUpdateTick);
-                    clientUiComposition = new BueClientUiCompositionRoot(NetworkModuleFeatureRegistration.WiredAdapter);
+                    clientUiComposition = new BueClientUiCompositionRoot(NetworkModuleFeatureRegistration.WiredAdapter, InventoryTidyFeatureRegistration.WiredModule);
                     if (!clientUiComposition.Initialize(isBatchMode, isBatchMode, BueNativeManagementPanel.CanBindNativeUi()))
                     {
                         Logger.LogWarning("BUE client UI composition unavailable diagnosticId=BUE-CLIENTUI-001");
@@ -145,6 +149,7 @@ namespace BetterUnturnedExperience.Plugin
                 BueRuntimeLog.Runtime("Better Unturned Experience featureId=" + FeatureId + " status=BootstrapReady decision=" + decision + " diagnosticId=" + DiagnosticId);
                 BueRuntimeLog.Runtime("Better Item Interaction featureId=" + officialRegistration.Feature.Value + " accepted=" + officialRegistration.Accepted + " reason=" + officialRegistration.Reason + " diagnosticId=" + officialRegistration.DiagnosticId);
                 BueRuntimeLog.Runtime("BUE Network Module featureId=" + networkRegistration.Feature.Value + " accepted=" + networkRegistration.Accepted + " reason=" + networkRegistration.Reason + " diagnosticId=" + networkRegistration.DiagnosticId);
+                BueRuntimeLog.Runtime("BUE Inventory Tidy featureId=" + litRegistration.Feature.Value + " accepted=" + litRegistration.Accepted + " reason=" + litRegistration.Reason + " diagnosticId=" + litRegistration.DiagnosticId);
             }
             catch (System.Exception error)
             {
@@ -240,6 +245,9 @@ namespace BetterUnturnedExperience.Plugin
             // GPT watermark: drive DEV-16D from the guaranteed plugin Update;
             // native Harmony callback is supplementary only.
             inventoryDragAdapter?.Tick();
+            // DEV-V2-15: pump the tidy module's main-thread dispatcher queue
+            // (the local transaction work item runs on the next plugin tick).
+            InventoryTidyFeatureRegistration.WiredModule?.Tick();
         }
 
         private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
@@ -357,6 +365,10 @@ namespace BetterUnturnedExperience.Plugin
                 if (nativeManagementPanel != null) nativeManagementPanel.Destroy();
                 if (inventoryDragAdapter != null) inventoryDragAdapter.IsolateAndDetach();
                 if (inventoryLifecycleAdapter != null) inventoryLifecycleAdapter.IsolateAndDetach();
+                // DEV-V2-15: the tidy module unloads through its three-phase
+                // stop (quiesce → dispatcher drain → full teardown) before
+                // the plugin unloads.
+                if (InventoryTidyFeatureRegistration.WiredModule != null) InventoryTidyFeatureRegistration.WiredModule.Stop(FeatureStopReason.PluginStopping);
                 // DEV-V2-06: hand the network back (unhook the takeover
                 // patches) before the plugin unloads.
                 if (NetworkModuleFeatureRegistration.WiredAdapter != null) NetworkModuleFeatureRegistration.WiredAdapter.IsolateAndDetach();

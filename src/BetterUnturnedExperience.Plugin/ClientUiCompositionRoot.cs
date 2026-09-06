@@ -6,6 +6,7 @@ using BetterUnturnedExperience.ClientUi.Internal;
 using BetterUnturnedExperience.Contracts;
 using BetterUnturnedExperience.Core.Placement;
 using BetterUnturnedExperience.Core.Registration;
+using BetterUnturnedExperience.Lit;
 
 namespace BetterUnturnedExperience.Plugin
 {
@@ -21,12 +22,14 @@ namespace BetterUnturnedExperience.Plugin
         private readonly BueManagementPanelRuntime managementPanel;
         private readonly LoadedPluginCatalogAdapter loadedPluginAdapter;
         private readonly NetworkModuleAdapter networkAdapter;
+        private readonly InventoryTidyModule litModule;
         private readonly bool clientUiAvailable;
         private int factoryInvocationCount;
 
-        internal BueClientUiCompositionRoot(NetworkModuleAdapter networkAdapter = null)
+        internal BueClientUiCompositionRoot(NetworkModuleAdapter networkAdapter = null, InventoryTidyModule litModule = null)
         {
             this.networkAdapter = networkAdapter;
+            this.litModule = litModule;
             settingsState = new BetterItemInteractionSettingsState();
             var feature = BetterItemInteractionSettingsState.Feature;
             var registry = new GeneratedClientUiRegistry(new[]
@@ -43,12 +46,27 @@ namespace BetterUnturnedExperience.Plugin
             // routes the two network facets to their own SettingsRuntime
             // editors (edits take effect via RefreshSwitches) and everything
             // else falls back to the BII editor unchanged.
-            IBueSettingsEditor bueSettingsEditor = networkAdapter == null
-                ? new BetterItemInteractionSettingsEditor(settingsState)
-                : new RoutingBueSettingsEditor(
-                    new BetterItemInteractionSettingsEditor(settingsState),
-                    (NetworkModuleAdapter.NetworkFeature, new SettingsRuntimeBueEditor(networkAdapter.NetworkSettings, networkAdapter.RefreshSwitches)),
-                    (NetworkModuleAdapter.V1CompatFeature, new SettingsRuntimeBueEditor(networkAdapter.V1CompatSettings, networkAdapter.RefreshSwitches)));
+            // DEV-V2-15: the tidy module joins the same routing — one route
+            // per feature, first match wins, the fallback never sees it.
+            IBueSettingsEditor bueSettingsEditor;
+            if (networkAdapter == null && litModule == null)
+            {
+                bueSettingsEditor = new BetterItemInteractionSettingsEditor(settingsState);
+            }
+            else
+            {
+                var routes = new List<(FeatureId feature, IBueSettingsEditor editor)>();
+                if (networkAdapter != null)
+                {
+                    routes.Add((NetworkModuleAdapter.NetworkFeature, new SettingsRuntimeBueEditor(networkAdapter.NetworkSettings, networkAdapter.RefreshSwitches)));
+                    routes.Add((NetworkModuleAdapter.V1CompatFeature, new SettingsRuntimeBueEditor(networkAdapter.V1CompatSettings, networkAdapter.RefreshSwitches)));
+                }
+                if (litModule != null)
+                {
+                    routes.Add((litModule.Feature, new SettingsRuntimeBueEditor(litModule.Settings, litModule.RefreshSwitches)));
+                }
+                bueSettingsEditor = new RoutingBueSettingsEditor(new BetterItemInteractionSettingsEditor(settingsState), routes.ToArray());
+            }
             managementPanel = new BueManagementPanelRuntime(preferencesPath, bueSettingsEditor, loadedPluginAdapter);
         }
 
@@ -97,10 +115,27 @@ namespace BetterUnturnedExperience.Plugin
             if (feature.Value == BetterItemInteractionSettingsState.Feature.Value) return OfficialManagementEntry();
             if (feature.Value == NetworkModuleAdapter.NetworkFeature.Value) return NetworkManagementEntry(NetworkModuleAdapter.NetworkFeature, "BUE 网络模块");
             if (feature.Value == NetworkModuleAdapter.V1CompatFeature.Value) return NetworkManagementEntry(NetworkModuleAdapter.V1CompatFeature, "BUE V1 兼容层");
+            // DEV-V2-15: the tidy module has no ClientUi satellite (it patches
+            // the native dashboard directly), but like the network facets its
+            // presentation is Available and its panel entry carries the
+            // official Chinese display name plus the live settings snapshot.
+            if (feature.Value == LitRuntime.FeatureIdValue) return InventoryTidyManagementEntry();
             var presentation = entry.ClientUi == null
                 ? new FeaturePresentationView(feature, FeaturePresentationState.PresentationDegraded, "BUE-UI-SATELLITE-001", 1)
                 : new FeaturePresentationView(feature, FeaturePresentationState.Available, string.Empty, 1);
             return new BueFeatureManagementEntry(feature, feature.Value, "0.0.0", FeatureState.Running, presentation, default(FeatureSettingsSnapshot));
+        }
+
+        // DEV-V2-15: the LIT panel entry — identity = FeatureId, display name
+        // = the official 背包整理, snapshot = the module's single enabled toggle.
+        private BueFeatureManagementEntry InventoryTidyManagementEntry()
+        {
+            var feature = litModule == null ? new FeatureId(LitRuntime.FeatureIdValue) : litModule.Feature;
+            var snapshot = litModule == null
+                ? default(FeatureSettingsSnapshot)
+                : litModule.Settings.GetSnapshot(SettingRevisionScope.ClientPreference);
+            var presentation = new FeaturePresentationView(feature, FeaturePresentationState.Available, string.Empty, 1);
+            return new BueFeatureManagementEntry(feature, LitRuntime.DisplayName, "0.0.0", FeatureState.Running, presentation, snapshot);
         }
 
         // DEV-V2-06: the network facets carry their live SettingsRuntime

@@ -57,6 +57,23 @@
     <Compile Include="InventoryProjectionSink.cs" />
     <Compile Include="BueRuntimeLog.cs" />
     <Compile Include="..\BetterUnturnedExperience.ClientUi\ManagementPanel.cs"><Link>EmbeddedClientUi\ManagementPanel.cs</Link></Compile>
+    <!-- DEV-V2-15: embed the migrated LIT (inventory tidy) domain into the single runtime assembly.
+         The old plugin's BepInEx identity, LMN dependency, harness fixtures and dead passive-tidy
+         patch are NOT in this list — the exclusion is a hard rule verified by the host red test. -->
+    <Compile Include="..\BetterUnturnedExperience.Lit\LitRuntime.cs"><Link>EmbeddedLit\LitRuntime.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Lit\TidyStrategy.cs"><Link>EmbeddedLit\TidyStrategy.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Lit\DefaultGridV1Strategy.cs"><Link>EmbeddedLit\DefaultGridV1Strategy.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Lit\Solver\InventorySolver.cs"><Link>EmbeddedLit\Solver\InventorySolver.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Lit\Solver\LayoutCandidate.cs"><Link>EmbeddedLit\Solver\LayoutCandidate.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Lit\Diagnostics\TidyDiagnosticLog.cs"><Link>EmbeddedLit\Diagnostics\TidyDiagnosticLog.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Lit\Tidy\MainThreadDispatcher.cs"><Link>EmbeddedLit\Tidy\MainThreadDispatcher.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Lit\Tidy\HotkeySnapshot.cs"><Link>EmbeddedLit\Tidy\HotkeySnapshot.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Lit\Tidy\ManualTidyService.cs"><Link>EmbeddedLit\Tidy\ManualTidyService.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Lit\Tidy\LocalTidyFaultGate.cs"><Link>EmbeddedLit\Tidy\LocalTidyFaultGate.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Lit\Tidy\LocalTidyExecutor.cs"><Link>EmbeddedLit\Tidy\LocalTidyExecutor.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Lit\Ui\InventoryTidyUiPatch.cs"><Link>EmbeddedLit\Ui\InventoryTidyUiPatch.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Lit\InventoryTidyModule.cs"><Link>EmbeddedLit\InventoryTidyModule.cs</Link></Compile>
+    <Compile Include="InventoryTidyFeatureRegistration.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>

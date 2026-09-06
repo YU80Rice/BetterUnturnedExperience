@@ -6,6 +6,7 @@ using BetterUnturnedExperience.Core.Registration;
 using BetterUnturnedExperience.NoOpFixture;
 using BetterUnturnedExperience.Plugin;
 using BetterUnturnedExperience.ClientUi.Internal;
+using BetterUnturnedExperience.Lit;
 using HarmonyLib;
 using SDG.Unturned;
 using System.IO;
@@ -249,6 +250,11 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     AssertBueV2NetworkInjection();
                     return 0;
                 }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--bue-v2-lit-red")
+                {
+                    AssertLitSingleplayerPath();
+                    return 0;
+                }
                 AssertSingleDllAssemblyClosure();
                 AssertExternalSdkAssemblyIdentity();
                 Assert(BootstrapGuard.Decide(false, false, true) == BootstrapDecision.Client, "client decision");
@@ -336,6 +342,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 AssertBueV2SenderIdentity();
                 AssertBueV2DirectionalSubscribe();
                 AssertBueV2NetworkInjection();
+                AssertLitSingleplayerPath();
                 AssertRuntimeCompletionBarrierIsolates();
                 AssertManagementPanelConsumesRuntimeCatalog();
                 AssertManagementPanelOpenHooks();
@@ -3105,6 +3112,362 @@ namespace BetterUnturnedExperience.Plugin.Tests
             pair.First.Pump(); pair.Second.Pump();
             Assert(hits == 0, "stop semantics: disposed handles receive nothing after the module returns");
             Assert(rearmedHits == 1, "stop semantics: the re-armed module dispatches to fresh subscriptions (channel table intact)");
+        }
+
+        // DEV-V2-15 red anchor: LIT (inventory tidy) adoption, single-player
+        // path. Freezes the four red surfaces the ticket names — strategy
+        // replacement on the ITidyStrategy seam, the enabled=false native
+        // fallback, direct InventorySolver algorithm tests, and the harness
+        // exclusion from the production compile — plus the registration /
+        // panel / settings identity. RED until the Lit domain exists
+        // (compile CS0246, then runtime assertions).
+        private static void AssertLitSingleplayerPath()
+        {
+            // ── 1. Strategy seam: StrategyId + replacement changes the plan. ──
+            var defaultStrategy = new DefaultGridV1Strategy();
+            Assert(defaultStrategy.StrategyId == "default-grid-v1",
+                "strategy: the built-in adapter identifies as 'default-grid-v1'");
+
+            var input = new TidyInput(6, 5, true, TidyMode.SameType, new List<PackableItem>
+            {
+                LitTestItem("a", 2, 1, 10, 0, 5, 0),
+                LitTestItem("b", 2, 1, 10, 1, 3, 0),
+                LitTestItem("c", 1, 1, 20, 2, 0, 4),
+            });
+            var plan = defaultStrategy.BuildPlan(input);
+            Assert(plan.StrategyId == "default-grid-v1", "strategy: the plan carries the producing adapter's StrategyId");
+            Assert(plan.Placements != null && plan.Placements.Count == 3,
+                "strategy: the plan always accounts for every input item");
+            Assert(plan.AllPlaced, "strategy: default-grid-v1 places every valid item on a loose grid");
+            for (var index = 0; index < plan.Placements.Count; index++)
+            {
+                var placement = plan.Placements[index];
+                Assert(placement != null && (string)placement.Tag == LitTestTag(index),
+                    "strategy: placement " + index + " preserves the caller's tag identity");
+                var width = (placement.ResultRot & 1) == 1 ? placement.size_y : placement.size_x;
+                var height = (placement.ResultRot & 1) == 1 ? placement.size_x : placement.size_y;
+                Assert(placement.Placed && placement.ResultX + width <= 6 && placement.ResultY + height <= 5,
+                    "strategy: placement " + index + " lands inside the grid with its rotated footprint");
+            }
+
+            // Replacement: a different adapter answering with a fixed plan IS
+            // the plan output — the seam decides, not the solver.
+            var fixedPlacements = new List<PackableItem>
+            {
+                LitTestItem("a", 2, 1, 10, 0, 5, 0),
+                LitTestItem("b", 2, 1, 10, 1, 3, 0),
+                LitTestItem("c", 1, 1, 20, 2, 0, 4),
+            };
+            fixedPlacements[0].ResultX = 0; fixedPlacements[0].ResultY = 0; fixedPlacements[0].ResultRot = 0; fixedPlacements[0].Placed = true;
+            fixedPlacements[1].Placed = false;
+            fixedPlacements[2].Placed = false;
+            var replacement = new FixedPlanStrategyAdapter("test-fixed-v1",
+                new TidyPlan("test-fixed-v1", fixedPlacements, allPlaced: false));
+            var replacedPlan = replacement.BuildPlan(input);
+            Assert(replacedPlan.StrategyId == "test-fixed-v1" && replacedPlan.Placements.Count == 3
+                && replacedPlan.Placements[0].ResultX == 0 && !replacedPlan.AllPlaced,
+                "strategy: replacing the adapter changes the plan output for the same input (seam, not solver, decides)");
+            var replacedAgain = defaultStrategy.BuildPlan(input);
+            Assert(replacedAgain.StrategyId == "default-grid-v1" && replacedAgain.AllPlaced,
+                "strategy: the default adapter still answers with its own plan after the replacement probe");
+
+            // ── 1b. InventorySolver direct algorithm tests (工单字面：纯算法直测，不经策略层)。 ──
+            // Determinism: identical input → identical output (stable tie-break contract).
+            var solverItemsA = new List<PackableItem> { LitTestItem("x", 2, 1, 7, 0, 0, 0), LitTestItem("y", 2, 1, 7, 1, 2, 0), LitTestItem("z", 1, 2, 8, 2, 4, 0) };
+            var solverItemsB = new List<PackableItem> { LitTestItem("x", 2, 1, 7, 0, 0, 0), LitTestItem("y", 2, 1, 7, 1, 2, 0), LitTestItem("z", 1, 2, 8, 2, 4, 0) };
+            bool okA = InventorySolver.TryPack(6, 3, solverItemsA, out var planA, true, TidyMode.SameType);
+            bool okB = InventorySolver.TryPack(6, 3, solverItemsB, out var planB, true, TidyMode.SameType);
+            Assert(okA && okB && planA.Count == 3 && planB.Count == 3,
+                "solver: SameType mode places every valid item on a loose grid");
+            for (var index = 0; index < 3; index++)
+            {
+                Assert(planA[index].Placed && planB[index].Placed
+                    && planA[index].ResultX == planB[index].ResultX && planA[index].ResultY == planB[index].ResultY
+                    && planA[index].ResultRot == planB[index].ResultRot,
+                    "solver: identical inputs produce identical plans (deterministic tie-break, run " + index + ")");
+            }
+            // Core geometric invariants: every placed item is in-bounds and the plan is overlap-free
+            // (candidate scoring may pick any candidate, these two must hold for all of them).
+            var occupied = new bool[6, 3];
+            for (var index = 0; index < 3; index++)
+            {
+                var placement = planA[index];
+                var width = (placement.ResultRot & 1) == 1 ? placement.size_y : placement.size_x;
+                var height = (placement.ResultRot & 1) == 1 ? placement.size_x : placement.size_y;
+                Assert(placement.Placed && placement.ResultX + width <= 6 && placement.ResultY + height <= 3,
+                    "solver: placed item " + index + " stays inside the grid");
+                for (var cx = placement.ResultX; cx < placement.ResultX + width; cx++)
+                    for (var cy = placement.ResultY; cy < placement.ResultY + height; cy++)
+                        Assert(!occupied[cx, cy], "solver: no two placed items overlap at " + cx + "," + cy);
+                for (var cx = placement.ResultX; cx < placement.ResultX + width; cx++)
+                    for (var cy = placement.ResultY; cy < placement.ResultY + height; cy++)
+                        occupied[cx, cy] = true;
+            }
+            // Oversized item: not a "valid" item by the solver's contract (it can
+            // never fit), so the pack succeeds with it unplaced — the SERVICE
+            // layer rejects on the unplaced count (section 2 pins that).
+            var oversized = new List<PackableItem> { LitTestItem("big", 4, 4, 9, 0, 0, 0), LitTestItem("small", 1, 1, 10, 1, 3, 3) };
+            bool oversizedOk = InventorySolver.TryPack(3, 3, oversized, out var oversizedPlan, true, TidyMode.SameType);
+            Assert(oversizedOk, "solver: an item larger than the grid is not a valid item (pack still succeeds)");
+            Assert(oversizedPlan.Count == 2 && !oversizedPlan[0].Placed && oversizedPlan[1].Placed,
+                "solver: the oversized item stays unplaced while valid items still place");
+            // FFD mode direct: row-major first-fit places both; candidate
+            // scoring may pick either sort direction, so locate by Tag —
+            // the plan list is in the candidate's SORTED order, not input order.
+            var ffdItems = new List<PackableItem> { LitTestItem("f1", 2, 2, 1, 0, 0, 0), LitTestItem("f2", 1, 2, 2, 1, 2, 0) };
+            bool ffdOk = InventorySolver.TryPack(4, 2, ffdItems, out var ffdPlan, true, TidyMode.FFD);
+            Assert(ffdOk && ffdPlan.Count == 2,
+                "solver: FFD first-fit places every valid item");
+            var ffdFirst = ffdPlan[0];
+            var ffdSecond = ffdPlan[1];
+            Assert(ffdFirst.Placed && ffdSecond.Placed, "solver: both FFD items placed");
+            Assert(ffdFirst.ResultX + ffdFirst.size_x <= 4 && ffdFirst.ResultY + ffdFirst.size_y <= 2
+                && ffdSecond.ResultX + ffdSecond.size_x <= 4 && ffdSecond.ResultY + ffdSecond.size_y <= 2,
+                "solver: both FFD placements stay inside the grid");
+            Assert(ffdFirst.ResultX + ffdFirst.size_x <= ffdSecond.ResultX
+                || ffdSecond.ResultX + ffdSecond.size_x <= ffdFirst.ResultX
+                || ffdFirst.ResultY + ffdFirst.size_y <= ffdSecond.ResultY
+                || ffdSecond.ResultY + ffdSecond.size_y <= ffdFirst.ResultY,
+                "solver: FFD placements never overlap");
+            // Empty page: legal, no plan entries.
+            bool emptyOk = InventorySolver.TryPack(4, 4, new List<PackableItem>(), out var emptyPlan, true, TidyMode.SameType);
+            Assert(emptyOk && emptyPlan.Count == 0, "solver: an empty page packs trivially");
+
+            // ── 2. ManualTidyService consumes the strategy (service-level seam). ──
+            LitRuntime.MainThreadId = System.Threading.Thread.CurrentThread.ManagedThreadId;
+            var page = new Items(7);
+            typeof(Items).GetField("_width", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+                .SetValue(page, (byte)4);
+            typeof(Items).GetField("_height", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+                .SetValue(page, (byte)4);
+            var jar = CreateTestItemJar(3, 0, 0, 1, 1);
+            SetJarItem(jar, new Item(1, 1, 100, new byte[0]));
+            page.items.Add(jar);
+            var countBefore = page.getItemCount();
+
+            // A strategy whose plan places nothing must fail Prepare with zero
+            // mutation — the service follows the plan it was handed.
+            var rejectPlacements = new List<PackableItem>
+            {
+                LitTestItem("j", 1, 1, 1, 0, 3, 0),
+            };
+            rejectPlacements[0].Placed = false;
+            var rejectStrategy = new FixedPlanStrategyAdapter("test-reject-v1",
+                new TidyPlan("test-reject-v1", rejectPlacements, allPlaced: false));
+            var rejected = ManualTidyService.TidyPage(page, 3, true, TidyMode.SameType, null, rejectStrategy);
+            Assert(rejected.Result == TidyCommitResult.Rejected && !rejected.MutationStarted,
+                "service: an all-unplaced plan fails Prepare as Rejected with zero mutation");
+            Assert(page.getItemCount() == countBefore,
+                "service: the rejected plan leaves the page untouched");
+
+            // A null strategy is a developer error (fail-fast), not a silent
+            // fallback to some hidden default.
+            var nullStrategyThrown = false;
+            try { ManualTidyService.TidyPage(page, 3, true, TidyMode.SameType, null, null); }
+            catch (ArgumentNullException) { nullStrategyThrown = true; }
+            Assert(nullStrategyThrown, "service: a null strategy throws ArgumentNullException (no hidden default)");
+
+            // ── 3. enabled=false native fallback + module lifecycle gates. ──
+            var persistence = new BetterUnturnedExperience.Core.Settings.InMemorySettingsPersistence();
+            var module = new InventoryTidyModule(new FeatureId("io.github.yu80rice.bue.inventory-tidy"), persistence);
+            Assert(module.Feature.Value == "io.github.yu80rice.bue.inventory-tidy",
+                "module: the feature identity is the frozen LIT FeatureId");
+            Assert(module.Enabled, "module: enabled defaults to true (empty persistence)");
+            Assert(module.Strategy.StrategyId == "default-grid-v1",
+                "module: the module default strategy is the built-in adapter");
+            Assert(!module.PatchesInstalled,
+                "module: construction installs no Harmony patches (installation is an explicit start step)");
+            Assert(module.RequestLocalTidy(3, TidyMode.SameType, true) == LitTidyRequestResult.NativeFallback,
+                "module: before start the tidy request falls back to native (not started, no patches)");
+
+            module.EnsureStarted();
+            Assert(module.PatchesInstalled || module.StartGateDiagnostics.Length > 0,
+                "module: start installs the UI patch or records the environment gate diagnostic (no silent state)");
+
+            // Disable through the settings authority — the panel toggle path.
+            var snapshot = module.Settings.GetSnapshot(SettingRevisionScope.ClientPreference);
+            Assert(snapshot.Entries.Count == 1 && snapshot.Entries[0].SettingId == "inventorytidy.enabled"
+                && snapshot.Entries[0].EffectiveValue.Boolean,
+                "settings: the module owns exactly one persisted toggle (enabled, default on)");
+            var disable = module.Settings.Submit(new ScopedSettingChangeRequest(51UL, SettingRevisionScope.ClientPreference,
+                snapshot.Revision, new[] { new SettingMutation("inventorytidy.enabled", SettingValue.Toggle(false)) }));
+            Assert(disable.Accepted, "setup: the disable mutation is accepted");
+            module.RefreshSwitches();
+            Assert(!module.Enabled && !module.PatchesInstalled,
+                "fallback: disabling uninstalls the module's patches (native UI returns)");
+            Assert(module.RequestLocalTidy(3, TidyMode.SameType, true) == LitTidyRequestResult.NativeFallback,
+                "fallback: a disabled module answers every tidy request with the explicit native-fallback result");
+
+            // Re-enable resets the fault gate (new module generation) and the
+            // request path re-arms.
+            var snapshotAfterDisable = module.Settings.GetSnapshot(SettingRevisionScope.ClientPreference);
+            var enable = module.Settings.Submit(new ScopedSettingChangeRequest(52UL, SettingRevisionScope.ClientPreference,
+                snapshotAfterDisable.Revision, new[] { new SettingMutation("inventorytidy.enabled", SettingValue.Toggle(true)) }));
+            Assert(enable.Accepted, "setup: the enable mutation is accepted");
+            module.RefreshSwitches();
+            Assert(module.Enabled, "re-arm: the module is enabled again");
+            module.FaultGate.Open("host-red-test", restoreVerified: false);
+            Assert(module.RequestLocalTidy(3, TidyMode.SameType, true) == LitTidyRequestResult.RejectedFaultCircuit,
+                "fault gate: an open circuit rejects tidy requests without dispatching work");
+
+            // Dispatch path: an enabled module with a closed gate enqueues the
+            // local tidy work for the main-thread pump.
+            MainThreadDispatcher.ResetForTests();
+            module.FaultGate.Reset();
+            Assert(module.RequestLocalTidy(3, TidyMode.SameType, true) == LitTidyRequestResult.Dispatched,
+                "dispatch: an enabled module with a closed gate dispatches the local tidy work");
+            Assert(MainThreadDispatcher.PendingCount == 1, "dispatch: exactly one work item is queued");
+            module.Tick();
+            Assert(MainThreadDispatcher.PendingCount == 0,
+                "dispatch: the pump drains the queue on the bound main thread (host: no local player, work no-ops safely)");
+
+            // Stop = three phases: quiesce, dispatcher shutdown, full teardown.
+            Assert(module.RequestLocalTidy(2, TidyMode.SameType, true) == LitTidyRequestResult.Dispatched,
+                "setup: one more work item before the stop");
+            module.Stop(FeatureStopReason.PluginStopping);
+            Assert(module.ShuttingDown && MainThreadDispatcher.PendingCount == 0 && !module.PatchesInstalled,
+                "stop: quiesce + dispatcher drain + patch teardown all observed");
+            Assert(module.RequestLocalTidy(3, TidyMode.SameType, true) == LitTidyRequestResult.NativeFallback,
+                "stop: a stopped module answers tidy requests with the native fallback");
+
+            // ── 4. Harness and old-plugin types are excluded from production. ──
+            var production = typeof(BetterUnturnedExperiencePlugin).Assembly;
+            var excludedNames = new[]
+            {
+                "AutoTestDriver", "CommandTidyAutoTest", "CommandTidyFaults", "CommandTidyFaultInjectionTest",
+                "CommandTidyUnfault", "CommandTidyFaultRecover", "FaultInjectionTestRunner", "FixtureValidator",
+                "TestFixtureSession", "NetworkTestProbe", "ShutdownTestProbe", "ShutdownBarrier",
+                "ConvergenceCheckBehaviour", "HotkeyResultWaitBehaviour", "IndependentSnapshot",
+                "LmnDependencyGuard", "LaunchInventoryTidyPlugin", "ManualTidyNetwork", "ItemsTryAddItemPatch",
+            };
+            var productionTypeNames = new HashSet<string>();
+            var namespaceLeaks = new List<string>();
+            foreach (var type in production.GetTypes())
+            {
+                productionTypeNames.Add(type.Name);
+                // Compiler-generated types carry a null namespace — guard, don't NRE.
+                if (type.Namespace != null && type.Namespace.StartsWith("LaunchInventoryTidy", StringComparison.Ordinal))
+                    namespaceLeaks.Add(type.FullName);
+            }
+            Assert(namespaceLeaks.Count == 0,
+                "exclusion: no type keeps the old plugin namespace in the production assembly (found " + string.Join(",", namespaceLeaks) + ")");
+            foreach (var excluded in excludedNames)
+            {
+                Assert(!productionTypeNames.Contains(excluded),
+                    "exclusion: harness/old-plugin type '" + excluded + "' is not in the production compile");
+            }
+
+            // ── 5. Registration, panel entry and settings identity. ──
+            var runtime = new FeatureRegistrationRuntime();
+            runtime.OpenRegistration();
+            var registration = InventoryTidyFeatureRegistration.CreateRegistration();
+            Assert(PayloadText(registration.Definition) == "BUE-LIT-V1",
+                "registration: the definition payload is exactly the documented 'BUE-LIT-V1' text");
+            Assert(registration.Definition.Feature.Value == "io.github.yu80rice.bue.inventory-tidy",
+                "registration: the feature identity is the frozen LIT FeatureId");
+            Assert(registration.MinimumBueContract.Major == 2 && registration.MinimumBueContract.Minor == 0,
+                "registration: the minimum contract aligns with the (2,0) gate");
+            var registered = runtime.Register(registration);
+            Assert(registered.Accepted,
+                "registration: the LIT definition is accepted by the real registration runtime (got "
+                + registered.Reason + " " + registered.DiagnosticId + ")");
+
+            var previousRuntime = BueRuntimeHost.CurrentRuntime;
+            try
+            {
+                var hostRuntime = new FeatureRegistrationRuntime();
+                BueRuntimeHost.Bind(hostRuntime);
+                hostRuntime.OpenRegistration();
+                Assert(BetterItemInteractionFeatureRegistration.Register().Accepted,
+                    "setup: the official BII registration is accepted through the host bridge");
+                Assert(BueRuntimeHost.Register(InventoryTidyFeatureRegistration.CreateRegistration()).Accepted,
+                    "setup: the official LIT registration is accepted through the host bridge");
+                var composition = new BueClientUiCompositionRoot();
+                Assert(composition.Initialize(false, false, true), "setup: the composition initializes");
+                Assert(hostRuntime.CompleteRuntime(), "setup: the host barrier completes");
+                composition.RefreshManagementPanel();
+                Assert(HasManagementEntry(composition.ManagementPanel.Model.GetEntries(),
+                        "io.github.yu80rice.bue.inventory-tidy", "背包整理"),
+                    "panel: the catalog projects the LIT entry under the official Chinese display name 背包整理");
+                composition.Destroy();
+            }
+            finally
+            {
+                BueRuntimeHost.Bind(previousRuntime);
+            }
+        }
+
+        private static string LitTestTag(int index)
+        {
+            return index == 0 ? "a" : index == 1 ? "b" : "c";
+        }
+
+        // ItemJar.item is a read-only native property; the host fixture
+        // injects the Item through whichever instance field carries it.
+        private static void SetJarItem(ItemJar jar, Item item)
+        {
+            foreach (var field in typeof(ItemJar).GetFields(System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public))
+            {
+                if (field.FieldType == typeof(Item))
+                {
+                    field.SetValue(jar, item);
+                    return;
+                }
+            }
+            throw new InvalidOperationException("no Item field on ItemJar — fixture cannot run");
+        }
+
+        private static PackableItem LitTestItem(string tag, byte sizeX, byte sizeY, ushort groupKey, int stableOrder, byte originalX, byte originalY)
+        {
+            return new PackableItem
+            {
+                Tag = tag,
+                size_x = sizeX,
+                size_y = sizeY,
+                GroupKey = groupKey,
+                StableOrder = stableOrder,
+                OriginalX = originalX,
+                OriginalY = originalY,
+                OriginalRot = 0,
+                PreferredRotation = 0,
+            };
+        }
+
+        private sealed class FixedPlanStrategyAdapter : ITidyStrategy
+        {
+            private readonly TidyPlan plan;
+            internal FixedPlanStrategyAdapter(string strategyId, TidyPlan plan)
+            {
+                StrategyId = strategyId;
+                this.plan = plan;
+            }
+            public string StrategyId { get; }
+            public TidyPlan BuildPlan(TidyInput input)
+            {
+                if (input == null) throw new ArgumentNullException(nameof(input));
+                var placements = new List<PackableItem>(plan.Placements.Count);
+                for (var index = 0; index < plan.Placements.Count; index++)
+                {
+                    var source = plan.Placements[index];
+                    placements.Add(new PackableItem
+                    {
+                        Tag = source?.Tag,
+                        size_x = source?.size_x ?? 0,
+                        size_y = source?.size_y ?? 0,
+                        GroupKey = source?.GroupKey ?? 0,
+                        StableOrder = index,
+                        OriginalX = source?.OriginalX ?? 0,
+                        OriginalY = source?.OriginalY ?? 0,
+                        OriginalRot = source?.OriginalRot ?? 0,
+                        PreferredRotation = source?.PreferredRotation ?? 0,
+                        Placed = source != null && source.Placed,
+                        ResultX = source?.ResultX ?? 0,
+                        ResultY = source?.ResultY ?? 0,
+                        ResultRot = source?.ResultRot ?? 0,
+                    });
+                }
+                return new TidyPlan(StrategyId, placements, plan.AllPlaced);
+            }
         }
 
         private static int CountToken(List<string> lines, string token)

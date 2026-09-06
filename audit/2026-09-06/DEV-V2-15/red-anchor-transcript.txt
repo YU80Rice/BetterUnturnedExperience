@@ -1,0 +1,6 @@
+DEV-14 official registration parity tests: FAIL
+System.NotSupportedException: DEV-V2-15: default-grid-v1 strategy not implemented yet
+   дк BetterUnturnedExperience.Lit.DefaultGridV1Strategy.get_StrategyId()
+   дк BetterUnturnedExperience.Plugin.Tests.Program.AssertLitSingleplayerPath()
+   дк BetterUnturnedExperience.Plugin.Tests.Program.Main()
+exit=1
