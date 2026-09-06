@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>SCR-RT05-001 连接上下文抛弃式原型</title>
+  <style>
+    body{font-family:system-ui,"Microsoft YaHei",sans-serif;max-width:1080px;margin:0 auto;padding:32px;background:#f6f7f9;color:#18202a}h1{margin-bottom:8px}.note{color:#52606d}.grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin:22px 0}.card{background:white;border:1px solid #d8dee6;border-radius:12px;padding:18px}button{margin:5px;padding:9px 12px;border:0;border-radius:8px;background:#2457d6;color:white;cursor:pointer}button.secondary{background:#56616f}.state{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.field{background:#eef2f7;padding:10px;border-radius:8px}.ok{color:#157347}.bad{color:#b42318}.tabs button.active{background:#173b91}.step{display:none}.step.active{display:block}pre{white-space:pre-wrap;background:#111827;color:#e5e7eb;padding:14px;border-radius:9px;min-height:150px}
+  </style>
+</head>
+<body>
+  <h1>旧连接的排队消息，能否污染快速重连后的新会话？</h1>
+  <p class="note">抛弃式性质演示，不是 A/B 选型证据。方案 A 演示 BUE 帧的 generation + SnapshotId + 随机 nonce fence；方案 B 演示候选的连接令牌撤销性质。它只说明“如果 fence/撤销正确实现，旧回调应被拒绝”，不证明 LMN 已具备该 API、并发撤销可靠或生产安全。</p>
+  <section class="card">
+    <h2>当前状态</h2>
+    <div id="state" class="state"></div>
+    <h3>自由操作</h3>
+    <button onclick="act('connect')">建立连接</button><button onclick="act('queue')">收到并排队设置写入</button><button onclick="act('beginDisconnect')">开始断开</button><button onclick="act('completeRevoke')">完成令牌撤销</button><button onclick="act('reconnect')">同 SteamID 快速重连</button><button onclick="act('executeA')">按方案 A 执行旧回调</button><button onclick="act('executeB')">按方案 B 执行旧回调</button><button class="secondary" onclick="act('reset')">重置</button>
+  </section>
+  <section class="card">
+    <h2>引导场景</h2>
+    <div class="tabs"><button class="active" onclick="showTab(0)">危险基线</button><button onclick="showTab(1)">方案 A</button><button onclick="showTab(2)">方案 B</button></div>
+    <div class="step active"><p>旧实现只按 SteamID 查当前 Session。</p><button onclick="scenario(['connect','queue','beginDisconnect','reconnect','unsafe'])">运行危险基线</button></div>
+    <div class="step"><p>旧帧携带旧 generation、SnapshotId 与随机 nonce；新会话拒绝它，但回调仍会进入 BUE adapter。</p><button onclick="scenario(['connect','queue','beginDisconnect','reconnect','executeA'])">运行方案 A 性质</button></div>
+    <div class="step"><p>候选令牌只有在旧回调出队前完成撤销才安全；先出队再撤销的竞态仍会污染。</p><button onclick="scenario(['connect','queue','beginDisconnect','completeRevoke','reconnect','executeB'])">运行方案 B 安全顺序</button><button onclick="scenario(['connect','queue','beginDisconnect','executeB','completeRevoke','reconnect'])">运行方案 B 竞态反例</button></div>
+  </section>
+  <section class="card"><h2>事件记录</h2><pre id="log"></pre></section>
+  <script>
+  const randomId=()=>crypto.getRandomValues(new Uint32Array(2)).join('-');
+  const initial=()=>({steamId:"7656119…",generation:0,snapshotId:"—",nonce:"—",connected:false,queued:null,setting:"默认值",mutations:0,result:"尚未运行"});
+  let state=initial(), logs=[];
+  function reduce(s,a){s={...s};
+    if(a==="reset") return initial();
+    if(a==="connect"||a==="reconnect"){s.generation++;s.snapshotId="snapshot-"+randomId();s.nonce="nonce-"+randomId();s.connected=true;s.result="会话 "+s.generation+" 已就绪";return s}
+    if(a==="queue"){if(!s.connected){s.result="非法：尚未连接";return s}s.queued={generation:s.generation,snapshotId:s.snapshotId,nonce:s.nonce,tokenId:"token-"+randomId(),tokenState:"active",value:"服务器值@会话"+s.generation};s.result="已排队，尚未执行";return s}
+    if(a==="beginDisconnect"){s.connected=false;if(s.queued)s.queued={...s.queued,tokenState:"revoke-requested"};s.result="断开开始；旧 Action 与撤销可能竞态";return s}
+    if(a==="completeRevoke"){if(s.queued)s.queued={...s.queued,tokenState:"revoked"};s.result="候选令牌撤销完成（这是待 LMN spike 证明的性质）";return s}
+    if(a==="unsafe"){if(!s.queued){s.result="没有排队消息";return s}s.setting=s.queued.value;s.mutations++;s.result="污染发生：仅按 SteamID 找到新会话并写入";return s}
+    if(a==="executeA"){if(!s.queued){s.result="没有排队消息";return s}if(s.queued.generation!==s.generation||s.queued.snapshotId!==s.snapshotId||s.queued.nonce!==s.nonce){s.result="方案 A 拒绝：帧不属于当前 generation/snapshot/nonce";return s}s.setting=s.queued.value;s.mutations++;s.result="方案 A 接受当前会话帧";return s}
+    if(a==="executeB"){if(!s.queued){s.result="没有排队消息";return s}if(s.queued.tokenState==="revoked"){s.result="方案 B 性质：已撤销令牌拒绝旧回调";return s}s.setting=s.queued.value;s.mutations++;s.result="方案 B 竞态：回调先于撤销执行，污染仍可能发生";return s}
+    return s}
+  function act(a){state=reduce(state,a);logs.push(a+" → "+state.result);render()}
+  function scenario(actions){state=initial();logs=[];actions.forEach(a=>act(a))}
+  function render(){const q=state.queued;document.getElementById('state').innerHTML=[['连接',state.connected?'已连接':'未连接'],['ConnectionGeneration',state.generation],['SnapshotId',state.snapshotId],['Session nonce',state.nonce],['排队消息',q?`gen=${q.generation}, snapshot=${q.snapshotId}, token=${q.tokenState}`:'无'],['设置值',state.setting],['写入次数',state.mutations],['最近结果',state.result]].map(([k,v])=>`<div class="field"><b>${k}</b><br>${v}</div>`).join('');document.getElementById('log').textContent=logs.join('\n')||'尚无事件'}
+  function showTab(i){document.querySelectorAll('.tabs button').forEach((b,n)=>b.classList.toggle('active',n===i));document.querySelectorAll('.step').forEach((e,n)=>e.classList.toggle('active',n===i))}
+  render();
+  </script>
+</body>
+</html>
