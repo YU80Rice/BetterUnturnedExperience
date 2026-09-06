@@ -1,0 +1,16 @@
+{
+  "caseId": "DEV-V2-12-20260905-SP",
+  "role": "SinglePlayer",
+  "environmentFingerprint": "Windows 宿主机 C:/Program Files (x86)/Steam/steamapps/common/Unturned（客户端+本地主机，含 SteamP2PFriends.dll），BepInEx 5.4.23.5",
+  "gameVersion": "3.26.3.11",
+  "bepInExVersion": "5.4.23.5",
+  "transportVersion": "5.0.0.0 (LaunchMultiplayerNet)",
+  "deploymentSource": "手动复制 audit/2026-09-05/artifacts/DEV-V2-12-20260905/BetterUnturnedExperience.dll 至 BepInEx/plugins；assembly-identity 核对 sha256=B4E37FFA7581CD70CDC552242F3A01CD62FC86095C99C857AB5FC3E51B33E959",
+  "command": "单人世界阶段（host 包 solo 段，首个远程客户端 ping 前共 22 拍 broadcast）：BUE 接管 LMN（installed）→ 镜像 mirrored channels=2 deferred=true → v1/lmn2-frame-release 正向锚各一条 → 面板可逆钮多轮 removed→installed 循环 → 转入本地联机（见 P2PHost case）",
+  "startedUtc": "2026-09-05T06:00:00.0000000Z",
+  "endedUtc": "2026-09-05T06:39:01.0000000Z",
+  "evidenceLog": "evidence.log",
+  "collector": "用户（实机采集，UMM 诊断包 20260905_143901）",
+  "diagnosticSummary": "部署指纹 B4E37FFA 实锚；solo 段零 sender=0、零 dropped outbound、零 BUE 错误；release 正向锚 v1-frame-release/lmn2-frame-release 各恰一条（一次性）；delegated=0（live 世界放行替代委托，符合 DEV-V2-12 口径）；可逆链 installed→removed→installed 多轮在场。startedUtc=保守下界（横幅时间戳不可信见复核记录 N-2），endedUtc=UMM 采集 14:39:01+08:00。",
+  "extraArtifacts": []
+}

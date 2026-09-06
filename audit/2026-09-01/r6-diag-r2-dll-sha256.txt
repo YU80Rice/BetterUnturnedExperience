@@ -1,0 +1,9 @@
+CandidateBuild: DEV-16D-R13-R6-DIAG-R2-20260901
+CaseId: DEV-16D-R13-R6-DIAG-R2-20260901
+Kind: diagnostic-instrumentation round 2 (blind-spot fixes: H4-vs-adapter-dead, swallowed exceptions, Tick gate)
+SourceSnapshotId: e187b2464e3864000c6522dbe0458e2fce6db436 + uncommitted instrumentation round 2
+SourceDll: src/BetterUnturnedExperience.Plugin/bin/Release/BetterUnturnedExperience.dll
+ArchivedDll: audit/2026-09-01/artifacts/BetterUnturnedExperience-DIAG-R13SILENCE-r2-20260901.dll
+SizeBytes: 235520
+SHA256: BE4470710A294D4479EA791A2C35EA4A4838C4C8BBBAABD35A7940B9301C3B46
+Review: Standards CLEAN / Spec CLEAN (independent subagents, 2026-09-01)

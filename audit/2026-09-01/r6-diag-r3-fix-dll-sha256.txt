@@ -1,0 +1,9 @@
+CandidateBuild: DEV-16D-R13-R6-DIAG-R3-FIX-20260901
+CaseId: DEV-16D-R13-R6-DIAG-R3-FIX-20260901
+Kind: diagnostic-instrumentation + scrollsize fail-retry fix (root-cause remediation)
+SourceSnapshotId: e187b2464e3864000c6522dbe0458e2fce6db436 + uncommitted instrumentation+fix round
+SourceDll: src/BetterUnturnedExperience.Plugin/bin/Release/BetterUnturnedExperience.dll
+ArchivedDll: audit/2026-09-01/artifacts/BetterUnturnedExperience-DIAG-R13SILENCE-r3-fix-20260901.dll
+SizeBytes: 235520
+SHA256: 7C8BEC31BD4B34829486E64EB570BC533A45224DD529D4E786A57B260F1A47D3
+Review: Standards CLEAN / Spec CLEAN (independent subagents, 2026-09-01)

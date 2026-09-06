@@ -1,0 +1,16 @@
+{
+  "caseId": "DEV-V2-11-20260904-SP",
+  "role": "SinglePlayer",
+  "environmentFingerprint": "Windows 宿主机 E:/Steam/steamapps/common/Unturned（客户端+本地主机，含 SteamP2PFriends.dll 休眠件），BepInEx 5.4.23.5",
+  "gameVersion": "3.26.3.11",
+  "bepInExVersion": "5.4.23.5",
+  "transportVersion": "5.0.0.0 (LaunchMultiplayerNet)",
+  "deploymentSource": "手动复制 audit/2026-09-04/artifacts/DEV-V2-11-20260904/BetterUnturnedExperience.dll 至 BepInEx/plugins；部署后经 BUE-MANAGEMENT-TRACE-002 assembly-identity 核对 sha256=5B4E948E5A81FB75B05D017BF0958C11B4B0C75279DB6F21D2151CA8C84C5BCD",
+  "command": "单人世界三阶段：BUE 接管 LMN（installed L146，首镜像 deferred=true L192 后生效）→ 面板恢复独立 LMN（removed hand-back L1578）→ 重新接管（L1740 mirrored channels=2 + L1741 installed）→ 正常退出（退出清理 L1862-3）",
+  "startedUtc": "2026-09-04T16:25:00.0000000Z",
+  "endedUtc": "2026-09-04T16:40:06.0000000Z",
+  "evidenceLog": "evidence.log",
+  "collector": "用户（实机采集，UMM 退出码 0）",
+  "diagnosticSummary": "部署指纹 5B4E948E 实锚；可逆链 installed→removed→installed 全程日志证明；BUE 错误=0、unknown-channel-dropped=0；fixture V1/V2 各 19 拍。startedUtc 为保守下界（诊断包系副本原始 birth 不可考），endedUtc=UMM 受管会话锚 2026-09-05 00:40:06+08:00 退出码 0。仅存 1 条 HarmonyX 宽匹配警告来自 SteamP2PFriends 自身探测 SDG 类型，非 BUE。",
+  "extraArtifacts": []
+}

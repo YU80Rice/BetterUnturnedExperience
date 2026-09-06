@@ -1,0 +1,16 @@
+{
+  "caseId": "DEV-V2-12-20260905-U3DS",
+  "role": "U3dsHeadless",
+  "environmentFingerprint": "E:/Steam/steamapps/common/U3DS 专用服务器（无界面 Headless），BepInEx 5.4.23.5",
+  "gameVersion": "3.26.3.11",
+  "bepInExVersion": "5.4.23.5",
+  "transportVersion": "5.0.0.0 (LaunchMultiplayerNet)",
+  "deploymentSource": "手动复制 audit/2026-09-05/artifacts/DEV-V2-12-20260905/BetterUnturnedExperience.dll 至 BepInEx/plugins；assembly-identity 核对 sha256=B4E37FFA7581CD70CDC552242F3A01CD62FC86095C99C857AB5FC3E51B33E959",
+  "command": "U3DS 专用服务器运行，客户端连入：recv-from-client V1 16 + V2 16 每 seq 恰一次（0 重复键，上轮 8），pong 32/32 1:1，全真实 sender；零 sender=0、零 dropped outbound target=0；退出清理 removed 在场",
+  "startedUtc": "2026-09-05T06:00:00.0000000Z",
+  "endedUtc": "2026-09-05T06:44:21.0000000Z",
+  "evidenceLog": "evidence.log",
+  "collector": "用户（实机采集，U3DS LogOutput 2026年9月5日 14点44分）",
+  "diagnosticSummary": "部署指纹 B4E37FFA 实锚；验收判据全绿（零 sender=0、零 target=0 Error、每 seq 恰一次、release 锚各恰一条、delegated=0）。具名观察 N-1：2 条 LMN 自身出站竞态 Error（target=真实 id，seq=5 首 ping 早于 SteamPlayer transport 可解析；seq=6 起 32 发全中；LMN 出站路径 BUE 未触碰，上轮竞态未触发）——不属 target=0 判据，详见 retest-verification-r1.md。U3dsClientUi 角色 per QualificationPolicy.Default 为 NotApplicable；客户端证据包 u3ds-client-144421 同目录。startedUtc=保守下界（横幅时间戳不可信见复核记录 N-2），endedUtc=采集 14:44+08:00。",
+  "extraArtifacts": []
+}

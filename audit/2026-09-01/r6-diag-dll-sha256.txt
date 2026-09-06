@@ -1,0 +1,9 @@
+CandidateBuild: DEV-16D-R13-R6-DIAG-20260901
+CaseId: DEV-16D-R13-R6-DIAG-20260901
+Kind: diagnostic-instrumentation (silent-return discriminants H1-H4)
+SourceSnapshotId: e187b2464e3864000c6522dbe0458e2fce6db436 + uncommitted instrumentation round
+SourceDll: src/BetterUnturnedExperience.Plugin/bin/Release/BetterUnturnedExperience.dll
+ArchivedDll: audit/2026-09-01/artifacts/BetterUnturnedExperience-DIAG-R13SILENCE-20260901.dll
+SizeBytes: 233984
+SHA256: 577D57668796FBE41D31BA70D999900EBB4EAA32824253B455F62F64C58CB997
+Review: Standards CLEAN / Spec CLEAN (independent subagents, 2026-09-01)

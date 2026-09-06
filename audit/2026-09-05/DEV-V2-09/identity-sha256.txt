@@ -1,0 +1,1 @@
+3370f5d8106b4121b635f584b83ceffae971456cfa6040ae886db9ffb2e74007 *src/BetterUnturnedExperience.Plugin/bin/Release/BetterUnturnedExperience.dll

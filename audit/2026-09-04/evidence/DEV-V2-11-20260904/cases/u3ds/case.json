@@ -1,0 +1,16 @@
+{
+  "caseId": "DEV-V2-11-20260904-U3DS",
+  "role": "U3dsHeadless",
+  "environmentFingerprint": "E:/Steam/steamapps/common/U3DS 专用服务器（无界面 Headless），BepInEx 5.4.23.5",
+  "gameVersion": "3.26.3.11",
+  "bepInExVersion": "5.4.23.5",
+  "transportVersion": "5.0.0.0 (LaunchMultiplayerNet)",
+  "deploymentSource": "手动复制候选 DLL（sha256=5B4E948E…C5BCD）+ LaunchMultiplayerNet.dll + LmnEcosystemFixture.dll，逐件核对",
+  "command": "U3DS 专用服务器启动（加载成功（无界面）），客户端连入；日志判据观察（BUE 错误=0、无 ClientUi/Sleek/Glazier 实例化、fixture 双路 63 拍广播与 recv-from-client）至正常退出",
+  "startedUtc": "2026-09-04T15:40:00.0000000Z",
+  "endedUtc": "2026-09-04T16:05:43.0000000Z",
+  "evidenceLog": "evidence.log",
+  "collector": "用户（实机采集）",
+  "diagnosticSummary": "二轮复测（5B4E948E 候选，开 Debug）：加载成功（无界面）在案；BUE 错误=0、unknown-channel-dropped=0、result=mirrored channels=2 与 result=delegated 正向锚在。U3dsClientUi 角色按 QualificationPolicy.Default 为 NotApplicable。startedUtc/endedUtc 为保守界（服务器无 UMM 包，以客户端会话 23:55 与证据归档 00:05:43+08:00 夹逼）。",
+  "extraArtifacts": []
+}
