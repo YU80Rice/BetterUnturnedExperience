@@ -1,0 +1,23 @@
+<Project ToolsVersion="Current" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Release</Configuration>
+    <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
+    <ProjectGuid>{4E2A7B6C-4AA2-4F84-B7C0-080000000001}</ProjectGuid>
+    <OutputType>Library</OutputType>
+    <RootNamespace>BetterUnturnedExperience.Transport</RootNamespace>
+    <AssemblyName>BetterUnturnedExperience.Transport</AssemblyName>
+    <TargetFrameworkVersion>v4.7.2</TargetFrameworkVersion>
+    <LangVersion>10.0</LangVersion>
+    <Deterministic>true</Deterministic>
+    <DebugType>none</DebugType>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
+    <Optimize>true</Optimize><OutputPath>bin\Release\</OutputPath><DefineConstants>TRACE</DefineConstants><WarningLevel>4</WarningLevel><TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+  <ItemGroup><Reference Include="System" /><Reference Include="System.Core" /></ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\BetterUnturnedExperience.Core\BetterUnturnedExperience.Core.csproj"><Project>{E6B7E5D1-1A1D-49D9-8E34-A1B25F8E5510}</Project><Name>BetterUnturnedExperience.Core</Name></ProjectReference>
+    <Compile Include="LmnTransportAdapter.cs" />
+  </ItemGroup>
+  <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+</Project>
