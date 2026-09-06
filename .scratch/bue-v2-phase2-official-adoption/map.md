@@ -24,6 +24,7 @@ Author: GPT（本会话 charting）
 - [T1：BepInEx 解析机制实证与 Forge-like 可行性](issues/01-bepinex-resolution-mechanism.md)：前置按 GUID、IL 绑定按 AssemblyName,均与文件名无关——**Forge-like 承诺可行**(冻结 GUID+AssemblyName 即可);同 GUID 双装=BepInEx 留一跳一无双 Awake;**二次勘误:Awake 序=GUID 拓扑序,「按文件名序加载」系讹传**。报告 `research/2026-09-06-bepinex-resolution-mechanism.md`。
 - [T2：三插件源码盘点与迁入形态](issues/02-three-plugin-source-inventory.md)：三插件全为 LMN 命名频道消费方（零 V1 API,频道 id 已录）;`IBueNetworkApi` 缺公开入站订阅面+寻址改 IConnectionSession;难度 LHT<LIR<LIT;推荐 EmbeddedOfficial 单 DLL+`IFeatureModule`,不碰 V1 兼容层。报告 `research/2026-09-06-three-plugin-source-inventory.md`。
 - [T3：BueNetworkApi 生产传输绑定设计](issues/03-buenetworkapi-production-transport-binding.md)：六决全落——入站订阅升契约(单方法+ChannelDirection 方向枚举,双 handler 表);`IFeatureBootstrap.Network` 携带 API;BUE 帧消费 seam 与 LMN 接管 seam 拆分(patch 门=网络模块启用,探针 false 收窄为零 LMN 相关动作);发送=会话驱动组播(established-only 快照,新增 `PartialFailure`);网络模块自动握手(pending 会话内部可见,Ack 按 peer+代际匹配);**线帧魔数 BUE2→BUE1,产品语言一律「BUE 帧」,数字频道只留兼容不注册(重申)**。落地顺序 Q1→Q2→Q4→Q5→Q3;契约版本随冻结面变更升级。
+- [T4：LIT(背包整理)纳入方式](issues/04-lit-adoption.md)：算法原样迁移但立即立 `ITidyStrategy` seam(内置 adapter `default-grid-v1`;**O-LIT-1 勘误:要改的是排序规则,非放置算法**);FeatureId `io.github.yu80rice.bue.inventory-tidy`(面板=频道一词一贯,显示名「背包整理」);本期只持久化 `enabled`(ClientLocal,关→原生回退);熔断 scope 改绑 BUE 连接代际(JSON 功能私有权威不变);TIDY_TEST_HARNESS 归档不进玩家 DLL(新 seam 红测重写);LIT 发布 TidyCompleted 功能事件供 LIR 订阅(TypeByName/跨功能 Harmony postfix 消除)。可交 /to-spec。
 
 ## Not yet specified
 
@@ -34,6 +35,7 @@ Author: GPT（本会话 charting）
 
 ## Out of scope
 
+- **整理排序规则变体**(compact/按类别分组/最少移动等 `ITidyStrategy` 变体、StrategyId 进设置):T4 已澄清用户诉求=排序规则而非放置算法;seam 已预留,立后续「设置与策略治理」/能力票,超出本图目的地。
 - **DEV-V2-12 N-1**（LMN 出站首 ping 竞态，真实 target）：LMN 内部出站路径，BUE 未触碰，保持挂起；如需根治另立票。
 - **DEV-V2-13 具名设计取舍 2-5**（面板 seam gap/J2 几何常量/PauseSpyColumnButtonX/Data Clump）：已有意不动，非本图议程。
 - **其他能力迁移**（本地联机、性能优化、背包整理以外的 Launch 能力等）：旧地图明示的后续阶段，超出本目的地；目的地重绘时作为新 effort。
