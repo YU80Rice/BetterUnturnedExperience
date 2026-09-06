@@ -33,7 +33,8 @@
 | 轮 | Standards | Spec | 处置 |
 | --- | --- | --- | --- |
 | R1 | NOT CLEAN——**BLOCKING 2**：①dispatcher 关停粘滞跨代际（`_shuttingDown` 进程级不复位，违反「静态表绑功能代际」）+ 方向/模式点击无模块守卫 + 日志缝不随 Stop 解绑；②实现来源署名缺失（MIT 版权/许可文本未随迁）。SMELL 8 项 | NOT CLEAN——**GAP 1 + DEVIATION 1**：①`InventorySolver 纯算法直测`未覆盖（测试只经策略层）；②Register 先 `EnsureStarted` 后注册，注册被拒时补丁已装、不受宿主注册结果控制 | 全部修复（见下） |
-| R2 | **CLEAN**（BLOCKING 0；SMELL 9 项全部具名延期，其中 5 项注释/顺序级就地处置——见「具名延期与处置」） | **CLEAN** | 环路闭合 |
+| ~~R2~~ | **程序无效，判词作废**：R2 误用 `SendMessage` 续用 R1 同一审查实例——违反 output-review-loop「Two fresh contexts, one per axis, **every round**」；自审自复存在锚定/自证偏差，其 CLEAN 不具证据效力 | 同左（同批作废） | 处置：见结单会话过程记录；重派零上下文 R2' |
+| **R2'（零上下文，权威）** | **CLEAN**（BLOCKING 0；SMELL 6 项具名延期：HandleTidyClick 在模块守卫前播种页字典（并入延期 1）/ ShuttingDown 不复位同构 Network 先例 / 拒绝路径残留日志缝绑定 / 两处注释与事实偏差 / 迁移注释 Codex 审计体例 / LICENSE permission notice 未写入副本） | 先 NOT CLEAN（**GAP 2**）→ 处置后 **CLEAN**：①夹具排除仅产物级反射、缺「编译期断言」→ **修复**：新增编译列表级断言（上溯定位 sln→读 Plugin csproj 原文→26 夹具/旧源文件名零入 Compile Include + TIDY_TEST_HARNESS 零出现 + 正向对照 Lit 源必须在列）+ 保留产物级反射，双层钉死；②未发布 TidyCompleted → **rebuttal 成立判非 GAP**：工单规格引用集四节不含 TidyCompleted 节；事件类型归 DEV-V2-19 入 Contracts、发布点归 DEV-V2-21（服务器权威事务完成处）、消费归 DEV-V2-22，15 无法引用契约面上尚不存在的类型（21 被 block 在 19 即此因）；移交点 = `LastLocalOutcome`（代码头+结单已登记） | 环路闭合 |
 
 ### R1 修复明细
 
@@ -50,7 +51,10 @@
 3. **LocalTidyFaultGate 最小化边界**（Standards R2-SMELL，代码头已声明）：无磁盘持久化统计、无 per-peer 准入、无管理命令——完整 TidyFaultCircuit/TidyRateLimiter/RequestLedger/SecurityLogLimiter/熔断代际绑定属 DEV-V2-21（联机路径才有多玩家准入面）；单人恢复路径 = 面板关闭→重开（代际复位）。
 4. **TidyDiagnosticLog.Windows 不随 Stop 清空**（Standards R2-SMELL）：节流窗口上限 64 类、无增长路径、非跨功能泄漏。
 5. **MainThreadDispatcher.Enqueue(Action) 旧入口保留**（Standards R2-SMELL）：原样迁移保留的旧调用形状，当前 DLL 内无调用点，注释已如实标注。
-6. **R2 后就地处置的 5 项注释/顺序级 SMELL**（评审者 R2 点名）：dispatcher 类注释三处陈旧提法、ResetForTests 文档与 EnsureOpen 矛盾、Stop 解绑日志在收尾日志前、TidyDiagnosticLog 缺 MIT 头、RefreshSwitches 文档「代际」措辞——全部按评审者指名修复（零行为面，唯一行为变化=Stop 收尾日志可见性）；修复后全套 7/7 PASS 复跑留证。此项属于「评审者已点名且判非阻塞的整改」，增量范围与 R2 判词所述一致。
+6. **R2' 就地处置的注释/顺序级 SMELL**（R2 与 R2' 两轮评审者点名）：dispatcher 类注释陈旧提法、ResetForTests 文档矛盾、Stop 解绑日志顺序、TidyDiagnosticLog 缺 MIT 头、RefreshSwitches 措辞——按评审者指名修复（零行为面，唯一行为变化=Stop 收尾日志可见性）；修复后全套 7/7 PASS 复跑留证。
+7. **R2' 新增具名延期（Standards）**：①HandleTidyClick 在模块守卫前播种页字典（并入延期 1，实机自验观察）；②ShuttingDown 从不复位（同实例 Stop→Start 语义，与 Network/BII `default(FeatureStartResult)` 同构，宿主启动路径属后续票）；③拒绝路径残留 BindProductionLog 静态缝；④LICENSE permission notice 未写入迁移文件副本（attribution 文档 + 版权头满足 CONTEXT 署名，与 UPM 署名先例同形）；⑤迁移文件保留原「Codex 审计」注释体例（原样迁移不重写注释）。
+8. **R2' 新增具名延期（Standards，测试缝）**：①csproj `Contains` 为原文子串匹配非 MSBuild 求值——通配/条件 Include 可绕过文件名断言，正向对照把当前显式列表形态钉死；②编译列表文件名清单与产物类型名清单双份需人工同步。若未来引入通配 Include，应升级为 MSBuild 求值级静态门。
+9. **R2' Spec 复判记录**：夹具排除「编译期断言」以编译列表级+产物级双层断言满足；TidyCompleted 发布边界以工单分解证据（引用集/19/21/22 依赖链）rebuttal 成立——完整链条保留在本表与结单会话记录。
 
 ## 迁移保真说明（对照基线：Archive LaunchInventoryTidy）
 
@@ -64,5 +68,6 @@
 - 产物：`src/BetterUnturnedExperience.Plugin/bin/Release/BetterUnturnedExperience.dll`
 - SHA-256：`cacfa527bb4e593bd09885cbfa12997f4a192d601c6d08fc4270317b9b03b040`（350208 字节）
 - 确定性：同源两轮 `-t:Rebuild` 逐字节一致（`identity-rebuild1.txt`/`identity-rebuild2.txt`/`identity-sha256.txt` 留盘）
-- 绿测证据：`green-BetterUnturnedExperience.*.Tests.log`×7（全 PASS，2026-09-06）
+- R2' 后身份复核：R2' 唯一生产外增量=测试工程断言（Program.cs 编译列表级排除断言），生产源零改动——R2' 后复测 SHA-256 与授予值逐字节一致，身份持续有效
+- 绿测证据：`green-BetterUnturnedExperience.*.Tests.log`×7（全 PASS，2026-09-06，R2' 修复后复跑）
 - 边界：不继承 13/14 发布批准；候选采纳由用户决定。**实机自验（点按钮 → 本地整理事务完成；关闭 → 原生回退；面板「背包整理」条目）待用户执行**——工单验收第 2/3 项的实机部分未在本票闭环，列入 RELEASES 行的待验收项。

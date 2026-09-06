@@ -3331,6 +3331,36 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 "stop: a stopped module answers tidy requests with the native fallback");
 
             // ── 4. Harness and old-plugin types are excluded from production. ──
+            // Compile-list level (the ticket's literal wording: 排除出生产编译列表):
+            // the Plugin csproj's <Compile Include> set must carry zero fixture /
+            // old-plugin sources and zero harness define. Located by walking up to
+            // the solution root — a miss is a failure, never a silent skip.
+            var solutionRoot = new DirectoryInfo(AppContext.BaseDirectory);
+            while (solutionRoot != null && !File.Exists(Path.Combine(solutionRoot.FullName, "BetterUnturnedExperience.sln")))
+                solutionRoot = solutionRoot.Parent;
+            Assert(solutionRoot != null, "exclusion: solution root located from the test base directory");
+            var pluginCsproj = File.ReadAllText(Path.Combine(solutionRoot.FullName, "src", "BetterUnturnedExperience.Plugin", "BetterUnturnedExperience.Plugin.csproj"));
+            Assert(pluginCsproj.Contains("EmbeddedLit\\Solver\\InventorySolver.cs"),
+                "exclusion: the Plugin compile list is the real production list (positive control: migrated Lit sources present)");
+            var excludedSources = new[]
+            {
+                "AutoTestDriver.cs", "CommandTidyAutoTest.cs", "CommandTidyFaults.cs", "CommandTidyFaultInjectionTest.cs",
+                "FaultInjectionTestRunner.cs", "FixtureValidator.cs", "TestFixtureSession.cs", "NetworkTestProbe.cs",
+                "ShutdownTestProbe.cs", "ShutdownBarrier.cs", "ConvergenceCheckBehaviour.cs", "HotkeyResultWaitBehaviour.cs",
+                "IndependentSnapshot.cs", "LmnDependencyGuard.cs", "LaunchInventoryTidyPlugin.cs", "ManualTidyNetwork.cs",
+                "ItemsTryAddItemPatch.cs", "ManualTidyWatcher.cs", "ClientSessionNonce.cs", "ServerSessionRegistry.cs",
+                "RequestAdmissionStore.cs", "PlayerOperationGate.cs", "TidyTransaction.cs", "TidyFaultCircuit.cs",
+                "TidyFaultCircuitPersistence.cs", "TidyAdminAuth.cs",
+            };
+            foreach (var excluded in excludedSources)
+            {
+                Assert(!pluginCsproj.Contains(excluded),
+                    "exclusion: fixture/old-plugin source '" + excluded + "' is not in the production compile list");
+            }
+            Assert(!pluginCsproj.Contains("TIDY_TEST_HARNESS"),
+                "exclusion: the harness define is gone from the production build definition");
+
+            // Artifact level: the built production assembly carries none of them.
             var production = typeof(BetterUnturnedExperiencePlugin).Assembly;
             var excludedNames = new[]
             {
