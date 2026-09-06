@@ -1,7 +1,7 @@
 # V2 第二阶段：三插件官方纳入与平台首公里（Wayfinder 地图）
 
 Type: task
-Status: **completed（2026-09-06 7/7 子票全部 resolved,地图走完,可交 `/to-spec`）**
+Status: **completed（2026-09-06 7/7 子票全部 resolved;同日 `/to-spec` 已发布 [spec.md](spec.md),`/to-tickets` 已拆实施票 DEV-V2-14..24 共 11 张（issues/,ready-for-agent,前沿=14 平台订阅+15 LIT 单人）,下一步按前沿开工）**
 Label: wayfinder:map
 Parent: 无（承接 [[bue-v2-phase1-progress]]：V2 第一阶段 01–13 全闭环）
 Author: GPT（本会话 charting）
