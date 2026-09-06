@@ -23,6 +23,7 @@ Author: GPT（本会话 charting）
 
 - [T1：BepInEx 解析机制实证与 Forge-like 可行性](issues/01-bepinex-resolution-mechanism.md)：前置按 GUID、IL 绑定按 AssemblyName,均与文件名无关——**Forge-like 承诺可行**(冻结 GUID+AssemblyName 即可);同 GUID 双装=BepInEx 留一跳一无双 Awake;**二次勘误:Awake 序=GUID 拓扑序,「按文件名序加载」系讹传**。报告 `research/2026-09-06-bepinex-resolution-mechanism.md`。
 - [T2：三插件源码盘点与迁入形态](issues/02-three-plugin-source-inventory.md)：三插件全为 LMN 命名频道消费方（零 V1 API,频道 id 已录）;`IBueNetworkApi` 缺公开入站订阅面+寻址改 IConnectionSession;难度 LHT<LIR<LIT;推荐 EmbeddedOfficial 单 DLL+`IFeatureModule`,不碰 V1 兼容层。报告 `research/2026-09-06-three-plugin-source-inventory.md`。
+- [T3：BueNetworkApi 生产传输绑定设计](issues/03-buenetworkapi-production-transport-binding.md)：六决全落——入站订阅升契约(单方法+ChannelDirection 方向枚举,双 handler 表);`IFeatureBootstrap.Network` 携带 API;BUE 帧消费 seam 与 LMN 接管 seam 拆分(patch 门=网络模块启用,探针 false 收窄为零 LMN 相关动作);发送=会话驱动组播(established-only 快照,新增 `PartialFailure`);网络模块自动握手(pending 会话内部可见,Ack 按 peer+代际匹配);**线帧魔数 BUE2→BUE1,产品语言一律「BUE 帧」,数字频道只留兼容不注册(重申)**。落地顺序 Q1→Q2→Q4→Q5→Q3;契约版本随冻结面变更升级。
 
 ## Not yet specified
 
