@@ -18,3 +18,11 @@
 - 无重复派发：客机 RequestTidy ×3（限频被拒另计，主机 `[RateLimit]` ×5 为防护性拒绝，良性）
 - 截图：未采集（gap，以日志锚 + 用户「双端功能无异常」确认代偿）
 - P2P 段结论：**通过**
+
+## 环境 U3DS（2026-09-06 上午，客户端包 09:05:50+0800 / 服务器日志 09:06+0800）
+- 锚行（env/u3ds/、env/u3ds-client/）：U3DS `加载成功（无界面）` + `takeover-patch installed` + `[Runtime] startupRole=DedicatedServer; clientUi=False`；客户端 `RequestTidy(reqId=1, page=2)` → U3DS `服务器已提交整理（reqId=1, page=2）` + `-> 客机 TidyCommitted(reqId=1)` → 客户端 `<- 服务器 TidyCommitted(reqId=1)`——**跨端闭环经专用无头服务器，reqId 对齐**
+- 会话门：双端 release 锚各 1 + delegate 双端 0 ✓；U3DS 退出线 `takeover-patch removed decision=hand-back-to-lmn`（正常清理）
+- 零误报 ✓（U3DS 唯一命中=LIT RateLimit 防护 ×1+退出 BeginQuiesce）
+- 截图：未采集（gap）
+- U3DS 段结论：**通过**
+- **CaseId 总结论：SP/P2P/U3DS 三环境全过，无 V2 迁移缺陷；O-LIT-1（排列算法质量）为非迁移观察项→官方纳入票议程**

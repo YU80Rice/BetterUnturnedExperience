@@ -1,7 +1,7 @@
 # DEV-V2-08：LIT/LIR/LHT 生态迁移验证
 
 Type: task
-Status: claimed（2026-09-05，agent）
+Status: resolved（2026-09-06，agent；三环境 SP/P2P/U3DS 全过、三验收条件全满足，用户人工验收原话留档结单报告 §3；缺口具名=「不再需要独立 LMN DLL」官方纳入另立票）
 Parent: spec-V2-phase1-lmn-adoption（V2 第一阶段）
 Blocked by: DEV-V2-07-three-env-network-validation
 Spec: `../spec-V2-phase1-lmn-adoption.md`（Implementation Decisions「生态与前置」）
@@ -42,3 +42,5 @@ Spec: `../spec-V2-phase1-lmn-adoption.md`（Implementation Decisions「生态与
 > 2026-09-05 SP 轮采集完成（agent 复核）：用户提交 UMM 诊断包（单会话，LogOutput 3013 行，归档 `audit/2026-09-05/evidence/DEV-V2-08-20260905/env/sp/`）。**S1–S5 全过**：S1 接管 installed+三插件注册锚全齐；S2 LIT 完整整理链多轮（reqId=1/15/23，限频抑制按设计）；S3 LIR 用户确认三次双击均见成功 toast（SP 成功路径仅 UI；rejected=1=冷却闸门防护性静默拒，非故障）；S4 LHT 意外获得**完整尸潮生命周期**（爆发 Belfast Airport epoch=1 → 广播 Update seq=1..63 → 尸潮结束 → 广播 Clear，服务器侧广播链全落地）；S5 零误报（0 BUE 错误/0 uncaught/0 拒绝/0 RepackGate）。三份 case.md SP 段已写。**具名观察项 O-LIT-1（非本票 finding）**：用户认为排列算法质量有问题（拍板后续再说）→ 官方纳入票议程；与 V2 迁移无关。**截图 gap**：SP 轮未采集截图，以日志锚+口头确认代偿（P2P 轮起补齐截图要求）。下一步=P2P 轮（P1–P6，核心=跨端命名频道流量+`lmn2-frame-release` 会话门锚）。
 
 > 2026-09-06 P2P 轮采集完成（agent 复核）：双端 UMM 包归档 `evidence/DEV-V2-08-20260905/env/p2p-{host,client}/`。**P1–P6 全过**：会话门双端全中（takeover installed 各 1 + `lmn2-frame-release result=released` 各 1 + `lmn2-delegate` 双端 0）；LIT 跨端请求-响应闭环（客机 RequestTidy ×3 → 主机提交 ×4 含主机自整理 loopback 1，reqId 对齐）；LIR 主机队列派发 ×2/客机回包 ×1（差额=NoChange 不回包，设计语义）；**LHT 恰好一次实锤——客机玩家放置信标（Charlottetown，发起人=易烨不会玩FPS），主机广播 Update ×10 + Clear seq=11，客机收到 Update ×10（seq=1..10 连续无缺无重复键）+ Clear 对齐，不可靠通道 1:1**。零误报（主机 6 处命中=LIT RateLimit 防护 ×5+退出 BeginQuiesce ×1，良性）。**截图/时间窗 gap 具名**：双端截图与 Get-Date 时间窗截图未采集，以包时间戳（08:51:30/08:52:02+0800，窗口重叠成立）+日志锚+口头确认代偿。剩=U3DS 轮。
+
+> 2026-09-06 U3DS 轮采集完成 + resolved（agent）：双端日志归档 `evidence/DEV-V2-08-20260905/env/u3ds{,-client}/`。**U1–U5 全过**：U3DS 无头启动锚全套（`startupRole=DedicatedServer; clientUi=False`）+ `takeover-patch installed`；LIT 跨端闭环 reqId=1 对齐；LIR U3DS 派发 ×2/客户端回包 ×2；**LHT 又一次完整尸潮（Alberton）——U3DS 广播 Update ×16 = 客户端收到 ×16（1:1 无重复键），Clear seq=17（客户端先离场，Clear 接收由 P2P 轮实锤）**；会话门双端 release 锚 + delegate 零；`takeover-patch removed`=正常退出清理线；零误报。**三验收条件全满足**（①三插件×三环境收发正常零迁移缺陷 ②T4 Q4「已知生态」义务解除 ③证据归档五环境包+三 case.md）。结单报告=`audit/2026-09-05/DEV-V2-08/DEV-V2-08-closing-report.md`（用户人工验收原话留档 §3；具名事项=O-LIT-1 排列算法质量、缺口=「不再需要独立 LMN DLL」官方纳入另立票、截图 gap）。RELEASES 追加行 7（生态验证 kit 绑行 6）。后续建议=建票「三插件官方纳入实施」（待用户拍板）。

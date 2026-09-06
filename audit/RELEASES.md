@@ -19,6 +19,7 @@
 | 4 | DEV-V2-12-CLEAN-20260905<br>CaseId `DEV-V2-12-20260905`(P2P 成对 `-P2P`) | `B4E37FFA…E959`(270336) | BuildIdentity `C9EEF3B84B9F8C8CEBC37EE3046ED08CDF46AE5697D6B9622283A5EC44FFE272`;canonicalDigest `9E731F7B…D15B` | `b670474` | gate exit 0 TechnicallyQualified | **人工发布批准** `eff5c0d` | `audit/2026-09-05/artifacts/DEV-V2-12-20260905/`(DLL+candidate.json)+ `DEV-V2-12-dll-sha256.txt` + `evidence/DEV-V2-12-20260905/` | 批准有效(历史);源码被 09/13 后继取代 |
 | 5 | DEV-V2-09 候选(轻量视觉链,未立 BuildIdentity/gate) | `3370f5d8…4007`(270848) | SHA-256 + 两轮重建一致(`audit/2026-09-05/DEV-V2-09/identity-*.log/txt`) | `c042bc0` | 不适用(视觉票) | 用户截图视觉验收 `bbb0be6` | `audit/2026-09-05/DEV-V2-09/`(结单报告+验收截图) | 已取代(被 13 构建包含) |
 | 6 | **DEV-V2-13 候选(轻量视觉链)** | `35670269…aef6`(275456) | SHA-256 + 两轮重建一致(`audit/2026-09-05/DEV-V2-13/identity-*.log/txt`) | `ac08916` | 不适用(视觉票) | 用户实机验收 + 授权关闭 `c858775` | `audit/2026-09-05/DEV-V2-13/`(结单报告+ESC 验收截图) | **当前发布物** |
+| 7 | DEV-V2-08 生态验证 kit(三插件验收候选,绑行 6)<br>CaseId `DEV-V2-08-{LIT,LIR,LHT}-20260905` | LIT `7e35d7c7…5417`(151040) / LIR `6653035b…ac90`(52736) / LHT `6b935f5c…f995`(36864) | SHA-256 + 相邻两轮重建一致(`audit/2026-09-05/DEV-V2-08/identity-sha256.txt`);不立 BuildIdentity | 无(验证票,行 6 复用) | 确定性重建 0 警 0 错 ×2 轮 | 用户人工验收三环境(09-05 SP / 09-06 P2P+U3DS,原话留档结单报告 §3) | `audit/2026-09-05/evidence/DEV-V2-08-20260905/` + `DEV-V2-08/`(结单报告) | 验证闭环(生态插件验收候选 0.0.0;版本号授予/官方纳入属后续票) |
 
 ## 注记
 

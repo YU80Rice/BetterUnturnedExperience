@@ -17,3 +17,9 @@
 - 会话门：同 LIT（双端 release 锚 + delegate 零）
 - 截图：未采集（gap）
 - P2P 段结论：**通过**
+
+## 环境 U3DS（2026-09-06 上午）
+- 锚行：U3DS `dispatcher summary: dispatches=1` ×2（客户端压弹请求经命名频道入队派发）；客户端 summary `dispatches=1` ×2（成功回包，toast ×2）
+- 会话门：双端 release 锚 + delegate 零 ✓
+- U3DS 段结论：**通过**
+- **CaseId 总结论：三环境全过（SP 本地事务、P2P/U3DS 跨端请求-回包），无迁移缺陷**
