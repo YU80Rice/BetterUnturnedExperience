@@ -38,7 +38,10 @@ namespace BetterUnturnedExperience.Core.Registration
 
     public sealed class FeatureRegistrationRuntime : IBueFeatureRegistrationHost
     {
-        private const ushort SupportedContractMajor = 1;
+        // DEV-V2-14: the contract Major bump — the frozen surface gained the
+        // directional subscribe and the bootstrap network member, so the
+        // registration gate supports contract (2,0).
+        private const ushort SupportedContractMajor = 2;
         private const ushort SupportedContractMinor = 0;
         private readonly object sync = new object();
         private readonly Dictionary<string, FeatureRegistrationSnapshot> registrations = new Dictionary<string, FeatureRegistrationSnapshot>(StringComparer.Ordinal);

@@ -146,7 +146,7 @@ namespace BetterUnturnedExperience.Plugin
         {
             public FeatureDefinitionArtifact Definition { get { return CreateNetworkDefinition(); } }
 
-            public ContractVersion MinimumBueContract { get { return new ContractVersion(1, 0); } }
+            public ContractVersion MinimumBueContract { get { return new ContractVersion(2, 0); } }
             public IFeatureModuleFactory ModuleFactory { get { return new ModuleFactory(); } }
             public IClientUiSatelliteRegistration ClientUi { get { return null; } }
         }
@@ -155,7 +155,7 @@ namespace BetterUnturnedExperience.Plugin
         {
             public FeatureDefinitionArtifact Definition { get { return CreateV1CompatDefinition(); } }
 
-            public ContractVersion MinimumBueContract { get { return new ContractVersion(1, 0); } }
+            public ContractVersion MinimumBueContract { get { return new ContractVersion(2, 0); } }
             public IFeatureModuleFactory ModuleFactory { get { return new ModuleFactory(); } }
             public IClientUiSatelliteRegistration ClientUi { get { return null; } }
         }

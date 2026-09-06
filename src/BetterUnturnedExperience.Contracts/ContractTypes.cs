@@ -91,6 +91,11 @@ namespace BetterUnturnedExperience.Contracts
         IFeatureLogger Logger { get; }
         IDependencyCapabilityView Dependencies { get; }
         IFeatureLifetime Lifetime { get; }
+        // DEV-V2-14 ②: the feature's network entry point. Frozen: never null
+        // (fail-fast at the host composition), the same IBueNetworkApi
+        // instance for the module's whole lifetime, explicit results while
+        // the network module is not ready, no Host/LMN/Unity type leakage.
+        BueNetwork.IBueNetworkApi Network { get; }
     }
     public interface IFeatureLifetime { bool TryTrack(IDisposable registration); }
     public interface IScopedFeatureSettings
@@ -270,6 +275,12 @@ namespace BetterUnturnedExperience.Contracts.BueNetwork
         NetworkSendResult Send(byte[] payload, bool reliable);
     }
 
+    // DEV-V2-14 ①: direction of an INBOUND frame's source — where the frame
+    // came from, never the local role. A host answering the handshake
+    // receives FromClients frames; a handshake initiator receives FromServer
+    // frames. Same channel, two independent subscriptions.
+    public enum ChannelDirection : byte { FromClients = 0, FromServer = 1 }
+
     // Q1/Q2/Q4/Q9/Q12: the public BueNetworkApi surface. Registration is
     // explicit; send targets are expressed by connection context, never by a
     // peer FeatureId (Q9).
@@ -277,6 +288,16 @@ namespace BetterUnturnedExperience.Contracts.BueNetwork
     {
         ChannelRegistrationResult RegisterChannel(FeatureId channel, ContractVersion minimumBueContract, ushort featureVersion);
         bool UnregisterChannel(FeatureId channel);
+        // DEV-V2-14 ①: subscribe an inbound handler per channel and frame
+        // source. Frozen: every call returns its own idempotent handle whose
+        // Dispose removes only its own delegate; the handler table is
+        // decoupled from channel registration (subscribing to an
+        // unregistered channel is legal — frames dispatch once the channel
+        // is registered and traffic arrives); handlers run outside the state
+        // lock and one handler's exception never reaches its peers; a null
+        // handler or an undefined direction value is a developer error and
+        // throws its argument exception (fail-fast).
+        IDisposable Subscribe(FeatureId channel, ChannelDirection direction, Action<IConnectionSession, byte[]> handler);
         IReadOnlyList<IConnectionSession> Sessions { get; }
         NetworkSendResult SendToServer(FeatureId channel, byte[] payload, bool reliable);
         NetworkSendResult SendToClients(FeatureId channel, byte[] payload, bool reliable);

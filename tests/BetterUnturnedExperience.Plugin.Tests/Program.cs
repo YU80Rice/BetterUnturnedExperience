@@ -239,6 +239,16 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     AssertBueV2SenderIdentity();
                     return 0;
                 }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--bue-v2-subscribe-red")
+                {
+                    AssertBueV2DirectionalSubscribe();
+                    return 0;
+                }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--bue-v2-network-injection-red")
+                {
+                    AssertBueV2NetworkInjection();
+                    return 0;
+                }
                 AssertSingleDllAssemblyClosure();
                 AssertExternalSdkAssemblyIdentity();
                 Assert(BootstrapGuard.Decide(false, false, true) == BootstrapDecision.Client, "client decision");
@@ -324,6 +334,8 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 AssertBueNetworkKillSwitchLifecycle();
                 AssertBueLmnTypeNameAnchor();
                 AssertBueV2SenderIdentity();
+                AssertBueV2DirectionalSubscribe();
+                AssertBueV2NetworkInjection();
                 AssertRuntimeCompletionBarrierIsolates();
                 AssertManagementPanelConsumesRuntimeCatalog();
                 AssertManagementPanelOpenHooks();
@@ -1651,6 +1663,10 @@ namespace BetterUnturnedExperience.Plugin.Tests
             var register = a.RegisterChannel(channel, localContract, 1);
             Assert(register.Accepted && register.Channel.Value == channel.Value && register.Reason == FeatureRegistrationReason.None,
                 "Q1: fresh channel registration is accepted");
+            // DEV-V2-14: the receiving side registers the channel too — a
+            // frame dispatches only once the receiver's channel is registered.
+            Assert(b.RegisterChannel(channel, localContract, 1).Accepted,
+                "setup: the receiver registers the channel (dispatch gate is the receiver's channel table)");
 
             // Q2: version negotiation — a channel demanding a higher contract
             // than the local runtime is rejected with ContractIncompatible.
@@ -1681,7 +1697,9 @@ namespace BetterUnturnedExperience.Plugin.Tests
             // Q9+reliability: round-trip send over the loopback with payload
             // integrity; receiver's Subscribe handler gets the bytes.
             var received = new System.Collections.Generic.List<byte[]>();
-            var subscription = b.Subscribe(channel, (session, payload) => received.Add(payload));
+            // DEV-V2-14: B answered the handshake, so B's inbound frames come
+            // FROM CLIENTS (the initiator is the client side of the pair).
+            var subscription = b.Subscribe(channel, ChannelDirection.FromClients, (session, payload) => received.Add(payload));
             var payload = new byte[] { 1, 2, 3, 4, 0xAA, 0xBB };
             var send = a.SendToClient(channel, aSession, payload, reliable: true);
             Assert(send == NetworkSendResult.Sent,
@@ -2230,7 +2248,9 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 "setup: all three trio runtimes register the channel");
             IConnectionSession lastContext = null;
             byte[] lastPayload = null;
-            runtimeHub.Subscribe(trioChannel, (session, payload) => { lastContext = session; lastPayload = payload; });
+            // DEV-V2-14: the hub answered both handshakes — its inbound frames
+            // come FROM CLIENTS; the peers' inbound frames come FROM SERVER.
+            runtimeHub.Subscribe(trioChannel, ChannelDirection.FromClients, (session, payload) => { lastContext = session; lastPayload = payload; });
             runtimePeerB.StartSession(100UL);
             runtimePeerC.StartSession(100UL);
             transportB.Pump();
@@ -2254,8 +2274,8 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 "frame v2: the second peer's frame resolves to its own session (first-session shortcut falsified)");
             var hubToB = 0;
             var hubToC = 0;
-            runtimePeerB.Subscribe(trioChannel, (session, payload) => hubToB++);
-            runtimePeerC.Subscribe(trioChannel, (session, payload) => hubToC++);
+            runtimePeerB.Subscribe(trioChannel, ChannelDirection.FromServer, (session, payload) => hubToB++);
+            runtimePeerC.Subscribe(trioChannel, ChannelDirection.FromServer, (session, payload) => hubToC++);
             Assert(runtimeHub.SendToClients(trioChannel, new byte[] { 0x1F }, true) == NetworkSendResult.Sent,
                 "setup: the hub broadcasts");
             Assert(hubLastReliable, "frame v2: SendToClients forwards the reliability bit to the transport seam");
@@ -2864,6 +2884,227 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 if (entries[index].StableId == stableId && entries[index].DisplayName == displayName) return true;
             }
             return false;
+        }
+
+        // DEV-V2-14 red regression (GPT watermark): directional inbound
+        // subscribe on the frozen contract surface. The runtime must keep two
+        // handler tables keyed by ChannelDirection (frame source, NOT local
+        // role), dispatch only after the channel is registered, run handlers
+        // outside the state lock, isolate a single handler's exception, and
+        // hand out independent idempotent dispose handles. Disabling the
+        // network module keeps Register/Unregister/Subscribe legal with zero
+        // inbound dispatch and explicit NoSession sends. RED until the
+        // directional contract lands (compile CS1503 on the 2-arg call sites,
+        // then runtime assertions).
+        private static void AssertBueV2DirectionalSubscribe()
+        {
+            var localContract = new ContractVersion(2, 0);
+            var pair = BetterUnturnedExperience.Core.Network.LocalLoopbackTransport.CreatePair();
+            var a = new BetterUnturnedExperience.Core.Network.BueNetworkRuntime(pair.First, localContract, 1002UL);
+            var b = new BetterUnturnedExperience.Core.Network.BueNetworkRuntime(pair.Second, localContract, 2002UL);
+            var channel = new FeatureId("io.example.v2sub");
+            Assert(a.RegisterChannel(channel, localContract, 1).Accepted && b.RegisterChannel(channel, localContract, 1).Accepted,
+                "setup: both runtimes register the channel");
+            var aSession = a.StartSession(2002UL);
+            pair.First.Pump(); pair.Second.Pump(); // A Hello -> B (Ack)
+            pair.First.Pump();                     // B Ack -> A
+            Assert(a.Sessions.Count == 1 && b.Sessions.Count == 1, "setup: handshake established both sides");
+
+            // 1. Direction semantics: A initiated the handshake, so A's
+            //    inbound frames come FROM SERVER; B's come FROM CLIENTS.
+            var aFromServer = 0;
+            var aWrongDirection = 0;
+            var bFromClients = 0;
+            var bWrongDirection = 0;
+            a.Subscribe(channel, ChannelDirection.FromServer, (session, payload) => aFromServer++);
+            a.Subscribe(channel, ChannelDirection.FromClients, (session, payload) => aWrongDirection++);
+            b.Subscribe(channel, ChannelDirection.FromClients, (session, payload) => bFromClients++);
+            b.Subscribe(channel, ChannelDirection.FromServer, (session, payload) => bWrongDirection++);
+            Assert(a.SendToClient(channel, aSession, new byte[] { 0x01 }, true) == NetworkSendResult.Sent, "setup: A sends to B");
+            pair.First.Pump(); pair.Second.Pump();
+            Assert(bFromClients == 1 && bWrongDirection == 0,
+                "direction: the responder's frame dispatches only the FromClients handler (direction = frame source)");
+            Assert(b.SendToClient(channel, b.Sessions[0], new byte[] { 0x02 }, true) == NetworkSendResult.Sent, "setup: B sends to A");
+            pair.First.Pump(); pair.Second.Pump();
+            Assert(aFromServer == 1 && aWrongDirection == 0,
+                "direction: the initiator's frame dispatches only the FromServer handler (direction is not the local role)");
+
+            // 2. Subscribing to an unregistered channel is legal; frames only
+            //    dispatch once that channel is registered (handler table and
+            //    channel table are decoupled).
+            var unregistered = new FeatureId("io.example.v2sub-late");
+            var lateHits = 0;
+            var lateHandle = b.Subscribe(unregistered, ChannelDirection.FromClients, (session, payload) => lateHits++);
+            Assert(lateHandle != null, "unregistered channel: subscribing before RegisterChannel is legal");
+            Assert(a.RegisterChannel(unregistered, localContract, 1).Accepted, "setup: the sender registers the unregistered channel");
+            Assert(a.SendToClient(unregistered, aSession, new byte[] { 0x03 }, true) == NetworkSendResult.Sent, "setup: frame flows for the unregistered channel");
+            pair.First.Pump(); pair.Second.Pump();
+            Assert(lateHits == 0, "unregistered channel: no dispatch while the receiving side has not registered the channel");
+            Assert(b.RegisterChannel(unregistered, localContract, 1).Accepted, "setup: the receiver registers the channel");
+            Assert(a.SendToClient(unregistered, aSession, new byte[] { 0x04 }, true) == NetworkSendResult.Sent, "setup: frame flows after registration");
+            pair.First.Pump(); pair.Second.Pump();
+            Assert(lateHits == 1, "unregistered channel: dispatch starts once the channel is registered and traffic arrives");
+            lateHandle.Dispose();
+
+            // 3. Independent idempotent handles: the same delegate subscribed
+            //    twice gets both deliveries; each handle disposes only itself.
+            var multiHits = 0;
+            Action<IConnectionSession, byte[]> multiHandler = (session, payload) => multiHits++;
+            var handleOne = a.Subscribe(channel, ChannelDirection.FromServer, multiHandler);
+            var handleTwo = a.Subscribe(channel, ChannelDirection.FromServer, multiHandler);
+            Assert(!ReferenceEquals(handleOne, handleTwo), "handles: every subscription returns its own handle");
+            Assert(b.SendToClient(channel, b.Sessions[0], new byte[] { 0x05 }, true) == NetworkSendResult.Sent, "setup: frame flows to the double subscriber");
+            pair.First.Pump(); pair.Second.Pump();
+            Assert(multiHits == 2, "handles: the same delegate subscribed twice is invoked once per handle");
+            handleOne.Dispose();
+            Assert(b.SendToClient(channel, b.Sessions[0], new byte[] { 0x06 }, true) == NetworkSendResult.Sent, "setup: frame flows after the first dispose");
+            pair.First.Pump(); pair.Second.Pump();
+            Assert(multiHits == 3, "handles: disposing one handle leaves the other subscription alive");
+            handleOne.Dispose();
+            handleTwo.Dispose();
+            Assert(b.SendToClient(channel, b.Sessions[0], new byte[] { 0x07 }, true) == NetworkSendResult.Sent, "setup: frame flows after the double dispose");
+            pair.First.Pump(); pair.Second.Pump();
+            Assert(multiHits == 3, "handles: a disposed handle receives nothing and re-dispose is safe (idempotent)");
+
+            // 4. Fail-fast developer errors: null handler and an undefined
+            //    direction value throw argument exceptions.
+            var nullHandlerThrown = false;
+            try { a.Subscribe(channel, ChannelDirection.FromClients, null); }
+            catch (ArgumentNullException) { nullHandlerThrown = true; }
+            Assert(nullHandlerThrown, "fail-fast: a null handler throws ArgumentNullException");
+            var badDirectionThrown = false;
+            try { a.Subscribe(channel, (ChannelDirection)42, multiHandler); }
+            catch (ArgumentOutOfRangeException) { badDirectionThrown = true; }
+            Assert(badDirectionThrown, "fail-fast: an undefined ChannelDirection value throws ArgumentOutOfRangeException");
+
+            // 5. Handler isolation and lock-freedom: a throwing handler does
+            //    not stop its peers, and a handler may re-enter the API
+            //    (Sessions) because dispatch runs outside the state lock.
+            var isolationHits = 0;
+            a.Subscribe(channel, ChannelDirection.FromServer, (session, payload) => { throw new InvalidOperationException("bad consumer"); });
+            a.Subscribe(channel, ChannelDirection.FromServer, (session, payload) => isolationHits++);
+            Assert(b.SendToClient(channel, b.Sessions[0], new byte[] { 0x08 }, true) == NetworkSendResult.Sent, "setup: frame flows to the throwing pair");
+            pair.First.Pump(); pair.Second.Pump();
+            Assert(isolationHits == 1, "isolation: the surviving handler still ran after its peer threw");
+
+            // 5b. Lock-freedom, proven from a FOREIGN thread: Monitor is
+            //      reentrant on the dispatching thread, so calling Sessions
+            //      from inside the handler proves nothing. A foreign thread
+            //      must be able to take the state lock while the handler runs.
+            var foreignAcquiredInTime = false;
+            a.Subscribe(channel, ChannelDirection.FromServer, (session, payload) =>
+            {
+                var foreign = System.Threading.Tasks.Task.Run(() => { var count = a.Sessions.Count; return count; });
+                foreignAcquiredInTime = foreign.Wait(TimeSpan.FromSeconds(2));
+            });
+            Assert(b.SendToClient(channel, b.Sessions[0], new byte[] { 0x09 }, true) == NetworkSendResult.Sent, "setup: frame flows to the lock probe");
+            var probePump = System.Threading.Tasks.Task.Run(() => pair.First.Pump());
+            Assert(probePump.Wait(TimeSpan.FromSeconds(5)), "lock-freedom: the probe pump completed");
+            Assert(foreignAcquiredInTime,
+                "lock-freedom: a foreign thread acquired the state lock while the handler ran — dispatch never holds it");
+
+            // 6. Disabled network module: subscriptions stay legal, inbound is
+            //    zero, Sessions is an empty snapshot, sends return the existing
+            //    enum values, lifecycle never fires, and re-arming needs no
+            //    re-subscription.
+            var disabledHits = 0;
+            var survivingHandle = b.Subscribe(channel, ChannelDirection.FromClients, (session, payload) => disabledHits++);
+            b.SetModuleActive(false);
+            Assert(b.Sessions.Count == 0, "disabled: Sessions is an empty snapshot");
+            var disabledSubscribed = b.Subscribe(channel, ChannelDirection.FromClients, (session, payload) => { });
+            Assert(disabledSubscribed != null, "disabled: subscribing while the module is down stays legal");
+            var disabledChannel = new FeatureId("io.example.v2sub-disabled");
+            Assert(b.RegisterChannel(disabledChannel, localContract, 1).Accepted, "disabled: registering a channel while down stays legal");
+            Assert(b.UnregisterChannel(disabledChannel), "disabled: unregistering a channel while down stays legal");
+            Assert(b.SendToServer(channel, new byte[] { 0x0A }, true) == NetworkSendResult.NoSession,
+                "disabled: SendToServer returns the explicit NoSession result");
+            Assert(b.SendToClients(channel, new byte[] { 0x0A }, true) == NetworkSendResult.NoSession,
+                "disabled: SendToClients returns the explicit NoSession result");
+            Assert(b.SendToClient(channel, b.Sessions.Count > 0 ? b.Sessions[0] : null, new byte[] { 0x0A }, true) == NetworkSendResult.NoSession,
+                "disabled: SendToClient returns the explicit NoSession result");
+            Assert(b.StartSession(1002UL) == null, "disabled: no session is created while the module is down");
+            Assert(a.SendToClient(channel, aSession, new byte[] { 0x0B }, true) == NetworkSendResult.Sent, "setup: the peer still emits frames while B is down");
+            pair.First.Pump(); pair.Second.Pump();
+            Assert(disabledHits == 0, "disabled: inbound dispatch is zero while the module is down");
+            b.SetModuleActive(true);
+            // The client re-initiates the handshake (production topology: the
+            // answering side re-arms, the initiator re-handshakes). The channel
+            // table survives the cycle — no re-registration, no re-subscribe.
+            a.StartSession(2002UL);
+            pair.First.Pump(); pair.Second.Pump(); // A Hello -> B (B answers, Ack)
+            pair.First.Pump();                     // B Ack -> A
+            Assert(a.SendToClient(channel, aSession, new byte[] { 0x0C }, true) == NetworkSendResult.Sent,
+                "setup: A sends over the re-established topology");
+            pair.First.Pump(); pair.Second.Pump();
+            Assert(disabledHits == 1, "re-arm: subscriptions survive the disable/enable cycle without re-subscribing");
+            survivingHandle.Dispose();
+        }
+
+        // DEV-V2-14 red regression (GPT watermark): IFeatureBootstrap.Network
+        // injection. The host-side bootstrap composition must hand features a
+        // fail-fast non-null IBueNetworkApi that stays the same instance
+        // across disable/enable cycles, surfaces explicit results while the
+        // module is not ready, and leaves subscription handles safely and
+        // repeatably disposable afterwards. RED until the composition exists
+        // (compile CS0246, then runtime assertions).
+        private static void AssertBueV2NetworkInjection()
+        {
+            var localContract = new ContractVersion(2, 0);
+            var pair = BetterUnturnedExperience.Core.Network.LocalLoopbackTransport.CreatePair();
+            var runtime = new BetterUnturnedExperience.Core.Network.BueNetworkRuntime(pair.First, localContract, 1002UL);
+            var identity = default(FeatureScopeIdentity);
+            var nullNetworkThrown = false;
+            try { new BetterUnturnedExperience.Core.Registration.FeatureBootstrap(identity, 1UL, null, null, null, null, null, null, null); }
+            catch (ArgumentNullException) { nullNetworkThrown = true; }
+            Assert(nullNetworkThrown, "injection: the bootstrap fails fast on a null network API (Network is never null)");
+            var runtimeAsApi = (IBueNetworkApi)runtime;
+            var bootstrap = new BetterUnturnedExperience.Core.Registration.FeatureBootstrap(identity, 1UL, null, null, null, null, null, null, runtimeAsApi);
+            Assert(bootstrap.Network != null && ReferenceEquals(bootstrap.Network, runtimeAsApi),
+                "injection: Network carries exactly the host-provided IBueNetworkApi instance");
+            var channel = new FeatureId("io.example.v2inj");
+            Assert(bootstrap.Network.RegisterChannel(channel, localContract, 1).Accepted, "injection: channels register through the injected API");
+            var hits = 0;
+            var handle = bootstrap.Network.Subscribe(channel, ChannelDirection.FromClients, (session, payload) => hits++);
+            Assert(handle != null, "injection: subscribing through the injected API yields a handle");
+
+            // While the network module is not ready the same instance answers
+            // with explicit results — never null, never a silent exception.
+            runtime.SetModuleActive(false);
+            Assert(ReferenceEquals(bootstrap.Network, runtimeAsApi), "injection: disable never substitutes the Network instance");
+            Assert(bootstrap.Network.Sessions.Count == 0, "not-ready: Sessions is an explicit empty snapshot");
+            Assert(bootstrap.Network.SendToServer(channel, new byte[] { 0x01 }, true) == NetworkSendResult.NoSession,
+                "not-ready: sends return the explicit NoSession result");
+            var notReadyHandle = bootstrap.Network.Subscribe(channel, ChannelDirection.FromClients, (session, payload) => hits++);
+            Assert(notReadyHandle != null, "not-ready: subscribing while not ready stays legal");
+
+            // Feature-stop semantics (frozen "失效或可安全重复释放"): handles
+            // are safely and repeatably disposable — never a leak, never a
+            // throw — and stay dead afterwards; the channel registration the
+            // feature owns is likewise releasable through the same API. The
+            // host-side auto-invalidation on IFeatureModule.Stop rides the
+            // host start path (DEV-V2-21/22).
+            notReadyHandle.Dispose();
+            notReadyHandle.Dispose();
+            handle.Dispose();
+            handle.Dispose();
+            Assert(bootstrap.Network.UnregisterChannel(channel),
+                "stop semantics: the feature's channel registration is releasable through the same API");
+            runtime.SetModuleActive(true);
+            var rearmedHits = 0;
+            var rearmedHandle = bootstrap.Network.Subscribe(channel, ChannelDirection.FromClients, (session, payload) => rearmedHits++);
+            Assert(rearmedHandle != null, "re-arm: the same API instance takes fresh subscriptions");
+            Assert(bootstrap.Network.RegisterChannel(channel, localContract, 1).Accepted,
+                "setup: the re-armed runtime re-owns the channel for the re-handshake");
+            var peerRuntime = new BetterUnturnedExperience.Core.Network.BueNetworkRuntime(pair.Second, localContract, 2002UL);
+            peerRuntime.RegisterChannel(channel, localContract, 1);
+            peerRuntime.StartSession(1002UL);
+            pair.Second.Pump(); pair.First.Pump(); // peer Hello -> runtime (Ack)
+            pair.Second.Pump();
+            Assert(runtime.Sessions.Count == 1, "setup: the re-armed runtime established the session");
+            Assert(peerRuntime.SendToServer(channel, new byte[] { 0x02 }, true) == NetworkSendResult.Sent, "setup: the peer sends after re-arm");
+            pair.First.Pump(); pair.Second.Pump();
+            Assert(hits == 0, "stop semantics: disposed handles receive nothing after the module returns");
+            Assert(rearmedHits == 1, "stop semantics: the re-armed module dispatches to fresh subscriptions (channel table intact)");
         }
 
         private static int CountToken(List<string> lines, string token)

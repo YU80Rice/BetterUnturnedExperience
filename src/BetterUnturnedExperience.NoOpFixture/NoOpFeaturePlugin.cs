@@ -32,7 +32,7 @@ namespace BetterUnturnedExperience.NoOpFixture
         private sealed class NoOpRegistration : IFeatureRegistration
         {
             public FeatureDefinitionArtifact Definition { get; } = new FeatureDefinitionArtifact(new FeatureId("io.github.yu80rice.bue.noop"), 1, "bue-noop", new Digest256(1, 2, 3, 4), new Digest256(5317555933983313923UL, 8642148531063968556UL, 2942485310001909708UL, 9366110643396117629UL), new byte[] { 1, 2, 3 });
-            public ContractVersion MinimumBueContract { get { return new ContractVersion(1, 0); } }
+            public ContractVersion MinimumBueContract { get { return new ContractVersion(2, 0); } }
             public IFeatureModuleFactory ModuleFactory { get { return new NoOpFactory(); } }
             public IClientUiSatelliteRegistration ClientUi { get { return null; } }
         }

@@ -28,7 +28,7 @@ namespace BetterUnturnedExperience.Plugin
                 new Digest256(4239661619294337961UL, 6084291702436199631UL, 12736748317259485579UL, 11302160818330435267UL),
                 Payload);
 
-            public ContractVersion MinimumBueContract { get { return new ContractVersion(1, 0); } }
+            public ContractVersion MinimumBueContract { get { return new ContractVersion(2, 0); } }
             public IFeatureModuleFactory ModuleFactory { get { return new ModuleFactory(); } }
             public IClientUiSatelliteRegistration ClientUi { get { return new OfficialClientUiSatelliteRegistration(); } }
         }
@@ -36,7 +36,7 @@ namespace BetterUnturnedExperience.Plugin
         private sealed class OfficialClientUiSatelliteRegistration : IClientUiSatelliteRegistration
         {
             public string SatelliteId { get { return "bue-clientui-embedded"; } }
-            public ContractVersion MinimumBueContract { get { return new ContractVersion(1, 0); } }
+            public ContractVersion MinimumBueContract { get { return new ContractVersion(2, 0); } }
             public string RegistrationToken { get { return "bue-official-clientui-v1"; } }
         }
 

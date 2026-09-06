@@ -13,6 +13,13 @@ namespace BetterUnturnedExperience.Core.Network
     /// INetworkTransport seam. Real IClientTransport / ITransportConnection
     /// wiring (client→server vs server→client asymmetry) is DEV-V2-04; here the
     /// transport is injected (LocalLoopbackTransport in tests).
+    /// DEV-V2-14: inbound subscription is directional contract surface —
+    /// two handler tables keyed by ChannelDirection (the frame's source,
+    /// carried by each session's handshake origin), handlers dispatched
+    /// outside the state lock with per-handler exception isolation, and a
+    /// host-internal module switch (SetModuleActive) whose inactive state
+    /// keeps the channel/subscription tables intact while holding no
+    /// sessions and receiving nothing.
     /// Frame format (DEV-V2-06 v2) is internal: magic "BUE2" + kind byte +
     /// length-prefixed channel id + the sender's steam id (8 bytes LE) +
     /// payload — never exposed into Contracts. The sender field lets the
@@ -36,8 +43,20 @@ namespace BetterUnturnedExperience.Core.Network
             new Dictionary<string, ChannelRegistration>(StringComparer.Ordinal);
         private readonly Dictionary<ulong, BueNetworkSession> sessions =
             new Dictionary<ulong, BueNetworkSession>();
-        private readonly Dictionary<string, List<Action<IConnectionSession, byte[]>>> handlers =
-            new Dictionary<string, List<Action<IConnectionSession, byte[]>>>(StringComparer.Ordinal);
+        // DEV-V2-14 ①: subscription tables are keyed by (channel, direction)
+        // and decoupled from the channel table — subscribing to an
+        // unregistered channel is legal, and a frame dispatches only once the
+        // receiving side has registered the channel and traffic arrives.
+        private readonly Dictionary<string, List<SubscriptionRecord>> fromClientsHandlers =
+            new Dictionary<string, List<SubscriptionRecord>>(StringComparer.Ordinal);
+        private readonly Dictionary<string, List<SubscriptionRecord>> fromServerHandlers =
+            new Dictionary<string, List<SubscriptionRecord>>(StringComparer.Ordinal);
+        // DEV-V2-14: host-internal module switch. Inactive keeps the channel
+        // and subscription tables intact (Register/Unregister/Subscribe stay
+        // legal) while holding zero sessions, receiving nothing, and firing
+        // no lifecycle events — sends fall out to the existing enum results.
+        private bool moduleActive = true;
+        private bool receiveAttached = true;
         private readonly object sync = new object();
         // Session ids must be unique across runtime instances: an ownership
         // check (SendToClient looks up its own sessions by id) would otherwise
@@ -117,26 +136,67 @@ namespace BetterUnturnedExperience.Core.Network
             }
         }
 
-        /// <summary>Host-internal receive subscription (not on the frozen contract
-        /// surface — modules subscribe per channel to receive inbound frames).</summary>
-        public IDisposable Subscribe(FeatureId channel, Action<IConnectionSession, byte[]> handler)
+        /// <summary>
+        /// DEV-V2-14 ① contract seam: directional inbound subscription. Every
+        /// call returns its own idempotent handle whose Dispose removes only
+        /// its own delegate (the same handler subscribed twice is invoked
+        /// once per handle). A null handler or an undefined direction value
+        /// is a developer error and fails fast.
+        /// </summary>
+        public IDisposable Subscribe(FeatureId channel, ChannelDirection direction, Action<IConnectionSession, byte[]> handler)
         {
             if (handler == null) throw new ArgumentNullException(nameof(handler));
+            if (direction != ChannelDirection.FromClients && direction != ChannelDirection.FromServer)
+                throw new ArgumentOutOfRangeException(nameof(direction), "undefined ChannelDirection value: " + (byte)direction);
+            var record = new SubscriptionRecord(channel.Value, direction, handler);
+            var table = direction == ChannelDirection.FromClients ? fromClientsHandlers : fromServerHandlers;
             lock (sync)
             {
-                if (!handlers.TryGetValue(channel.Value, out var list))
+                if (!table.TryGetValue(record.Channel, out var list))
                 {
-                    list = new List<Action<IConnectionSession, byte[]>>();
-                    handlers[channel.Value] = list;
+                    list = new List<SubscriptionRecord>();
+                    table[record.Channel] = list;
                 }
-                list.Add(handler);
-                return new Subscription(() =>
+                list.Add(record);
+            }
+            return new Subscription(() => Unsubscribe(record));
+        }
+
+        private void Unsubscribe(SubscriptionRecord record)
+        {
+            var table = record.Direction == ChannelDirection.FromClients ? fromClientsHandlers : fromServerHandlers;
+            lock (sync)
+            {
+                if (record.Removed) return;
+                record.Removed = true;
+                if (table.TryGetValue(record.Channel, out var list)) list.Remove(record);
+            }
+        }
+
+        /// <summary>
+        /// DEV-V2-14 host-internal module switch (never on the contract
+        /// surface — features read state from Sessions and send results).
+        /// Deactivating detaches the transport receive and drops all
+        /// sessions; reactivating re-attaches and lets the handshake rebuild
+        /// sessions — channel and subscription tables survive untouched, so
+        /// live subscriptions need no re-subscription.
+        /// </summary>
+        public void SetModuleActive(bool active)
+        {
+            lock (sync)
+            {
+                if (moduleActive == active) return;
+                moduleActive = active;
+                if (!active)
                 {
-                    lock (sync)
-                    {
-                        if (handlers.TryGetValue(channel.Value, out var current)) current.Remove(handler);
-                    }
-                });
+                    sessions.Clear();
+                    if (receiveAttached) { transport.Receive -= OnReceive; receiveAttached = false; }
+                }
+                else if (!receiveAttached)
+                {
+                    transport.Receive += OnReceive;
+                    receiveAttached = true;
+                }
             }
         }
 
@@ -151,8 +211,13 @@ namespace BetterUnturnedExperience.Core.Network
         {
             lock (sync)
             {
+                // DEV-V2-14: a deactivated module holds no sessions and sends
+                // no Hello — the caller sees an explicit null, not a ghost.
+                if (!moduleActive) return null;
                 var id = unchecked((ulong)System.Threading.Interlocked.Increment(ref nextSessionId));
-                var session = new BueNetworkSession(id, peerSteamId, localContract);
+                // The initiator of the handshake is the client side of this
+                // session, so its inbound frames come FROM SERVER.
+                var session = new BueNetworkSession(id, peerSteamId, localContract, ChannelDirection.FromServer);
                 sessions[id] = session;
                 SendFrame(KindHello, string.Empty, EncodeControl(localSteamId, localContract), true, 0UL);
                 return session;
@@ -167,6 +232,7 @@ namespace BetterUnturnedExperience.Core.Network
             byte[] payload;
             lock (sync)
             {
+                if (!moduleActive) return; // DEV-V2-14: a deactivated module receives nothing
                 if (frame == null || frame.Length < 6 || Encoding.ASCII.GetString(frame, 0, 4) != FrameMagic) return;
                 kind = frame[4];
                 var channelLength = frame[5];
@@ -206,6 +272,10 @@ namespace BetterUnturnedExperience.Core.Network
             BueNetworkSession session = null;
             lock (sync)
             {
+                // DEV-V2-14: the pump thread re-checked moduleActive in
+                // OnReceive but released the lock since — a concurrent disable
+                // must not create a session, send an Ack, or fire Connected.
+                if (!moduleActive) return;
                 if (payload == null || payload.Length < 12) return;
                 peerSteamId = Read64(payload, 0);
                 peerContract = new ContractVersion(Read16(payload, 8), Read16(payload, 10));
@@ -217,7 +287,9 @@ namespace BetterUnturnedExperience.Core.Network
                     return;
                 }
                 var id = unchecked((ulong)System.Threading.Interlocked.Increment(ref nextSessionId));
-                session = new BueNetworkSession(id, peerSteamId, peerContract);
+                // The Hello responder is the server side of this session, so
+                // its inbound frames come FROM CLIENTS.
+                session = new BueNetworkSession(id, peerSteamId, peerContract, ChannelDirection.FromClients);
                 sessions[id] = session;
                 SendFrame(KindAck, string.Empty, EncodeControl(localSteamId, localContract), true, 0UL);
             }
@@ -230,6 +302,9 @@ namespace BetterUnturnedExperience.Core.Network
             ContractVersion peerContract = default(ContractVersion);
             lock (sync)
             {
+                // DEV-V2-14: latching a session established (Connected fires
+                // right after) must not happen on a deactivated module.
+                if (!moduleActive) return;
                 if (payload == null || payload.Length < 12) return;
                 var peerSteamId = Read64(payload, 0);
                 peerContract = new ContractVersion(Read16(payload, 8), Read16(payload, 10));
@@ -250,6 +325,9 @@ namespace BetterUnturnedExperience.Core.Network
             // un-established session is the one to clear.
             lock (sync)
             {
+                // DEV-V2-14: same disable race as Hello/Ack — stay inert on a
+                // deactivated module (its session table is empty anyway).
+                if (!moduleActive) return;
                 var ghosts = new List<ulong>();
                 foreach (var pair in sessions)
                 {
@@ -262,24 +340,42 @@ namespace BetterUnturnedExperience.Core.Network
         private void DispatchData(string channelId, byte[] payload, ulong sender)
         {
             if (payload == null || payload.Length > 16 * 1024) return;
-            List<Action<IConnectionSession, byte[]>> copy;
+            List<SubscriptionRecord> copy;
             IConnectionSession context;
             lock (sync)
             {
-                if (!handlers.TryGetValue(channelId, out var list) || list.Count == 0) return;
+                // DEV-V2-14: dispatch requires the receiving side to have
+                // registered the channel AND traffic to arrive — the
+                // subscription table is decoupled from the channel table.
+                if (!channels.ContainsKey(channelId)) return;
                 // Frame v2: the sender's steam id rides the header, so the
                 // dispatch context resolves by source; a frame from an unknown
                 // peer is dropped instead of falling back to "first session".
-                context = null;
+                BueNetworkSession matched = null;
                 foreach (var s in sessions.Values)
                 {
-                    if (s.PeerSteamId == sender) { context = s; break; }
+                    if (s.PeerSteamId == sender) { matched = s; break; }
                 }
-                if (context == null) return;
-                copy = new List<Action<IConnectionSession, byte[]>>(list);
+                if (matched == null) return;
+                context = matched;
+                // Direction = where the frame came from, carried by the
+                // session's handshake origin.
+                var table = matched.InboundDirection == ChannelDirection.FromServer ? fromServerHandlers : fromClientsHandlers;
+                if (!table.TryGetValue(channelId, out var list) || list.Count == 0) return;
+                copy = new List<SubscriptionRecord>(list);
             }
             // Handlers run outside the lock (repo dispatch convention).
-            foreach (var handler in copy) handler(context, payload);
+            foreach (var record in copy)
+            {
+                if (record.Removed) continue; // disposed between snapshot and dispatch
+                try { record.Handler(context, payload); }
+                catch (Exception)
+                {
+                    // DEV-V2-14: one handler's exception never reaches its
+                    // peers or the transport pump. The runtime has no logger
+                    // seam; the failure is contained by frozen semantics.
+                }
+            }
         }
 
         private byte[] EncodeControl(ulong steamId, ContractVersion contract)
@@ -322,13 +418,18 @@ namespace BetterUnturnedExperience.Core.Network
 
         private sealed class BueNetworkSession : IConnectionSession
         {
-            public BueNetworkSession(ulong sessionId, ulong peerSteamId, ContractVersion peerContract)
-            { SessionId = sessionId; PeerSteamId = peerSteamId; PeerContract = peerContract; }
+            public BueNetworkSession(ulong sessionId, ulong peerSteamId, ContractVersion peerContract, ChannelDirection inboundDirection)
+            { SessionId = sessionId; PeerSteamId = peerSteamId; PeerContract = peerContract; InboundDirection = inboundDirection; }
             public ulong SessionId { get; }
             public ulong PeerSteamId { get; }
             public ContractVersion PeerContract { get; private set; }
             public ushort PeerFeatureVersion { get { return 0; } }
             public IReadOnlyList<ChannelVersionEntry> Channels { get { return new ChannelVersionEntry[0]; } }
+            // DEV-V2-14: where inbound frames on this session come from —
+            // FromServer for the handshake initiator, FromClients for the
+            // Hello responder. Frozen: direction is the frame source, never
+            // the local role.
+            internal ChannelDirection InboundDirection { get; }
             internal bool Established { get; private set; }
             public event Action Connected;
 #pragma warning disable 0067 // Raised by DEV-V2-04 lifecycle wiring (session teardown / reconnection).
@@ -347,6 +448,16 @@ namespace BetterUnturnedExperience.Core.Network
                 PeerContract = negotiated;
                 MarkEstablished();
             }
+        }
+
+        private sealed class SubscriptionRecord
+        {
+            public SubscriptionRecord(string channel, ChannelDirection direction, Action<IConnectionSession, byte[]> handler)
+            { Channel = channel; Direction = direction; Handler = handler; }
+            public string Channel { get; }
+            public ChannelDirection Direction { get; }
+            public Action<IConnectionSession, byte[]> Handler { get; }
+            public bool Removed;
         }
 
         private sealed class Subscription : IDisposable

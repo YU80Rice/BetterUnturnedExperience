@@ -69,6 +69,25 @@ namespace BetterUnturnedExperience.Contracts.Tests
             Assert(typeof(IFeatureBootstrap).IsInterface, "bootstrap seam is an interface");
             Assert(evaluator == null && bootstrap == null, "contract seams have no runtime implementation in DEV-01");
 
+            // DEV-V2-14 ①②: directional inbound subscribe and the bootstrap
+            // network member are frozen contract surface (change log entries
+            // ① Subscribe+ChannelDirection, ② IFeatureBootstrap.Network).
+            Assert(typeof(BueNetwork.ChannelDirection).IsEnum
+                && Enum.GetUnderlyingType(typeof(BueNetwork.ChannelDirection)) == typeof(byte),
+                "DEV-V2-14: ChannelDirection is a byte enum");
+            Assert((byte)BueNetwork.ChannelDirection.FromClients == 0 && (byte)BueNetwork.ChannelDirection.FromServer == 1,
+                "DEV-V2-14: ChannelDirection values are frozen (FromClients=0, FromServer=1)");
+            var apiSubscribe = typeof(BueNetwork.IBueNetworkApi).GetMethod("Subscribe");
+            Assert(apiSubscribe != null && apiSubscribe.ReturnType == typeof(IDisposable)
+                && apiSubscribe.GetParameters().Length == 3
+                && apiSubscribe.GetParameters()[0].ParameterType == typeof(FeatureId)
+                && apiSubscribe.GetParameters()[1].ParameterType == typeof(BueNetwork.ChannelDirection)
+                && apiSubscribe.GetParameters()[2].ParameterType == typeof(Action<BueNetwork.IConnectionSession, byte[]>),
+                "DEV-V2-14: IBueNetworkApi.Subscribe(FeatureId, ChannelDirection, handler) returns an independent dispose handle");
+            var bootstrapNetwork = typeof(IFeatureBootstrap).GetProperty("Network");
+            Assert(bootstrapNetwork != null && bootstrapNetwork.PropertyType == typeof(BueNetwork.IBueNetworkApi),
+                "DEV-V2-14: IFeatureBootstrap.Network carries the pure-C# network API (no host/LMN/Unity type leakage)");
+
             var registration = new StubRegistration("io.example.tracer");
             var runtime = new FeatureRegistrationRuntime();
             FeatureRegistrationResult result;
@@ -118,6 +137,18 @@ namespace BetterUnturnedExperience.Contracts.Tests
             throwingRuntime.OpenRegistration();
             var throwing = throwingRuntime.Register(new ThrowingRegistration());
             Assert(!throwing.Accepted && throwing.Reason == FeatureRegistrationReason.InvalidDefinitionArtifact, "throwing registration getter fails closed");
+
+            // DEV-V2-14: the contract Major bump raises the registration gate
+            // to (2,0) — aligned registrations pass, futures are rejected.
+            var gateRuntime = new FeatureRegistrationRuntime();
+            gateRuntime.OpenRegistration();
+            var aligned = gateRuntime.Register(new StubRegistration("io.example.gate-aligned"));
+            Assert(aligned.Accepted, "DEV-V2-14: a (2,0) minimum-contract registration passes the raised gate");
+            var gateTooNewRuntime = new FeatureRegistrationRuntime();
+            gateTooNewRuntime.OpenRegistration();
+            var gateTooNew = gateTooNewRuntime.Register(new HighContractRegistration("io.example.gate-toonew"));
+            Assert(!gateTooNew.Accepted && gateTooNew.Reason == FeatureRegistrationReason.ContractIncompatible,
+                "DEV-V2-14: a (3,0) minimum-contract registration is rejected with ContractIncompatible");
             var presentation = new FeaturePresentationView(new FeatureId("io.example.tracer"), FeaturePresentationState.PresentationDegraded, "BUE-UI-001", 1UL);
             Assert(presentation.State == FeaturePresentationState.PresentationDegraded && presentation.PresentationRevision == 1UL, "presentation state is a separate value projection");
             Console.WriteLine("DEV-10 registration runtime tests: PASS");
@@ -141,7 +172,7 @@ namespace BetterUnturnedExperience.Contracts.Tests
                 Definition = invalid
                     ? new FeatureDefinitionArtifact(new FeatureId(feature), 0, string.Empty, new Digest256(), new Digest256(), new byte[0])
                     : new FeatureDefinitionArtifact(new FeatureId(feature), 1, "tracer", new Digest256(1, 2, 3, 4), new Digest256(5317555933983313923UL, 8642148531063968556UL, 2942485310001909708UL, 9366110643396117629UL), new byte[] { 1, 2, 3 });
-                MinimumBueContract = new ContractVersion(1, 0);
+                MinimumBueContract = new ContractVersion(2, 0);
                 ModuleFactory = new StubFactory();
                 ClientUi = clientUi;
             }
@@ -160,7 +191,16 @@ namespace BetterUnturnedExperience.Contracts.Tests
         {
             public MutableRegistration(string feature) { Definition = new FeatureDefinitionArtifact(new FeatureId(feature), 1, "tracer", new Digest256(1, 2, 3, 4), new Digest256(5317555933983313923UL, 8642148531063968556UL, 2942485310001909708UL, 9366110643396117629UL), new byte[] { 1, 2, 3 }); }
             public FeatureDefinitionArtifact Definition { get; set; }
-            public ContractVersion MinimumBueContract { get { return new ContractVersion(1, 0); } }
+            public ContractVersion MinimumBueContract { get { return new ContractVersion(2, 0); } }
+            public IFeatureModuleFactory ModuleFactory { get { return new StubFactory(); } }
+            public IClientUiSatelliteRegistration ClientUi { get { return null; } }
+        }
+
+        private sealed class HighContractRegistration : IFeatureRegistration
+        {
+            public HighContractRegistration(string feature) { Definition = new FeatureDefinitionArtifact(new FeatureId(feature), 1, "tracer", new Digest256(1, 2, 3, 4), new Digest256(5317555933983313923UL, 8642148531063968556UL, 2942485310001909708UL, 9366110643396117629UL), new byte[] { 1, 2, 3 }); }
+            public FeatureDefinitionArtifact Definition { get; }
+            public ContractVersion MinimumBueContract { get { return new ContractVersion(3, 0); } }
             public IFeatureModuleFactory ModuleFactory { get { return new StubFactory(); } }
             public IClientUiSatelliteRegistration ClientUi { get { return null; } }
         }
@@ -177,7 +217,7 @@ namespace BetterUnturnedExperience.Contracts.Tests
         {
             public StubSatellite(string satelliteId, string token) { SatelliteId = satelliteId; RegistrationToken = token; }
             public string SatelliteId { get; private set; }
-            public ContractVersion MinimumBueContract { get { return new ContractVersion(1, 0); } }
+            public ContractVersion MinimumBueContract { get { return new ContractVersion(2, 0); } }
             public string RegistrationToken { get; private set; }
         }
 
