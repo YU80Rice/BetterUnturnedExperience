@@ -224,6 +224,8 @@ namespace BetterUnturnedExperience.Contracts
 namespace BetterUnturnedExperience.Contracts.BueNetwork
 {
     // Q11: explicit, localizable send outcome. Hot paths never throw.
+    // DEV-V2-16 ③: PartialFailure joins the frozen outcome set — a multicast
+    // that delivered to some established sessions and failed on others.
     public enum NetworkSendResult : ushort
     {
         None = 0,
@@ -232,6 +234,7 @@ namespace BetterUnturnedExperience.Contracts.BueNetwork
         NoSession = 201,
         PeerUnreachable = 202,
         PayloadTooLarge = 203,
+        PartialFailure = 204,
         LocalTransportUnavailable = 900
     }
 
@@ -298,9 +301,24 @@ namespace BetterUnturnedExperience.Contracts.BueNetwork
         // handler or an undefined direction value is a developer error and
         // throws its argument exception (fail-fast).
         IDisposable Subscribe(FeatureId channel, ChannelDirection direction, Action<IConnectionSession, byte[]> handler);
+        // DEV-V2-16 ④: the snapshot contains ESTABLISHED sessions only — a
+        // pending (handshake-incomplete) session is internal runtime state
+        // and never appears here.
         IReadOnlyList<IConnectionSession> Sessions { get; }
+        // DEV-V2-16 ③: single untargeted server-bound frame, gated on the
+        // established snapshot being non-empty (else NoSession).
         NetworkSendResult SendToServer(FeatureId channel, byte[] payload, bool reliable);
+        // DEV-V2-16 ③: session-driven multicast — ONE targeted frame per
+        // established session, never an untargeted broadcast frame. Frozen
+        // aggregation: snapshot empty -> NoSession; every target delivered
+        // -> Sent; every target failed -> LocalTransportUnavailable; mixed
+        // -> PartialFailure. Sends never hold the runtime state lock.
         NetworkSendResult SendToClients(FeatureId channel, byte[] payload, bool reliable);
+        // DEV-V2-16 ③: per-session addressing, NO SteamId overload. The
+        // context must be owned by this runtime (checked by identity, not id
+        // equality), established, and the live connection generation.
+        // Precedence: the channel gate first (ChannelNotRegistered), then a
+        // null / foreign / pending context as NoSession.
         NetworkSendResult SendToClient(FeatureId channel, IConnectionSession session, byte[] payload, bool reliable);
     }
 }

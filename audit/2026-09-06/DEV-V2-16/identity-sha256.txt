@@ -1,0 +1,4 @@
+BetterUnturnedExperience.dll (candidate after R1 fix round, DEV-V2-16)
+SHA-256: 3e4259e36b2a3a0d48e4df4b6e82829160c2842bb386d0a1c42e3b39bdd1073f
+Size: 351232 bytes
+Two consecutive -t:Rebuild rounds byte-identical (identity-rebuild1.txt / identity-rebuild2.txt)

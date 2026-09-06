@@ -20,6 +20,13 @@ namespace BetterUnturnedExperience.Core.Network
     /// host-internal module switch (SetModuleActive) whose inactive state
     /// keeps the channel/subscription tables intact while holding no
     /// sessions and receiving nothing.
+    /// DEV-V2-16: sends are session-driven with frozen result semantics —
+    /// the public Sessions snapshot is established-only, SendToClients
+    /// targets each established session individually and aggregates
+    /// per-target outcomes (NoSession / Sent / LocalTransportUnavailable /
+    /// PartialFailure), SendToClient validates ownership by identity,
+    /// establishment, and the live generation, and no send holds the state
+    /// lock across the transport call.
     /// Frame format (DEV-V2-06 v2) is internal: magic "BUE2" + kind byte +
     /// length-prefixed channel id + the sender's steam id (8 bytes LE) +
     /// payload — never exposed into Contracts. The sender field lets the
@@ -100,40 +107,141 @@ namespace BetterUnturnedExperience.Core.Network
 
         public IReadOnlyList<IConnectionSession> Sessions
         {
-            get { lock (sync) { var list = new List<IConnectionSession>(sessions.Count); foreach (var s in sessions.Values) list.Add(s); return list; } }
+            // DEV-V2-16 ④: the public snapshot is ESTABLISHED sessions only.
+            // A pending session is an internal handshake state — features
+            // must never see it, send to it, or count it.
+            get { lock (sync) return EstablishedSnapshot(); }
         }
 
-        // Q9: connection-context send. Session must be owned by this runtime;
-        // otherwise the target context is unknown -> NoSession.
+        // Q9: connection-context send. SendToServer addresses the server
+        // side: the established snapshot gates availability (empty -> the
+        // frozen NoSession), and the frame stays ONE untargeted frame (0)
+        // exactly as the client->server transport direction always routed it
+        // — one logical target (the server), never one frame per session.
+        // DEV-V2-16: the transport call runs OUTSIDE the state lock.
         public NetworkSendResult SendToServer(FeatureId channel, byte[] payload, bool reliable)
         {
+            bool hasEstablished;
             lock (sync)
             {
                 if (!channels.ContainsKey(channel.Value)) return NetworkSendResult.ChannelNotRegistered;
-                if (sessions.Count == 0) return NetworkSendResult.NoSession;
+                hasEstablished = EstablishedSnapshot().Count > 0;
+            }
+            if (!hasEstablished) return NetworkSendResult.NoSession;
+            if (!IsEncapsulatable(channel.Value, payload)) return NetworkSendResult.PayloadTooLarge;
+            try
+            {
                 return SendFrame(KindData, channel.Value, payload, reliable, 0UL);
+            }
+            catch (Exception)
+            {
+                return NetworkSendResult.LocalTransportUnavailable;
             }
         }
 
+        // DEV-V2-16 ③: session-driven multicast. SendToClients sends ONE
+        // targeted frame per established session (target = the session's
+        // peer steam id) — never a single untargeted frame handed to the
+        // transport as a broadcast. Result aggregation is frozen:
+        // snapshot empty -> NoSession; every target delivered -> Sent; every
+        // target failed -> LocalTransportUnavailable; mixed -> PartialFailure.
+        // The state lock is taken ONCE (channel gate + snapshot) and never
+        // held across a transport call; a session that vanishes after the
+        // snapshot still receives its send attempt — the transport's
+        // per-target outcome decides delivered/failed.
         public NetworkSendResult SendToClients(FeatureId channel, byte[] payload, bool reliable)
         {
+            List<BueNetworkSession> targets;
             lock (sync)
             {
                 if (!channels.ContainsKey(channel.Value)) return NetworkSendResult.ChannelNotRegistered;
-                if (sessions.Count == 0) return NetworkSendResult.NoSession;
-                return SendFrame(KindData, channel.Value, payload, reliable, 0UL);
+                targets = EstablishedSnapshot();
+            }
+            if (targets.Count == 0) return NetworkSendResult.NoSession;
+            if (!IsEncapsulatable(channel.Value, payload)) return NetworkSendResult.PayloadTooLarge;
+            return SendTargets(KindData, channel.Value, payload, reliable, targets);
+        }
+
+        // Q9 + DEV-V2-16: per-session addressing WITHOUT a SteamId overload.
+        // Precedence is frozen: the channel gate first (ChannelNotRegistered),
+        // then the target context — a null context is NoSession. The context
+        // must be (a) owned by this runtime — checked by identity, not id
+        // equality, so a foreign or forged session object claiming a live
+        // generation id is rejected — (b) established, and (c) the live
+        // generation: SessionId IS the connection generation and dictionary
+        // membership is authoritative, so a dropped/superseded session
+        // object is rejected by the same lookup. The transport call runs
+        // outside the state lock.
+        public NetworkSendResult SendToClient(FeatureId channel, IConnectionSession session, byte[] payload, bool reliable)
+        {
+            ulong target;
+            lock (sync)
+            {
+                if (!channels.ContainsKey(channel.Value)) return NetworkSendResult.ChannelNotRegistered;
+                if (session == null) return NetworkSendResult.NoSession;
+                if (!sessions.TryGetValue(session.SessionId, out var live) || !ReferenceEquals(live, session))
+                    return NetworkSendResult.NoSession;
+                if (!live.Established) return NetworkSendResult.NoSession;
+                target = live.PeerSteamId;
+            }
+            if (!IsEncapsulatable(channel.Value, payload)) return NetworkSendResult.PayloadTooLarge;
+            try
+            {
+                return SendFrame(KindData, channel.Value, payload, reliable, target);
+            }
+            catch (Exception)
+            {
+                return NetworkSendResult.LocalTransportUnavailable;
             }
         }
 
-        public NetworkSendResult SendToClient(FeatureId channel, IConnectionSession session, byte[] payload, bool reliable)
+        // The established session snapshot, taken under the state lock; the
+        // single filter source for Sessions and both snapshot-gated sends.
+        private List<BueNetworkSession> EstablishedSnapshot()
         {
-            if (session == null) return NetworkSendResult.NoSession;
-            lock (sync)
+            var targets = new List<BueNetworkSession>(sessions.Count);
+            foreach (var s in sessions.Values)
             {
-                if (!channels.ContainsKey(channel.Value)) return NetworkSendResult.ChannelNotRegistered;
-                if (!sessions.ContainsKey(session.SessionId)) return NetworkSendResult.NoSession;
-                return SendFrame(KindData, channel.Value, payload, reliable, session.PeerSteamId);
+                if (s.Established) targets.Add(s);
             }
+            return targets;
+        }
+
+        // The payload must survive SendFrame's encapsulation for EVERY
+        // target: validated once up front so an oversized payload keeps its
+        // dedicated result instead of being aggregated into per-target
+        // transport failures.
+        private static bool IsEncapsulatable(string channelId, byte[] payload)
+        {
+            if (payload == null || payload.Length > 16 * 1024) return false;
+            return Encoding.UTF8.GetByteCount(channelId ?? string.Empty) <= byte.MaxValue;
+        }
+
+        // DEV-V2-16: per-target aggregation. Each target is one transport
+        // call outside the state lock; a transport that throws is one failed
+        // target, never an exception on the caller's hot path (Q11: hot
+        // paths never throw).
+        private NetworkSendResult SendTargets(byte kind, string channelId, byte[] payload, bool reliable, List<BueNetworkSession> targets)
+        {
+            var delivered = 0;
+            var failed = 0;
+            foreach (var session in targets)
+            {
+                NetworkSendResult one;
+                try
+                {
+                    one = SendFrame(kind, channelId, payload, reliable, session.PeerSteamId);
+                }
+                catch (Exception)
+                {
+                    one = NetworkSendResult.LocalTransportUnavailable;
+                }
+                if (one == NetworkSendResult.Sent) delivered++;
+                else failed++;
+            }
+            if (delivered > 0 && failed == 0) return NetworkSendResult.Sent;
+            if (delivered == 0) return NetworkSendResult.LocalTransportUnavailable;
+            return NetworkSendResult.PartialFailure;
         }
 
         /// <summary>
@@ -292,8 +400,11 @@ namespace BetterUnturnedExperience.Core.Network
                 session = new BueNetworkSession(id, peerSteamId, peerContract, ChannelDirection.FromClients);
                 sessions[id] = session;
                 SendFrame(KindAck, string.Empty, EncodeControl(localSteamId, localContract), true, 0UL);
+                // DEV-V2-16 R1 (Standards BLOCKING): Established is the public
+                // snapshot gate, so it is published under the state lock.
+                session.MarkEstablishedLocked();
             }
-            if (session != null) session.MarkEstablished(); // fires Connected outside the lock
+            if (session != null) session.FireConnected(); // callback outside the lock
         }
 
         private void HandleAck(byte[] payload)
@@ -313,8 +424,11 @@ namespace BetterUnturnedExperience.Core.Network
                 {
                     if (session.PeerSteamId == peerSteamId && !session.Established) { target = session; break; }
                 }
+                // DEV-V2-16 R1 (Standards BLOCKING): publish the negotiated
+                // contract and the snapshot gate bit under the state lock.
+                if (target != null) target.EstablishWithContractLocked(peerContract);
             }
-            if (target != null) target.MarkEstablishedWithContract(peerContract); // fires Connected outside the lock
+            if (target != null) target.FireConnected(); // callback outside the lock
         }
 
         private void HandleReject(byte[] payload)
@@ -437,16 +551,18 @@ namespace BetterUnturnedExperience.Core.Network
             public event Action<ulong> GenerationChanged;
 #pragma warning restore 0067
             public NetworkSendResult Send(byte[] payload, bool reliable) { return NetworkSendResult.NoSession; }
-            internal void MarkEstablished()
+            // DEV-V2-16 R1 (Standards BLOCKING): the establishment bit feeds
+            // the public Sessions snapshot and the send gates, so it is
+            // written under the runtime state lock (callers hold it); only
+            // the Connected callback is deferred to outside the lock (repo
+            // dispatch convention — state protection never spans external
+            // code).
+            internal void MarkEstablishedLocked() { Established = true; }
+            internal void EstablishWithContractLocked(ContractVersion negotiated) { PeerContract = negotiated; Established = true; }
+            internal void FireConnected()
             {
-                Established = true;
                 var connected = Connected;
                 if (connected != null) connected();
-            }
-            internal void MarkEstablishedWithContract(ContractVersion negotiated)
-            {
-                PeerContract = negotiated;
-                MarkEstablished();
             }
         }
 

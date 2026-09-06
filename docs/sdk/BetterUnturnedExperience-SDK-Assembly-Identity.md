@@ -65,5 +65,13 @@ BepInEx\plugins\ThirdPartyFeature.dll
   - 网络模块停用/未就绪时方法返回**显式结果**：`RegisterChannel` / `UnregisterChannel` / `Subscribe` 正常工作，`Sessions` 为空快照，发送按既有枚举返回（空快照 → `NoSession`），生命周期事件不触发，不新增专用查询面。
   - 功能停止后订阅句柄失效且可安全重复释放。
   - 属性类型为纯 C# 契约接口，不泄漏 Host / LMN / Unity 类型。
+- **③ 发送结果 + `PartialFailure`（2026-09-06，DEV-V2-16）**：`NetworkSendResult`
+  新增枚举成员 `PartialFailure = 204`；发送语义冻结为**会话驱动组播**：
+  - `SendToClients` = 向当前**已建立（established）** BUE 会话**逐一定向**发送（每会话一帧，target = 该会话 peer steam id），不是无目标帧交底层广播；未装 BUE 的原版玩家不收，本地主机身份天然不在远端会话集合。
+  - 发送结果冻结：established 快照空 → `NoSession`；全部目标送达 → `Sent`；有目标且全部失败 → `LocalTransportUnavailable`；部分送达部分失败 → `PartialFailure`。发送**不持状态锁**。
+  - `SendToClient` 维持按 `IConnectionSession` 寻址，**不新增** SteamId 重载；校验会话**归属本运行时**（按对象身份，非 id 相等——外来/伪造会话对象即持活代际 id 亦拒）、**established**、**当前连接代际**（已丢弃/被替换的会话对象拒）。
+  - 频道未注册仍优先返回 `ChannelNotRegistered`；超限载荷保留专用 `PayloadTooLarge` 结果（一次性预检，不并入逐目标传输失败聚合）。
+- **④ `Sessions` 收窄 established（2026-09-06，DEV-V2-16）**：`IBueNetworkApi.Sessions`
+  只返回**已建立会话快照**；pending（握手未完成）会话仅运行时内部可见。破坏性来源：依赖 pending 会话可见性的行为不再受支持——pending 本就是内部握手状态，从未被承诺为公开语义。
 
-> 后续票逐条追加（③ 发送结果 + `PartialFailure`；④ `Sessions` 收窄 established；⑤ 版本登记流程本身）。
+> 后续票逐条追加（⑤ 版本登记流程本身的后续演化）。

@@ -255,6 +255,11 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     AssertLitSingleplayerPath();
                     return 0;
                 }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--bue-v2-send-semantics-red")
+                {
+                    AssertBueV2SessionDrivenSendSemantics(collectAllFailures: true);
+                    return 0;
+                }
                 AssertSingleDllAssemblyClosure();
                 AssertExternalSdkAssemblyIdentity();
                 Assert(BootstrapGuard.Decide(false, false, true) == BootstrapDecision.Client, "client decision");
@@ -342,6 +347,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 AssertBueV2SenderIdentity();
                 AssertBueV2DirectionalSubscribe();
                 AssertBueV2NetworkInjection();
+                AssertBueV2SessionDrivenSendSemantics();
                 AssertLitSingleplayerPath();
                 AssertRuntimeCompletionBarrierIsolates();
                 AssertManagementPanelConsumesRuntimeCatalog();
@@ -3425,6 +3431,238 @@ namespace BetterUnturnedExperience.Plugin.Tests
             {
                 BueRuntimeHost.Bind(previousRuntime);
             }
+        }
+
+        // DEV-V2-16 red regression (GPT watermark): session-driven multicast
+        // and frozen send-result semantics (T3 decision 4). SendToClients
+        // targets each ESTABLISHED session individually — never one
+        // untargeted fire-and-forget frame handed to the transport — and the
+        // result aggregates per-target outcomes into the frozen values
+        // (snapshot empty -> NoSession, >=1 success -> Sent, every target
+        // failed -> LocalTransportUnavailable, mixed -> PartialFailure).
+        // Sessions narrows to the established snapshot (pending sessions are
+        // internal-only), SendToClient validates ownership by identity,
+        // establishment, and the live connection generation, and no send
+        // holds the state lock across the transport call. RED until the
+        // runtime rewrite lands (compile CS0117 on
+        // NetworkSendResult.PartialFailure, then runtime assertions).
+        private static void AssertBueV2SessionDrivenSendSemantics(bool collectAllFailures = false)
+        {
+            // The --bue-v2-send-semantics-red flag collects every failed
+            // assertion across all four frozen groups into one transcript
+            // (the red evidence names each group); the suite path stays
+            // fail-fast.
+            var reds = new System.Collections.Generic.List<string>();
+            try
+            {
+                void Check(bool condition, string message)
+                {
+                    if (condition) return;
+                    if (collectAllFailures) reds.Add(message);
+                    else throw new InvalidOperationException(message);
+                }
+                var localContract = new ContractVersion(2, 0);
+                var channel = new FeatureId("io.example.v2send");
+
+                // 1. Established-only snapshot: a pending session (StartSession
+                //    before the Ack) is invisible to Sessions and forms no target
+                //    set — the frozen table maps it to NoSession, not a send.
+                var pair = BetterUnturnedExperience.Core.Network.LocalLoopbackTransport.CreatePair();
+                var a = new BetterUnturnedExperience.Core.Network.BueNetworkRuntime(pair.First, localContract, 1002UL);
+                var b = new BetterUnturnedExperience.Core.Network.BueNetworkRuntime(pair.Second, localContract, 2002UL);
+                Check(a.RegisterChannel(channel, localContract, 1).Accepted && b.RegisterChannel(channel, localContract, 1).Accepted,
+                    "setup: both runtimes register the send channel");
+                var pending = a.StartSession(2002UL);
+                Check(pending != null, "setup: the initiator holds a pending session before the Ack");
+                Check(a.Sessions.Count == 0,
+                    "snapshot: a pending session is invisible to Sessions (established-only)");
+                Check(a.SendToClients(channel, new byte[] { 0x01 }, true) == NetworkSendResult.NoSession,
+                    "no-session: multicast with an empty established snapshot returns NoSession (pending-only is not a target set)");
+                Check(a.SendToServer(channel, new byte[] { 0x01 }, true) == NetworkSendResult.NoSession,
+                    "no-session: SendToServer with an empty established snapshot returns NoSession");
+                Check(a.SendToClient(channel, pending, new byte[] { 0x01 }, true) == NetworkSendResult.NoSession,
+                    "established: a pending session is not a valid SendToClient target");
+                pair.First.Pump(); pair.Second.Pump(); pair.First.Pump(); // Hello -> Ack -> established
+                Check(a.Sessions.Count == 1 && a.Sessions[0].SessionId == pending.SessionId,
+                    "snapshot: the established session appears in Sessions after the Ack (same connection generation)");
+
+                // 2. Per-target multicast over a controlled hub topology: the
+                //    transport seam records every target; a recorded zero target
+                //    is the old untargeted fire-and-forget defect.
+                System.Action<byte[]> hubReceiver = null;
+                System.Action<byte[]> peerBReceiver = null;
+                System.Action<byte[]> peerCReceiver = null;
+                var hubTargets = new System.Collections.Generic.List<ulong>();
+                var hubReliableBits = new System.Collections.Generic.List<bool>();
+                var peerBDelivers = true;
+                var peerCDelivers = true;
+                var transportHub = new BetterUnturnedExperience.Core.Network.HostNetworkTransportAdapter((frame, reliable, target) =>
+                {
+                    hubTargets.Add(target);
+                    hubReliableBits.Add(reliable);
+                    if (target == 0UL)
+                    {
+                        if (peerBReceiver != null) peerBReceiver(frame);
+                        if (peerCReceiver != null) peerCReceiver(frame);
+                    }
+                    else if (target == 200UL) { if (peerBDelivers && peerBReceiver != null) peerBReceiver(frame); return peerBDelivers; }
+                    else if (target == 300UL) { if (peerCDelivers && peerCReceiver != null) peerCReceiver(frame); return peerCDelivers; }
+                    return true;
+                }, callback => hubReceiver = callback);
+                var transportPeerB = new BetterUnturnedExperience.Core.Network.HostNetworkTransportAdapter(
+                    (frame, reliable, target) => { if (hubReceiver != null) hubReceiver(frame); return true; },
+                    callback => peerBReceiver = callback);
+                var transportPeerC = new BetterUnturnedExperience.Core.Network.HostNetworkTransportAdapter(
+                    (frame, reliable, target) => { if (hubReceiver != null) hubReceiver(frame); return true; },
+                    callback => peerCReceiver = callback);
+                var hub = new BetterUnturnedExperience.Core.Network.BueNetworkRuntime(transportHub, localContract, 100UL);
+                var peerB = new BetterUnturnedExperience.Core.Network.BueNetworkRuntime(transportPeerB, localContract, 200UL);
+                var peerC = new BetterUnturnedExperience.Core.Network.BueNetworkRuntime(transportPeerC, localContract, 300UL);
+                Check(hub.RegisterChannel(channel, localContract, 1).Accepted
+                    && peerB.RegisterChannel(channel, localContract, 1).Accepted
+                    && peerC.RegisterChannel(channel, localContract, 1).Accepted,
+                    "setup: the trio registers the send channel");
+                peerB.StartSession(100UL);
+                peerC.StartSession(100UL);
+                transportPeerB.Pump(); transportPeerC.Pump();
+                transportHub.Pump(); transportHub.Pump();
+                transportPeerB.Pump(); transportPeerC.Pump();
+                Check(hub.Sessions.Count == 2, "setup: the hub holds two established sessions");
+                var hubSessionB = hub.Sessions[0].PeerSteamId == 200UL ? hub.Sessions[0] : hub.Sessions[1];
+                hubTargets.Clear();
+                Check(hub.SendToClients(channel, new byte[] { 0x2A }, true) == NetworkSendResult.Sent,
+                    "aggregate: every targeted send succeeded -> Sent");
+                Check(hubTargets.Count == 2 && hubTargets.Contains(200UL) && hubTargets.Contains(300UL),
+                    "multicast: SendToClients targets each established session's peer individually (never one untargeted frame)");
+                Check(hubReliableBits.TrueForAll(reliableBit => reliableBit),
+                    "multicast: every targeted frame carries the reliability bit");
+                Check(hub.SendToClient(channel, hubSessionB, new byte[16 * 1024 + 1], true) == NetworkSendResult.PayloadTooLarge,
+                    "payload: SendToClient keeps the dedicated oversized-payload result (validated once, not a transport failure)");
+
+                // 3. Frozen result aggregation: PartialFailure (>=1 success and
+                //    >=1 failure) and LocalTransportUnavailable (every target
+                //    failed). An oversized multicast payload keeps its dedicated
+                //    result instead of being aggregated into transport failures.
+                peerBDelivers = false;
+                hubTargets.Clear();
+                Check(hub.SendToClients(channel, new byte[] { 0x2B }, true) == NetworkSendResult.PartialFailure,
+                    "aggregate: some targets delivered and some failed -> PartialFailure");
+                Check(hubTargets.Count == 2,
+                    "aggregate: PartialFailure still attempted every established target");
+                peerCDelivers = false;
+                Check(hub.SendToClients(channel, new byte[] { 0x2C }, true) == NetworkSendResult.LocalTransportUnavailable,
+                    "aggregate: every target failed -> LocalTransportUnavailable");
+                peerBDelivers = true;
+                peerCDelivers = true;
+                Check(hub.SendToClients(channel, new byte[16 * 1024 + 1], true) == NetworkSendResult.PayloadTooLarge,
+                    "payload: an oversized multicast payload keeps its dedicated result (never swallowed by aggregation)");
+
+                // 4. SendToClient validates ownership by identity: a foreign
+                //    session object claiming a live generation id is rejected (no
+                //    id-equality shortcut), and a session dropped from this
+                //    runtime (stale generation) is rejected too.
+                var stubSession = new ForeignSessionStub(hub.Sessions[0].SessionId, 999UL);
+                Check(hub.SendToClient(channel, stubSession, new byte[] { 0x2D }, true) == NetworkSendResult.NoSession,
+                    "ownership: a foreign session object claiming a live generation id is rejected");
+                Check(hub.SendToClient(channel, null, new byte[] { 0x2D }, true) == NetworkSendResult.NoSession,
+                    "ownership: a null session context is NoSession");
+                hub.SetModuleActive(false);
+                Check(hub.Sessions.Count == 0, "setup: disabling the module drops the snapshot");
+                Check(hub.SendToClient(channel, hubSessionB, new byte[] { 0x2E }, true) == NetworkSendResult.NoSession,
+                    "generation: a session object from a dropped generation is rejected");
+                // DEV-V2-14 linkage regression: sends while the module is down
+                // stay on the existing enum value — no new error code.
+                Check(hub.SendToClients(channel, new byte[] { 0x2E }, true) == NetworkSendResult.NoSession,
+                    "disabled: SendToClients stays on the existing NoSession code");
+                Check(hub.SendToServer(channel, new byte[] { 0x2E }, true) == NetworkSendResult.NoSession,
+                    "disabled: SendToServer stays on the existing NoSession code");
+                hub.SetModuleActive(true);
+
+                // 5. ChannelNotRegistered precedence and the re-armed empty
+                //    snapshot survive the rewrite unchanged. The channel gate
+                //    precedes the target-context checks on ALL send paths —
+                //    including SendToClient's null session (R1 fix round: the
+                //    null check used to run before the channel gate).
+                var unregistered = new FeatureId("io.example.v2send-late");
+                Check(hub.SendToClients(unregistered, new byte[] { 0x2F }, true) == NetworkSendResult.ChannelNotRegistered,
+                    "channel: an unregistered channel is still reported before any target work");
+                Check(hub.SendToClient(unregistered, null, new byte[] { 0x2F }, true) == NetworkSendResult.ChannelNotRegistered,
+                    "channel: SendToClient reports an unregistered channel before the null-context check");
+                Check(hub.SendToClient(unregistered, ForeignSessionStub.Anonymous(), new byte[] { 0x2F }, true) == NetworkSendResult.ChannelNotRegistered,
+                    "channel: SendToClient reports an unregistered channel before the ownership check");
+                Check(hub.SendToClients(channel, new byte[] { 0x30 }, true) == NetworkSendResult.NoSession,
+                    "re-arm: a re-enabled module starts from an empty established snapshot");
+
+                // 6. Lock-freedom proven from a foreign thread: a targeted send
+                //    blocked inside the transport must not hold the state lock.
+                var probeEntered = new System.Threading.ManualResetEventSlim(false);
+                var releaseProbe = new System.Threading.ManualResetEventSlim(false);
+                System.Action<byte[]> probePeerReceiver = null;
+                System.Action<byte[]> probeHubReceiver = null;
+                var transportProbeHub = new BetterUnturnedExperience.Core.Network.HostNetworkTransportAdapter((frame, reliable, target) =>
+                {
+                    // Block the first DATA frame inside the transport — in the
+                    // red round that is the untargeted fire-and-forget frame,
+                    // in the green round the per-target frame; either way the
+                    // lock probe runs while a send is in flight.
+                    var isData = frame != null && frame.Length > 4 && frame[4] == 0;
+                    if (isData)
+                    {
+                        probeEntered.Set();
+                        releaseProbe.Wait(System.TimeSpan.FromSeconds(5)); // block the send inside the transport
+                        if (probePeerReceiver != null) probePeerReceiver(frame);
+                        return true;
+                    }
+                    if (target == 0UL && probePeerReceiver != null) probePeerReceiver(frame); // handshake frames flow
+                    return true;
+                }, callback => probeHubReceiver = callback);
+                var transportProbePeer = new BetterUnturnedExperience.Core.Network.HostNetworkTransportAdapter(
+                    (frame, reliable, target) => { if (probeHubReceiver != null) probeHubReceiver(frame); return true; },
+                    callback => probePeerReceiver = callback);
+                var probeHub = new BetterUnturnedExperience.Core.Network.BueNetworkRuntime(transportProbeHub, localContract, 100UL);
+                var probePeer = new BetterUnturnedExperience.Core.Network.BueNetworkRuntime(transportProbePeer, localContract, 400UL);
+                Check(probeHub.RegisterChannel(channel, localContract, 1).Accepted && probePeer.RegisterChannel(channel, localContract, 1).Accepted,
+                    "setup: the lock-probe pair registers the channel");
+                probePeer.StartSession(100UL);
+                transportProbeHub.Pump();
+                transportProbePeer.Pump();
+                Check(probeHub.Sessions.Count == 1, "setup: the lock-probe hub holds one established session");
+                var sendTask = System.Threading.Tasks.Task.Run(() => probeHub.SendToClients(channel, new byte[] { 0x31 }, true));
+                Check(probeEntered.Wait(System.TimeSpan.FromSeconds(5)),
+                    "lock-freedom: the targeted send reached the transport");
+                var foreign = System.Threading.Tasks.Task.Run(() => probeHub.Sessions.Count);
+                Check(foreign.Wait(System.TimeSpan.FromSeconds(2)),
+                    "lock-freedom: a foreign thread acquired the state lock while the targeted send blocked in the transport");
+                releaseProbe.Set();
+                Check(sendTask.Wait(System.TimeSpan.FromSeconds(5)) && sendTask.Result == NetworkSendResult.Sent,
+                    "lock-freedom: the blocked send completes with Sent once released");
+            }
+            catch (Exception error) when (collectAllFailures)
+            {
+                reds.Add("UNEXPECTED: " + error.GetType().FullName + ": " + error.Message);
+            }
+            if (collectAllFailures && reds.Count > 0)
+                throw new InvalidOperationException("DEV-V2-16 red collection (" + reds.Count + "): " + string.Join(" || ", reds));
+        }
+
+        // DEV-V2-16 red-regression helper: a session object that does not
+        // belong to the runtime under test but claims a (live) generation id
+        // — the forged-ownership probe for SendToClient.
+        private sealed class ForeignSessionStub : IConnectionSession
+        {
+            public ForeignSessionStub(ulong sessionId, ulong peerSteamId) { SessionId = sessionId; PeerSteamId = peerSteamId; }
+            public static ForeignSessionStub Anonymous() { return new ForeignSessionStub(0UL, 0UL); }
+            public ulong SessionId { get; }
+            public ulong PeerSteamId { get; }
+            public ContractVersion PeerContract { get { return default(ContractVersion); } }
+            public ushort PeerFeatureVersion { get { return 0; } }
+            public IReadOnlyList<ChannelVersionEntry> Channels { get { return new ChannelVersionEntry[0]; } }
+#pragma warning disable 0067 // Stub never raises lifecycle events.
+            public event System.Action Connected;
+            public event System.Action Disconnected;
+            public event System.Action<ulong> GenerationChanged;
+#pragma warning restore 0067
+            public NetworkSendResult Send(byte[] payload, bool reliable) { return NetworkSendResult.NoSession; }
         }
 
         private static string LitTestTag(int index)
