@@ -41,7 +41,9 @@
 | 轮 | Standards | Spec | 处置 |
 | --- | --- | --- | --- |
 | R1 | NOT CLEAN——**BLOCKING 1**：`HandleHello`/`HandleAck` 重入锁不重检 `moduleActive`，停用窗口可建会话/发 Ack/触发 Connected（违反停用「无会话、无生命周期」）；SMELL 4 项（空 List 残留、FeatureBootstrap 9 参透传、抛异常 handler 留表、锁探针同线程不可证伪） | NOT CLEAN——GAP 3 项：①停止后自动失效未实现（宿主生命周期 seam 不存在）；②Network 未接入真实启动路径；③红测证据未归档 | 锁内重检×3；外线线程锁探针替换同线程重入探针；停止语义注释对齐冻结析取原文 + UnregisterChannel 断言；证据归档 |
-| R2 | **CLEAN**（BLOCKING 0；SMELL a/c/e 维持具名延期；「锁内已接纳、随后停用清表」的在飞 TOCTOU 判为与锁外回调惯例同构、不升级） | **CLEAN** | 环路闭合 |
+| R2 | ~~CLEAN~~ | ~~CLEAN~~ | **整轮作废**（主会话裁定：R2 以 SendMessage 续用 R1 审查实例，违反 output-review-loop Fresh-instance 规则 `425c2aa`——「继承上下文的轮次不计入 CLEAN 链」） |
+| R2'（全新实例） | **CLEAN**（4×DEFERRABLE 与既有具名延期一致；停用窗口闭合、外线锁探针可证伪、全量扫描无新违规） | BLOCKED——3×BLOCKER（魔数 BUE2→BUE1 未改 / `Sessions` 未收窄 established / Ack 仍按「第一个未建立会话」）+1 DEFERRABLE+1 INFO | 三项 BLOCKER 经对照工单拆分裁定为**越界发现**：魔数+清扫=DEV-V2-18 Scope 第 19 行、Sessions 收窄=DEV-V2-16 Scope（登记条目③）、Ack 匹配=DEV-V2-17 Scope——均为下游票票面义务；「结单称 established-only」引证经全仓 grep 证伪。按修复轮流程执行审查合同修复（scope brief 校正），代码零变更（增量保持 48937d2）。报告归档 `R2'-standards.md`/`R2'-spec.md`（含裁定附注） |
+| R2''（全新实例，仅 Spec 轴） | —（Standards R2' CLEAN 对同一 diff 继续有效，无代码变更） | **CLEAN**（第一层：三项越界裁定逐行核实成立；第二层：本票 Scope 内重审无 BLOCKER，仅余两具名延期） | 环路闭合（fresh-instance 链：R1 → 修复 → R2' → 裁定 → R2''） |
 
 ## 具名延期（不阻塞，均登记）
 
