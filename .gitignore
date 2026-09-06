@@ -1,0 +1,29 @@
+# ==== git 基线防护栏(2026-09-05 基线补录 chore 添加)====
+# 纪律:候选 DLL 只经 audit/ 归档 + RELEASES.md 登记;bin/obj 与日志永远不入库。
+# 注:V1 时代已误入库的历史 audit log/DLL(约 329 个)保持已跟踪原状,不追溯清理;
+#     本文件只约束今后的未跟踪文件。
+
+# ---- 构建输出 ----
+[Bb]in/
+[Oo]bj/
+
+# ---- 二进制构建产物 ----
+*.dll
+*.exe
+*.pdb
+
+# ---- 原型 vendored 运行时(prototypes/.video-deps = OpenCV/numpy,可重建,>100MB)----
+.video-deps/
+__pycache__/
+*.pyc
+
+# ---- audit 非文档证据(.md/.png/.txt/.json 入库;zip/diff 不入库)----
+audit/**/*.zip
+audit/**/*.diff
+
+# ---- 日志(全局;V1 时代已跟踪的历史 audit log 保持原状)----
+*.log
+
+# ---- IDE ----
+.vs/
+*.user
