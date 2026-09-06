@@ -70,3 +70,7 @@ Source: 用户 2026-09-05 需求 + ESC 界面截图（暂停菜单「BUE 插件�
 - 回归：三入口（MenuDashboardUI/MenuWorkshopUI/PlayerPauseUI）创建成功，`v1-table-mirror result=mirrored channels=2 deferred=true` 镜像链健康，退出 `hand-back-to-lmn` 清理线正常。
 
 验收清单 5/5 达成，票 resolved。
+
+## 追溯审计注记（2026-09-07，主工作树会话）
+
+phase-2 期间发现：换用专属审查智能体（standards-reviewer / Spec-Reviewer）后，修复轮复审曾**继承上一轮子代理的上下文**（违反 output-review-loop "Two fresh contexts, one per axis, every round"——规则已增补并提交 `425c2aa`）。本票 R2-R5 疑似在继承上下文中产生。**用户裁定：本票实机验证已由人工完成（ESC 截图验收 + 日志复核，见上方复测记录），豁免 fresh 重验，票维持 resolved。** 后续票（DEV-V2-14/15 起）已按新规执行全新实例验证双轴（R2'）。
