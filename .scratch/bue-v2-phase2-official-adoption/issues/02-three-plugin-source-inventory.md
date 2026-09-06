@@ -1,7 +1,7 @@
 # T2：三插件源码盘点与迁入形态
 
 Type: research
-Status: open
+Status: resolved（2026-09-06，research 代理盘点完成，主会话入账）
 Parent: map.md（三插件官方纳入与平台首公里）
 Blocked by: 无
 
@@ -16,4 +16,10 @@ Blocked by: 无
 
 ## Answer
 
-（research 代理填：结论摘要 + 报告链接）
+报告：`../research/2026-09-06-three-plugin-source-inventory.md`（2026-09-06，逐调用点行号留证）。要点：
+
+- **三插件全是 LMN 命名频道消费方（零 V1 int API）**：频道分别为 LIT `com.yu80rice.launchinventorytidy.net`、LIR `com.yu80rice.launchinplacereload.repack`、LHT `io.github.yu80rice.launchhordetracker.horde-status`。LOC ≈ 14811 / 3105 / 2242；BepInEx 均 0.0.0 + `[BepInDependency(LMN,Hard)]`；无 ConfigEntry。构建事实复用 DEV-V2-08（net472、确定性两轮哈希），未重复实验。
+- **契约映射**：`IBueNetworkApi` 能对上 Send/RegisterChannel,但两个缺口——①**公开契约无入站订阅面**（`Subscribe` 仅 Host 内部,第三方消费者收不到帧）;②寻址从 `CSteamID` 改为 `IConnectionSession`。
+- **迁移难度排序：LHT < LIR < LIT**。
+- **迁入形态推荐**：EmbeddedOfficial 编进单 DLL,走 `IFeatureModule`,不碰 `LmnV1Compat*`。
+- **阻塞验证点**（移交 T3/T4-T6）：Subscribe 是否升契约面、生产传输是否已绑、listen-host 双角色、LIT P2P 熔断 scope 调用方消失。

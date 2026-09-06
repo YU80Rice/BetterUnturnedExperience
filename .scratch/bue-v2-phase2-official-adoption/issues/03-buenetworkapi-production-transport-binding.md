@@ -9,6 +9,7 @@ Blocked by: 01
 
 BueNetworkApi（BUE2 帧）至今**无生产传输绑定、无真实消费者**（08 R5 勘误实锤）。本票决定绑定设计：
 
+0. **契约面缺口（T2 盘点实锤）**：公开 `IBueNetworkApi` 无入站订阅（`Subscribe` 仅 Host 内部）——第三方消费者如何收帧？入站面升契约（Subscribe/事件回调/其它）与生产绑定一并决策,这是三插件重写的前置。
 1. 两方向收发：client→server（`Provider.clientTransport`/`IClientTransport`，T1 research L110/L128）与 server→client（`ITransportConnection.Send`，T1 L104）；发送侧按 target steamId 寻径（FindClientTransport 先例）;
 2. BUE2 帧进不进 `NetMessages.ReceiveMessageFromClient/Server` 前缀决策点?与接管决策核（12 的 live/inert 两态契约、`ShouldConsumeInbound`）的关系——LMN 缺席（inert）时 BUE2 帧是否也拦（BUE 独立可用）还是放行（零误报优先）;
 3. 可靠位映射（ENetReliability 两值）与 16KB 上限在生产路径的落实;

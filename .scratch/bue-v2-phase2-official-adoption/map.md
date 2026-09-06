@@ -21,7 +21,7 @@ Author: GPT（本会话 charting）
 
 ## Decisions so far
 
-<!-- 图内子票解决一条记一条；charting 阶段的 grilling 决策已固化进 Destination/Notes，不重复罗列 -->
+- [T2：三插件源码盘点与迁入形态](issues/02-three-plugin-source-inventory.md)：三插件全为 LMN 命名频道消费方（零 V1 API,频道 id 已录）;`IBueNetworkApi` 缺公开入站订阅面+寻址改 IConnectionSession;难度 LHT<LIR<LIT;推荐 EmbeddedOfficial 单 DLL+`IFeatureModule`,不碰 V1 兼容层。报告 `research/2026-09-06-three-plugin-source-inventory.md`。
 
 ## Not yet specified
 
