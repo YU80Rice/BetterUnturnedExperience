@@ -1,7 +1,7 @@
 # V2 第二阶段：三插件官方纳入与平台首公里（Wayfinder 地图）
 
 Type: task
-Status: **open（2026-09-06 建图，R1/R2 决策冻结，7 张子票就位）**
+Status: **completed（2026-09-06 7/7 子票全部 resolved,地图走完,可交 `/to-spec`）**
 Label: wayfinder:map
 Parent: 无（承接 [[bue-v2-phase1-progress]]：V2 第一阶段 01–13 全闭环）
 Author: GPT（本会话 charting）
@@ -27,6 +27,7 @@ Author: GPT（本会话 charting）
 - [T4：LIT(背包整理)纳入方式](issues/04-lit-adoption.md)：算法原样迁移但立即立 `ITidyStrategy` seam(内置 adapter `default-grid-v1`;**O-LIT-1 勘误:要改的是排序规则,非放置算法**);FeatureId `io.github.yu80rice.bue.inventory-tidy`(面板=频道一词一贯,显示名「背包整理」);本期只持久化 `enabled`(ClientLocal,关→原生回退);熔断 scope 改绑 BUE 连接代际(JSON 功能私有权威不变);TIDY_TEST_HARNESS 归档不进玩家 DLL(新 seam 红测重写);LIT 发布 TidyCompleted 功能事件供 LIR 订阅(TypeByName/跨功能 Harmony postfix 消除)。可交 /to-spec。
 - [T5：LIR(更好的换弹体验)纳入方式](issues/05-lir-adoption.md)：FeatureId `io.github.yu80rice.bue.in-place-reload`(显示名同名);三补丁保留并立 **ReloadContextGuard** 缝(红测:BII 拖入→forceAddItem Prefix 触发→context=false→LIR 不动;Stop 只撤自身 Harmony ID;冲突审查实证=目标零交集);TidyCompleted 无条件自动压弹,经 Consumer→ReloadAction 两段缝(未来变体走 adapter);**宿主 Tick 事件**(窄 struct:序号+时间+阶段,六条不变性,模块禁自建 Update 泵;LIR 双击检测/T6 HUD 共用);只持久化 `enabled`,常量集中 `ReloadRuntimePolicy`;扩展三分法(IReloadAction adapter / 新官方模块 / 公开契约协作)。可交 /to-spec。
 - [T6：LHT(更好的尸潮播报)纳入方式](issues/06-lht-adoption.md)：FeatureId `io.github.yu80rice.bue.horde-tracker`(显示名同名,旧频道退役);自有补丁=信标两 Postfix(**勘误:答复曾误列 LIR 补丁**)+上下文守卫原则(共享调用点可以,共享业务上下文不行);表现状态分工——主机/U3DS 权威追踪+广播(Available/HeadlessOnly),客户端 HUD 10Hz 宿主时钟;**内部双件** HordeTrackingModule+HordePresentationAdapter(HUD 失败只降表现);`ModTransport.Initialize` 上收 BUE 网络模块、ABI 守卫删除、epoch/seq/mailbox/脏标记/双可靠度/ReceiveGate 保留;广播=SendToClients 会话驱动组播(08 基线照抄+BUE 帧不可靠 1:1 红测);enabled 唯一持久化,关闭=完整停摆。扩展三分法(IHordeTrackingPolicy/表现 adapter/独立模块)。可交 /to-spec。
+- [T7：开发者契约与防双装](issues/07-developer-contract-double-install.md)：三段式契约(承诺=GUID/AssemblyName 冻结+公开契约按版本演化,AssemblyName 改动=破坏性公告+迁移事件;不承诺=非 BepInEx 加载/Preloader 边缘/任意改名复制阴影加载;指引=引用主 DLL+CopyLocal=false+禁捆绑);文件名精确措辞=文件名不是契约身份,路径与发现规则属部署前提;SDK 引用=直接引用主 DLL(独立 SDK 拆分列四条件暂缓);防双装=Awake 注入式自检诊断 `BUE-PLATFORM-001`(同 AssemblyName 补强;同 GUID 双装=BepInEx 原生留一跳一+FAQ;不自动删文件;**非完整防重复加载系统**);验收=注入式红测+T1 五项实机清单(不同 GUID+同 AssemblyName 须红测+实机双证);文档大纲八节冻结于 docs/sdk,正文随 /to-spec。**用户期待登记:版本更新可变文件名,程序集名不动**。可交 /to-spec。
 
 ## Not yet specified
 
