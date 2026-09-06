@@ -1,7 +1,7 @@
 # DEV-V2-15：LIT 迁入·单人全路径（ITidyStrategy + 本地整理 + 面板）
 
 Type: task
-Status: **resolved（2026-09-06，红绿链+双轴 R1→零上下文 R2' 双 CLEAN 闭环（首版 R2 因续用 R1 实例违反每轮零上下文规则作废重派）；候选 SHA-256 `cacfa527…b040`（350208 B，两轮重建一致，R2' 后复核不变）；实机自验（点按钮/关闭回退/面板条目）待用户执行；结单 `audit/2026-09-06/DEV-V2-15/`）**
+Status: **resolved（2026-09-06 全链闭环：红绿链+双轴 R1→R2(作废)→R2'→R3 全 fresh 链双 CLEAN + 单人实机验收通过（用户原话「我验证LIT功能无异常」）；候选 `cacfa527…b040` 升 RELEASES 当前发布物（单人范围）；结单+验收记录 `audit/2026-09-06/DEV-V2-15/`）**
 Parent: spec.md（V2 第二阶段规格·三插件官方纳入与平台首公里）
 Blocked by: 无（先行票，可立即开始；不触网络，可与 DEV-V2-14 并行）
 Spec: `../spec.md`（「三插件迁入形态」「功能身份与显示名」「LIT：整理策略 seam 与算法」「LIT：设置、熔断与夹具」四节）
@@ -22,8 +22,8 @@ Spec: `../spec.md`（「三插件迁入形态」「功能身份与显示名」�
 ## 验收条件
 
 - [x] 红测先行：策略替换（换 adapter 影响计划输出）/ `enabled=false` 原生回退 / InventorySolver 纯算法直测 / 夹具类型不在生产编译（编译期断言）——先红后绿（编译红 14 错 → 桩运行时红 NotSupported → 绿；锚点 `--bue-v2-lit-red` 折入默认套件）
-- [ ] 单人实机自验：点按钮 → 本地整理事务完成；关闭 → 原生回退（**待用户实机执行**；具名观察项：关闭时已注入按钮残留但点击已短路，见结单延期 1）
-- [x] 面板条目：FeatureId `io.github.yu80rice.bue.inventory-tidy` 身份 + 显示名「背包整理」（宿主测试已断言；实机观感随上项自验）
+- [x] 单人实机自验：点按钮 → 本地整理事务完成；关闭 → 原生回退（**2026-09-06 用户验收通过**，原话「我验证LIT功能无异常」；UMM 诊断包留档，部署物哈希=候选，验收记录 `audit/2026-09-06/DEV-V2-15/acceptance-singleplayer-20260906.md`；观察项：降序 SameType 首次整理被安全拒绝=迁入前既有算法行为，移交策略治理票）
+- [x] 面板条目：FeatureId `io.github.yu80rice.bue.inventory-tidy` 身份 + 显示名「背包整理」（宿主测试断言 + 实机功能链路随用户验收一并确认）
 - [x] 构建 0 警告；全套测试 PASS；双轴独立审查 CLEAN（R1 双 NOT CLEAN → 修复 → R2' 双 CLEAN；R3 追加 fresh 验证双 CLEAN——链条见结单与 Comments）
 
 ## Comments
