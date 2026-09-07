@@ -218,3 +218,77 @@ LMN 底层实现 → BUE Network Adapter → IBueNetwork → LIT/LIR/LHT 等模�
 3. **BUE 身份 = 前置库 + 运行时平台**:发现由 BepInEx 原生承担(BUE 不自建);BUE 建的是注册桥(已建)+ 平台服务契约(14~19 已建/在建)+ 开发者契约文档(DEV-V2-23)。
 4. **词汇对齐**:此口径与 CONTEXT 冻结词汇「生态功能模块」("由第三方作者独立发布、通过 BUE 公开契约接入运行时,但不随 BUE 官方发行版交付")完全一致,非新决策——是对愿景文档两处误述(①"以源码模块方式接入"仅对官方功能成立;②"BUE 自动扫描外部模块 DLL 暂不建设"应表述为"发现归 BepInEx 原生,BUE 建桥与服务")的最终纠正。
 5. **对 DEV-V2-23 的影响**:开发者契约文档八节须按此两层模型写——生态路径(前置声明/引用面/CopyLocal/禁捆绑/注册桥/防双装 BUE-PLATFORM-001)为文档主体。
+
+## 对账注记 3(2026-09-07,PM 对齐稿 = phase-3 愿景冻结基线,逐字存档)
+
+经主工作树会话对仓库事实逐条核验(BueRuntimeHost.Register 公开桥在位 `BueRuntimeHost.cs:20`;NoOpFixture 即生态路径活样板——独立 GUID `io.github.yu80rice.bue.noop` + `[BepInDependency("io.github.yu80rice.betterunturnedexperience", HardDependency)]` + 经公开桥注册,phase-1 起在跑),PM 的以下表述冻结为 **phase-3 愿景基线**:
+
+### 最终模型
+
+```text
+BepInEx
+  └─ 原生发现并加载所有 BepInEx DLL
+       ├─ BetterUnturnedExperience.dll
+       │    ├─ BII
+       │    ├─ LIT
+       │    ├─ LIR
+       │    └─ LHT
+       │
+       └─ 第三方生态 DLL
+            ├─ 声明 BUE 为 BepInDependency
+            ├─ 引用 BetterUnturnedExperience.dll
+            ├─ CopyLocal=false
+            ├─ 不捆绑 BUE
+            └─ 通过 BueRuntimeHost.Register 接入 BUE
+```
+
+### 两层结构
+
+**官方功能层**(BII/LIT/LIR/LHT):BUE 官方维护;源码按领域拆分;构建时聚合;玩家侧只有一个 `BetterUnturnedExperience.dll`;运行时是进程内 `IFeatureModule`;不作为四个独立 BepInEx 插件发布。
+
+**生态功能层**(第三方):独立 DLL;独立作者、独立发布;由 BepInEx 原生扫描和实例化;`[BepInDependency("io.github.yu80rice.betterunturnedexperience")]` 声明前置;编译时引用 BUE 主 DLL;运行时经公开注册桥接入;使用 BUE 提供的网络、生命周期、事件、设置、Tick、诊断和隔离能力。
+
+> BUE 不负责重新发现生态 DLL;BepInEx 已经负责发现。BUE 负责成为这些 DLL 所依赖的前置库与运行时平台。(与 Forge/NeoForge/Fabric Loader 的"模组前置与运行时平台"同构。)
+
+### BUE 不需要做什么
+
+- BUE 自建 DLL 扫描器;BUE 自建外部模块加载器;BUE 自己决定生态 DLL 的发现顺序;把第三方生态功能聚合进官方 DLL;要求第三方提交源码才能接入;玩家安装多个官方 BUE 功能 DLL。
+
+(BepInEx 已完成:DLL 发现 → [BepInPlugin] 识别 → [BepInDependency] 排序 → 插件实例化。BUE 不重复实现这些底层职责。)
+
+### BUE 真正要建设的五个稳定 seam
+
+1. **前置契约**:BUE GUID/支持版本范围/程序集引用方式/CopyLocal=false/禁捆绑/可用性检测/不兼容安全退出。
+2. **公开注册桥**(`BueRuntimeHost.Register`,SCR-GPT18-001 核心):注册阶段开放判断、FeatureId 校验、合同版本检查、防重复注册、创建 `IFeatureBootstrap`、注入 Network/Events/Settings/Clock 等平台服务、明确的接受或拒绝结果。
+3. **平台服务**:BueNetworkApi、IFeatureBootstrap.Network、BUE Events、Host Clock、Settings Runtime、Main-thread dispatch、Diagnostics、Module lifecycle、Failure isolation——生态作者只写业务逻辑。
+4. **运行时管理**:Registered → Accepted → Starting → Running → Disabled/Isolated → Stopped;生态模块失败不拖垮官方功能;BUE 核心失败才进 CoreSafeMode;停止时注销事件/网络/补丁;旧连接/Tick/状态不泄漏;统一诊断可见。
+5. **开发者契约和防双装**(DEV-V2-23):写清生态 DLL 完整路径(创建独立 BepInEx 插件→声明前置→引用主 DLL→CopyLocal=false→禁捆绑→公开桥注册→获取平台服务→生命周期与隔离规则);生态 DLL 不得偷偷携带另一份 BUE.dll(`BUE-PLATFORM-001` 防双装检查)。
+
+### BUE 的实际产品形态
+
+```text
+官方交付:BetterUnturnedExperience.dll = 官方功能 + 平台运行时 + 公共契约
+生态交付:ThirdPartyFeature.dll = 独立 BepInEx 插件 + BUE 前置依赖
+```
+
+玩家可能最终安装:
+
+```text
+BepInEx/plugins/
+├── BetterUnturnedExperience.dll
+├── SomeInventoryExtension.dll
+├── AnotherServerTool.dll
+└── CustomUiFeature.dll
+```
+
+唯一的官方 BUE 文件仍然只有一个,生态 DLL 可以有很多个。
+
+### 当前规划的正确下一步(不变)
+
+第二阶段 20/21/22/24 无需改变;其中 **23 的文档必须明确区分:官方功能=源码模块构建期聚合;生态功能=独立 DLL 由 BepInEx 原生发现**。
+
+第二阶段完成后,平台化核心 = 继续完善:公开注册桥、稳定 ABI、网络标准、生命周期标准、事件标准、设置标准、Tick/线程标准、Harmony 接入标准、诊断和隔离标准、生态开发者 SDK 与示例。
+
+### 一句话最终定稿
+
+> BUE 不造加载器;BepInEx 负责发现和加载生态 DLL,BUE 负责作为它们的前置库和运行时平台,把网络、生命周期、事件、设置、线程、诊断和隔离统一起来。

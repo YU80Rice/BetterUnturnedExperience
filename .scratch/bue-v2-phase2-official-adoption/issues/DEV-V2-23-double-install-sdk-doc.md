@@ -23,3 +23,7 @@ Spec: `../spec.md`（「开发者契约与 SDK 引用」「防双装」「开发
 - [ ] 诊断在日志与面板可见；全仓无文件删除路径
 - [ ] 文档八节齐备，第 7 节登记条目与代码一致，第 8 节列出 DEV-V2-24 将执行的实机清单
 - [ ] 构建 0 警告；全套测试 PASS；双轴独立审查 CLEAN
+
+## 追加 Scope 注记(2026-09-07,主工作树会话;源自平台愿景对账注记 3)
+
+本票开发者契约文档八节须按**两层模型**写:官方功能 = 源码模块、构建期聚合进单一主 DLL;生态功能 = 独立 DLL、BepInEx 原生发现、声明 BUE 前置(`io.github.yu80rice.betterunturnedexperience`)、引用主 DLL(CopyLocal=false,禁捆绑,防双装 BUE-PLATFORM-001)、经公开注册桥(`BueRuntimeHost.Register`,SCR-GPT18-001)接入并消费平台服务。生态路径先例:`src/BetterUnturnedExperience.NoOpFixture/NoOpFeaturePlugin.cs`(独立 GUID + HardDependency + 公开桥注册)。完整愿景基线:`.scratch/bue-v2-phase2-official-adoption/research/2026-09-07-bue-platform-vision-phase3.md` 对账注记 3。

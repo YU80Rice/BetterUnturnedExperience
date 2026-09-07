@@ -1,7 +1,7 @@
 # DEV-V2-21：LIT 迁入·联机路径 + TidyCompleted 发布
 
 Type: task
-Status: ready-for-agent
+Status: claimed
 Parent: spec.md（V2 第二阶段规格·三插件官方纳入与平台首公里）
 Blocked by: DEV-V2-15（单人路径核心）、DEV-V2-18（BUE 帧绑定）、DEV-V2-19（TidyCompleted 契约件）
 Spec: `../spec.md`（「LIT ↔ LIR：TidyCompleted 功能事件」「LIT：设置、熔断与夹具」及「三插件迁入形态」相关条目）
