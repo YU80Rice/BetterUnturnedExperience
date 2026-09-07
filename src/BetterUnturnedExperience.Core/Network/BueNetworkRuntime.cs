@@ -53,7 +53,9 @@ namespace BetterUnturnedExperience.Core.Network
     /// matching no pending handshake), and the peer's initiator self-heals
     /// with a fresh handshake — the module switch itself still fires no
     /// lifecycle events (DEV-V2-14 frozen semantics).
-    /// Frame format (DEV-V2-06 v2) is internal: magic "BUE2" + kind byte +
+    /// Frame format (DEV-V2-06 v2) is internal: magic "BUE1" (DEV-V2-18
+    /// rename; the frame never shipped, so it carries zero compatibility
+    /// cost) + kind byte +
     /// length-prefixed channel id + the sender's steam id (8 bytes LE) +
     /// payload — never exposed into Contracts. The sender field lets the
     /// receiver resolve the dispatch context by source instead of "first
@@ -61,10 +63,15 @@ namespace BetterUnturnedExperience.Core.Network
     /// target (0) or the addressed session's peer steam id.
     /// Frame kinds: 0=Data, 1=Hello, 2=Ack, 3=Reject (control frames carry
     /// an empty channel id and the 20-byte control payload).
+    /// DEV-V2-18: the frame goes online for real — the decision core's BUE
+    /// branch (NetworkModuleAdapter, gated by the network module switch
+    /// alone) feeds inbound raw packets into the transport adapter's queue,
+    /// and outbound sends resolve through the engine binding; the magic is
+    /// owned by <see cref="BueFrameClassifier.FrameMagic"/> so the wire
+    /// classifier and the encoder can never drift apart.
     /// </summary>
     public sealed class BueNetworkRuntime : IBueNetworkApi
     {
-        private const string FrameMagic = "BUE2";
         private const byte KindData = 0;
         private const byte KindHello = 1;
         private const byte KindAck = 2;
@@ -589,7 +596,7 @@ namespace BetterUnturnedExperience.Core.Network
             lock (sync)
             {
                 if (!moduleActive) return; // DEV-V2-14: a deactivated module receives nothing
-                if (frame == null || frame.Length < 6 || Encoding.ASCII.GetString(frame, 0, 4) != FrameMagic) return;
+                if (frame == null || frame.Length < 6 || Encoding.ASCII.GetString(frame, 0, 4) != BueFrameClassifier.FrameMagic) return;
                 kind = frame[4];
                 var channelLength = frame[5];
                 if (frame.Length < 14 + channelLength) return; // header: magic 4 + kind 1 + chanLen 1 + sender 8
@@ -860,7 +867,7 @@ namespace BetterUnturnedExperience.Core.Network
             if (channelBytes.Length > byte.MaxValue) return NetworkSendResult.PayloadTooLarge;
             if (payload == null || payload.Length > 16 * 1024) return NetworkSendResult.PayloadTooLarge;
             var frame = new byte[6 + channelBytes.Length + 8 + payload.Length];
-            Encoding.ASCII.GetBytes(FrameMagic, 0, 4, frame, 0);
+            Buffer.BlockCopy(BueFrameClassifier.MagicBytes, 0, frame, 0, 4);
             frame[4] = kind;
             frame[5] = (byte)channelBytes.Length;
             Buffer.BlockCopy(channelBytes, 0, frame, 6, channelBytes.Length);

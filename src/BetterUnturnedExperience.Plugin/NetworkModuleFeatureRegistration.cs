@@ -14,9 +14,11 @@ namespace BetterUnturnedExperience.Plugin
     /// and never call this). DEV-V2-10 F-B: Register admits BOTH facets —
     /// the network feature and the V1 compat feature (spec-V2-phase1 L74) —
     /// so the management panel's network entries exist and the takeover card
-    /// is reachable. The Priority.First patches install only while the
-    /// standalone-LMN probe is true: with LMN absent nothing is patched and
-    /// nothing reflects (zero false positive).
+    /// is reachable. DEV-V2-18 rewrote the patch-install rule: the
+    /// Priority.First patches install whenever the network module is enabled
+    /// (BUE frame consumption needs BUE's own patches even with the
+    /// standalone LMN absent); with the probe false the LMN seam keeps zero
+    /// patch/reflection/mirror actions.
     /// </summary>
     internal static class NetworkModuleFeatureRegistration
     {

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Reflection;
 using BetterUnturnedExperience.Contracts;
+using BetterUnturnedExperience.Contracts.BueNetwork;
 using BetterUnturnedExperience.Core.Network;
 using BetterUnturnedExperience.Core.Settings;
 using HarmonyLib;
@@ -29,6 +30,18 @@ namespace BetterUnturnedExperience.Plugin
     /// LMN-not-ready DEFERRAL shares the id but stays below error level —
     /// result=failed is reserved for real shape faults), BUE-V2NET-003 =
     /// takeover lifecycle (patch installed, module isolated).
+    /// DEV-V2-18: the BUE frame seam comes online — the decision core gains
+    /// the frozen six-step order (BUE branch FIRST, gated by the module
+    /// switch only; the LMN seam keeps its probe gate), the patch install
+    /// gate decouples from the standalone-LMN probe, and the adapter arms
+    /// and owns a <see cref="BueNetworkRuntime"/> bound to the engine through
+    /// an injectable <see cref="BueEngineNetBinding"/>: the pump
+    /// (<see cref="TickNetwork"/>, driven by the plugin Update) diffs the
+    /// engine's peer state into transport lifecycle events, drains the
+    /// inbound frame queue into the runtime, and drives the handshake
+    /// re-probe; outbound sends resolve through the same binding (client→
+    /// server untargeted over the client transport, server→client targeted
+    /// over the peer's transport connection).
     /// </summary>
     internal sealed class NetworkModuleAdapter
     {
@@ -70,6 +83,21 @@ namespace BetterUnturnedExperience.Plugin
         private readonly HarmonyLib.Harmony harmony = new HarmonyLib.Harmony("io.github.yu80rice.bue.network");
         private readonly Func<bool> isLmnNativeClientDispatchLive;
         private readonly Func<bool> isLmnNativeServerDispatchLive;
+        private readonly BueEngineNetBinding engineBinding;
+        private readonly Func<long> injectedMonotonicMilliseconds;
+        // DEV-V2-18: the engine-facing transport binding + the armed BUE
+        // runtime it feeds. The runtime is created ONCE per adapter, at the
+        // first engine tick where the role is decided (server = U3DS/listen
+        // host; client = a connected server peer); the menu decides nothing.
+        // NAMED LIMITATION (deferral): a process that first connects as a
+        // client and then hosts (role flip) keeps the initiator role — the
+        // runtime instance behind the frozen same-API identity cannot be
+        // swapped; the three-environment acceptance matrix (DEV-V2-24) drives
+        // one role per process.
+        private HostNetworkTransportAdapter bueTransport;
+        private BueNetworkRuntime networkRuntime;
+        private Action<byte[]> inboundBueFeeder;
+        private bool localIdentityFaultRecorded;
         private bool networkEnabled = true;
         private string takeoverStatus = string.Empty;
         private string configMigrationStatus = string.Empty;
@@ -87,7 +115,7 @@ namespace BetterUnturnedExperience.Plugin
         private bool lmnNativeClientDispatchLive;
         private bool lmnNativeServerDispatchLive;
 
-        internal NetworkModuleAdapter(string settingsRootPath, Func<bool> isStandaloneLmnLoaded, Func<Type> resolveModTransportType, Func<Type> resolveModRouterType, Action refreshPanel, Func<bool> isLmnNativeClientDispatchLive = null, Func<bool> isLmnNativeServerDispatchLive = null)
+        internal NetworkModuleAdapter(string settingsRootPath, Func<bool> isStandaloneLmnLoaded, Func<Type> resolveModTransportType, Func<Type> resolveModRouterType, Action refreshPanel, Func<bool> isLmnNativeClientDispatchLive = null, Func<bool> isLmnNativeServerDispatchLive = null, BueEngineNetBinding engineBinding = null, Func<long> monotonicMilliseconds = null)
         {
             networkSettings = new SettingsRuntime(NetworkFeature, CreateNetworkDescriptors(), new FileSettingsPersistence(settingsRootPath));
             v1CompatSettings = new SettingsRuntime(V1CompatFeature, CreateV1CompatDescriptors(), new FileSettingsPersistence(settingsRootPath));
@@ -102,6 +130,11 @@ namespace BetterUnturnedExperience.Plugin
             // from the actual patch state on the intercept points.
             this.isLmnNativeClientDispatchLive = isLmnNativeClientDispatchLive;
             this.isLmnNativeServerDispatchLive = isLmnNativeServerDispatchLive ?? isLmnNativeClientDispatchLive;
+            // DEV-V2-18: null = the production engine binding (silent
+            // reflection resolvers); the injected clock feeds the runtime's
+            // handshake backoff seam.
+            this.engineBinding = engineBinding ?? BueEngineNetBinding.Production;
+            this.injectedMonotonicMilliseconds = monotonicMilliseconds;
             ApplySwitchesFromSettings();
             UpdateTakeoverStatus();
         }
@@ -111,6 +144,138 @@ namespace BetterUnturnedExperience.Plugin
         internal bool TakeoverActive { get { return !isolated && networkEnabled && coordinator.TakeoverActive; } }
         internal string TakeoverStatus { get { return takeoverStatus; } }
         internal string ConfigMigrationStatus { get { return configMigrationStatus; } }
+        // DEV-V2-18: the armed BUE runtime behind the production transport
+        // binding — null until TickNetwork decides the engine role (menu =
+        // undecided). The feature-facing IBueNetworkApi delivery path is the
+        // registration bootstrap (DEV-V2-21/22); this internal property is
+        // the adapter's own handle for the pump and the red tests.
+        internal IBueNetworkApi NetworkApi { get { return networkRuntime; } }
+
+        /// <summary>
+        /// DEV-V2-18: the BUE runtime pump, driven by the plugin Update after
+        /// the V1 mirror retry (headless included). Each stage isolates its
+        /// own failures — a fault in one stage never escapes the pump (the
+        /// game's Update chain must keep running) and never kills the others:
+        /// a faulted peer poll leaves the last snapshot untouched so the next
+        /// tick re-raises (the runtime's per-peer reconcile is idempotent),
+        /// and a lost handshake frame self-heals through the re-probe
+        /// backoff. Stage order: arm (role decided) → peer diff → inbound
+        /// dispatch → handshake re-probe.
+        /// </summary>
+        internal void TickNetwork()
+        {
+            if (isolated || !networkEnabled) return;
+            try
+            {
+                ArmBueRuntimeIfDecided();
+            }
+            catch (Exception error)
+            {
+                Emit("[BUE-V2NET] event=bue-runtime-pump result=failed stage=arm errorType=" + error.GetType().Name + " diagnosticId=" + FaultDiagnosticId);
+            }
+            if (networkRuntime == null) return;
+            try
+            {
+                bueTransport.PollPeerState();
+            }
+            catch (Exception error)
+            {
+                Emit("[BUE-V2NET] event=bue-runtime-pump result=failed stage=peer-state errorType=" + error.GetType().Name + " diagnosticId=" + FaultDiagnosticId);
+            }
+            try
+            {
+                bueTransport.Pump();
+            }
+            catch (Exception error)
+            {
+                Emit("[BUE-V2NET] event=bue-runtime-pump result=failed stage=dispatch errorType=" + error.GetType().Name + " diagnosticId=" + FaultDiagnosticId);
+            }
+            try
+            {
+                networkRuntime.TickHandshake();
+            }
+            catch (Exception error)
+            {
+                Emit("[BUE-V2NET] event=bue-runtime-pump result=failed stage=handshake errorType=" + error.GetType().Name + " diagnosticId=" + FaultDiagnosticId);
+            }
+        }
+
+        /// <summary>
+        /// DEV-V2-18: arms the runtime once the engine role is decided —
+        /// server (U3DS/listen host) resolves immediately, the client resolves
+        /// when a server peer exists. A zero local identity poisons every
+        /// frame header sender, so arming fails closed (one-shot fault line,
+        /// retried next tick) instead of producing unattributable frames.
+        /// </summary>
+        private void ArmBueRuntimeIfDecided()
+        {
+            if (networkRuntime != null) return;
+            var serverRole = engineBinding.IsServer();
+            if (!serverRole && engineBinding.ClientPeer() == 0UL) return; // menu: role undecided
+            var localSteamId = engineBinding.LocalSteamId();
+            if (localSteamId == 0UL)
+            {
+                if (!localIdentityFaultRecorded)
+                {
+                    localIdentityFaultRecorded = true;
+                    Emit("[BUE-V2NET] event=bue-runtime-arm result=failed reason=local-identity-unresolved diagnosticId=" + FaultDiagnosticId);
+                }
+                return;
+            }
+            bueTransport = new HostNetworkTransportAdapter(EngineSend, feeder => inboundBueFeeder = feeder);
+            // The injected clock feeds the handshake re-probe backoff — the
+            // explicit adapter parameter wins over the binding's own clock.
+            networkRuntime = new BueNetworkRuntime(bueTransport, new ContractVersion(2, 0), localSteamId, handshakeInitiator: !serverRole, injectedMonotonicMilliseconds ?? engineBinding.MonotonicMilliseconds);
+            bueTransport.PeerStateSource = serverRole
+                ? (Func<IReadOnlyList<ulong>>)(() => engineBinding.ServerPeers())
+                : ClientPeerSource;
+            Emit("[BUE-V2NET] event=bue-runtime-arm result=armed role=" + (serverRole ? "server" : "client") + " localSteamId=" + localSteamId + " diagnosticId=" + LifecycleDiagnosticId);
+        }
+
+        // Client-side peer snapshot: the connected server is the one session
+        // peer; 0 (menu/disconnected) collapses to an empty snapshot.
+        private IReadOnlyList<ulong> ClientPeerSource()
+        {
+            var peer = engineBinding.ClientPeer();
+            if (peer == 0UL) return new ulong[0];
+            return new ulong[1] { peer };
+        }
+
+        private bool EngineSend(byte[] frame, bool reliable, ulong targetSteamId)
+        {
+            return engineBinding.Send(frame, reliable, targetSteamId);
+        }
+
+        /// <summary>
+        /// DEV-V2-18: the network switch's off state disarms the runtime —
+        /// DEV-V2-14 frozen inactive semantics (tables intact, zero sessions,
+        /// receives nothing, no lifecycle events). Re-enabling reconciles
+        /// through the DEV-V2-17 re-arm path (peer re-probe / responder
+        /// reset), so subscriptions survive the toggle.
+        /// </summary>
+        private void DisarmBueRuntime()
+        {
+            if (networkRuntime == null) return;
+            networkRuntime.SetModuleActive(false);
+        }
+
+        private void RearmBueRuntime()
+        {
+            if (networkRuntime == null) return;
+            // Same stage isolation as the pump (R1-Standards BLOCKING fix):
+            // the peer snapshot resolves engine truth and SetModuleActive's
+            // reconcile can send control frames — a fault here must surface
+            // as a diagnostic, not break the panel-edit call chain.
+            try
+            {
+                bueTransport.PollPeerState(); // refresh the peer snapshot before the reconcile re-probes it
+                networkRuntime.SetModuleActive(true);
+            }
+            catch (Exception error)
+            {
+                Emit("[BUE-V2NET] event=bue-runtime-pump result=failed stage=rearm errorType=" + error.GetType().Name + " diagnosticId=" + FaultDiagnosticId);
+            }
+        }
 
         /// <summary>
         /// DEV-V2-12: per-direction live state of LMN's own prefix next to
@@ -156,8 +321,13 @@ namespace BetterUnturnedExperience.Plugin
             // DEV-V2-10 R3 (Standards H3): a disabled module does zero mirror
             // work — no LMN type resolution, no deferred diagnostic — same
             // zero-reflection rule RefreshSwitches already follows.
-            if (networkEnabled && coordinator.TakeoverActive) MirrorLegacyHandlersSafe();
-            RefreshLmnNativeDispatchLive();
+            // DEV-V2-18: the LMN live probe joins the same gate (zero LMN
+            // reflection while the standalone LMN is absent).
+            if (networkEnabled && coordinator.TakeoverActive)
+            {
+                MirrorLegacyHandlersSafe();
+                RefreshLmnNativeDispatchLive();
+            }
             RecordEmptyConfigMigration();
             UpdateTakeoverStatus();
             ActiveAdapter = this;
@@ -203,16 +373,21 @@ namespace BetterUnturnedExperience.Plugin
 
         /// <summary>
         /// Production-only: installs the Priority.First prefixes on the shared
-        /// intercept points. Hard zero-false-positive rule — when the probe is
-        /// false or the module is switched off nothing is patched and nothing
-        /// reflects. Idempotent; the takeover-active refresh path re-runs it
-        /// so a switch-off/on cycle (or a startup-disabled module being
-        /// re-enabled) always re-arms.
+        /// intercept points. DEV-V2-18: the install gate is the NETWORK MODULE
+        /// SWITCH alone, decoupled from the standalone-LMN probe — BUE frame
+        /// consumption needs BUE's own patches even when LMN is absent (the
+        /// old "probe true or nothing" rule is rewritten by the spec). With
+        /// the probe false the installed patch serves the BUE seam only; the
+        /// LMN seam keeps zero patch/reflection/mirror actions. When the
+        /// module is switched off the patches are REMOVED (UnpatchSelfSafe) —
+        /// the network-off contract. Idempotent; the takeover-active refresh
+        /// path re-runs it so a switch-off/on cycle (or a startup-disabled
+        /// module being re-enabled) always re-arms.
         /// </summary>
         internal void ApplyNetworkPatches()
         {
             if (isolated || patchesInstalled) return;
-            if (!networkEnabled || !coordinator.TakeoverActive) return;
+            if (!networkEnabled) return;
             try
             {
                 if (netMessagesType == null)
@@ -230,7 +405,11 @@ namespace BetterUnturnedExperience.Plugin
                 harmony.Patch(receiveFromClient, prefix: new HarmonyLib.HarmonyMethod(typeof(NetworkModuleAdapter), nameof(ReceiveFromClientPrefix)) { priority = HarmonyLib.Priority.First });
                 harmony.Patch(receiveFromServer, prefix: new HarmonyLib.HarmonyMethod(typeof(NetworkModuleAdapter), nameof(ReceiveFromServerPrefix)) { priority = HarmonyLib.Priority.First });
                 patchesInstalled = true;
-                RefreshLmnNativeDispatchLive();
+                // DEV-V2-18 (R1 dual-axis BLOCKING/DEVIATION fix): the LMN live
+                // probe stays probe-gated — a bare-BUE install (probe false)
+                // performs ZERO LMN reflection; the patch-info scan only runs
+                // once the takeover seam is armed.
+                if (coordinator.TakeoverActive) RefreshLmnNativeDispatchLive();
                 Emit("[BUE-V2NET] event=takeover-patch result=installed priority=first targets=NetMessages.ReceiveMessageFromClient,NetMessages.ReceiveMessageFromServer diagnosticId=" + LifecycleDiagnosticId);
             }
             catch (Exception error)
@@ -242,9 +421,11 @@ namespace BetterUnturnedExperience.Plugin
         /// <summary>
         /// Re-reads both facet switches after a panel edit: the V1 compat
         /// toggle gates only the legacy path; the network module toggle is the
-        /// reversible kill switch — off unhooks the takeover (LMN's own prefix
-        /// resumes standalone), on re-arms it through the idempotent patch
-        /// install.
+        /// reversible kill switch — off unhooks the patches AND disarms the
+        /// BUE runtime (frozen inactive semantics), on re-arms both through
+        /// the idempotent install / the DEV-V2-17 re-enable reconcile. The
+        /// LMN seam's mirror and live-probe stay probe-gated: with the
+        /// standalone LMN absent they never run (zero LMN reflection).
         /// </summary>
         internal void RefreshSwitches()
         {
@@ -255,29 +436,36 @@ namespace BetterUnturnedExperience.Plugin
             if (!networkEnabled)
             {
                 UnpatchSelfSafe();
+                DisarmBueRuntime();
                 return;
             }
-            if (coordinator.TakeoverActive)
-            {
-                MirrorLegacyHandlersSafe();
-                // DEV-V2-10 R3 (Standards H4): always attempt the (idempotent)
-                // install on the active path — a module that STARTED disabled
-                // never recorded a patch desire at bootstrap, so a desire-flag
-                // guard would silently skip the re-arm the reversible switch
-                // promises (handbook B6). ApplyNetworkPatches self-guards on
-                // patchesInstalled.
-                ApplyNetworkPatches();
-                RefreshLmnNativeDispatchLive();
-            }
+            if (coordinator.TakeoverActive) MirrorLegacyHandlersSafe();
+            // DEV-V2-10 R3 (Standards H4): always attempt the (idempotent)
+            // install on the active path — a module that STARTED disabled
+            // never recorded a patch desire at bootstrap, so a desire-flag
+            // guard would silently skip the re-arm the reversible switch
+            // promises (handbook B6). ApplyNetworkPatches self-guards on
+            // patchesInstalled. DEV-V2-18: the install no longer waits for
+            // the LMN probe — the BUE seam's gate is this switch alone.
+            ApplyNetworkPatches();
+            if (coordinator.TakeoverActive) RefreshLmnNativeDispatchLive();
+            RearmBueRuntime();
         }
 
-        /// <summary>Full teardown: unhook patches, drop the decision state, clear the static route.</summary>
+        /// <summary>Full teardown: unhook patches, disarm and drop the BUE runtime, drop the decision state, clear the static route.</summary>
         internal void IsolateAndDetach()
         {
             if (isolated) return;
             isolated = true;
             UnpatchSelfSafe();
             networkEnabled = false;
+            if (networkRuntime != null)
+            {
+                networkRuntime.SetModuleActive(false);
+                networkRuntime = null;
+            }
+            bueTransport = null;
+            inboundBueFeeder = null;
             compatLayer.Enabled = false;
             UpdateTakeoverStatus();
             if (ReferenceEquals(ActiveAdapter, this)) ActiveAdapter = null;
@@ -285,36 +473,83 @@ namespace BetterUnturnedExperience.Plugin
         }
 
         /// <summary>
-        /// The prefix decision core. Triple gate: network module on + takeover
-        /// active + an LMN frame (V1 legacy or LMN2 namespaced; non-LMN frames
-        /// always pass through — zero false positive). DEV-V2-12 two-state
-        /// contract, per direction:
-        /// - LMN's own prefix live (the real takeover state): RELEASE — the
-        ///   frame is handed back so LMN's native path dispatches it exactly
-        ///   once with its own correct sender resolution. Dispatching here
-        ///   too delivered the same frame twice on the real machine (Harmony
-        ///   runs all prefixes; this prefix's return-false skips only the
-        ///   vanilla method, never LMN's lower-priority prefix).
-        /// - LMN's own prefix inert (its patch failed): BUE is the only
-        ///   dispatcher — V1 routes through the compat layer (the official
-        ///   switch may hand frames back), LMN2 delegates to LMN's router.
+        /// The prefix decision core. DEV-V2-18 freezes the SIX-STEP order:
+        /// ① recognize a BUE frame → ② network module on → BUE consumes it
+        /// (its own seam, gated by the module switch ONLY — the standalone-
+        /// LMN probe is irrelevant to BUE frames, which is why this branch
+        /// precedes the LMN seam entirely) → ③ recognize MOD/LMN2 (the LMN
+        /// takeover seam; armed = module on + probe true) → ④ LMN's native
+        /// dispatch live → RELEASE (LMN dispatches the frame exactly once
+        /// itself) → ⑤ LMN inert → BUE handles it (V1 compat route / LMN2
+        /// router delegate) → ⑥ any other frame hands back to vanilla. The
+        /// two seams share NOTHING — no takeover boolean, no branch, and BUE
+        /// frames are never subject to the live release. Contract
+        /// invariants: network off → no BUE frame consumption (patches are
+        /// removed by the same switch; this branch stays as the defensive
+        /// window); live/inert is judged per direction (DEV-V2-12 frozen);
+        /// every exception path HANDS BACK (the core never throws into the
+        /// game's receive pump — swallowing the pump would kill native
+        /// traffic wholesale; a handed-back frame only falls to vanilla's
+        /// unknown-packet drop). The Harmony prefixes are the ONLY callers
+        /// of this method in production; tests drive the decision core
+        /// directly and never install patches.
         /// </summary>
         internal bool ShouldConsumeInbound(bool fromClient, ulong senderSteamId, byte[] packet, int offset, int size, object connection)
         {
-            if (isolated || !networkEnabled || !coordinator.TakeoverActive) return false;
             if (packet == null || offset < 0 || size < 0 || offset + size > packet.Length) return false;
-            var nativeDispatchLive = fromClient ? lmnNativeClientDispatchLive : lmnNativeServerDispatchLive;
-            if (LmnFrameClassifier.IsLegacyV1Frame(packet, offset, size))
+            try
             {
-                if (nativeDispatchLive) return ReleaseToNativeDispatchOnce(isV1: true);
-                return ConsumeLegacyFrame(fromClient, senderSteamId, packet, offset, size);
+                // ① BUE frame → ② network module on → BUE consumes (BUE seam).
+                if (BueFrameClassifier.IsBueFrame(packet, offset, size))
+                {
+                    if (isolated || !networkEnabled) return false;
+                    return ConsumeBueFrame(packet, offset, size);
+                }
+                // ③ MOD/LMN2 recognition — the LMN takeover seam's gate.
+                if (isolated || !networkEnabled || !coordinator.TakeoverActive) return false;
+                var nativeDispatchLive = fromClient ? lmnNativeClientDispatchLive : lmnNativeServerDispatchLive;
+                if (LmnFrameClassifier.IsLegacyV1Frame(packet, offset, size))
+                {
+                    // ④ live → release (LMN dispatches once) / ⑤ inert → BUE handles.
+                    if (nativeDispatchLive) return ReleaseToNativeDispatchOnce(isV1: true);
+                    return ConsumeLegacyFrame(fromClient, senderSteamId, packet, offset, size);
+                }
+                if (LmnFrameClassifier.IsNamespacedV2Frame(packet, offset, size))
+                {
+                    if (nativeDispatchLive) return ReleaseToNativeDispatchOnce(isV1: false);
+                    return DelegateNamespacedFrame(fromClient, packet, offset, size, connection);
+                }
+                // ⑥ non-target frame → hand back to vanilla.
+                return false;
             }
-            if (LmnFrameClassifier.IsNamespacedV2Frame(packet, offset, size))
+            catch (Exception error)
             {
-                if (nativeDispatchLive) return ReleaseToNativeDispatchOnce(isV1: false);
-                return DelegateNamespacedFrame(fromClient, packet, offset, size, connection);
+                // Exception hand-back: never swallow native traffic by breaking
+                // the game's receive pump, never claim consumption that did
+                // not happen — the frame falls to vanilla instead.
+                Emit("[BUE-V2NET] event=inbound-decision result=failed errorType=" + error.GetType().Name + " decision=hand-back diagnosticId=" + FaultDiagnosticId);
+                return false;
             }
-            return false;
+        }
+
+        /// <summary>
+        /// DEV-V2-18: the BUE frame's production inbound path — the raw
+        /// packet window is materialized (the capture must outlive the prefix
+        /// return; the pump dispatches it later on the main thread) and fed
+        /// into the armed transport adapter, whose queue the Update pump
+        /// drains into the runtime. Before the runtime is armed (the
+        /// one-tick arm window after the role first resolves) the frame
+        /// hands back rather than being claimed as consumed; vanilla drops
+        /// it and the handshake re-probe re-establishes the exchange.
+        /// </summary>
+        private bool ConsumeBueFrame(byte[] packet, int offset, int size)
+        {
+            var feeder = inboundBueFeeder;
+            if (bueTransport == null || networkRuntime == null || feeder == null) return false;
+            var frame = new byte[size];
+            Buffer.BlockCopy(packet, offset, frame, 0, size);
+            feeder(frame);
+            return true;
         }
 
         /// <summary>Production log binding: faults are loud, lifecycle/records stay runtime-silent.</summary>
@@ -551,7 +786,12 @@ namespace BetterUnturnedExperience.Plugin
             try
             {
                 harmony.UnpatchSelf();
-                Emit("[BUE-V2NET] event=takeover-patch result=removed decision=hand-back-to-lmn diagnosticId=" + LifecycleDiagnosticId);
+                // The hand-back target differs by world: an armed takeover
+                // hands LMN frames back to LMN's own prefix; a bare-BUE world
+                // hands BUE (and unknown) frames back to vanilla — the two
+                // seams share no state, only the patch surface (R2 SMELL fix).
+                var handBack = coordinator.TakeoverActive ? "hand-back-to-lmn" : "hand-back-to-vanilla";
+                Emit("[BUE-V2NET] event=takeover-patch result=removed decision=" + handBack + " diagnosticId=" + LifecycleDiagnosticId);
             }
             catch (Exception error)
             {

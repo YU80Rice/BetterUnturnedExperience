@@ -265,6 +265,11 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     AssertBueV2AutoHandshakeLifecycle(collectAllFailures: true);
                     return 0;
                 }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--bue-v2-frame-binding-red")
+                {
+                    AssertBueV2FrameBinding(collectAllFailures: true);
+                    return 0;
+                }
                 AssertSingleDllAssemblyClosure();
                 AssertExternalSdkAssemblyIdentity();
                 Assert(BootstrapGuard.Decide(false, false, true) == BootstrapDecision.Client, "client decision");
@@ -354,6 +359,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 AssertBueV2NetworkInjection();
                 AssertBueV2SessionDrivenSendSemantics();
                 AssertBueV2AutoHandshakeLifecycle();
+                AssertBueV2FrameBinding();
                 AssertLitSingleplayerPath();
                 AssertRuntimeCompletionBarrierIsolates();
                 AssertManagementPanelConsumesRuntimeCatalog();
@@ -4094,6 +4100,456 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 throw new InvalidOperationException("DEV-V2-17 red collection (" + reds.Count + "): " + string.Join(" || ", reds));
         }
 
+        // DEV-V2-18 red anchor: BUE frames come online for real. The inbound
+        // decision core gains the BUE branch as step ① (before the LMN seam's
+        // ③④⑤), the patch install gate decouples from the standalone-LMN
+        // probe (gate = the network module switch), the wire magic renames to
+        // BUE1, and the runtime binds to the engine through an injectable
+        // binding (fake-transport E2E: subscribe → frame goes live through
+        // the decision core → dispatch, both directions). Tests drive the
+        // decision core directly and never install patches — the production
+        // prefix stays the only ShouldConsumeInbound caller.
+        private static void AssertBueV2FrameBinding(bool collectAllFailures = false)
+        {
+            var reds = new List<string>();
+            try
+            {
+                void Check(bool condition, string message)
+                {
+                    if (condition) return;
+                    if (collectAllFailures) reds.Add(message);
+                    else throw new InvalidOperationException(message);
+                }
+
+                // Each group collects independently so the red transcript names
+                // a failure per frozen group instead of aborting at the first.
+                void Group(string name, System.Action body)
+                {
+                    try { body(); }
+                    catch (Exception error) when (collectAllFailures)
+                    {
+                        reds.Add("[" + name + "] " + (error is InvalidOperationException ? error.Message : "UNEXPECTED " + error.GetType().Name + ": " + error.Message));
+                    }
+                }
+
+                var localContract = new ContractVersion(2, 0);
+                var bindingChannel = new FeatureId("io.example.v2bind");
+
+                Group("帧分类", () =>
+                {
+                    Check(BetterUnturnedExperience.Core.Network.BueFrameClassifier.FrameMagic == "BUE1",
+                        "帧分类：线帧魔数冻结为 BUE1（4 字节帧头布局不变，产品语言一律「BUE 帧」）");
+                    var bueFrame = BuildBue1Frame(bindingChannel.Value, 1001UL, new byte[] { 0x01, 0x02 });
+                    var modFrame = new byte[] { 0x4D, 0x4F, 0x44, 0x67, 0x0A };
+                    var lmn2Frame = new byte[] { 0x4C, 0x4D, 0x4E, 0x32, 0x01, 0xBB };
+                    Check(BetterUnturnedExperience.Core.Network.BueFrameClassifier.IsBueFrame(bueFrame, 0, bueFrame.Length),
+                        "帧分类：BUE1 帧被识别为 BUE 帧");
+                    Check(!BetterUnturnedExperience.Core.Network.BueFrameClassifier.IsBueFrame(modFrame, 0, modFrame.Length)
+                        && !BetterUnturnedExperience.Core.Network.BueFrameClassifier.IsBueFrame(lmn2Frame, 0, lmn2Frame.Length),
+                        "帧分类：MOD/LMN2 帧不误分类为 BUE 帧");
+                    Check(!BetterUnturnedExperience.Core.Network.LmnFrameClassifier.IsLmnFrame(bueFrame),
+                        "帧分类：BUE 帧不误分类为 LMN 帧（两类识别互斥，零误分类）");
+                    Check(!BetterUnturnedExperience.Core.Network.BueFrameClassifier.IsBueFrame(null, 0, 0)
+                        && !BetterUnturnedExperience.Core.Network.BueFrameClassifier.IsBueFrame(new byte[] { (byte)'B', (byte)'U', (byte)'E' }, 0, 3),
+                        "帧分类：null 与短于魔数的窗口不分类为 BUE 帧");
+                    var padded = new byte[] { 0x00, 0x7F, (byte)'B', (byte)'U', (byte)'E', (byte)'1', 0x00, 0x02 };
+                    Check(BetterUnturnedExperience.Core.Network.BueFrameClassifier.IsBueFrame(padded, 2, 6)
+                        && !BetterUnturnedExperience.Core.Network.BueFrameClassifier.IsBueFrame(padded, 8, 2),
+                        "帧分类：offset/size 窗口语义与越界防御成立");
+                });
+
+                Group("六步顺序", () =>
+                {
+                    var adapterRoot = Path.Combine(Path.GetTempPath(), "bue-v2bind-" + Guid.NewGuid().ToString("N"));
+                    // 探针 false + 网络开：BUE 帧仍被消费（① BUE 识别 → ② 模块开，
+                    // 先于 ③ LMN 探针门）——旧决策核把全部分支压在一个 takeover
+                    // 布尔下，此断言在旧实现上必红。
+                    var engine = new FakeBueEngine { IsServer = true, LocalSteamId = 2002UL };
+                    var dormant = new NetworkModuleAdapter(adapterRoot, () => false, () => null, () => null, () => { }, null, null, engine.ToBinding());
+                    dormant.ActivateCore();
+                    dormant.TickNetwork();
+                    Check(dormant.NetworkApi != null,
+                        "六步：网络模块开时运行时武装（探针 false 不阻 BUE seam）");
+                    if (dormant.NetworkApi == null) return;
+                    dormant.NetworkApi.RegisterChannel(bindingChannel, localContract, 1);
+                    // 建立响应方会话：探针 false 的适配器同样吃 BUE Hello（直驱决策核）
+                    var dormantHello = BuildBue1HelloFrame(1001UL, 2, 0, 12345UL);
+                    Check(dormant.ShouldConsumeInbound(true, 1001UL, dormantHello, 0, dormantHello.Length, null),
+                        "六步：探针 false 时 BUE Hello 同样被消费");
+                    dormant.TickNetwork();
+                    Check(dormant.NetworkApi.Sessions.Count == 1 && dormant.NetworkApi.Sessions[0].PeerSteamId == 1001UL,
+                        "六步：消费的 Hello 在运行时建立会话（帧头 sender 归属）");
+                    var received = new List<byte[]>();
+                    dormant.NetworkApi.Subscribe(bindingChannel, ChannelDirection.FromClients, (session, payload) => received.Add(payload));
+                    var dataFrame = BuildBue1Frame(bindingChannel.Value, 1001UL, new byte[] { 0x2A });
+                    Check(dormant.ShouldConsumeInbound(true, 1001UL, dataFrame, 0, dataFrame.Length, null),
+                        "六步：探针 false 时 BUE 帧仍被决策核消费（① BUE 识别 → ② 模块开 → BUE 消费，先于 ③）");
+                    dormant.TickNetwork();
+                    Check(received.Count == 1 && received[0].Length == 1 && received[0][0] == 0x2A,
+                        "六步：消费的 BUE 帧经泵上线并派发到 FromClients 订阅");
+                    var modFrame = new byte[] { 0x4D, 0x4F, 0x44, 0x67, 0x0A };
+                    Check(!dormant.ShouldConsumeInbound(true, 7UL, modFrame, 0, modFrame.Length, null),
+                        "六步：探针 false 时 MOD 帧原样交还（LMN seam 整体不进，零 LMN 动作）");
+                    var lmn2Frame = new byte[] { 0x4C, 0x4D, 0x4E, 0x32, 0x01, 0xBB };
+                    Check(!dormant.ShouldConsumeInbound(false, 0UL, lmn2Frame, 0, lmn2Frame.Length, null),
+                        "六步：探针 false 时 LMN2 帧原样交还");
+
+                    // 探针 true + LMN 双向 live：BUE 帧不受 live 释放影响——
+                    // live 释放只作用于 MOD/LMN2（每帧恰一次由 LMN 派发），两 seam 不共用布尔。
+                    var liveEngine = new FakeBueEngine { IsServer = true, LocalSteamId = 2002UL };
+                    var live = new NetworkModuleAdapter(adapterRoot, () => true, () => null, () => null, () => { }, () => true, () => true, liveEngine.ToBinding());
+                    live.ActivateCore();
+                    live.TickNetwork();
+                    Check(live.NetworkApi != null, "六步：LMN live 下运行时照常武装");
+                    if (live.NetworkApi == null) return;
+                    live.NetworkApi.RegisterChannel(bindingChannel, localContract, 1);
+                    var liveHello = BuildBue1HelloFrame(1001UL, 2, 0, 12346UL);
+                    Check(live.ShouldConsumeInbound(true, 1001UL, liveHello, 0, liveHello.Length, null),
+                        "六步：LMN live 时 BUE Hello 仍由 BUE 消费");
+                    live.TickNetwork();
+                    Check(live.NetworkApi.Sessions.Count == 1, "六步：LMN live 下 Hello 照常建立会话");
+                    var liveReceived = new List<byte[]>();
+                    live.NetworkApi.Subscribe(bindingChannel, ChannelDirection.FromClients, (session, payload) => liveReceived.Add(payload));
+                    Check(live.ShouldConsumeInbound(true, 1001UL, dataFrame, 0, dataFrame.Length, null),
+                        "六步：LMN live 时 BUE 帧仍由 BUE 消费（不落入 live 释放分支）");
+                    live.TickNetwork();
+                    Check(liveReceived.Count == 1, "六步：LMN live 下 BUE 帧照常上线派发");
+                });
+
+                Group("patch 门", () =>
+                {
+                    var diagnostics = new List<string>();
+                    var previousSink = NetworkModuleAdapter.DiagnosticLogSink;
+                    NetworkModuleAdapter.DiagnosticLogSink = line => diagnostics.Add(line);
+                    try
+                    {
+                        var adapterRoot = Path.Combine(Path.GetTempPath(), "bue-v2bind-" + Guid.NewGuid().ToString("N"));
+                        // patch 安装门 = 网络模块启用（与 LMN 探针解耦）：探针 false
+                        // 且网络开时安装仍被尝试。安装尝试不依赖 TypeByName 是否
+                        // 成功——fail-closed 或真装都浮出同一 event=takeover-patch
+                        // 诊断，其存在即锚点；旧实现此处零输出。
+                        // 计数探针钉「零 LMN 探测动作」：live 探测函数一次都不得被
+                        // 调用（R1 修复钉子——安装路径的探测调用已加门）。
+                        // 组末 IsolateAndDetach：若 TypeByName 在本宿主真装了
+                        // Harmony 前缀，隔离确保不留残留补丁（R2 SMELL fix）。
+                        var clientProbeCalls = 0;
+                        var serverProbeCalls = 0;
+                        var bare = new NetworkModuleAdapter(adapterRoot, () => false, () => null, () => null, () => { },
+                            () => { clientProbeCalls++; return false; },
+                            () => { serverProbeCalls++; return false; });
+                        bare.ActivateCore();
+                        bare.ApplyNetworkPatches();
+                        Check(CountToken(diagnostics, "event=takeover-patch") == 1,
+                            "patch 门：探针 false 且网络开时 patch 安装仍被尝试（安装门与 LMN 探针解耦）");
+                        Check(clientProbeCalls == 0 && serverProbeCalls == 0,
+                            "patch 门：探针 false 时 LMN live 探测零调用（零 LMN 反射，R1 修复钉子）");
+                        Check(!diagnostics.Exists(line => line.Contains("event=v1-table-mirror")),
+                            "patch 门：探针 false 时零 LMN 相关镜像动作（零镜像）");
+                        Check(!bare.LmnNativeDispatchLive,
+                            "patch 门：探针 false 时不探测 LMN 自有前缀状态（零 LMN 反射）");
+                        bare.IsolateAndDetach();
+                    }
+                    finally { NetworkModuleAdapter.DiagnosticLogSink = previousSink; }
+                });
+
+                Group("live 恰一次", () =>
+                {
+                    var adapterRoot = Path.Combine(Path.GetTempPath(), "bue-v2bind-" + Guid.NewGuid().ToString("N"));
+                    FakeLmnModTransport.Reset();
+                    FakeLmnModTransport.ClientHandlers[103] = reader => { FakeLmnModTransport.ClientCalls++; };
+                    var engine = new FakeBueEngine { IsServer = true, LocalSteamId = 2002UL };
+                    // client 方向 live、server 方向 inert（DEV-V2-12 冻结：live/inert
+                    // 每方向独立判断）——新决策核必须原样保持该语义。
+                    var mixed = new NetworkModuleAdapter(adapterRoot, () => true, () => typeof(FakeLmnModTransport), () => typeof(FakeLmnModRouter), () => { }, () => true, () => false, engine.ToBinding());
+                    mixed.ActivateCore();
+                    mixed.TickNetwork();
+                    Assert(BetterUnturnedExperience.Core.Network.LmnV1FrameCodec.TryBuild(103, new byte[] { 0x11 }, out var v1Frame),
+                        "setup: the V1 mirror frame builds");
+                    Check(!mixed.ShouldConsumeInbound(true, 4242UL, v1Frame, 0, v1Frame.Length, null),
+                        "live：client 方向 live 时 V1 帧被释放（LMN 原生派发恰一次，BUE 不重复派发）");
+                    Check(mixed.ShouldConsumeInbound(false, 0UL, v1Frame, 0, v1Frame.Length, null) && FakeLmnModTransport.ClientCalls == 1,
+                        "live：server 方向 inert 时 V1 帧由 BUE 处理（方向独立判断）");
+                });
+
+                Group("异常隔离", () =>
+                {
+                    var clockNow = 1000000L;
+                    var diagnostics = new List<string>();
+                    var previousSink = NetworkModuleAdapter.DiagnosticLogSink;
+                    NetworkModuleAdapter.DiagnosticLogSink = line => diagnostics.Add(line);
+                    try
+                    {
+                        var adapterRoot = Path.Combine(Path.GetTempPath(), "bue-v2bind-" + Guid.NewGuid().ToString("N"));
+                        var engine = new FakeBueEngine { IsServer = false, LocalSteamId = 1001UL, ClientPeer = 2002UL };
+                        engine.SendOverride = (frame, reliable, target) => { throw new InvalidOperationException("engine send fault"); };
+                        var client = new NetworkModuleAdapter(adapterRoot, () => false, () => null, () => null, () => { }, null, null, engine.ToBinding(), () => clockNow);
+                        client.ActivateCore();
+                        var threw = false;
+                        try { client.TickNetwork(); }
+                        catch (Exception) { threw = true; }
+                        Check(!threw, "异常：引擎发送异常不逃逸 TickNetwork（泵级隔离，游戏 Update 链不断）");
+                        Check(CountToken(diagnostics, "event=bue-runtime-pump result=failed") == 1,
+                            "异常：泵故障浮出结构化故障行（每级隔离一次，不刷屏）");
+                        Check(client.NetworkApi != null, "异常：泵故障后运行时保持武装（隔离不拆运行时）");
+                        // 自愈：发送恢复 + 退避到期 → 泵内 TickHandshake 重探 → Hello 上线
+                        engine.SendOverride = null;
+                        clockNow += 1500;
+                        client.TickNetwork();
+                        Check(engine.Sent.Count == 1 && engine.Sent[0].Frame[4] == 1 && engine.Sent[0].Target == 0UL,
+                            "异常：退避到期后 TickHandshake 经泵重发 Hello（自愈路径上线）");
+                        // 隔离后 BUE 帧交还 vanilla（hand-back，不吞不炸）
+                        client.IsolateAndDetach();
+                        var lateFrame = BuildBue1Frame(bindingChannel.Value, 2002UL, new byte[] { 1 });
+                        Check(!client.ShouldConsumeInbound(false, 0UL, lateFrame, 0, lateFrame.Length, null),
+                            "异常：隔离后 BUE 帧交还 vanilla（决策核 hand-back，无残留状态引用）");
+                    }
+                    finally { NetworkModuleAdapter.DiagnosticLogSink = previousSink; }
+                });
+
+                Group("网络关闭", () =>
+                {
+                    var adapterRoot = Path.Combine(Path.GetTempPath(), "bue-v2bind-" + Guid.NewGuid().ToString("N"));
+                    var engine = new FakeBueEngine { IsServer = true, LocalSteamId = 2002UL, ServerPeers = { 1001UL } };
+                    var adapter = new NetworkModuleAdapter(adapterRoot, () => false, () => null, () => null, () => { }, null, null, engine.ToBinding());
+                    adapter.ActivateCore();
+                    adapter.ApplyNetworkPatches();
+                    adapter.TickNetwork();
+                    Check(adapter.NetworkApi != null, "网络关闭：武装基线成立");
+                    if (adapter.NetworkApi == null) return;
+                    adapter.NetworkApi.RegisterChannel(bindingChannel, localContract, 1);
+                    var hello = BuildBue1HelloFrame(1001UL, 2, 0, 12347UL);
+                    Check(adapter.ShouldConsumeInbound(true, 1001UL, hello, 0, hello.Length, null),
+                        "网络关闭：开启基线下 BUE 帧被消费");
+                    adapter.TickNetwork();
+                    Check(adapter.NetworkApi.Sessions.Count == 1, "网络关闭：会话建立基线");
+                    // 关闭：BUE 帧不消费（交还 vanilla）；同一开关移除 patch 并
+                    // 停用运行时（测试宿主无法真装 patch，patch 移除的生产证据
+                    // 随实机验收 24；此处钉行为面）。
+                    Assert(adapter.NetworkSettings.Submit(new ScopedSettingChangeRequest(51UL, SettingRevisionScope.ClientPreference,
+                        adapter.NetworkSettings.GetSnapshot(SettingRevisionScope.ClientPreference).Revision,
+                        new[] { new SettingMutation("network.enabled", SettingValue.Toggle(false)) })).Accepted,
+                        "setup: the network switch is turned off");
+                    adapter.RefreshSwitches();
+                    var offFrame = BuildBue1Frame(bindingChannel.Value, 1001UL, new byte[] { 0x66 });
+                    Check(!adapter.ShouldConsumeInbound(true, 1001UL, hello, 0, hello.Length, null)
+                        && !adapter.ShouldConsumeInbound(true, 1001UL, offFrame, 0, offFrame.Length, null),
+                        "网络关闭：BUE 帧一律不消费（网络关闭不消费契约）");
+                    Check(adapter.NetworkApi.Sessions.Count == 0,
+                        "网络关闭：停用语义零会话（DEV-V2-14 冻结）");
+                    Check(adapter.NetworkApi.SendToServer(bindingChannel, new byte[] { 1 }, true) == NetworkSendResult.NoSession,
+                        "网络关闭：发送显式 NoSession（不新增专用错误码）");
+                    // 重开：消费恢复（可逆开关）
+                    Assert(adapter.NetworkSettings.Submit(new ScopedSettingChangeRequest(52UL, SettingRevisionScope.ClientPreference,
+                        adapter.NetworkSettings.GetSnapshot(SettingRevisionScope.ClientPreference).Revision,
+                        new[] { new SettingMutation("network.enabled", SettingValue.Toggle(true)) })).Accepted,
+                        "setup: the network switch is re-enabled");
+                    adapter.RefreshSwitches();
+                    Check(adapter.ShouldConsumeInbound(true, 1001UL, hello, 0, hello.Length, null),
+                        "网络关闭：重开后 BUE 帧消费恢复");
+                    adapter.TickNetwork();
+                    Check(adapter.NetworkApi.Sessions.Count == 1, "网络关闭：重开后会话重建（重启用语义）");
+                });
+
+                Group("生产绑定E2E", () =>
+                {
+                    var adapterRoot = Path.Combine(Path.GetTempPath(), "bue-v2bind-" + Guid.NewGuid().ToString("N"));
+                    var serverEngine = new FakeBueEngine { IsServer = true, LocalSteamId = 2002UL };
+                    var clientEngine = new FakeBueEngine { IsServer = false, LocalSteamId = 1001UL };
+                    serverEngine.ServerPeers.Add(1001UL);
+                    var server = new NetworkModuleAdapter(adapterRoot, () => false, () => null, () => null, () => { }, null, null, serverEngine.ToBinding());
+                    var client = new NetworkModuleAdapter(adapterRoot, () => false, () => null, () => null, () => { }, null, null, clientEngine.ToBinding());
+                    server.ActivateCore();
+                    client.ActivateCore();
+                    server.TickNetwork(); // server 角色即决：首泵即武装
+                    Check(server.NetworkApi != null,
+                        "E2E：server 角色首泵即武装（client 角色随连接决，见 Hello 上线）");
+                    if (server.NetworkApi == null) return;
+                    server.NetworkApi.RegisterChannel(bindingChannel, localContract, 1);
+                    // 客户端上线（武装先于注册：角色随连接决，Hello 无需频道注册）
+                    clientEngine.ClientPeer = 2002UL;
+                    client.TickNetwork();
+                    Check(client.NetworkApi != null, "E2E：client 角色随连接决并武装");
+                    if (client.NetworkApi == null) return;
+                    client.NetworkApi.RegisterChannel(bindingChannel, localContract, 1);
+                    var serverGot = new List<CapturedDispatch>();
+                    var clientGot = new List<CapturedDispatch>();
+                    server.NetworkApi.Subscribe(bindingChannel, ChannelDirection.FromClients, (session, payload) => serverGot.Add(new CapturedDispatch { Sender = session.PeerSteamId, Payload = payload }));
+                    client.NetworkApi.Subscribe(bindingChannel, ChannelDirection.FromServer, (session, payload) => clientGot.Add(new CapturedDispatch { Sender = session.PeerSteamId, Payload = payload }));
+
+                    Check(clientEngine.Sent.Count == 1 && clientEngine.Sent[0].Frame[4] == 1 && clientEngine.Sent[0].Target == 0UL,
+                        "E2E：客户端泵武装后自动发出 Hello（单帧 untargeted，生产绑定发起方）");
+                    Check(clientEngine.Sent[0].Frame[0] == (byte)'B' && clientEngine.Sent[0].Frame[1] == (byte)'U'
+                        && clientEngine.Sent[0].Frame[2] == (byte)'E' && clientEngine.Sent[0].Frame[3] == (byte)'1',
+                        "E2E：上线帧魔数为 BUE1（线形 pin）");
+                    // 帧上线：Hello 进入服务器决策核（生产 prefix 唯一调用者的直驱替身）→ 泵派发
+                    var hello = clientEngine.Sent[0].Frame;
+                    Check(server.ShouldConsumeInbound(true, 1001UL, hello, 0, hello.Length, null),
+                        "E2E：服务器决策核消费客户端 BUE 帧");
+                    server.TickNetwork();
+                    Check(serverEngine.Sent.Count == 1 && serverEngine.Sent[0].Frame[4] == 2 && serverEngine.Sent[0].Target == 1001UL,
+                        "E2E：响应方同步 Ack 定向回发起方");
+                    Check(server.NetworkApi.Sessions.Count == 1 && server.NetworkApi.Sessions[0].PeerSteamId == 1001UL,
+                        "E2E：服务器侧会话以帧头 sender 建立（established 快照可见）");
+                    var ack = serverEngine.Sent[0].Frame;
+                    Check(client.ShouldConsumeInbound(false, 0UL, ack, 0, ack.Length, null),
+                        "E2E：客户端决策核消费服务器 Ack");
+                    client.TickNetwork();
+                    Check(client.NetworkApi.Sessions.Count == 1,
+                        "E2E：发起方握手完成（established 快照可见）");
+                    var clientSession = client.NetworkApi.Sessions[0];
+                    var clientSessionDisconnected = 0;
+                    clientSession.Disconnected += () => clientSessionDisconnected++;
+
+                    // client→server 生产发送（SendToServer：单帧 untargeted）
+                    Check(client.NetworkApi.SendToServer(bindingChannel, new byte[] { 0x33 }, true) == NetworkSendResult.Sent,
+                        "E2E：客户端 SendToServer 经生产绑定送出");
+                    var uplink = FindSentByKind(clientEngine.Sent, 0);
+                    Check(uplink != null && uplink.Target == 0UL && uplink.Reliable,
+                        "E2E：上行数据帧 untargeted 且可靠位透传");
+                    Check(server.ShouldConsumeInbound(true, 1001UL, uplink.Frame, 0, uplink.Frame.Length, null),
+                        "E2E：服务器决策核消费上行数据帧");
+                    server.TickNetwork();
+                    Check(serverGot.Count == 1 && serverGot[0].Sender == 1001UL && serverGot[0].Payload[0] == 0x33,
+                        "E2E：上行帧按帧头 sender 解析会话并派发 FromClients 订阅");
+
+                    // server→client 生产发送（SendToClient：会话寻径 targeted）
+                    var serverSession = server.NetworkApi.Sessions[0];
+                    Check(server.NetworkApi.SendToClient(bindingChannel, serverSession, new byte[] { 0x44 }, false) == NetworkSendResult.Sent,
+                        "E2E：服务器 SendToClient 按会话定向发送");
+                    var downlink = FindSentByKind(serverEngine.Sent, 0);
+                    Check(downlink != null && downlink.Target == 1001UL && !downlink.Reliable,
+                        "E2E：下行数据帧定向到会话 peer 且可靠位透传");
+                    Check(client.ShouldConsumeInbound(false, 0UL, downlink.Frame, 0, downlink.Frame.Length, null),
+                        "E2E：客户端决策核消费下行数据帧");
+                    client.TickNetwork();
+                    Check(clientGot.Count == 1 && clientGot[0].Sender == 2002UL && clientGot[0].Payload[0] == 0x44,
+                        "E2E：下行帧派发 FromServer 订阅（订阅 → 帧上线 → 派发 全链绿）");
+
+                    // SendToClients 会话驱动组播（每会话一帧 targeted，非无目标广播）
+                    Check(server.NetworkApi.SendToClients(bindingChannel, new byte[] { 0x55 }, true) == NetworkSendResult.Sent,
+                        "E2E：SendToClients 组播聚合 Sent");
+                    var multicast = FindSentByKind(serverEngine.Sent, 0);
+                    Check(multicast != null && multicast.Target == 1001UL,
+                        "E2E：组播逐会话定向（target=peer）");
+                    Check(client.ShouldConsumeInbound(false, 0UL, multicast.Frame, 0, multicast.Frame.Length, null),
+                        "E2E：客户端决策核消费组播帧");
+                    client.TickNetwork();
+                    Check(clientGot.Count == 2 && clientGot[1].Payload[0] == 0x55,
+                        "E2E：组播帧派发到既有订阅");
+
+                    // 断线清理：客户端对端快照归零 → PeerDisconnected → 无 ghost
+                    clientEngine.ClientPeer = 0UL;
+                    client.TickNetwork();
+                    Check(clientSessionDisconnected == 1, "E2E：对端断开触发 Disconnected（会话对象回调）");
+                    Check(client.NetworkApi.Sessions.Count == 0, "E2E：断线清理无 ghost");
+                    serverEngine.ServerPeers.Remove(1001UL);
+                    server.TickNetwork();
+                    Check(server.NetworkApi.Sessions.Count == 0, "E2E：服务器侧断线清理同步无 ghost");
+                });
+
+                // groups continue (辅助桩与方法)
+            }
+            catch (Exception error) when (collectAllFailures)
+            {
+                reds.Add("UNEXPECTED: " + error.GetType().FullName + ": " + error.Message);
+            }
+            if (collectAllFailures && reds.Count == 0)
+                Console.WriteLine("DEV-V2-18 frame-binding collection: ALL GREEN (0 failures) — groups: 帧分类/六步顺序/patch 门/live 恰一次/异常隔离/网络关闭/生产绑定E2E");
+            if (collectAllFailures && reds.Count > 0)
+                throw new InvalidOperationException("DEV-V2-18 red collection (" + reds.Count + "): " + string.Join(" || ", reds));
+        }
+
+        // DEV-V2-18 red-regression engine stub: the full engine-facing binding
+        // surface (role resolve, local identity, server peer snapshot, client
+        // peer, engine send, optional injected clock) as plain delegates with
+        // captured sends, so the production wiring is driven without touching
+        // Assembly-CSharp. SendOverride injects engine faults for the
+        // pump-isolation group.
+        private sealed class FakeBueEngine
+        {
+            internal sealed class SentFrame { internal byte[] Frame; internal bool Reliable; internal ulong Target; }
+
+            internal bool IsServer;
+            internal ulong LocalSteamId;
+            internal readonly List<ulong> ServerPeers = new List<ulong>();
+            internal ulong ClientPeer;
+            internal Func<long> Clock = null; // null = the runtime's default monotonic clock
+            internal Func<byte[], bool, ulong, bool> SendOverride;
+            internal readonly List<SentFrame> Sent = new List<SentFrame>();
+
+            internal BueEngineNetBinding ToBinding()
+            {
+                var self = this;
+                return new BueEngineNetBinding(
+                    () => self.IsServer,
+                    () => self.LocalSteamId,
+                    () => self.ServerPeers.ToArray(),
+                    () => self.ClientPeer,
+                    (frame, reliable, target) =>
+                    {
+                        if (self.SendOverride != null) return self.SendOverride(frame, reliable, target);
+                        lock (self.Sent) self.Sent.Add(new SentFrame { Frame = (byte[])frame.Clone(), Reliable = reliable, Target = target });
+                        return true;
+                    },
+                    self.Clock);
+            }
+        }
+
+        private sealed class CapturedDispatch
+        {
+            internal ulong Sender;
+            internal byte[] Payload;
+        }
+
+        // DEV-V2-18: hand-built BUE1 wire frame (magic 4 + kind 1 + chanLen 1 +
+        // channel + sender 8 + payload) for direct decision-core feeding.
+        private static byte[] BuildBue1Frame(string channelId, ulong sender, byte[] payload)
+        {
+            var channelBytes = System.Text.Encoding.UTF8.GetBytes(channelId ?? string.Empty);
+            var frame = new byte[14 + channelBytes.Length + payload.Length];
+            frame[0] = (byte)'B'; frame[1] = (byte)'U'; frame[2] = (byte)'E'; frame[3] = (byte)'1';
+            frame[4] = 0; // KindData
+            frame[5] = (byte)channelBytes.Length;
+            Buffer.BlockCopy(channelBytes, 0, frame, 6, channelBytes.Length);
+            for (var i = 0; i < 8; i++) frame[6 + channelBytes.Length + i] = (byte)(sender >> (i * 8));
+            Buffer.BlockCopy(payload, 0, frame, 14 + channelBytes.Length, payload.Length);
+            return frame;
+        }
+
+        // DEV-V2-18: hand-built BUE1 Hello (34 bytes — magic 4 + kind 1 +
+        // chanLen 0 + sender 8 + control payload [steamId 8][major 2][minor 2]
+        // [nonce 8]) for establishing a responder-side session without the
+        // runtime's own send path.
+        private static byte[] BuildBue1HelloFrame(ulong sender, ushort major, ushort minor, ulong nonce)
+        {
+            var frame = new byte[34];
+            frame[0] = (byte)'B'; frame[1] = (byte)'U'; frame[2] = (byte)'E'; frame[3] = (byte)'1';
+            frame[4] = 1; // KindHello
+            frame[5] = 0;
+            for (var i = 0; i < 8; i++) frame[6 + i] = (byte)(sender >> (i * 8));
+            for (var i = 0; i < 8; i++) frame[14 + i] = (byte)(sender >> (i * 8));
+            frame[22] = (byte)major;
+            frame[23] = (byte)(major >> 8);
+            frame[24] = (byte)minor;
+            frame[25] = (byte)(minor >> 8);
+            for (var i = 0; i < 8; i++) frame[26 + i] = (byte)(nonce >> (i * 8));
+            return frame;
+        }
+
+        private static FakeBueEngine.SentFrame FindSentByKind(List<FakeBueEngine.SentFrame> sent, byte kind)
+        {
+            FakeBueEngine.SentFrame found = null;
+            lock (sent)
+            {
+                foreach (var record in sent)
+                {
+                    if (record.Frame[4] != kind) continue;
+                    found = record;
+                }
+            }
+            return found;
+        }
+
         // DEV-V2-17 red-regression transport: full lifecycle control — records
         // every send, raises PeerConnected/PeerDisconnected on demand, injects
         // raw frames into the receive path, and exposes the ConnectedPeers
@@ -4176,7 +4632,8 @@ namespace BetterUnturnedExperience.Plugin.Tests
             internal ulong Target { get; }
         }
 
-        // Wire-shape pin for the fail-closed probes: magic "BUE2" + kind +
+        // Wire-shape pin for the fail-closed probes: magic "BUE1" (DEV-V2-18
+        // rename) + kind +
         // chanLen 0 + header sender 8 + control payload [steamId 8][major 2]
         // [minor 2][nonce 8] = 34 bytes. Kind byte pins: 1=Hello, 2=Ack, 3=Reject.
         private const byte HandshakeKindHello = 1;
@@ -4186,7 +4643,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
         private static byte[] BuildControlFrame(byte kind, ulong headerSender, ulong payloadSteamId, ushort major, ushort minor, ulong nonce)
         {
             var frame = new byte[34];
-            frame[0] = (byte)'B'; frame[1] = (byte)'U'; frame[2] = (byte)'E'; frame[3] = (byte)'2';
+            frame[0] = (byte)'B'; frame[1] = (byte)'U'; frame[2] = (byte)'E'; frame[3] = (byte)'1';
             frame[4] = kind;
             frame[5] = 0;
             HandshakeWrite64(frame, 6, headerSender);

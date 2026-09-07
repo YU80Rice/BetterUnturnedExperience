@@ -12,6 +12,13 @@ namespace BetterUnturnedExperience.Core.Network
     /// Production binds the delegates to the game's transport via reflection;
     /// tests bind loopback delegates. Pure C# — no engine types cross this
     /// seam.
+    /// DEV-V2-18: the lifecycle seam is live. The peer events are raised by
+    /// <see cref="PollPeerState"/> diffing the injected
+    /// <see cref="PeerStateSource"/> (production: the engine binding's peer
+    /// resolvers; tests: stubs or the Raise* helpers), and
+    /// <see cref="ConnectedPeers"/> answers with the live source snapshot the
+    /// runtime's re-enable reconcile re-probes. The adapter stays passive
+    /// about engine truth — it only shapes it into transport events.
     /// </summary>
     public sealed class HostNetworkTransportAdapter : INetworkTransport
     {
@@ -28,17 +35,70 @@ namespace BetterUnturnedExperience.Core.Network
         }
 
         public event Action<byte[]> Receive;
-        // DEV-V2-17: lifecycle seam. The events are raised by the production
-        // binding (DEV-V2-18 wiring); ConnectedPeers serves the re-enable
-        // re-probe. The adapter declares them so the runtime's automatic
-        // handshake has a stable target — the real engine bindings land with
-        // the frame-binding ticket.
-#pragma warning disable 0067 // Raised by the DEV-V2-18 production transport binding.
+        // DEV-V2-18: raised by PollPeerState (or the test Raise* helpers) from
+        // the engine's connection truth; the runtime's automatic handshake and
+        // disconnect cleanup react to them.
         public event Action<ulong> PeerConnected;
         public event Action<ulong> PeerDisconnected;
-#pragma warning restore 0067
+
         private static readonly ulong[] EmptyPeers = new ulong[0];
-        public IReadOnlyList<ulong> ConnectedPeers { get { return EmptyPeers; } }
+        // Last polled snapshot (main-thread only, like every engine touch in
+        // the production pump). A raise that throws leaves it untouched, so
+        // the next poll re-raises — the runtime's per-peer reconcile is
+        // idempotent, which keeps a faulted poll self-correcting.
+        private IReadOnlyList<ulong> lastPolledPeers = EmptyPeers;
+
+        /// <summary>
+        /// DEV-V2-18: the engine's current connected-peer snapshot (production:
+        /// the BueEngineNetBinding peer resolvers; tests: stubs). Null keeps
+        /// the adapter inert — ConnectedPeers empty, polls no-op.
+        /// </summary>
+        public Func<IReadOnlyList<ulong>> PeerStateSource { get; set; }
+
+        public IReadOnlyList<ulong> ConnectedPeers
+        {
+            get
+            {
+                var source = PeerStateSource;
+                var peers = source != null ? source() : null;
+                return peers ?? EmptyPeers;
+            }
+        }
+
+        /// <summary>
+        /// DEV-V2-18: diffs the peer-state source against the last poll and
+        /// raises PeerConnected/PeerDisconnected — the transport-level
+        /// lifecycle truth the automatic handshake rides.
+        /// </summary>
+        public void PollPeerState()
+        {
+            var source = PeerStateSource;
+            if (source == null) return;
+            var current = source() ?? (IReadOnlyList<ulong>)EmptyPeers;
+            foreach (var peer in lastPolledPeers)
+            {
+                if (!ContainsPeer(current, peer)) RaisePeerDisconnected(peer);
+            }
+            foreach (var peer in current)
+            {
+                if (!ContainsPeer(lastPolledPeers, peer)) RaisePeerConnected(peer);
+            }
+            lastPolledPeers = current;
+        }
+
+        /// <summary>DEV-V2-18: direct raise helpers (test seams; production raises via PollPeerState).</summary>
+        public void RaisePeerConnected(ulong peerSteamId) { var raised = PeerConnected; if (raised != null) raised(peerSteamId); }
+        public void RaisePeerDisconnected(ulong peerSteamId) { var raised = PeerDisconnected; if (raised != null) raised(peerSteamId); }
+
+        private static bool ContainsPeer(IReadOnlyList<ulong> peers, ulong peer)
+        {
+            for (var index = 0; index < peers.Count; index++)
+            {
+                if (peers[index] == peer) return true;
+            }
+            return false;
+        }
+
         public bool Send(byte[] frame, bool reliable, ulong targetSteamId) { return frame != null && send((byte[])frame.Clone(), reliable, targetSteamId); }
         public int Pump()
         {

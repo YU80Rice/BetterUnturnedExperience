@@ -15,6 +15,7 @@
     <Compile Include="..\BetterUnturnedExperience.Core\Network\BueNetworkProtocol.cs"><Link>EmbeddedCore\Network\BueNetworkProtocol.cs</Link></Compile>
     <Compile Include="..\BetterUnturnedExperience.Core\Network\LocalLoopbackTransport.cs"><Link>EmbeddedCore\Network\LocalLoopbackTransport.cs</Link></Compile>
     <Compile Include="..\BetterUnturnedExperience.Core\Network\BueNetworkRuntime.cs"><Link>EmbeddedCore\Network\BueNetworkRuntime.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Core\Network\BueFrameClassifier.cs"><Link>EmbeddedCore\Network\BueFrameClassifier.cs</Link></Compile>
     <Compile Include="..\BetterUnturnedExperience.Core\Network\LmnFrameClassifier.cs"><Link>EmbeddedCore\Network\LmnFrameClassifier.cs</Link></Compile>
     <Compile Include="..\BetterUnturnedExperience.Core\Network\LmnTakeoverCoordinator.cs"><Link>EmbeddedCore\Network\LmnTakeoverCoordinator.cs</Link></Compile>
     <Compile Include="..\BetterUnturnedExperience.Core\Network\LmnV1FrameCodec.cs"><Link>EmbeddedCore\Network\LmnV1FrameCodec.cs</Link></Compile>
@@ -31,6 +32,7 @@
     <Compile Include="BueRuntimeHost.cs" />
     <Compile Include="OfficialFeatureRegistration.cs" />
     <Compile Include="NetworkModuleAdapter.cs" />
+    <Compile Include="BueEngineNetBinding.cs" />
     <Compile Include="NetworkModuleFeatureRegistration.cs" />
     <Compile Include="NetworkSettingsEditor.cs" />
     <Compile Include="BetterUnturnedExperiencePlugin.cs" />

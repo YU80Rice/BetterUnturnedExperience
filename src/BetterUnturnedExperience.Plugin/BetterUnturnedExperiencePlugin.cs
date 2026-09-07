@@ -227,6 +227,10 @@ namespace BetterUnturnedExperience.Plugin
             // assembly loads (BUE bootstraps first under BepInEx name order);
             // throttled and silent inside the adapter, headless included.
             NetworkModuleFeatureRegistration.WiredAdapter?.RetryPendingMirror();
+            // DEV-V2-18: the BUE runtime pump — engine peer-state diff,
+            // inbound frame dispatch, handshake re-probe; every stage
+            // fault-isolated inside the adapter, headless included.
+            NetworkModuleFeatureRegistration.WiredAdapter?.TickNetwork();
             // Some BepInEx/Unity hosts do not dispatch a plugin Start message
             // before the first frame. Keep the same host-owned barrier as a
             // one-shot next-frame fallback; external features still cannot
