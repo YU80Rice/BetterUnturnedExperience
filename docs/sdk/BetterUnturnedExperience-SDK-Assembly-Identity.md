@@ -82,4 +82,9 @@ BepInEx\plugins\ThirdPartyFeature.dll
   - 载荷只含时间与序号、不携带功能逻辑：`TickNumber`（单调 ulong，从 1 起严格 +1）、`DeltaTime`（float 秒，相邻 tick 单调时差，首 tick 0）、`Phase`（`TickPhase : byte { Update = 0 }`，阶段与频率固定=每宿主 Update 节拍恰一 tick；新增阶段属冻结面变更须登记）。
   - 冻结不变性：回调主线程执行（生产单驱动=插件 Update 泵链，时钟自身不建线程）；功能停止自动注销其时钟订阅；单订阅者异常不扩散（诊断浮出，不静默吞）；`Tick()` 永不向泵抛出。
 
+- **⑦ `FeatureStartResult` 可构造结果（2026-09-07，DEV-V2-21，加性变更不升 Major）**：只读 struct 新增公开构造器
+  `FeatureStartResult(bool started, FrameworkErrorCode error, string diagnosticId)`。
+  - 加性理由：仅新增构造器，既有 getter 与 `default(FeatureStartResult)` 语义不变，旧引用无需重编译对齐，无破坏面——按本节规则（破坏性变更才升 Major）维持 2.0。
+  - 冻结语义：宿主模块启动路径（`IFeatureModule.Start(IFeatureBootstrap)`，DEV-V2-21 落地）以显式结果回报启动结局——`Started=false`/`Error`/`DiagnosticId` 为显式失败回报，不再是隐式默认值；启动失败的模块不进入宿主已启动集合（宿主停止交接 `UnsubscribeAll` 只作用于已启动功能）。
+
 > 后续票逐条追加。

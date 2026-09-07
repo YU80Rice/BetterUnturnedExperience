@@ -14,6 +14,7 @@
     <Compile Include="..\BetterUnturnedExperience.Core\Network\BueEnvelopeCodec.cs"><Link>EmbeddedCore\Network\BueEnvelopeCodec.cs</Link></Compile>
     <Compile Include="..\BetterUnturnedExperience.Core\Network\BueNetworkProtocol.cs"><Link>EmbeddedCore\Network\BueNetworkProtocol.cs</Link></Compile>
     <Compile Include="..\BetterUnturnedExperience.Core\Network\LocalLoopbackTransport.cs"><Link>EmbeddedCore\Network\LocalLoopbackTransport.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Core\Network\DeferredBueNetworkApi.cs"><Link>EmbeddedCore\Network\DeferredBueNetworkApi.cs</Link></Compile>
     <Compile Include="..\BetterUnturnedExperience.Core\Network\BueNetworkRuntime.cs"><Link>EmbeddedCore\Network\BueNetworkRuntime.cs</Link></Compile>
     <Compile Include="..\BetterUnturnedExperience.Core\Network\BueFrameClassifier.cs"><Link>EmbeddedCore\Network\BueFrameClassifier.cs</Link></Compile>
     <Compile Include="..\BetterUnturnedExperience.Core\Network\LmnFrameClassifier.cs"><Link>EmbeddedCore\Network\LmnFrameClassifier.cs</Link></Compile>
@@ -71,6 +72,12 @@
     <Compile Include="..\BetterUnturnedExperience.Lit\Solver\LayoutCandidate.cs"><Link>EmbeddedLit\Solver\LayoutCandidate.cs</Link></Compile>
     <Compile Include="..\BetterUnturnedExperience.Lit\Diagnostics\TidyDiagnosticLog.cs"><Link>EmbeddedLit\Diagnostics\TidyDiagnosticLog.cs</Link></Compile>
     <Compile Include="..\BetterUnturnedExperience.Lit\Tidy\MainThreadDispatcher.cs"><Link>EmbeddedLit\Tidy\MainThreadDispatcher.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Lit\Tidy\LitTidyWireCodec.cs"><Link>EmbeddedLit\Tidy\LitTidyWireCodec.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Lit\Tidy\LitTidyServerState.cs"><Link>EmbeddedLit\Tidy\LitTidyServerState.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Lit\Tidy\LitTidyClientState.cs"><Link>EmbeddedLit\Tidy\LitTidyClientState.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Lit\Tidy\LitTidyFaultScopeBook.cs"><Link>EmbeddedLit\Tidy\LitTidyFaultScopeBook.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Lit\Tidy\LitTidyNetService.cs"><Link>EmbeddedLit\Tidy\LitTidyNetService.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Lit\Tidy\LitTidyProductionAuthority.cs"><Link>EmbeddedLit\Tidy\LitTidyProductionAuthority.cs</Link></Compile>
     <Compile Include="..\BetterUnturnedExperience.Lit\Tidy\HotkeySnapshot.cs"><Link>EmbeddedLit\Tidy\HotkeySnapshot.cs</Link></Compile>
     <Compile Include="..\BetterUnturnedExperience.Lit\Tidy\ManualTidyService.cs"><Link>EmbeddedLit\Tidy\ManualTidyService.cs</Link></Compile>
     <Compile Include="..\BetterUnturnedExperience.Lit\Tidy\LocalTidyFaultGate.cs"><Link>EmbeddedLit\Tidy\LocalTidyFaultGate.cs</Link></Compile>
@@ -79,6 +86,7 @@
     <Compile Include="..\BetterUnturnedExperience.Lit\InventoryTidyModule.cs"><Link>EmbeddedLit\InventoryTidyModule.cs</Link></Compile>
     <Compile Include="InventoryTidyFeatureRegistration.cs" />
     <Compile Include="BueHostEventRuntime.cs" />
+    <Compile Include="BueFeatureStartRuntime.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>

@@ -78,7 +78,19 @@ namespace BetterUnturnedExperience.Contracts
     }
 
     public enum FeatureStopReason : byte { None, PluginStopping, UserDisabled, VersionIncompatible, RuntimeIsolated, EnvironmentUnavailable, DependencyUnavailable, CoreSafeMode }
-    public readonly struct FeatureStartResult { public bool Started { get; } public FrameworkErrorCode Error { get; } public string DiagnosticId { get; } }
+    // DEV-V2-21: constructible start result — the host start path (module
+    // Start through IFeatureBootstrap) reports an explicit outcome instead
+    // of the implicit default(Started=false). Additive to the frozen surface
+    // (a constructor; existing getters unchanged); registered with this
+    // ticket's contract change log entry.
+    public readonly struct FeatureStartResult
+    {
+        public bool Started { get; }
+        public FrameworkErrorCode Error { get; }
+        public string DiagnosticId { get; }
+        public FeatureStartResult(bool started, FrameworkErrorCode error, string diagnosticId)
+        { Started = started; Error = error; DiagnosticId = diagnosticId ?? string.Empty; }
+    }
 
     public interface IFeatureModule { FeatureStartResult Start(IFeatureBootstrap bootstrap); void Stop(FeatureStopReason reason); }
     public interface IFeatureBootstrap

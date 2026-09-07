@@ -31,8 +31,11 @@ namespace BetterUnturnedExperience.Plugin
             var result = BueRuntimeHost.Register(new Registration(module));
             if (result.Accepted)
             {
+                // DEV-V2-21: BORN inert means registered only — the module
+                // arms when the host start path drives IFeatureModule.Start
+                // with the composed bootstrap (stable network facade + host
+                // bus views). Registration no longer starts the module.
                 WiredModule = module;
-                module.EnsureStarted();
             }
             else
             {

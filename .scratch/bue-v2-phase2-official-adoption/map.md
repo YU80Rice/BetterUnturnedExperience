@@ -29,6 +29,10 @@ Author: GPT（本会话 charting）
 - [T6：LHT(更好的尸潮播报)纳入方式](issues/06-lht-adoption.md)：FeatureId `io.github.yu80rice.bue.horde-tracker`(显示名同名,旧频道退役);自有补丁=信标两 Postfix(**勘误:答复曾误列 LIR 补丁**)+上下文守卫原则(共享调用点可以,共享业务上下文不行);表现状态分工——主机/U3DS 权威追踪+广播(Available/HeadlessOnly),客户端 HUD 10Hz 宿主时钟;**内部双件** HordeTrackingModule+HordePresentationAdapter(HUD 失败只降表现);`ModTransport.Initialize` 上收 BUE 网络模块、ABI 守卫删除、epoch/seq/mailbox/脏标记/双可靠度/ReceiveGate 保留;广播=SendToClients 会话驱动组播(08 基线照抄+BUE 帧不可靠 1:1 红测);enabled 唯一持久化,关闭=完整停摆。扩展三分法(IHordeTrackingPolicy/表现 adapter/独立模块)。可交 /to-spec。
 - [T7：开发者契约与防双装](issues/07-developer-contract-double-install.md)：三段式契约(承诺=GUID/AssemblyName 冻结+公开契约按版本演化,AssemblyName 改动=破坏性公告+迁移事件;不承诺=非 BepInEx 加载/Preloader 边缘/任意改名复制阴影加载;指引=引用主 DLL+CopyLocal=false+禁捆绑);文件名精确措辞=文件名不是契约身份,路径与发现规则属部署前提;SDK 引用=直接引用主 DLL(独立 SDK 拆分列四条件暂缓);防双装=Awake 注入式自检诊断 `BUE-PLATFORM-001`(同 AssemblyName 补强;同 GUID 双装=BepInEx 原生留一跳一+FAQ;不自动删文件;**非完整防重复加载系统**);验收=注入式红测+T1 五项实机清单(不同 GUID+同 AssemblyName 须红测+实机双证);文档大纲八节冻结于 docs/sdk,正文随 /to-spec。**用户期待登记:版本更新可变文件名,程序集名不动**。可交 /to-spec。
 
+## Decisions so far（实施票，续）
+
+- [DEV-V2-21：LIT 迁入·联机路径 + TidyCompleted 发布](issues/DEV-V2-21-lit-multiplayer-path.md)：**resolved（2026-09-07，双轴 R9 双 CLEAN）**——BUE 命名频道+双方向订阅重建联机全链（challenge/账本/lease/事务绑功能+连接代际）；熔断 scope 绑连接代际（清内存留磁盘 JSON 权威）；TidyCompleted 经 OwnedEvents 发布（本地 gen=0/联机会话代际）；宿主模块 Start/Stop+UnsubscribeAll 首公里（`DeferredBueNetworkApi` 永非 null 门面，SDK 登记条目⑦）。候选 `78da57c2…8385`(417792B,CaseId DEV-V2-21-CANDIDATE-20260907)，换标随 24。结单 `audit/2026-09-07/DEV-V2-21/`。
+
 ## Not yet specified
 
 - **SDK 分发与版本策略**：第三方开发者从哪拿引用 DLL、BUE 版本与契约版本如何对应、示例插件形态——挂在 T3（生产绑定）与 T7（契约）结论上，未到可立票粒度。

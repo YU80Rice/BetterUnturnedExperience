@@ -275,6 +275,11 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     AssertBueV2EventBusAndHostTick(collectAllFailures: true);
                     return 0;
                 }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--bue-v2-lit-multiplayer-red")
+                {
+                    AssertBueV2LitMultiplayerPath(collectAllFailures: true);
+                    return 0;
+                }
                 AssertSingleDllAssemblyClosure();
                 AssertExternalSdkAssemblyIdentity();
                 Assert(BootstrapGuard.Decide(false, false, true) == BootstrapDecision.Client, "client decision");
@@ -366,6 +371,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 AssertBueV2AutoHandshakeLifecycle();
                 AssertBueV2FrameBinding();
                 AssertBueV2EventBusAndHostTick();
+                AssertBueV2LitMultiplayerPath();
                 AssertLitSingleplayerPath();
                 AssertRuntimeCompletionBarrierIsolates();
                 AssertManagementPanelConsumesRuntimeCatalog();
@@ -3142,6 +3148,429 @@ namespace BetterUnturnedExperience.Plugin.Tests
             pair.First.Pump(); pair.Second.Pump();
             Assert(hits == 0, "stop semantics: disposed handles receive nothing after the module returns");
             Assert(rearmedHits == 1, "stop semantics: the re-armed module dispatches to fresh subscriptions (channel table intact)");
+        }
+
+        // DEV-V2-21 red anchor: the LIT multiplayer path over the BUE named
+        // channel. Five collected groups — the fake-transport full chain
+        // (challenge → request → authoritative transaction → reliable
+        // committed → flow ack → hotkey restore → result), the session
+        // challenge gates (no-challenge refusal, generation invalidation),
+        // the connection-generation fault scope (memory clears, disk
+        // persists), the TidyCompleted publish semantics, and the
+        // half-registration rollback. The engine-facing authority is faked
+        // (ILitTidyAuthority) so the full protocol chain runs on the
+        // loopback pair with zero Harmony patches.
+        private static void AssertBueV2LitMultiplayerPath(bool collectAllFailures = false)
+        {
+            var reds = new List<string>();
+            try
+            {
+                void Check(bool condition, string message)
+                {
+                    if (condition) return;
+                    if (collectAllFailures) reds.Add(message);
+                    else throw new InvalidOperationException(message);
+                }
+
+                void Group(string name, System.Action body)
+                {
+                    try { body(); }
+                    catch (Exception error) when (collectAllFailures)
+                    {
+                        reds.Add("[" + name + "] " + (error is InvalidOperationException ? error.Message : "UNEXPECTED " + error.GetType().Name + ": " + error.Message));
+                    }
+                }
+
+                Group("双端收发全链", () => LitMultiplayerGroupFullChain(Check));
+                Group("session challenge", () => LitMultiplayerGroupChallenge(Check));
+                Group("代际 fault scope", () => LitMultiplayerGroupFaultScope(Check));
+                Group("TidyCompleted 发布", () => LitMultiplayerGroupTidyCompleted(Check));
+                Group("半注册回滚", () => LitMultiplayerGroupHalfRegistration(Check));
+            }
+            catch (Exception error) when (collectAllFailures)
+            {
+                reds.Add("UNEXPECTED: " + error.GetType().FullName + ": " + error.Message);
+            }
+            if (collectAllFailures && reds.Count == 0)
+                Console.WriteLine("DEV-V2-21 LIT multiplayer collection: ALL GREEN (0 failures) — groups: 双端收发全链/session challenge/代际 fault scope/TidyCompleted 发布/半注册回滚");
+            if (collectAllFailures && reds.Count > 0)
+                throw new InvalidOperationException("DEV-V2-21 red collection (" + reds.Count + "): " + string.Join(" || ", reds));
+        }
+
+        /// <summary>The fake engine authority: records the calls the service makes; defaults produce a committed transaction.</summary>
+        private sealed class FakeLitAuthority : ILitTidyAuthority
+        {
+            public int ExecuteCount;
+            public uint LastRequestId;
+            public byte LastPage;
+            public int RestoreCount;
+            public int ConvergenceCount;
+
+            public List<HotkeySnapshot> CaptureClientHotkeys() { return new List<HotkeySnapshot>(); }
+
+            public LitAuthorityResult ExecuteServerTidy(LitTidyRequestContext request)
+            {
+                ExecuteCount++;
+                LastRequestId = request.RequestId;
+                LastPage = request.Page;
+                var page = request.Page == LitRuntime.AllPages ? (byte)2 : request.Page;
+                return new LitAuthorityResult
+                {
+                    Outcome = TidyOperationOutcome.Committed,
+                    Mappings = new List<LitNewPositionMapping> { new LitNewPositionMapping(0, page, 0, 0, 1) },
+                    RestoreEntries = new List<HotkeyRestoreEntry> { new HotkeyRestoreEntry(0, page, 0, 0, new ItemFingerprint(1, 1, 100, new byte[0])) },
+                };
+            }
+
+            public LitHotkeyRestoreResult RestoreServerHotkeys(ulong peerSteamId, List<HotkeyRestoreEntry> entries)
+            {
+                RestoreCount++;
+                return new LitHotkeyRestoreResult { Restored = entries?.Count ?? 0, Verified = entries?.Count ?? 0, Cleared = 0, FailedIndices = new List<byte>() };
+            }
+
+            public bool VerifyClientConvergence(List<LitNewPositionMapping> mappings)
+            {
+                ConvergenceCount++;
+                return true;
+            }
+        }
+
+        /// <summary>A network stub whose SECOND subscribe throws — the half-registration rollback surface.</summary>
+        private sealed class HalfRegistrationNetwork : IBueNetworkApi
+        {
+            public int SubscribeCalls;
+            public int DisposedHandles;
+            public int UnregisterCalls;
+
+            public ChannelRegistrationResult RegisterChannel(FeatureId channel, ContractVersion minimumBueContract, ushort featureVersion)
+            { return new ChannelRegistrationResult(true, channel, FeatureRegistrationReason.None, "STUB"); }
+
+            public bool UnregisterChannel(FeatureId channel) { UnregisterCalls++; return true; }
+
+            public IDisposable Subscribe(FeatureId channel, ChannelDirection direction, Action<IConnectionSession, byte[]> handler)
+            {
+                if (++SubscribeCalls >= 2) throw new InvalidOperationException("synthetic second-subscribe failure");
+                return new TrackingHandle(this);
+            }
+
+            public IReadOnlyList<IConnectionSession> Sessions { get { return new IConnectionSession[0]; } }
+            public NetworkSendResult SendToServer(FeatureId channel, byte[] payload, bool reliable) { return NetworkSendResult.NoSession; }
+            public NetworkSendResult SendToClients(FeatureId channel, byte[] payload, bool reliable) { return NetworkSendResult.NoSession; }
+            public NetworkSendResult SendToClient(FeatureId channel, IConnectionSession session, byte[] payload, bool reliable) { return NetworkSendResult.NoSession; }
+
+            private sealed class TrackingHandle : IDisposable
+            {
+                private readonly HalfRegistrationNetwork owner;
+                internal TrackingHandle(HalfRegistrationNetwork owner) { this.owner = owner; }
+                public void Dispose() { owner.DisposedHandles++; }
+            }
+        }
+
+        /// <summary>The two-peer loopback harness: client (1001) initiates, server (2002) answers, both modules run with fake authorities.</summary>
+        private sealed class LitMultiplayerHarness
+        {
+            public BetterUnturnedExperience.Core.Network.LocalLoopbackPair Pair;
+            public BetterUnturnedExperience.Core.Network.BueNetworkRuntime ServerRuntime;
+            public BetterUnturnedExperience.Core.Network.BueNetworkRuntime ClientRuntime;
+            public InventoryTidyModule ServerModule;
+            public InventoryTidyModule ClientModule;
+            public FakeLitAuthority ServerAuthority;
+            public FakeLitAuthority ClientAuthority;
+            public BetterUnturnedExperience.Core.Events.FeatureEventBus ServerBus;
+            public BetterUnturnedExperience.Core.Events.FeatureEventBus ClientBus;
+            public readonly List<TidyCompleted> ServerTidyEvents = new List<TidyCompleted>();
+            public readonly List<byte[]> ClientRawFromServer = new List<byte[]>();
+            public readonly List<byte[]> ServerRawFromClients = new List<byte[]>();
+            public IConnectionSession ServerSession;
+            public IConnectionSession ClientSession;
+
+            public static LitMultiplayerHarness Create(string faultDir)
+            {
+                var localContract = new ContractVersion(2, 0);
+                var feature = new FeatureId(LitRuntime.FeatureIdValue);
+                var pair = BetterUnturnedExperience.Core.Network.LocalLoopbackTransport.CreatePair();
+                var clientRuntime = new BetterUnturnedExperience.Core.Network.BueNetworkRuntime(pair.First, localContract, 1001UL);
+                var serverRuntime = new BetterUnturnedExperience.Core.Network.BueNetworkRuntime(pair.Second, localContract, 2002UL, handshakeInitiator: false);
+                var harness = new LitMultiplayerHarness
+                {
+                    Pair = pair,
+                    ClientRuntime = clientRuntime,
+                    ServerRuntime = serverRuntime,
+                    ServerAuthority = new FakeLitAuthority(),
+                    ClientAuthority = new FakeLitAuthority(),
+                };
+                harness.ServerBus = new BetterUnturnedExperience.Core.Events.FeatureEventBus();
+                harness.ServerModule = CreateModule(harness.ServerBus, serverRuntime, isServer: true, harness.ServerAuthority, faultDir);
+                harness.ClientBus = new BetterUnturnedExperience.Core.Events.FeatureEventBus();
+                harness.ClientModule = CreateModule(harness.ClientBus, clientRuntime, isServer: false, harness.ClientAuthority, faultDir);
+                harness.ClientModule.Network.Subscribe(feature, ChannelDirection.FromServer, (s, p) => harness.ClientRawFromServer.Add(p));
+                harness.ServerModule.Network.Subscribe(feature, ChannelDirection.FromClients, (s, p) => harness.ServerRawFromClients.Add(p));
+                harness.ServerBus.Subscriber(feature).Subscribe<TidyCompleted>(harness.ServerTidyEvents.Add);
+                return harness;
+            }
+
+            private static InventoryTidyModule CreateModule(BetterUnturnedExperience.Core.Events.FeatureEventBus bus, BetterUnturnedExperience.Core.Network.BueNetworkRuntime runtime, bool isServer, FakeLitAuthority authority, string faultDir)
+            {
+                var feature = new FeatureId(LitRuntime.FeatureIdValue);
+                var module = new InventoryTidyModule(feature, new InMemorySettingsPersistence());
+                module.ScopeDirectoryForTests = faultDir;
+                module.FaultContextForTests = () => new LitFaultScopeContext("TestMap", 1);
+                module.NetServiceFactoryForTests = (m, net, book) => new LitTidyNetService(m, net, authority, () => isServer, book);
+                var bootstrap = new FeatureBootstrap(default(FeatureScopeIdentity), 1UL, null, bus.Subscriber(feature), bus.Publisher(feature), null, null, null, runtime);
+                var result = module.Start(bootstrap);
+                if (!result.Started) throw new InvalidOperationException("harness: module start failed: " + result.DiagnosticId);
+                return module;
+            }
+
+            /// <summary>The automatic handshake: the client initiates; two pump rounds establish both sides.</summary>
+            public void Handshake()
+            {
+                ClientSession = ClientRuntime.StartSession(2002UL);
+                Pump();
+                Pump();
+                if (ClientRuntime.Sessions.Count != 1 || ServerRuntime.Sessions.Count != 1)
+                    throw new InvalidOperationException("harness: handshake did not establish both sides");
+                ServerSession = ServerRuntime.Sessions[0];
+            }
+
+            /// <summary>
+            /// Drives session discovery on BOTH services and pumps: the
+            /// server issues the challenge, the client discovers its live
+            /// session (the request gate needs the established session in
+            /// the service's tracked set).
+            /// </summary>
+            public void EstablishChallenge()
+            {
+                ServerModule.Tick();
+                ClientModule.Tick();
+                Pump();
+            }
+
+            public void Pump()
+            {
+                Pair.First.Pump();
+                Pair.Second.Pump();
+            }
+
+            public void TickBoth()
+            {
+                ServerModule.Tick();
+                ClientModule.Tick();
+            }
+        }
+
+        private static string NewLitFaultDirectory()
+        {
+            return System.IO.Path.Combine(System.IO.Path.GetTempPath(), "bue-v2lit-mp-" + Guid.NewGuid().ToString("N"));
+        }
+
+        private static void LitMultiplayerGroupFullChain(System.Action<bool, string> check)
+        {
+            var faultDir = NewLitFaultDirectory();
+            var harness = LitMultiplayerHarness.Create(faultDir);
+            harness.Handshake();
+            harness.EstablishChallenge();
+            check(harness.ClientRawFromServer.Count > 0 && harness.ClientRawFromServer[0][1] == LitTidyWireCodec.MsgSessionChallenge,
+                "全链：服务器在会话建立后向客户端发送 session challenge（功能私有消息 6）");
+
+            var request = harness.ClientModule.RequestTidy(3, TidyMode.SameType, true);
+            check(request == LitTidyRequestResult.Dispatched, "全链：challenge 就绪后客户端请求受理（Dispatched）");
+            harness.Pump();
+            harness.ServerModule.Tick();
+            harness.Pump();
+            harness.ClientModule.Tick();
+            harness.Pump();
+            harness.ServerModule.Tick();
+            harness.Pump();
+            check(harness.ServerAuthority.ExecuteCount == 1 && harness.ServerAuthority.LastPage == 3 && harness.ServerAuthority.LastRequestId == 1,
+                "全链：主机权威恰好执行一次（reqId=1, page=3）");
+            check(harness.ServerTidyEvents.Count == 1
+                && harness.ServerTidyEvents[0].ConnectionGeneration == harness.ServerSession.SessionId
+                && harness.ServerTidyEvents[0].TransactionId == 1UL
+                && harness.ServerTidyEvents[0].FirstPage == 3 && harness.ServerTidyEvents[0].LastPage == 3
+                && harness.ServerTidyEvents[0].Result == TidyCompletionResult.Succeeded
+                && harness.ServerTidyEvents[0].Publisher.Value == LitRuntime.FeatureIdValue,
+                "全链：权威事务终态发布 TidyCompleted（代际=会话代际, 事务=requestId, 范围=单页, Succeeded）");
+            check(harness.ClientAuthority.ConvergenceCount >= 1, "全链：客户端在收到 TidyCommitted 后执行收敛检查");
+            check(harness.ServerAuthority.RestoreCount == 1, "全链：客户端 HotkeyFlowAck 到达后服务器执行快捷键恢复");
+            check(harness.ClientRawFromServer.Exists(p => p.Length > 1 && p[1] == LitTidyWireCodec.MsgTidyCommitted),
+                "全链：客户端收到 TidyCommitted 回包（功能私有消息 3）");
+            check(harness.ClientRawFromServer.Exists(p => p.Length > 1 && p[1] == LitTidyWireCodec.MsgTidyHotkeyResult),
+                "全链：客户端收到 TidyHotkeyResult（功能私有消息 5）");
+            check(harness.ServerRawFromClients.Exists(p => p.Length > 1 && p[1] == LitTidyWireCodec.MsgHotkeyFlowAck),
+                "全链：服务器收到 HotkeyFlowAck（功能私有消息 4）");
+
+            // Duplicate request (same token + requestId): the ledger replays
+            // the cached committed — the authority executes EXACTLY once.
+            harness.ClientModule.Network.SendToServer(new FeatureId(LitRuntime.FeatureIdValue),
+                LitTidyWireCodec.BuildTidyRequest(ReadChallengeToken(harness.ClientRawFromServer[0]), 1, 3, TidyMode.SameType, true, new List<HotkeySnapshot>()), reliable: true);
+            harness.Pump();
+            harness.ServerModule.Tick();
+            harness.Pump();
+            check(harness.ServerAuthority.ExecuteCount == 1, "重放：重复请求命中账本缓存，权威不再执行");
+            check(harness.ClientRawFromServer.FindAll(p => p.Length > 1 && p[1] == LitTidyWireCodec.MsgTidyCommitted).Count >= 2,
+                "重放：重复请求收到缓存的完整 Committed 重发");
+        }
+
+        /// <summary>The challenge envelope's 64-bit token ([1][6][token8]) — reused by the replay probe.</summary>
+        private static ulong ReadChallengeToken(byte[] challenge)
+        {
+            return BitConverter.ToUInt64(challenge, 2);
+        }
+
+        private static void LitMultiplayerGroupChallenge(System.Action<bool, string> check)
+        {
+            var harness = LitMultiplayerHarness.Create(NewLitFaultDirectory());
+            harness.Handshake();
+            // 1. No challenge yet → the client refuses to send (08 line: 客户端尚未收到有效服务端 session challenge).
+            var early = harness.ClientModule.RequestTidy(3, TidyMode.SameType, true);
+            check(early == LitTidyRequestResult.RejectedNoSession,
+                "challenge：未收到 challenge 客户端拒绝发送（RejectedNoSession，不建 pending）");
+            harness.Pump();
+            harness.ServerModule.Tick();
+            harness.Pump();
+            check(harness.ServerAuthority.ExecuteCount == 0, "challenge：challenge 前的请求从未到达权威");
+
+            // 2. Challenge arrives → the request path opens.
+            harness.EstablishChallenge();
+            var ok = harness.ClientModule.RequestTidy(3, TidyMode.SameType, true);
+            check(ok == LitTidyRequestResult.Dispatched, "challenge：challenge 就绪后请求受理（Dispatched）");
+            // Drain the in-flight request first — a frame dispatched after a
+            // supersession is generation-mismatched (fail-closed), which the
+            // FULL-chain group already pins; here the probe needs a quiesced
+            // ledger.
+            harness.Pump();
+            harness.ServerModule.Tick();
+            harness.Pump();
+
+            // 3. Generation invalidation: a re-handshake supersedes the
+            //    session with a fresh generation — the OLD token must fail
+            //    closed everywhere (client gate AND server admission).
+            var oldToken = ReadChallengeToken(harness.ClientRawFromServer[0]);
+            harness.Handshake();
+            var stale = harness.ClientModule.RequestTidy(4, TidyMode.SameType, true);
+            check(stale == LitTidyRequestResult.RejectedNoSession,
+                "challenge：换代际后旧 token 不再可用（客户端门拒绝，需新 challenge）");
+            var feature = new FeatureId(LitRuntime.FeatureIdValue);
+            var executedBeforeProbe = harness.ServerAuthority.ExecuteCount;
+            harness.ClientModule.Network.SendToServer(feature,
+                LitTidyWireCodec.BuildTidyRequest(oldToken, 99, 3, TidyMode.SameType, true, new List<HotkeySnapshot>()), reliable: true);
+            harness.Pump();
+            harness.ServerModule.Tick();
+            harness.Pump();
+            check(harness.ServerAuthority.ExecuteCount == executedBeforeProbe,
+                "challenge：旧 token 的伪造请求在服务器 token-only 准入失败（fail-closed，权威零新增执行）");
+
+            // 4. The fresh challenge re-arms the request path.
+            harness.ServerModule.Tick();
+            harness.Pump();
+            var rearm = harness.ClientModule.RequestTidy(3, TidyMode.SameType, true);
+            check(rearm == LitTidyRequestResult.Dispatched, "challenge：新代际新 challenge 后请求恢复受理");
+        }
+
+        private static void LitMultiplayerGroupFaultScope(System.Action<bool, string> check)
+        {
+            // Persistent fault: opens with the session scope, writes the
+            // feature-private JSON immediately, survives the disconnect
+            // (memory reloads from the disk authority), and blocks the
+            // reconnected peer.
+            var faultDir = NewLitFaultDirectory();
+            var harness = LitMultiplayerHarness.Create(faultDir);
+            harness.Handshake();
+            harness.EstablishChallenge();
+            var peer = harness.ServerSession.PeerSteamId;
+            var book = harness.ServerModule.FaultBook;
+            check(book.ScopeActive && book.IsAllowed(peer), "fault：会话建立后 peer scope 开启（允许整理）");
+            book.Open(peer, "host-red-test persistent", temporary: false);
+            check(book.IsFaulted(peer) && !book.IsAllowed(peer), "fault：持久熔断后该 peer 被拒绝");
+            check(book.ScopeFilePath != null && System.IO.File.Exists(book.ScopeFilePath)
+                && System.IO.File.ReadAllText(book.ScopeFilePath).Contains("\"steamId\":" + peer.ToString(System.Globalization.CultureInfo.InvariantCulture)),
+                "fault：持久熔断立即写盘（功能私有 JSON 键结构不变）");
+            var request = harness.ClientModule.RequestTidy(3, TidyMode.SameType, true);
+            check(request == LitTidyRequestResult.Dispatched, "fault：客户端仍可发送（熔断由服务器权威拒绝）");
+            harness.Pump();
+            harness.ServerModule.Tick();
+            harness.Pump();
+            check(harness.ServerAuthority.ExecuteCount == 0, "fault：熔断路径零权威执行（请求被 CriticalFailure 拒绝）");
+            ((BetterUnturnedExperience.Core.Network.LocalLoopbackTransport)harness.Pair.Second).DisconnectPeer(1001UL);
+            harness.ServerModule.Tick();
+            check(!book.ScopeActive, "fault：断线关闭该 peer 的 scope");
+            check(book.IsFaulted(peer), "fault：断线清临时态后磁盘持久统计保留（从磁盘权威重新载入内存）");
+            harness.Handshake();
+            harness.ServerModule.Tick();
+            harness.Pump();
+            check(book.ScopeActive && !book.IsAllowed(peer),
+                "fault：重连新代际重开 scope，持久熔断继续阻断（历史跨会话保留）");
+
+            // Temporary fault: never touches the disk and clears at the
+            // scope close (the 08 disconnect rule, generation-bound).
+            var tempDir = NewLitFaultDirectory();
+            var tempHarness = LitMultiplayerHarness.Create(tempDir);
+            tempHarness.Handshake();
+            tempHarness.EstablishChallenge();
+            var tempBook = tempHarness.ServerModule.FaultBook;
+            tempBook.Open(tempHarness.ServerSession.PeerSteamId, "host-red-test temp", temporary: true);
+            check(tempBook.IsFaulted(tempHarness.ServerSession.PeerSteamId)
+                && (tempBook.ScopeFilePath == null || !System.IO.File.Exists(tempBook.ScopeFilePath)),
+                "fault：临时熔断不写盘（restoreVerified=true）");
+            // Generation supersession (re-handshake, no disconnect): the old
+            // generation's TEMP fault dies with it; the successor's scope
+            // opens fresh (the R2-Spec GAP fix).
+            tempHarness.Handshake();
+            tempHarness.ServerModule.Tick();
+            tempHarness.Pump();
+            check(tempBook.ScopeActive && !tempBook.IsFaulted(tempHarness.ServerSession.PeerSteamId),
+                "fault：代际更替关闭旧 scope（临时态随代际清除，后继 scope 重开）");
+            ((BetterUnturnedExperience.Core.Network.LocalLoopbackTransport)tempHarness.Pair.Second).DisconnectPeer(1001UL);
+            tempHarness.ServerModule.Tick();
+            check(!tempBook.IsFaulted(tempHarness.ServerSession.PeerSteamId),
+                "fault：断线清内存临时熔断（无磁盘残留）");
+        }
+
+        private static void LitMultiplayerGroupTidyCompleted(System.Action<bool, string> check)
+        {
+            var feature = new FeatureId(LitRuntime.FeatureIdValue);
+            var bus = new BetterUnturnedExperience.Core.Events.FeatureEventBus();
+            var events = new List<TidyCompleted>();
+            bus.Subscriber(feature).Subscribe<TidyCompleted>(events.Add);
+            var module = new InventoryTidyModule(feature, new InMemorySettingsPersistence());
+            var pair = BetterUnturnedExperience.Core.Network.LocalLoopbackTransport.CreatePair();
+            var runtime = new BetterUnturnedExperience.Core.Network.BueNetworkRuntime(pair.First, new ContractVersion(2, 0), 1001UL);
+            var result = module.Start(new FeatureBootstrap(default(FeatureScopeIdentity), 7UL, null,
+                bus.Subscriber(feature), bus.Publisher(feature), null, null, null, runtime));
+            check(result.Started, "发布：宿主 bootstrap 启动返回 Started=true");
+            module.PublishTidyCompleted(3, 3, TidyCommitResult.Committed, 0UL, 42UL);
+            check(events.Count == 1 && events[0].Result == TidyCompletionResult.Succeeded
+                && events[0].ConnectionGeneration == 0UL && events[0].TransactionId == 42UL
+                && events[0].Publisher.Value == LitRuntime.FeatureIdValue,
+                "发布：Committed→Succeeded，本地代际 0，事务号与发布者透传");
+            module.PublishTidyCompleted(2, 6, TidyCommitResult.Rejected, 5UL, 43UL);
+            check(events[1].Result == TidyCompletionResult.Rejected && events[1].FirstPage == 2 && events[1].LastPage == 6
+                && events[1].ConnectionGeneration == 5UL,
+                "发布：Rejected→Rejected，全页范围（2..6）与联机代际透传");
+            module.PublishTidyCompleted(2, 6, TidyCommitResult.CriticalFailure, 5UL, 44UL);
+            module.PublishTidyCompleted(2, 6, TidyCommitResult.ConcurrentMutationAfterCommit, 5UL, 45UL);
+            check(events[2].Result == TidyCompletionResult.Failed && events[3].Result == TidyCompletionResult.Failed,
+                "发布：CriticalFailure/ConcurrentMutationAfterCommit→Failed");
+            module.PublishTidyCompleted(2, 2, TidyCommitResult.Committed, 0UL, 0UL);
+            check(events[4].TransactionId != 0UL, "发布：事务号 0 由模块代际单调号补齐（事件永不为 0）");
+        }
+
+        private static void LitMultiplayerGroupHalfRegistration(System.Action<bool, string> check)
+        {
+            var feature = new FeatureId(LitRuntime.FeatureIdValue);
+            var stub = new HalfRegistrationNetwork();
+            var bus = new BetterUnturnedExperience.Core.Events.FeatureEventBus();
+            var module = new InventoryTidyModule(feature, new InMemorySettingsPersistence());
+            module.NetServiceFactoryForTests = (m, net, book) => new LitTidyNetService(m, net, new FakeLitAuthority(), () => true, book);
+            module.Start(new FeatureBootstrap(default(FeatureScopeIdentity), 1UL, null,
+                bus.Subscriber(feature), bus.Publisher(feature), null, null, null, stub));
+            check(stub.SubscribeCalls == 2 && stub.DisposedHandles == 1 && stub.UnregisterCalls == 1,
+                "回滚：第二方向订阅失败 → 已挂句柄释放 + 频道注销（零残留）");
+            check(module.NetService != null && !module.NetService.Started,
+                "回滚：联机服务显式未启动（本地单人路径不受影响）");
+            check(!module.MultiplayerReady,
+                "回滚：模块启动面诚实暴露联机未就绪（MultiplayerReady=false，可观察不静默）");
         }
 
         // DEV-V2-15 red anchor: LIT (inventory tidy) adoption, single-player

@@ -614,15 +614,15 @@ namespace BetterUnturnedExperience.Lit
                 if (ctrl)
                 {
                     TidyDiagnosticLog.Info("ui-tidy-request",
-                        $"[TidyUI] Ctrl+点击 -> 一键整理全身 (方向={desc}, 模式={GetModeLabel(mode)}) [本地整理]");
-                    var allResult = module.RequestLocalTidy(LitRuntime.AllPages, mode, desc);
+                        $"[TidyUI] Ctrl+点击 -> 一键整理全身 (方向={desc}, 模式={GetModeLabel(mode)})");
+                    var allResult = module.RequestTidy(LitRuntime.AllPages, mode, desc);
                     LogRequestResult("全身", allResult);
                 }
                 else
                 {
                     TidyDiagnosticLog.Info("ui-tidy-request",
-                        $"[TidyUI] 点击 -> 整理 page {page} (方向={desc}, 模式={GetModeLabel(mode)}) [本地整理]");
-                    var pageResult = module.RequestLocalTidy(page, mode, desc);
+                        $"[TidyUI] 点击 -> 整理 page {page} (方向={desc}, 模式={GetModeLabel(mode)})");
+                    var pageResult = module.RequestTidy(page, mode, desc);
                     LogRequestResult($"page {page}", pageResult);
                 }
             }
@@ -638,13 +638,19 @@ namespace BetterUnturnedExperience.Lit
             switch (result)
             {
                 case LitTidyRequestResult.Dispatched:
-                    TidyDiagnosticLog.Info("ui-tidy-dispatched", $"[TidyUI] {scope} 整理请求已入队（本地主线程执行）。");
+                    TidyDiagnosticLog.Info("ui-tidy-dispatched", $"[TidyUI] {scope} 整理请求已受理。");
                     break;
                 case LitTidyRequestResult.NativeFallback:
                     TidyDiagnosticLog.Info("ui-tidy-native-fallback", $"[TidyUI] {scope} 整理被拒绝：功能未开启或已停止（原生回退）。");
                     break;
                 case LitTidyRequestResult.RejectedFaultCircuit:
                     TidyDiagnosticLog.Info("ui-tidy-circuit-open", $"[TidyUI] {scope} 整理被拒绝：熔断已打开。");
+                    break;
+                case LitTidyRequestResult.RejectedNoSession:
+                    TidyDiagnosticLog.Info("ui-tidy-no-session", $"[TidyUI] {scope} 整理被拒绝：尚未建立联机会话或未收到会话 challenge。");
+                    break;
+                case LitTidyRequestResult.RejectedSendFailed:
+                    TidyDiagnosticLog.Info("ui-tidy-send-failed", $"[TidyUI] {scope} 整理请求发送失败（可靠通道未送达）。");
                     break;
                 default:
                     TidyDiagnosticLog.Info("ui-tidy-queue-closed", $"[TidyUI] {scope} 整理被拒绝：主线程队列已关闭。");

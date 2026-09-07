@@ -239,6 +239,14 @@ namespace BetterUnturnedExperience.Plugin
             // single frame-level driver seam for feature modules (never-throw
             // into this chain).
             BueHostEventRuntime.TickOnce();
+            // DEV-V2-21: the tidy dispatcher pump rides the host frame chain
+            // (headless included; the client-only plugin driver no longer
+            // owns it). Never throws into this chain.
+            try { InventoryTidyFeatureRegistration.WiredModule?.Tick(); }
+            catch (Exception error)
+            {
+                Logger.LogWarning("[BUE-V2HOST] event=tidy-pump result=failed errorType=" + error.GetType().Name);
+            }
             // Some BepInEx/Unity hosts do not dispatch a plugin Start message
             // before the first frame. Keep the same host-owned barrier as a
             // one-shot next-frame fallback; external features still cannot
@@ -257,9 +265,8 @@ namespace BetterUnturnedExperience.Plugin
             // GPT watermark: drive DEV-16D from the guaranteed plugin Update;
             // native Harmony callback is supplementary only.
             inventoryDragAdapter?.Tick();
-            // DEV-V2-15: pump the tidy module's main-thread dispatcher queue
-            // (the local transaction work item runs on the next plugin tick).
-            InventoryTidyFeatureRegistration.WiredModule?.Tick();
+            // DEV-V2-21: the tidy dispatcher pump moved to the host Update
+            // chain (headless included) — this client driver no longer owns it.
         }
 
         private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
@@ -290,9 +297,32 @@ namespace BetterUnturnedExperience.Plugin
             var runtime = BueRuntimeHost.CurrentRuntime;
             if (runtime == null || runtime.Phase != FeatureRegistrationPhase.RegistrationOpen) return false;
             if (!runtime.CompleteRuntime()) return false;
+            // DEV-V2-21: the host barrier composes the module start path —
+            // each catalog module receives its FeatureBootstrap (stable
+            // feature network facade + host bus views) and starts here, not
+            // at registration time.
+            TryStartRegisteredModules();
             TryRefreshAfterCompletion();
             UnsubscribeSceneLoaded();
             return true;
+        }
+
+        private void TryStartRegisteredModules()
+        {
+            try
+            {
+                var featureNetwork = NetworkModuleFeatureRegistration.WiredAdapter?.FeatureNetworkApi;
+                if (featureNetwork == null)
+                {
+                    BueRuntimeLog.Runtime("[BUE-V2HOST] event=module-start result=skipped reason=feature-network-unavailable");
+                    return;
+                }
+                BueFeatureStartRuntime.StartCatalog(BueRuntimeHost.CurrentRuntime, featureNetwork);
+            }
+            catch (Exception error)
+            {
+                Logger.LogWarning("[BUE-V2HOST] event=module-start result=failed errorType=" + error.GetType().Name + " message=" + error.Message);
+            }
         }
 
         private void TryRefreshAfterCompletion()
@@ -380,7 +410,10 @@ namespace BetterUnturnedExperience.Plugin
                 // DEV-V2-15: the tidy module unloads through its three-phase
                 // stop (quiesce → dispatcher drain → full teardown) before
                 // the plugin unloads.
-                if (InventoryTidyFeatureRegistration.WiredModule != null) InventoryTidyFeatureRegistration.WiredModule.Stop(FeatureStopReason.PluginStopping);
+                // DEV-V2-21: teardown rides the host start path's tracked
+                // modules — Stop first, then the frozen event handoff
+                // (UnsubscribeAll per feature AFTER Stop returns).
+                BueFeatureStartRuntime.StopAll(FeatureStopReason.PluginStopping);
                 // DEV-V2-06: hand the network back (unhook the takeover
                 // patches) before the plugin unloads.
                 if (NetworkModuleFeatureRegistration.WiredAdapter != null) NetworkModuleFeatureRegistration.WiredAdapter.IsolateAndDetach();

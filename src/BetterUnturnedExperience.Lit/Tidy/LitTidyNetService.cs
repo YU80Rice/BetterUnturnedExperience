@@ -1,0 +1,797 @@
+using System;
+using System.Collections.Generic;
+using BetterUnturnedExperience.Contracts;
+using BetterUnturnedExperience.Contracts.BueNetwork;
+
+// DEV-V2-21: the LIT multiplayer orchestration — the feature-private tidy
+// protocol carried over the BUE named channel (FeatureId). The five message
+// kinds, the admission chain and the challenge flow are migrated from the
+// retired standalone plugin (author: YU80Rice, MIT; attribution
+// docs/third-party/LaunchInventoryTidy-attribution.md); the transport is the
+// frozen IBueNetworkApi surface (directional subscribe, session-addressed
+// reliable sends with explicit results). The server identity authority is
+// the SESSION (PeerSteamId), never a payload field; the engine-facing work
+// (player resolution, transaction, hotkey restore, convergence) sits behind
+// ILitTidyAuthority so the full chain runs on the loopback test transport
+// with a fake authority and zero Harmony patches.
+namespace BetterUnturnedExperience.Lit
+{
+    /// <summary>The engine-facing tidy work the service orchestrates (seam for tests).</summary>
+    internal interface ILitTidyAuthority
+    {
+        /// <summary>Client side: captures the local hotkey snapshots to upload with the request.</summary>
+        List<HotkeySnapshot> CaptureClientHotkeys();
+
+        /// <summary>Server main thread: the authoritative transaction for one admitted request.</summary>
+        LitAuthorityResult ExecuteServerTidy(LitTidyRequestContext request);
+
+        /// <summary>Server main thread: restores/clears the requesting peer's hotkeys after its flow ack.</summary>
+        LitHotkeyRestoreResult RestoreServerHotkeys(ulong peerSteamId, List<HotkeyRestoreEntry> entries);
+
+        /// <summary>Client main thread: one bounded convergence probe (mapping targets present at the new coordinates).</summary>
+        bool VerifyClientConvergence(List<LitNewPositionMapping> mappings);
+    }
+
+    /// <summary>One admitted tidy request, fully resolved (network callback captured it).</summary>
+    internal sealed class LitTidyRequestContext
+    {
+        public ulong PeerSteamId;
+        public ulong ConnectionGeneration;
+        public ulong SessionToken;
+        public uint RequestId;
+        public byte Page;
+        public TidyMode Mode;
+        public bool SortDescending;
+        public List<HotkeySnapshot> Hotkeys;
+    }
+
+    internal sealed class LitAuthorityResult
+    {
+        public TidyOperationOutcome Outcome;
+        public List<LitNewPositionMapping> Mappings;
+        public List<HotkeyRestoreEntry> RestoreEntries;
+
+        internal static LitAuthorityResult From(TidyOperationOutcome outcome)
+        {
+            return new LitAuthorityResult { Outcome = outcome, Mappings = null, RestoreEntries = null };
+        }
+    }
+
+    internal sealed class LitHotkeyRestoreResult
+    {
+        public int Restored;
+        public int Verified;
+        public int Cleared;
+        public List<byte> FailedIndices;
+    }
+
+    /// <summary>
+    /// Server-side pending hotkey restores, keyed by (peer, generation,
+    /// token, requestId) with a TTL — the ack handler's compound-key lookup;
+    /// an ack for an expired/unknown transaction is silently ignored.
+    /// R6-Standards S1: rides the shared generic expiring set (one TTL/purge
+    /// implementation across the client and server state tables).
+    /// </summary>
+    internal sealed class LitPendingRestoreBook
+    {
+        internal static readonly TimeSpan Ttl = TimeSpan.FromSeconds(10);
+
+        private readonly LitExpiringKeySet<List<HotkeyRestoreEntry>> records = new LitExpiringKeySet<List<HotkeyRestoreEntry>>(Ttl);
+
+        internal void Store(ulong peer, ulong generation, ulong token, uint requestId, List<HotkeyRestoreEntry> entries)
+        {
+            records.Set(LitStateKeys.TransactionKey(peer, generation, token, requestId), entries ?? new List<HotkeyRestoreEntry>(0));
+        }
+
+        internal bool TryGet(ulong peer, ulong generation, ulong token, uint requestId, out List<HotkeyRestoreEntry> entries)
+        {
+            return records.TryGet(LitStateKeys.TransactionKey(peer, generation, token, requestId), out entries);
+        }
+
+        internal void Remove(ulong peer, ulong generation, ulong token, uint requestId)
+        {
+            records.Remove(LitStateKeys.TransactionKey(peer, generation, token, requestId));
+        }
+
+        internal void DropGeneration(ulong peer, ulong connectionGeneration)
+        {
+            records.RemoveWhere(key => LitStateKeys.StartsWith(key, LitStateKeys.GenerationPrefix(peer, connectionGeneration)));
+        }
+
+        internal void DropPeer(ulong peer)
+        {
+            records.RemoveWhere(key => LitStateKeys.StartsWith(key, LitStateKeys.PeerPrefix(peer)));
+        }
+
+        internal void DropAll()
+        {
+            records.Clear();
+        }
+    }
+
+    /// <summary>
+    /// The tidy network service. One instance per module generation: Start
+    /// registers the channel and subscribes BOTH directions (half-registration
+    /// failure rolls everything back), Tick reconciles the established
+    /// session snapshot (session discovery is poll-based — a session found
+    /// established without having been seen is treated as connected, so the
+    /// module starting after a handshake still issues its challenge), and
+    /// Stop tears the whole feature state down without touching the disk
+    /// persistence.
+    /// </summary>
+    internal sealed class LitTidyNetService
+    {
+        internal const int ConvergenceMaxAttempts = 60;
+
+        private static readonly FeatureId Channel = new FeatureId(LitRuntime.FeatureIdValue);
+
+        private readonly InventoryTidyModule module;
+        private readonly IBueNetworkApi network;
+        private readonly ILitTidyAuthority authority;
+        private readonly Func<bool> isServerRole;
+        private readonly LitTidyFaultScopeBook faultBook;
+        private readonly LitServerSessionBook sessions = new LitServerSessionBook();
+        private readonly LitRequestLedger ledger = new LitRequestLedger();
+        private readonly LitPlayerLeaseGate leases = new LitPlayerLeaseGate();
+        private readonly LitAdmissionGate admission;
+        private readonly LitClientSessionToken clientToken = new LitClientSessionToken();
+        private readonly LitClientPendingTable clientPending = new LitClientPendingTable();
+        private readonly LitClientHotkeyResultWait clientWait = new LitClientHotkeyResultWait();
+        private readonly LitPendingRestoreBook pendingRestores = new LitPendingRestoreBook();
+        private readonly Dictionary<ulong, IConnectionSession> liveSessions = new Dictionary<ulong, IConnectionSession>();
+        private readonly HashSet<ulong> challengeFaultLogged = new HashSet<ulong>(); // R3-Standards B3: one fault line per generation
+        private readonly List<IDisposable> subscriptionHandles = new List<IDisposable>();
+        private bool quiesced; // stop phase 1: reject new frames/requests, sends still work for drain compensations
+        private bool stopped;  // stop phase 3: full teardown
+
+        /// <summary>Phase-1 gate: frames are ignored, new requests refused, queued work can still compensate (send Rejected).</summary>
+        private bool GateClosed
+        {
+            get { return stopped || quiesced; }
+        }
+
+        internal LitTidyNetService(InventoryTidyModule module, IBueNetworkApi network, ILitTidyAuthority authority, Func<bool> isServerRole, LitTidyFaultScopeBook faultBook)
+        {
+            this.module = module ?? throw new ArgumentNullException(nameof(module));
+            this.network = network ?? throw new ArgumentNullException(nameof(network));
+            this.authority = authority ?? throw new ArgumentNullException(nameof(authority));
+            this.isServerRole = isServerRole ?? throw new ArgumentNullException(nameof(isServerRole));
+            this.faultBook = faultBook ?? throw new ArgumentNullException(nameof(faultBook));
+            admission = new LitAdmissionGate(sessions, ledger, leases);
+        }
+
+        internal bool Started { get; private set; }
+
+        /// <summary>
+        /// Registers the channel and subscribes both directions. A failure in
+        /// the SECOND subscribe is the half-registration case: every handle
+        /// disposed, the channel unregistered, zero residue — the ticket's
+        /// rollback rule.
+        /// </summary>
+        internal bool Start()
+        {
+            if (stopped) return false;
+            var registration = network.RegisterChannel(Channel, new ContractVersion(2, 0), 1);
+            if (!registration.Accepted)
+            {
+                LitRuntime.LogError("[TidyNet] 频道注册被拒绝（reason=" + registration.Reason + "），联机整理不可用");
+                return false;
+            }
+            IDisposable fromClients = null;
+            IDisposable fromServer = null;
+            try
+            {
+                fromClients = network.Subscribe(Channel, ChannelDirection.FromClients, HandleServerFrame);
+                fromServer = network.Subscribe(Channel, ChannelDirection.FromServer, HandleClientFrame);
+            }
+            catch (Exception error)
+            {
+                try { fromClients?.Dispose(); } catch (Exception) { }
+                try { fromServer?.Dispose(); } catch (Exception) { }
+                network.UnregisterChannel(Channel);
+                LitRuntime.LogError("[TidyNet] 双方向订阅半途失败，已回滚注册（errorType=" + error.GetType().Name + "）");
+                return false;
+            }
+            subscriptionHandles.Add(fromClients);
+            subscriptionHandles.Add(fromServer);
+            Started = true;
+            LitRuntime.LogInfo("[TidyNet] 已注册 BUE 命名频道=" + Channel.Value + " 双方向处理器");
+            return true;
+        }
+
+        /// <summary>
+        /// Session discovery/reconciliation (poll-based, main thread): an
+        /// established session never seen before is treated as connected
+        /// (challenge issued / scope opened); a tracked session missing from
+        /// the established snapshot is dropped — every per-peer state table
+        /// clears while the disk persistence survives.
+        /// </summary>
+        /// <summary>Stop phase 1 — the migrated BeginQuiesce: handlers refuse, queued work may still compensate.</summary>
+        internal void BeginQuiesce()
+        {
+            quiesced = true;
+        }
+
+        internal void Tick()
+        {
+            if (GateClosed) return;
+            IReadOnlyList<IConnectionSession> current;
+            try { current = network.Sessions ?? new IConnectionSession[0]; }
+            catch (Exception) { return; }
+            var seen = new HashSet<ulong>();
+            for (int i = 0; i < current.Count; i++)
+            {
+                var session = current[i];
+                if (session == null) continue;
+                seen.Add(session.SessionId);
+                if (!liveSessions.ContainsKey(session.SessionId))
+                {
+                    liveSessions[session.SessionId] = session;
+                    OnSessionEstablished(session);
+                }
+            }
+            List<ulong> dead = null;
+            foreach (var pair in liveSessions)
+            {
+                if (!seen.Contains(pair.Key)) (dead ??= new List<ulong>()).Add(pair.Key);
+            }
+            if (dead == null) return;
+            for (int i = 0; i < dead.Count; i++)
+            {
+                if (liveSessions.TryGetValue(dead[i], out var dropped)) OnSessionDropped(dropped);
+                else liveSessions.Remove(dead[i]);
+            }
+        }
+
+        internal void Stop()
+        {
+            if (stopped) return;
+            stopped = true;
+            for (int i = 0; i < subscriptionHandles.Count; i++)
+            {
+                try { subscriptionHandles[i]?.Dispose(); } catch (Exception) { }
+            }
+            subscriptionHandles.Clear();
+            try { network.UnregisterChannel(Channel); } catch (Exception) { }
+            sessions.DropAll();
+            ledger.DropAll();
+            leases.DropAll();
+            pendingRestores.DropAll();
+            faultBook.DropAll();
+            clientToken.DropAll();
+            clientPending.ClearAll();
+            clientWait.ClearAll();
+            liveSessions.Clear();
+            Started = false;
+            LitRuntime.LogInfo("[TidyNet] 服务已停止（频道注销、内存态清空、磁盘持久统计保留）");
+        }
+
+        private void OnSessionEstablished(IConnectionSession session)
+        {
+            // R1-Spec GAP-1 fix (R6 rebuttal recorded): the lifecycle binds
+            // to the SESSION events — Disconnected drives the immediate
+            // cleanup, GenerationChanged the supersession. The Connected
+            // event is deliberately NOT subscribed: per the frozen contract
+            // (DEV-V2-16 ④ + DEV-V2-17), Connected fires exactly once AFTER
+            // the handshake completes and the public Sessions snapshot is
+            // ESTABLISHED-ONLY — a session becomes discoverable here only
+            // after Connected has already fired, so a subscription on any
+            // snapshot session could never observe a transition (dead
+            // code). This discovery IS the Connected equivalent for the
+            // snapshot surface: a session found established and unseen is
+            // treated as connected (scope open + challenge), and the poll
+            // remains the reconciliation safety net.
+            session.Disconnected += () => OnSessionEventDisconnected(session);
+            session.GenerationChanged += newGeneration => OnSessionEventGenerationChanged(session, newGeneration);
+            if (isServerRole())
+            {
+                // R3-Standards B3: a fault here (e.g. the RNG's fail-closed
+                // throw) must not orphan the session — the generation leaves
+                // the tracked set so the next Tick rediscovers and RETRIES;
+                // the failure line logs once per generation.
+                try
+                {
+                    faultBook.OpenPeerScope(session.PeerSteamId, session.SessionId);
+                    if (sessions.TryBeginSession(session.PeerSteamId, session.SessionId, out var token))
+                    {
+                        TrySendToSession(session, LitTidyWireCodec.BuildSessionChallenge(token));
+                    }
+                }
+                catch (Exception error)
+                {
+                    if (challengeFaultLogged.Add(session.SessionId))
+                    {
+                        LitRuntime.LogError("[TidyNet] 会话建立异常（generation=" + session.SessionId + "）: " + error.Message + " —— 下一拍重试");
+                    }
+                    liveSessions.Remove(session.SessionId);
+                }
+            }
+        }
+
+        /// <summary>The session's own Disconnected event: immediate cleanup for a tracked session (the poll remains the safety net).</summary>
+        private void OnSessionEventDisconnected(IConnectionSession session)
+        {
+            if (GateClosed) return;
+            if (!liveSessions.TryGetValue(session.SessionId, out var tracked) || !ReferenceEquals(tracked, session)) return;
+            OnSessionDropped(session);
+        }
+
+        /// <summary>
+        /// The dead session's GenerationChanged (fires when the successor
+        /// establishes): the generation-scoped drop runs HERE — the old
+        /// scope closes and the old generation's records go, then the
+        /// successor's discovery opens its own fresh scope.
+        /// </summary>
+        private void OnSessionEventGenerationChanged(IConnectionSession session, ulong newGeneration)
+        {
+            if (GateClosed) return;
+            if (!liveSessions.TryGetValue(session.SessionId, out var tracked) || !ReferenceEquals(tracked, session)) return;
+            LitRuntime.LogInfo("[TidyNet] 会话代际更替（generation=" + session.SessionId + " → " + newGeneration + "），旧代际状态即清");
+            OnSessionDropped(session);
+        }
+
+        private void OnSessionDropped(IConnectionSession session)
+        {
+            liveSessions.Remove(session.SessionId);
+            var peer = session.PeerSteamId;
+            var generation = session.SessionId;
+            // R2-Spec GAP fix: the drop is GENERATION-scoped — a disconnect
+            // or a supersession (代际更替) closes the old scope (the temp
+            // fault clears, the disk-persistent statistics survive and
+            // reload) and removes exactly the dead generation's session/
+            // ledger/pending records. The lease deliberately SURVIVES while
+            // a successor may take over: it serializes the per-player tidy
+            // transaction, and an in-flight transaction's finally releases it.
+            faultBook.ClosePeerScope(peer, generation);
+            sessions.DropSession(peer, generation);
+            ledger.DropGeneration(peer, generation);
+            pendingRestores.DropGeneration(peer, generation);
+            if (!isServerRole())
+            {
+                clientToken.DropGeneration(generation);
+                clientPending.ClearAll();
+                clientWait.ClearAll();
+            }
+            LitRuntime.LogInfo("[TidyNet] 会话代际已清（peer=" + peer + ", generation=" + generation + "），旧 scope 关闭（临时态清、磁盘持久统计保留）");
+        }
+
+        private IConnectionSession ResolveLiveSession(ulong generation)
+        {
+            return liveSessions.TryGetValue(generation, out var session) ? session : null;
+        }
+
+        private NetworkSendResult TrySendToSession(IConnectionSession session, byte[] payload)
+        {
+            if (session == null) return NetworkSendResult.NoSession;
+            try
+            {
+                var result = network.SendToClient(Channel, session, payload, reliable: true);
+                if (result != NetworkSendResult.Sent)
+                {
+                    LitRuntime.LogWarning("[TidyNet] 定向发送未送达（generation=" + session.SessionId + ", result=" + result + "）");
+                }
+                return result;
+            }
+            catch (Exception error)
+            {
+                LitRuntime.LogWarning("[TidyNet] 定向发送异常（errorType=" + error.GetType().Name + "）");
+                return NetworkSendResult.LocalTransportUnavailable;
+            }
+        }
+
+        // ── client request entry (the client role's send path) ─────
+
+        /// <summary>
+        /// The client-side tidy request. Gate order is the migrated one: a
+        /// live session first, then the ATOMIC server-issued token read for
+        /// THAT connection generation (no challenge → no send, no pending,
+        /// the 08 baseline line), then the reliable send whose explicit
+        /// result decides whether the pending may live.
+        /// </summary>
+        internal LitTidyRequestResult RequestTidy(byte page, TidyMode mode, bool sortDescending)
+        {
+            if (GateClosed || !Started) return LitTidyRequestResult.NativeFallback;
+            if (isServerRole()) return LitTidyRequestResult.NativeFallback; // the host tidies locally, never self-sends
+            // The request rides the RUNTIME's established snapshot (the truth,
+            // never the Tick-stale tracked set): a session object here is the
+            // live connection generation, so a stale generation can neither
+            // send under an old token nor address a dead session.
+            IConnectionSession session = null;
+            try
+            {
+                var snapshot = network.Sessions;
+                if (snapshot != null && snapshot.Count > 0) session = snapshot[0]; // the client topology has exactly one server peer
+            }
+            catch (Exception) { }
+            if (session == null)
+            {
+                LitRuntime.LogInfo("[Tidy] 尚未建立 BUE 会话；本次整理请求未发送。");
+                return LitTidyRequestResult.RejectedNoSession;
+            }
+            var generation = session.SessionId;
+            if (!clientToken.TryGetServerIssuedToken(generation, out var token))
+            {
+                LitRuntime.LogInfo("[Tidy] 客户端尚未收到有效服务端 session challenge；本次整理请求未发送。");
+                return LitTidyRequestResult.RejectedNoSession;
+            }
+            var requestId = clientToken.NextRequestId();
+            List<HotkeySnapshot> hotkeys;
+            try { hotkeys = authority.CaptureClientHotkeys(); }
+            catch (Exception error)
+            {
+                LitRuntime.LogError("[Tidy] 快捷键快照捕获异常，放弃本次整理: " + error.Message);
+                return LitTidyRequestResult.RejectedQueueClosed;
+            }
+            clientPending.SetPending(generation, token, requestId, page, mode, sortDescending);
+            NetworkSendResult sent;
+            try { sent = network.SendToServer(Channel, LitTidyWireCodec.BuildTidyRequest(token, requestId, page, mode, sortDescending, hotkeys), reliable: true); }
+            catch (Exception) { sent = NetworkSendResult.LocalTransportUnavailable; }
+            if (sent != NetworkSendResult.Sent)
+            {
+                clientPending.ClearPending(generation, token, requestId);
+                LitRuntime.LogWarning("[Tidy] 整理请求发送失败（result=" + sent + "），未建立待确认。");
+                return LitTidyRequestResult.RejectedSendFailed;
+            }
+            LitRuntime.LogInfo("[Tidy] -> 服务器: RequestTidy(reqId=" + requestId + ", page=" + page + ", mode=" + mode + ", desc=" + sortDescending + ", hotkeys=" + (hotkeys?.Count ?? 0) + ")");
+            return LitTidyRequestResult.Dispatched;
+        }
+
+        // ── inbound frames ──────────────────────────────────────────
+
+        private void HandleServerFrame(IConnectionSession session, byte[] payload)
+        {
+            if (GateClosed) return;
+            if (!LitTidyWireCodec.TryReadEnvelope(payload, out var msgType, out var body)) return;
+            switch (msgType)
+            {
+                case LitTidyWireCodec.MsgRequestTidyV2: HandleTidyRequest(session, body); break;
+                case LitTidyWireCodec.MsgHotkeyFlowAck: HandleHotkeyFlowAck(session, body); break;
+                default: break; // unknown kinds are ignored (feature-private set)
+            }
+        }
+
+        private void HandleClientFrame(IConnectionSession session, byte[] payload)
+        {
+            if (GateClosed) return;
+            if (!LitTidyWireCodec.TryReadEnvelope(payload, out var msgType, out var body)) return;
+            switch (msgType)
+            {
+                case LitTidyWireCodec.MsgSessionChallenge: HandleSessionChallenge(session, body); break;
+                case LitTidyWireCodec.MsgTidyCommitted: HandleTidyCommitted(session, body); break;
+                case LitTidyWireCodec.MsgTidyHotkeyResult: HandleTidyHotkeyResult(session, body); break;
+                default: break;
+            }
+        }
+
+        // ── server: request admission + main-thread execution ──────
+
+        private void HandleTidyRequest(IConnectionSession session, byte[] body)
+        {
+            if (!LitTidyWireCodec.TryReadTidyRequest(body, out var token, out var requestId, out var page, out var mode, out var sortDescending, out var hotkeys))
+            {
+                LitRuntime.LogWarning("[TidyNet] 服务器收到畸形 RequestTidy，拒绝（peer=" + session.PeerSteamId + "）");
+                return;
+            }
+            var peer = session.PeerSteamId; // the session is the identity authority — never a payload field
+            var generation = session.SessionId;
+            var kind = admission.TryAdmit(peer, generation, token, requestId, out var cached);
+            switch (kind)
+            {
+                case LitAdmissionGate.AdmissionKind.InFlight:
+                    return; // the original request is still executing — silent
+                case LitAdmissionGate.AdmissionKind.Cached:
+                    SendCommitted(session, token, requestId, cached.Result, cached.Mappings);
+                    return;
+                case LitAdmissionGate.AdmissionKind.BusyDifferent:
+                case LitAdmissionGate.AdmissionKind.Rejected:
+                    SendCommitted(session, token, requestId, TidyCommitResult.Rejected, null);
+                    return;
+            }
+            var captured = new LitTidyRequestContext
+            {
+                PeerSteamId = peer,
+                ConnectionGeneration = generation,
+                SessionToken = token,
+                RequestId = requestId,
+                Page = page,
+                Mode = mode,
+                SortDescending = sortDescending,
+                Hotkeys = hotkeys,
+            };
+            var queued = new QueuedTidyRequest
+            {
+                Work = () => ExecuteServerTidyOnMainThread(captured),
+                Cancel = () =>
+                {
+                    // Stop drain / enqueue failure compensation: the lease
+                    // releases, the ledger lands on Failed, the client gets
+                    // a terminal Rejected (best effort when transport died).
+                    admission.CancelNew(peer, generation, token, requestId);
+                    SendCommitted(ResolveLiveSession(generation), token, requestId, TidyCommitResult.Rejected, null);
+                },
+                Tag = "TidyRequest peer=" + peer + " reqId=" + requestId,
+            };
+            if (!MainThreadDispatcher.TryEnqueue(queued))
+            {
+                admission.CancelNew(peer, generation, token, requestId);
+                SendCommitted(session, token, requestId, TidyCommitResult.Rejected, null);
+            }
+        }
+
+        private void ExecuteServerTidyOnMainThread(LitTidyRequestContext req)
+        {
+            var session = ResolveLiveSession(req.ConnectionGeneration);
+            try
+            {
+                if (!faultBook.IsAllowed(req.PeerSteamId))
+                {
+                    ledger.MarkResult(req.PeerSteamId, req.ConnectionGeneration, req.SessionToken, req.RequestId,
+                        LitRequestLedger.RequestState.Failed, TidyCommitResult.CriticalFailure, null);
+                    SendCommitted(session, req.SessionToken, req.RequestId, TidyCommitResult.CriticalFailure, null);
+                    PublishCompleted(req, TidyCommitResult.CriticalFailure);
+                    return;
+                }
+                LitAuthorityResult result;
+                try { result = authority.ExecuteServerTidy(req); }
+                catch (Exception error)
+                {
+                    faultBook.Open(req.PeerSteamId, "authority crash: " + error.Message, temporary: false);
+                    ledger.MarkResult(req.PeerSteamId, req.ConnectionGeneration, req.SessionToken, req.RequestId,
+                        LitRequestLedger.RequestState.Failed, TidyCommitResult.CriticalFailure, null);
+                    SendCommitted(session, req.SessionToken, req.RequestId, TidyCommitResult.CriticalFailure, null);
+                    PublishCompleted(req, TidyCommitResult.CriticalFailure);
+                    return;
+                }
+                var outcome = result.Outcome ?? TidyOperationOutcome.RejectedNoMutation;
+                switch (outcome.Result)
+                {
+                    case TidyCommitResult.CriticalFailure:
+                        // Full restoration verified → temporary fault (a
+                        // disconnect clears it); anything else → persistent
+                        // (disk) — the migrated P0-4 rule.
+                        faultBook.Open(req.PeerSteamId, outcome.FailureReason ?? "CriticalFailure during tidy", temporary: outcome.FullRestorationVerified);
+                        ledger.MarkResult(req.PeerSteamId, req.ConnectionGeneration, req.SessionToken, req.RequestId,
+                            LitRequestLedger.RequestState.Failed, TidyCommitResult.CriticalFailure, null);
+                        SendCommitted(session, req.SessionToken, req.RequestId, TidyCommitResult.CriticalFailure, null);
+                        break;
+                    case TidyCommitResult.ConcurrentMutationAfterCommit:
+                        faultBook.Open(req.PeerSteamId, outcome.FailureReason ?? "ConcurrentMutationAfterCommit", temporary: false);
+                        ledger.MarkResult(req.PeerSteamId, req.ConnectionGeneration, req.SessionToken, req.RequestId,
+                            LitRequestLedger.RequestState.Failed, TidyCommitResult.ConcurrentMutationAfterCommit, null);
+                        SendCommitted(session, req.SessionToken, req.RequestId, TidyCommitResult.ConcurrentMutationAfterCommit, null);
+                        break;
+                    case TidyCommitResult.Rejected:
+                        ledger.MarkResult(req.PeerSteamId, req.ConnectionGeneration, req.SessionToken, req.RequestId,
+                            LitRequestLedger.RequestState.Failed, TidyCommitResult.Rejected, null);
+                        SendCommitted(session, req.SessionToken, req.RequestId, TidyCommitResult.Rejected, null);
+                        break;
+                    default: // Committed
+                        pendingRestores.Store(req.PeerSteamId, req.ConnectionGeneration, req.SessionToken, req.RequestId, result.RestoreEntries);
+                        ledger.MarkResult(req.PeerSteamId, req.ConnectionGeneration, req.SessionToken, req.RequestId,
+                            LitRequestLedger.RequestState.Committed, TidyCommitResult.Committed, result.Mappings);
+                        SendCommitted(session, req.SessionToken, req.RequestId, TidyCommitResult.Committed, result.Mappings);
+                        break;
+                }
+                PublishCompleted(req, outcome.Result);
+            }
+            finally
+            {
+                // The lease releases when the response is settled — never
+                // held across the ack (the ack rides its own book).
+                leases.Release(req.PeerSteamId, req.RequestId);
+            }
+        }
+
+        // ── server: hotkey flow ack → restore → result ─────────────
+
+        private void HandleHotkeyFlowAck(IConnectionSession session, byte[] body)
+        {
+            if (!LitTidyWireCodec.TryReadHotkeyFlowAck(body, out var token, out var requestId)) return;
+            var peer = session.PeerSteamId;
+            var generation = session.SessionId;
+            if (!pendingRestores.TryGet(peer, generation, token, requestId, out var entries))
+            {
+                return; // expired/unknown transaction — silently ignored
+            }
+            var queued = new QueuedTidyRequest
+            {
+                Work = () => ExecuteAckRestoreOnMainThread(peer, generation, token, requestId, entries),
+                Cancel = () => pendingRestores.Remove(peer, generation, token, requestId),
+                Tag = "TidyAckRestore peer=" + peer + " reqId=" + requestId,
+            };
+            if (!MainThreadDispatcher.TryEnqueue(queued))
+            {
+                pendingRestores.Remove(peer, generation, token, requestId);
+            }
+        }
+
+        private void ExecuteAckRestoreOnMainThread(ulong peer, ulong generation, ulong token, uint requestId, List<HotkeyRestoreEntry> entries)
+        {
+            pendingRestores.Remove(peer, generation, token, requestId);
+            var session = ResolveLiveSession(generation);
+            if (session == null)
+            {
+                LitRuntime.LogInfo("[TidyNet] ACK 对应会话已不存在，恢复结果不再发送（reqId=" + requestId + "）。");
+                return;
+            }
+            LitHotkeyRestoreResult restore;
+            try { restore = authority.RestoreServerHotkeys(peer, entries); }
+            catch (Exception error)
+            {
+                LitRuntime.LogError("[TidyNet] ACK 恢复执行异常（reqId=" + requestId + "): " + error.Message);
+                restore = new LitHotkeyRestoreResult { Restored = 0, Verified = 0, Cleared = 0, FailedIndices = new List<byte>() };
+            }
+            var failed = restore.FailedIndices ?? new List<byte>(0);
+            SendHotkeyResult(session, token, requestId,
+                (byte)Math.Min(restore.Restored, 255),
+                (byte)Math.Min(restore.Cleared, 255),
+                (byte)Math.Min(failed.Count, 255),
+                (byte)Math.Min(restore.Verified, 255),
+                failed);
+            LitRuntime.LogInfo("[TidyNet] ACK 处理完成（reqId=" + requestId + ", restored=" + restore.Restored + ", verified=" + restore.Verified + ", cleared=" + restore.Cleared + "）。");
+        }
+
+        // ── client: challenge / committed / result ─────────────────
+
+        private void HandleSessionChallenge(IConnectionSession session, byte[] body)
+        {
+            if (!LitTidyWireCodec.TryReadSessionChallenge(body, out var token)) return;
+            clientToken.ReplaceWithServerChallenge(session.SessionId, token);
+            LitRuntime.LogInfo("[TidyNet] 已接收并应用服务端会话 challenge（generation=" + session.SessionId + "）。");
+        }
+
+        private void HandleTidyCommitted(IConnectionSession session, byte[] body)
+        {
+            if (!LitTidyWireCodec.TryReadTidyCommitted(body, out var token, out var requestId, out var result, out var mappings)) return;
+            var generation = session.SessionId;
+            if (!clientPending.IsPending(generation, token, requestId))
+            {
+                LitRuntime.LogWarning("[TidyNet] 收到未发出的 (generation=" + generation + ", reqId=" + requestId + ") 响应，忽略（可能是旧响应或伪造）。");
+                return;
+            }
+            if (result != TidyCommitResult.Committed)
+            {
+                clientPending.ClearPending(generation, token, requestId);
+                if (result == TidyCommitResult.CriticalFailure)
+                {
+                    LitRuntime.LogError("[TidyNet] 服务器报告 CriticalFailure，本会话整理已被熔断。");
+                }
+                else
+                {
+                    LitRuntime.LogInfo("[TidyNet] <- 服务器 TidyCommitted(reqId=" + requestId + ", result=" + result + ")。");
+                }
+                return;
+            }
+            var queued = new QueuedTidyRequest
+            {
+                Work = () => RunClientConvergence(generation, token, requestId, mappings, ConvergenceMaxAttempts),
+                Cancel = () => clientPending.ClearPending(generation, token, requestId),
+                Tag = "TidyConvergence reqId=" + requestId,
+            };
+            if (!MainThreadDispatcher.TryEnqueue(queued))
+            {
+                clientPending.ClearPending(generation, token, requestId);
+            }
+        }
+
+        /// <summary>
+        /// The bounded convergence loop (main thread, dispatcher-rescheduled
+        /// — no GameObject lifecycle): each attempt probes the mapping
+        /// targets through the authority; success registers the result wait
+        /// and sends the flow ack; exhaustion warns and clears the pending.
+        /// </summary>
+        private void RunClientConvergence(ulong generation, ulong token, uint requestId, List<LitNewPositionMapping> mappings, int remainingAttempts)
+        {
+            if (GateClosed) return;
+            var session = ResolveLiveSession(generation);
+            if (session == null)
+            {
+                clientPending.ClearPending(generation, token, requestId);
+                return;
+            }
+            bool converged;
+            try { converged = authority.VerifyClientConvergence(mappings); }
+            catch (Exception error)
+            {
+                LitRuntime.LogWarning("[TidyNet] 收敛检查异常（reqId=" + requestId + "): " + error.Message);
+                converged = false;
+            }
+            if (converged)
+            {
+                clientWait.Register(generation, token, requestId);
+                // R3-Standards B6: the CLIENT sends through SendToServer
+                // (untargeted server-bound) — SendToClient is the server's
+                // per-peer path and fails on every real client transport.
+                NetworkSendResult sent;
+                try { sent = network.SendToServer(Channel, LitTidyWireCodec.BuildHotkeyFlowAck(token, requestId), reliable: true); }
+                catch (Exception) { sent = NetworkSendResult.LocalTransportUnavailable; }
+                if (sent != NetworkSendResult.Sent)
+                {
+                    LitRuntime.LogWarning("[TidyNet] HotkeyFlowAck 发送未送达（reqId=" + requestId + ", result=" + sent + "），服务器事务将按 TTL 过期");
+                }
+                clientPending.ClearPending(generation, token, requestId);
+                if (sent != NetworkSendResult.Sent) clientWait.Clear(generation, token, requestId);
+                else LitRuntime.LogInfo("[TidyNet] -> 服务器 HotkeyFlowAck(reqId=" + requestId + ")。");
+                return;
+            }
+            if (remainingAttempts > 1)
+            {
+                var requeued = MainThreadDispatcher.TryEnqueue(new QueuedTidyRequest
+                {
+                    Work = () => RunClientConvergence(generation, token, requestId, mappings, remainingAttempts - 1),
+                    Cancel = () => clientPending.ClearPending(generation, token, requestId),
+                    Tag = "TidyConvergence reqId=" + requestId,
+                });
+                if (requeued) return;
+            }
+            LitRuntime.LogWarning("[TidyNet] 库存收敛超时 reqId=" + requestId + "，部分快捷键可能未恢复。");
+            clientPending.ClearPending(generation, token, requestId);
+        }
+
+        private void HandleTidyHotkeyResult(IConnectionSession session, byte[] body)
+        {
+            if (!LitTidyWireCodec.TryReadTidyHotkeyResult(body, out var token, out var requestId, out var restored, out var cleared, out var failed, out var verified, out var failedIndices)) return;
+            var generation = session.SessionId;
+            if (!clientWait.IsWaiting(generation, token, requestId))
+            {
+                LitRuntime.LogWarning("[TidyNet] 收到未等待的 HotkeyResult (generation=" + generation + ", reqId=" + requestId + ")，忽略。");
+                return;
+            }
+            clientWait.Clear(generation, token, requestId);
+            if (failed > 0)
+            {
+                var names = failedIndices == null ? string.Empty : string.Join(",", failedIndices);
+                LitRuntime.LogWarning("[TidyNet] ⚠ 整理完成，但 " + failed + " 个快捷键未能恢复（已清除绑定）: " + names);
+            }
+            else if (verified < restored)
+            {
+                LitRuntime.LogInfo("[TidyNet] 快捷键绑定完成，部分状态无法验证（reqId=" + requestId + ", restored=" + restored + ", verified=" + verified + "）。");
+            }
+            else
+            {
+                LitRuntime.LogInfo("[TidyNet] 快捷键已恢复并验证（reqId=" + requestId + ", restored=" + restored + "）。");
+            }
+        }
+
+        // ── shared send / publish helpers ───────────────────────────
+
+        private void SendCommitted(IConnectionSession session, ulong token, uint requestId, TidyCommitResult result, List<LitNewPositionMapping> mappings)
+        {
+            // R1-Spec DEVIATION-2 fix: the reliable response's explicit
+            // result is handled — a non-Sent outcome surfaces as a
+            // structured diagnostic and falls back to the ledger recovery
+            // path: the Committed cache survives, so the client's duplicate
+            // request replays the full response (Cached admission).
+            var sendResult = TrySendToSession(session, LitTidyWireCodec.BuildTidyCommitted(token, requestId, result, mappings));
+            if (sendResult != NetworkSendResult.Sent)
+            {
+                LitRuntime.LogWarning("[TidyNet] TidyCommitted 可靠发送未送达（reqId=" + requestId + ", result=" + sendResult + "），账本 Committed 缓存保留，等待客户端重发命中 Cached 路径");
+                return;
+            }
+            if (session != null)
+            {
+                LitRuntime.LogInfo("[TidyNet] -> 客机 TidyCommitted(reqId=" + requestId + ", result=" + result + ", mappings=" + (mappings?.Count ?? 0) + ")。");
+            }
+        }
+
+        private void SendHotkeyResult(IConnectionSession session, ulong token, uint requestId, byte restored, byte cleared, byte failed, byte verified, List<byte> failedIndices)
+        {
+            // The hotkey result is informational (the client's wait rides
+            // its TTL): a non-Sent outcome is a named diagnostic — the
+            // client reports an unknown result when its wait expires.
+            var sendResult = TrySendToSession(session, LitTidyWireCodec.BuildTidyHotkeyResult(token, requestId, restored, cleared, failed, verified, failedIndices));
+            if (sendResult != NetworkSendResult.Sent)
+            {
+                LitRuntime.LogWarning("[TidyNet] TidyHotkeyResult 可靠发送未送达（reqId=" + requestId + ", result=" + sendResult + "），客户端等待将按 TTL 超时提示结果未知");
+            }
+        }
+
+        private void PublishCompleted(LitTidyRequestContext req, TidyCommitResult result)
+        {
+            // The authoritative request id IS the transaction identity
+            // (feature-private, never zero); the page-range expansion lives
+            // at the module's publish entry (single source, R5-Standards S2).
+            module.PublishTidyCompletedForPage(req.Page, result, req.ConnectionGeneration, req.RequestId);
+        }
+    }
+}

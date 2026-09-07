@@ -115,6 +115,13 @@ namespace BetterUnturnedExperience.Lit
             }
 
             module.LastLocalOutcome = outcome;
+            // DEV-V2-21: the local path's TidyCompleted publish — every
+            // terminal outcome here is the event's source (Committed→
+            // Succeeded etc., mapped inside the module). Generation 0 marks
+            // the local (connection-not-applicable) path; the transaction id
+            // is the module-generation monotonic identity. The page range
+            // expansion lives at the module's publish entry (single source).
+            module.PublishTidyCompletedForPage(page, outcome.Result, 0UL, module.NextTransactionId());
         }
 
         // ─────────────────────────────────────────────────────────────
@@ -160,7 +167,7 @@ namespace BetterUnturnedExperience.Lit
             }
         }
 
-        private static void ClearHotkey(Player player, byte hotkeyIndex)
+        internal static void ClearHotkey(Player player, byte hotkeyIndex)
         {
             try { player.equipment.ServerClearItemHotkey(hotkeyIndex); }
             catch (Exception clearException)
@@ -169,14 +176,14 @@ namespace BetterUnturnedExperience.Lit
             }
         }
 
-        private static bool CanVerifyHotkeyState(Player player)
+        internal static bool CanVerifyHotkeyState(Player player)
         {
             if (player?.equipment == null) return false;
             try { return player.equipment.hotkeys != null; }
             catch { return false; }
         }
 
-        private static bool VerifyHotkeyBound(Player player, byte hotkeyIndex,
+        internal static bool VerifyHotkeyBound(Player player, byte hotkeyIndex,
             byte expectedPage, byte expectedX, byte expectedY, ushort expectedItemId)
         {
             if (player?.equipment == null) return false;
@@ -192,8 +199,10 @@ namespace BetterUnturnedExperience.Lit
 
         /// <summary>
         /// 按完整指纹解析并验证热键恢复目标（TryResolveExactHotkeyTarget 十步校验链原样移植）。
+        /// DEV-V2-21: internal — the server ACK restore path reuses the SAME
+        /// verification chain (single source, no second implementation).
         /// </summary>
-        private static bool TryResolveExactHotkeyTarget(PlayerInventory inventory,
+        internal static bool TryResolveExactHotkeyTarget(PlayerInventory inventory,
             HotkeyRestoreEntry entry, out ItemJar jar, out ItemAsset asset, out string reason)
         {
             jar = null;
@@ -307,7 +316,7 @@ namespace BetterUnturnedExperience.Lit
         // 回滚成功：按原坐标恢复热键（TryRestoreHotkeysToOriginalPositions 原样移植）
         // ─────────────────────────────────────────────────────────────
 
-        private struct HotkeyRestoreOutcome
+        internal struct HotkeyRestoreOutcome
         {
             public int Attempted;
             public int Succeeded;
@@ -315,7 +324,7 @@ namespace BetterUnturnedExperience.Lit
             public bool AllVerified => Failed == 0 && Attempted == Succeeded;
         }
 
-        private static HotkeyRestoreOutcome TryRestoreHotkeysToOriginalPositions(Player player,
+        internal static HotkeyRestoreOutcome TryRestoreHotkeysToOriginalPositions(Player player,
             Dictionary<ItemJar, HotkeySnapshot> resolvedHotkeys)
         {
             var outcome = new HotkeyRestoreOutcome();

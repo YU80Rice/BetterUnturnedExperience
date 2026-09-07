@@ -234,5 +234,33 @@ namespace BetterUnturnedExperience.Plugin
             }
             return null;
         }
+
+        /// <summary>
+        /// DEV-V2-21: resolves the connected client's SteamPlayer OBJECT by
+        /// steam id (the LIT authority resolves the requesting peer's Player
+        /// through it). Silent reflection, same resolver chain as the send
+        /// path; null when the peer is not connected or the engine type is
+        /// unavailable. CSteamID is never named — the plugin keeps its
+        /// zero-Steamworks-compile-reference policy.
+        /// </summary>
+        internal static object FindSteamPlayer(ulong steamId)
+        {
+            try
+            {
+                Resolve();
+                var clients = ReadClients();
+                if (clients == null || steamPlayerIdProperty == null || steamIdRawField == null) return null;
+                foreach (var client in clients)
+                {
+                    if (client == null) continue;
+                    if (SteamIdOfPlayer(client) == steamId) return client;
+                }
+                return null;
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
     }
 }

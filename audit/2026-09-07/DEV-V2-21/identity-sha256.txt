@@ -1,0 +1,9 @@
+# DEV-V2-21 候选身份（CaseId: DEV-V2-21-CANDIDATE-20260907）
+# 两轮 msbuild -t:Rebuild（Release）字节一致；0 警告（TreatWarningsAsErrors=true）
+# 身份授予在双轴 R9 双 CLEAN 之后（audit/2026-09-07/DEV-V2-21/red-evidence.md 审查链）
+algorithm: SHA-256
+sha256: 78da57c2b2ff67b747ca002c67acb119bba334bd795c37b6959f27784a9b8385
+size:   417792
+path:   src/BetterUnturnedExperience.Plugin/bin/Release/BetterUnturnedExperience.dll
+case:   DEV-V2-21-CANDIDATE-20260907
+note:   RELEASES 换标随 DEV-V2-24 实机验收（沿 17/18/19 惯例，不继承既往批准）

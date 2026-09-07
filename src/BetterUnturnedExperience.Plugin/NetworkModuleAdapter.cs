@@ -96,6 +96,13 @@ namespace BetterUnturnedExperience.Plugin
         // one role per process.
         private HostNetworkTransportAdapter bueTransport;
         private BueNetworkRuntime networkRuntime;
+        // DEV-V2-21: the feature-facing network identity — created with the
+        // adapter, never replaced. Features take it through the registration
+        // bootstrap (IFeatureBootstrap.Network, frozen never-null) and may
+        // register/subscribe before the engine role is decided; the deferred
+        // API holds those registrations and replays them onto the runtime
+        // when the pump arms it.
+        private readonly DeferredBueNetworkApi featureNetworkApi = new DeferredBueNetworkApi();
         private Action<byte[]> inboundBueFeeder;
         private bool localIdentityFaultRecorded;
         private bool networkEnabled = true;
@@ -150,6 +157,14 @@ namespace BetterUnturnedExperience.Plugin
         // registration bootstrap (DEV-V2-21/22); this internal property is
         // the adapter's own handle for the pump and the red tests.
         internal IBueNetworkApi NetworkApi { get { return networkRuntime; } }
+
+        /// <summary>
+        /// DEV-V2-21: the stable feature-facing IBueNetworkApi (never null,
+        /// never swapped) delivered through the registration bootstrap. It
+        /// defers registration/subscription until the runtime arms and then
+        /// forwards everything to it.
+        /// </summary>
+        internal IBueNetworkApi FeatureNetworkApi { get { return featureNetworkApi; } }
 
         /// <summary>
         /// DEV-V2-18: the BUE runtime pump, driven by the plugin Update after
@@ -226,6 +241,10 @@ namespace BetterUnturnedExperience.Plugin
             // The injected clock feeds the handshake re-probe backoff — the
             // explicit adapter parameter wins over the binding's own clock.
             networkRuntime = new BueNetworkRuntime(bueTransport, new ContractVersion(2, 0), localSteamId, handshakeInitiator: !serverRole, injectedMonotonicMilliseconds ?? engineBinding.MonotonicMilliseconds);
+            // DEV-V2-21: the feature network identity arms — deferred channel
+            // registrations and directional subscriptions replay onto the
+            // live runtime here (the attach is one-shot with the runtime).
+            featureNetworkApi.Attach(networkRuntime);
             bueTransport.PeerStateSource = serverRole
                 ? (Func<IReadOnlyList<ulong>>)(() => engineBinding.ServerPeers())
                 : ClientPeerSource;
@@ -464,6 +483,10 @@ namespace BetterUnturnedExperience.Plugin
                 networkRuntime.SetModuleActive(false);
                 networkRuntime = null;
             }
+            // DEV-V2-21: the facade identity survives teardown (bootstrap
+            // Network is never null and never swapped) but loses its live
+            // bindings — remaining handles dispose, sends answer NoSession.
+            featureNetworkApi.Detach();
             bueTransport = null;
             inboundBueFeeder = null;
             compatLayer.Enabled = false;
