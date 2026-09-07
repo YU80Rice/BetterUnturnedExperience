@@ -49,6 +49,10 @@ namespace BetterUnturnedExperience.Plugin
                 enabled = true;
                 LogAssemblyIdentity();
                 BueRuntimeLog.Bind(Logger);
+                // DEV-V2-19: compose the host event bus + host clock once at
+                // bootstrap; the Update chain drives the clock (TickOnce) and
+                // feature modules subscribe through the frozen seams.
+                BueHostEventRuntime.EnsureCreated();
                 var isBatchMode = Application.isBatchMode;
                 var decision = BootstrapGuard.Decide(isBatchMode, isBatchMode, !isBatchMode);
                 isHeadlessDecision = decision == BootstrapDecision.Headless;
@@ -231,6 +235,10 @@ namespace BetterUnturnedExperience.Plugin
             // inbound frame dispatch, handshake re-probe; every stage
             // fault-isolated inside the adapter, headless included.
             NetworkModuleFeatureRegistration.WiredAdapter?.TickNetwork();
+            // DEV-V2-19: the host clock beat — one HostTick per Update, the
+            // single frame-level driver seam for feature modules (never-throw
+            // into this chain).
+            BueHostEventRuntime.TickOnce();
             // Some BepInEx/Unity hosts do not dispatch a plugin Start message
             // before the first frame. Keep the same host-owned barrier as a
             // one-shot next-frame fallback; external features still cannot

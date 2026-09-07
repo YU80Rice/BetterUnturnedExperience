@@ -270,6 +270,11 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     AssertBueV2FrameBinding(collectAllFailures: true);
                     return 0;
                 }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--bue-v2-event-clock-red")
+                {
+                    AssertBueV2EventBusAndHostTick(collectAllFailures: true);
+                    return 0;
+                }
                 AssertSingleDllAssemblyClosure();
                 AssertExternalSdkAssemblyIdentity();
                 Assert(BootstrapGuard.Decide(false, false, true) == BootstrapDecision.Client, "client decision");
@@ -360,6 +365,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 AssertBueV2SessionDrivenSendSemantics();
                 AssertBueV2AutoHandshakeLifecycle();
                 AssertBueV2FrameBinding();
+                AssertBueV2EventBusAndHostTick();
                 AssertLitSingleplayerPath();
                 AssertRuntimeCompletionBarrierIsolates();
                 AssertManagementPanelConsumesRuntimeCatalog();
@@ -4457,6 +4463,247 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 Console.WriteLine("DEV-V2-18 frame-binding collection: ALL GREEN (0 failures) — groups: 帧分类/六步顺序/patch 门/live 恰一次/异常隔离/网络关闭/生产绑定E2E");
             if (collectAllFailures && reds.Count > 0)
                 throw new InvalidOperationException("DEV-V2-18 red collection (" + reds.Count + "): " + string.Join(" || ", reds));
+        }
+
+        // DEV-V2-19: contract-piece red regression — the TidyCompleted feature
+        // event and the HostTick host clock (registry entries ⑤⑥). Each group
+        // collects independently so the red transcript names a failure per
+        // frozen group instead of aborting at the first (DEV-V2-18 pattern).
+        private static void AssertBueV2EventBusAndHostTick(bool collectAllFailures = false)
+        {
+            var reds = new List<string>();
+            try
+            {
+                void Check(bool condition, string message)
+                {
+                    if (condition) return;
+                    if (collectAllFailures) reds.Add(message);
+                    else throw new InvalidOperationException(message);
+                }
+
+                void Group(string name, System.Action body)
+                {
+                    try { body(); }
+                    catch (Exception error) when (collectAllFailures)
+                    {
+                        reds.Add("[" + name + "] " + (error is InvalidOperationException ? error.Message : "UNEXPECTED " + error.GetType().Name + ": " + error.Message));
+                    }
+                }
+
+                var litFeature = new FeatureId("io.github.yu80rice.bue.inventory-tidy");
+                var thirdParty = new FeatureId("io.example.thirdparty");
+
+                Group("事件发布订阅", () =>
+                {
+                    var bus = new BetterUnturnedExperience.Core.Events.FeatureEventBus();
+                    var lit = bus.Publisher(litFeature);
+                    var sub = bus.Subscriber(litFeature);
+                    var received = new List<TidyCompleted>();
+                    var handle = sub.Subscribe<TidyCompleted>(received.Add);
+                    var evt = new TidyCompleted(litFeature, 2, 6, TidyCompletionResult.Succeeded, 0UL, 77UL);
+                    Check(lit.TryPublish(TidyCompleted.EventId, evt),
+                        "发布订阅：发布者身份派生的合法身份串 TryPublish=true");
+                    Check(received.Count == 1, "发布订阅：订阅者收到事件");
+                    Check(received.Count == 1 && received[0].Publisher.Value == litFeature.Value && received[0].FirstPage == 2
+                        && received[0].LastPage == 6 && received[0].Result == TidyCompletionResult.Succeeded
+                        && received[0].ConnectionGeneration == 0UL && received[0].TransactionId == 77UL,
+                        "发布订阅：载荷逐字段保真（发布者/范围/结果/代际/事务标识）");
+                    var received2 = new List<TidyCompleted>();
+                    var handle2a = sub.Subscribe<TidyCompleted>(received2.Add);
+                    var handle2b = sub.Subscribe<TidyCompleted>(received2.Add);
+                    lit.TryPublish(TidyCompleted.EventId, evt);
+                    Check(received2.Count == 2, "发布订阅：同一委托两次订阅各得一份派发（独立句柄）");
+                    handle2a.Dispose();
+                    handle2a.Dispose();
+                    received2.Clear();
+                    lit.TryPublish(TidyCompleted.EventId, evt);
+                    Check(received2.Count == 1, "发布订阅：Dispose 只注销自己的委托且重复 Dispose 安全");
+                    handle2b.Dispose();
+                    handle.Dispose();
+                    bool nullHandlerRejected = false;
+                    try { sub.Subscribe<TidyCompleted>(null); }
+                    catch (ArgumentNullException) { nullHandlerRejected = true; }
+                    Check(nullHandlerRejected, "发布订阅：null handler 属开发者错误，参数异常 fail-fast");
+                });
+
+                Group("发布者语义", () =>
+                {
+                    var diagnostics = new List<string>();
+                    var bus = new BetterUnturnedExperience.Core.Events.FeatureEventBus(diagnostics.Add);
+                    var lit = bus.Publisher(litFeature);
+                    var sub = bus.Subscriber(litFeature);
+                    var received = new List<TidyCompleted>();
+                    sub.Subscribe<TidyCompleted>(received.Add);
+                    Check(!lit.TryPublish("io.example.someone-else/tidy-completed", default(TidyCompleted)),
+                        "发布者语义：非本功能派生的身份串 TryPublish=false（Owned 语义）");
+                    Check(!lit.TryPublish(null, default(TidyCompleted)),
+                        "发布者语义：null 身份串 TryPublish=false");
+                    Check(!lit.TryPublish(HostTick.EventId, default(HostTick)),
+                        "发布者语义：功能发布者不能以宿主身份发布 HostTick（时钟由宿主统一产生）");
+                    Check(received.Count == 0, "发布者语义：被拒发布零派发");
+                    lit.TryPublish("io.example.bad/evt", default(TidyCompleted));
+                    Check(diagnostics.Count > 0 && diagnostics[diagnostics.Count - 1].IndexOf("io.example.bad/evt", StringComparison.Ordinal) >= 0,
+                        "发布者语义：拒绝发布浮出结构化诊断（不静默吞）");
+                    var emptyBus = new BetterUnturnedExperience.Core.Events.FeatureEventBus();
+                    Check(emptyBus.Publisher(litFeature).TryPublish(TidyCompleted.EventId, default(TidyCompleted)),
+                        "发布者语义：零订阅者发布仍为 true（发布≠派发）");
+                });
+
+                Group("异常隔离", () =>
+                {
+                    var got = new List<TidyCompleted>();
+                    var diagnostics = new List<string>();
+                    var bus = new BetterUnturnedExperience.Core.Events.FeatureEventBus(diagnostics.Add);
+                    var lit = bus.Publisher(litFeature);
+                    var sub = bus.Subscriber(litFeature);
+                    sub.Subscribe<TidyCompleted>(delegate { throw new InvalidOperationException("bad consumer"); });
+                    sub.Subscribe<TidyCompleted>(got.Add);
+                    var evt = new TidyCompleted(litFeature, 2, 2, TidyCompletionResult.Succeeded, 0UL, 5UL);
+                    Check(lit.TryPublish(TidyCompleted.EventId, evt),
+                        "异常隔离：单订阅者异常不冲击发布者（TryPublish 正常返回 true）");
+                    Check(got.Count == 1, "异常隔离：坏订阅者不阻断后续订阅者的派发");
+                    Check(diagnostics.Count > 0 && diagnostics[diagnostics.Count - 1].IndexOf(TidyCompleted.EventId, StringComparison.Ordinal) >= 0,
+                        "异常隔离：订阅者异常浮出结构化诊断（不静默吞）");
+                });
+
+                Group("假时钟单调", () =>
+                {
+                    var bus = new BetterUnturnedExperience.Core.Events.FeatureEventBus();
+                    long nowMs = 0;
+                    var clock = new BetterUnturnedExperience.Core.Events.HostTickClock(bus, () => nowMs);
+                    var ticks = new List<HostTick>();
+                    bus.Subscriber(thirdParty).Subscribe<HostTick>(ticks.Add);
+                    nowMs = 0; clock.Tick();
+                    nowMs = 16; clock.Tick();
+                    nowMs = 16; clock.Tick();
+                    nowMs = 50; clock.Tick();
+                    Check(ticks.Count == 4, "假时钟：每 Tick 恰一 HostTick");
+                    Check(ticks.Count == 4 && ticks[0].TickNumber == 1UL && ticks[1].TickNumber == 2UL
+                        && ticks[2].TickNumber == 3UL && ticks[3].TickNumber == 4UL,
+                        "假时钟：序号从 1 起严格单调 +1");
+                    Check(ticks.Count == 4 && Math.Abs(ticks[0].DeltaTime) < 0.0001f
+                        && Math.Abs(ticks[1].DeltaTime - 0.016f) < 0.001f
+                        && Math.Abs(ticks[2].DeltaTime) < 0.0001f
+                        && Math.Abs(ticks[3].DeltaTime - 0.034f) < 0.001f,
+                        "假时钟：时间增量=相邻 tick 的单调时差（首 tick 0）");
+                    bool allUpdate = true;
+                    foreach (var t in ticks) if (t.Phase != TickPhase.Update) allUpdate = false;
+                    Check(allUpdate, "假时钟：阶段固定为 Update");
+                    Check((byte)TickPhase.Update == 0, "假时钟：TickPhase.Update 值冻结为 0");
+                    Check(HostTick.EventId == "io.github.yu80rice.bue.host/host-tick",
+                        "假时钟：HostTick 身份串由宿主标识派生并冻结");
+                    nowMs = 10; clock.Tick();
+                    Check(ticks.Count == 5 && ticks[4].TickNumber == 5UL && ticks[4].DeltaTime == 0f,
+                        "假时钟：时间源回退钳 0 且序号仍严格 +1（R1 修复钉）");
+                    nowMs = 20; clock.Tick();
+                    Check(ticks.Count == 6 && ticks[5].TickNumber == 6UL && ticks[5].DeltaTime == 0f,
+                        "假时钟：回退后基线保持高水位——后续 tick 增量仍为 0 而非回退差值（R3 修复钉）");
+                    Check(BetterUnturnedExperience.Core.Events.HostTickClock.MonotonicMilliseconds(10_000_000L, 10_000_000L) == 1000L,
+                        "假时钟：默认时钟换算按 Stopwatch.Frequency 标定（1 秒 = 1000ms，R1 修复钉）");
+                    Check(BetterUnturnedExperience.Core.Events.HostTickClock.MonotonicMilliseconds(5_000_000L, 10_000_000L) == 500L,
+                        "假时钟：默认时钟换算 0.5 秒 = 500ms（R1 修复钉）");
+                    Check(BetterUnturnedExperience.Core.Events.HostTickClock.MonotonicMilliseconds(3_000_000L, 3_000_000L) == 1000L,
+                        "假时钟：换算按实际 Frequency 标定（3MHz 计数器 1 秒 = 1000ms——旧式固定除 10^7 的回归在此必红，R2 修复钉）");
+                    bool badFrequencyRejected = false;
+                    try { BetterUnturnedExperience.Core.Events.HostTickClock.MonotonicMilliseconds(1L, 0L); }
+                    catch (ArgumentOutOfRangeException) { badFrequencyRejected = true; }
+                    Check(badFrequencyRejected, "假时钟：换算函数对非正 Frequency fail-fast");
+                });
+
+                Group("停止注销", () =>
+                {
+                    var bus = new BetterUnturnedExperience.Core.Events.FeatureEventBus();
+                    long nowMs = 0;
+                    var clock = new BetterUnturnedExperience.Core.Events.HostTickClock(bus, () => nowMs);
+                    var litTicks = new List<HostTick>();
+                    var ecoTicks = new List<HostTick>();
+                    bus.Subscriber(litFeature).Subscribe<HostTick>(litTicks.Add);
+                    bus.Subscriber(thirdParty).Subscribe<HostTick>(ecoTicks.Add);
+                    clock.Tick();
+                    Check(litTicks.Count == 1 && ecoTicks.Count == 1, "停止注销：注销前双方都收到时钟");
+                    Check(bus.UnsubscribeAll(litFeature), "停止注销：宿主注销功能订阅返回 true");
+                    clock.Tick();
+                    Check(litTicks.Count == 1, "停止注销：功能停止后不再收到时钟（自动注销语义）");
+                    Check(ecoTicks.Count == 2, "停止注销：其它功能的订阅不受影响");
+                    Check(!bus.UnsubscribeAll(new FeatureId("io.example.never-subscribed")),
+                        "停止注销：无订阅的功能注销返回 false");
+                    Check(clock.Tick(), "停止注销：注销后时钟照常产针");
+                });
+
+                Group("宿主身份保留", () =>
+                {
+                    // R1-Spec DEVIATION-2 修复：宿主标识是总线保留身份——不可铸入
+                    // 公开发布者视图（fail-fast），否则任何代码都能伪造宿主时钟。
+                    var bus = new BetterUnturnedExperience.Core.Events.FeatureEventBus();
+                    bool hostIdentityBlocked = false;
+                    try { bus.Publisher(new FeatureId(BetterUnturnedExperience.Core.Events.HostTickClock.HostPublisherId)); }
+                    catch (ArgumentException) { hostIdentityBlocked = true; }
+                    Check(hostIdentityBlocked, "宿主身份保留：宿主标识不可铸入公开发布者视图（fail-fast）");
+                    long nowMs = 0;
+                    var clock = new BetterUnturnedExperience.Core.Events.HostTickClock(bus, () => nowMs);
+                    var ticks = new List<HostTick>();
+                    bus.Subscriber(thirdParty).Subscribe<HostTick>(ticks.Add);
+                    nowMs = 7; clock.Tick();
+                    Check(ticks.Count == 1 && ticks[0].TickNumber == 1UL,
+                        "宿主身份保留：宿主时钟内部发布路径不受保留门影响");
+                });
+
+                Group("生态同权", () =>
+                {
+                    // 生态功能（非官方注册路径）与官方功能走完全相同的公开缝：
+                    // 同一事件总线订阅官方 LIT 的 TidyCompleted 与宿主 HostTick。
+                    var bus = new BetterUnturnedExperience.Core.Events.FeatureEventBus();
+                    var litPub = bus.Publisher(litFeature);
+                    var ecoSub = bus.Subscriber(thirdParty);
+                    var tidy = new List<TidyCompleted>();
+                    var ticks = new List<HostTick>();
+                    ecoSub.Subscribe<TidyCompleted>(tidy.Add);
+                    ecoSub.Subscribe<HostTick>(ticks.Add);
+                    var clock = new BetterUnturnedExperience.Core.Events.HostTickClock(bus, () => 100L);
+                    clock.Tick();
+                    litPub.TryPublish(TidyCompleted.EventId,
+                        new TidyCompleted(litFeature, 2, 6, TidyCompletionResult.Succeeded, 0UL, 1UL));
+                    Check(ticks.Count == 1 && tidy.Count == 1,
+                        "生态同权：生态订阅者经同一公开缝收到宿主时钟与官方功能事件");
+                    Check(!bus.Publisher(thirdParty).TryPublish(TidyCompleted.EventId, default(TidyCompleted)),
+                        "生态同权：生态功能同样不能伪造他人身份串（同权=同一 Owned 规则，不是无规则）");
+                });
+
+                Group("生产接线", () =>
+                {
+                    // 插件组合根：总线+宿主时钟一次成型；Update 泵驱动；订阅者
+                    // 异常不逃逸泵链（决策核四级隔离泵同一纪律）。
+                    BetterUnturnedExperience.Plugin.BueHostEventRuntime.Clear();
+                    try
+                    {
+                        Check(BetterUnturnedExperience.Plugin.BueHostEventRuntime.EnsureCreated(),
+                            "生产接线：组合根首次创建总线与时钟");
+                        Check(!BetterUnturnedExperience.Plugin.BueHostEventRuntime.EnsureCreated(),
+                            "生产接线：重复创建幂等（一次成型）");
+                        var productionTicks = new List<HostTick>();
+                        BetterUnturnedExperience.Plugin.BueHostEventRuntime.Bus.Subscriber(thirdParty).Subscribe<HostTick>(productionTicks.Add);
+                        Check(BetterUnturnedExperience.Plugin.BueHostEventRuntime.TickOnce(),
+                            "生产接线：Update 泵驱动的 TickOnce 正常产针");
+                        Check(productionTicks.Count == 1 && productionTicks[0].TickNumber == 1UL,
+                            "生产接线：生产时钟经公开缝派发（序号从 1 起）");
+                        BetterUnturnedExperience.Plugin.BueHostEventRuntime.Bus.Subscriber(thirdParty).Subscribe<HostTick>(
+                            delegate { throw new InvalidOperationException("pump poison"); });
+                        Check(BetterUnturnedExperience.Plugin.BueHostEventRuntime.TickOnce(),
+                            "生产接线：订阅者异常不逃逸泵链（TickOnce 仍正常返回）");
+                        Check(productionTicks.Count == 2,
+                            "生产接线：毒订阅者不阻断正常订阅者的后续派发");
+                    }
+                    finally { BetterUnturnedExperience.Plugin.BueHostEventRuntime.Clear(); }
+                });
+            }
+            catch (Exception error) when (collectAllFailures)
+            {
+                reds.Add("UNEXPECTED: " + error.GetType().FullName + ": " + error.Message);
+            }
+            if (collectAllFailures && reds.Count == 0)
+                Console.WriteLine("DEV-V2-19 event-clock collection: ALL GREEN (0 failures) — groups: 事件发布订阅/发布者语义/异常隔离/假时钟单调/停止注销/宿主身份保留/生态同权/生产接线");
+            if (collectAllFailures && reds.Count > 0)
+                throw new InvalidOperationException("DEV-V2-19 red collection (" + reds.Count + "): " + string.Join(" || ", reds));
         }
 
         // DEV-V2-18 red-regression engine stub: the full engine-facing binding

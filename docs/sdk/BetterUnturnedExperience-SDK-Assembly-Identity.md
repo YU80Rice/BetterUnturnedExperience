@@ -73,5 +73,13 @@ BepInEx\plugins\ThirdPartyFeature.dll
   - 频道未注册仍优先返回 `ChannelNotRegistered`；超限载荷保留专用 `PayloadTooLarge` 结果（一次性预检，不并入逐目标传输失败聚合）。
 - **④ `Sessions` 收窄 established（2026-09-06，DEV-V2-16）**：`IBueNetworkApi.Sessions`
   只返回**已建立会话快照**；pending（握手未完成）会话仅运行时内部可见。破坏性来源：依赖 pending 会话可见性的行为不再受支持——pending 本就是内部握手状态，从未被承诺为公开语义。
+- **⑤ 功能事件 `TidyCompleted`（2026-09-07，DEV-V2-19）**：只读 struct 入 Contracts 冻结面——跨功能协作的唯一公开缝，官方与生态功能同权消费（生态订阅同一事件，无需 Harmony postfix 挂进官方功能）。冻结面：
+  - 事件身份串 `TidyCompleted.EventId = "io.github.yu80rice.bue.inventory-tidy/tidy-completed"`，由发布者 FeatureId 派生（派生规则：`<发布者 FeatureId>/<事件名>`）。
+  - 载荷：`Publisher`（发布者 FeatureId）、`FirstPage`/`LastPage`（整理对象范围=连续页区间含端点）、`Result`（`TidyCompletionResult : byte { Succeeded = 1, Rejected = 2, Failed = 3 }`）、`ConnectionGeneration`（连接代际，0 = 不适用——本地/单人路径；真实代际从 1 起）、`TransactionId`（功能私有事务/操作标识）。
+  - 发布/订阅经宿主事件总线（`IOwnedFeatureEventPublisher` / `IFeatureEventSubscriber`）：发布者只能发布身份串由**自己** FeatureId 派生的事件（外来身份串 `TryPublish=false`）；handler 锁外执行、单 handler 异常不扩散且浮出结构化诊断；订阅句柄独立幂等；功能停止由宿主注销其全部订阅（`FeatureEventBus.UnsubscribeAll(feature)` 为宿主停用边界交接缝——宿主模块 Start/Stop 路径在 `IFeatureModule.Stop` 返回后调用，随 DEV-V2-21/22 落地）。
+- **⑥ 宿主时钟 `HostTick`（2026-09-07，DEV-V2-19）**：只读 struct 入 Contracts 冻结面——功能模块唯一的帧级驱动缝，**功能模块不得自建 Unity Update 泵**。冻结面：
+  - 事件身份串 `HostTick.EventId = "io.github.yu80rice.bue.host/host-tick"`，由平台宿主标识 `io.github.yu80rice.bue.host`（宿主专用，非注册功能）派生；时钟由宿主统一产生——宿主标识为总线**保留身份**（`Publisher(宿主标识)` 参数异常 fail-fast，宿主时钟经总线内部宿主路径发布），任何功能都无法伪造宿主时钟。
+  - 载荷只含时间与序号、不携带功能逻辑：`TickNumber`（单调 ulong，从 1 起严格 +1）、`DeltaTime`（float 秒，相邻 tick 单调时差，首 tick 0）、`Phase`（`TickPhase : byte { Update = 0 }`，阶段与频率固定=每宿主 Update 节拍恰一 tick；新增阶段属冻结面变更须登记）。
+  - 冻结不变性：回调主线程执行（生产单驱动=插件 Update 泵链，时钟自身不建线程）；功能停止自动注销其时钟订阅；单订阅者异常不扩散（诊断浮出，不静默吞）；`Tick()` 永不向泵抛出。
 
-> 后续票逐条追加（⑤ 版本登记流程本身的后续演化）。
+> 后续票逐条追加。

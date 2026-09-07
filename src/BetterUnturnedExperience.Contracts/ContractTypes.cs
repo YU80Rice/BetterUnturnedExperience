@@ -176,6 +176,53 @@ namespace BetterUnturnedExperience.Contracts
     public readonly struct ModuleConfigRejectedEvent { public ulong RequestId { get; } public FeatureId Feature { get; } public SettingRevisionScope RevisionScope { get; } public FrameworkErrorCode Error { get; } public uint CurrentRevision { get; } public FeatureSettingsSnapshot Snapshot { get; } }
     public readonly struct FeatureStatusChangedEvent { public FeatureStatusView Status { get; } }
 
+    // DEV-V2-19 ⑤: the TidyCompleted feature event — the ONE public seam for
+    // cross-feature cooperation on inventory tidy completion (official and
+    // ecosystem features consume it with equal rights, CONTEXT「功能事件」).
+    // A readonly struct published through IOwnedFeatureEventPublisher on the
+    // host event bus. Frozen payload: the publisher FeatureId, the inclusive
+    // page range the tidy covered, the completion result, the connection
+    // generation (0 = not applicable — local/single-player path; real BUE
+    // connection generations start at 1), and the feature-private
+    // transaction/operation identity.
+    public enum TidyCompletionResult : byte { Succeeded = 1, Rejected = 2, Failed = 3 }
+    public readonly struct TidyCompleted
+    {
+        // Event identity, derived from the publisher FeatureId
+        // (<publisher-FeatureId>/<event-name>): the inventory-tidy feature
+        // publishes; LIR and ecosystem consumers subscribe by type.
+        // Registry entry ⑤ (change log 2.0).
+        public const string EventId = "io.github.yu80rice.bue.inventory-tidy/tidy-completed";
+        public FeatureId Publisher { get; }
+        public byte FirstPage { get; }
+        public byte LastPage { get; }
+        public TidyCompletionResult Result { get; }
+        public ulong ConnectionGeneration { get; }
+        public ulong TransactionId { get; }
+        public TidyCompleted(FeatureId publisher, byte firstPage, byte lastPage, TidyCompletionResult result, ulong connectionGeneration, ulong transactionId)
+        { Publisher = publisher; FirstPage = firstPage; LastPage = lastPage; Result = result; ConnectionGeneration = connectionGeneration; TransactionId = transactionId; }
+    }
+
+    // DEV-V2-19 ⑥: the host clock tick — the ONE frame-level driver seam for
+    // feature modules (self-built Unity Update pumps are forbidden). The host
+    // produces it uniformly, once per host Update beat; a feature cannot
+    // publish it (the bus owner check rejects any identity not derived from
+    // the publisher's own FeatureId, and the host identity is reserved). The
+    // payload carries only the sequence, the time increment and the phase —
+    // never feature logic. Registry entry ⑥ (change log 2.0).
+    public enum TickPhase : byte { Update = 0 }
+    public readonly struct HostTick
+    {
+        // Event identity, derived from the platform host identity
+        // io.github.yu80rice.bue.host (host-owned, not a registered feature).
+        public const string EventId = "io.github.yu80rice.bue.host/host-tick";
+        public ulong TickNumber { get; }
+        public float DeltaTime { get; }
+        public TickPhase Phase { get; }
+        public HostTick(ulong tickNumber, float deltaTime, TickPhase phase)
+        { TickNumber = tickNumber; DeltaTime = deltaTime; Phase = phase; }
+    }
+
     public enum FrameworkErrorCode : ushort
     {
         None = 0, ContractMajorMismatch = 1000, ContractMinorUnsupported = 1001, CapabilityMissing = 1002, FeatureVersionMismatch = 1003,

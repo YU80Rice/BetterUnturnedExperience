@@ -26,6 +26,8 @@
     <Compile Include="..\BetterUnturnedExperience.Core\Placement\PlacementCandidateEvaluator.cs"><Link>EmbeddedCore\Placement\PlacementCandidateEvaluator.cs</Link></Compile>
     <Compile Include="..\BetterUnturnedExperience.Core\Registration\FeatureRegistrationRuntime.cs"><Link>EmbeddedCore\Registration\FeatureRegistrationRuntime.cs</Link></Compile><Compile Include="..\BetterUnturnedExperience.Core\Registration\FeatureBootstrap.cs"><Link>EmbeddedCore\Registration\FeatureBootstrap.cs</Link></Compile>
     <Compile Include="..\BetterUnturnedExperience.Core\Settings\SettingsRuntime.cs"><Link>EmbeddedCore\Settings\SettingsRuntime.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Core\Events\FeatureEventBus.cs"><Link>EmbeddedCore\Events\FeatureEventBus.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Core\Events\HostTickClock.cs"><Link>EmbeddedCore\Events\HostTickClock.cs</Link></Compile>
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="PluginAssemblyMarker.cs" />
     <Compile Include="BootstrapGuard.cs" />
@@ -76,6 +78,7 @@
     <Compile Include="..\BetterUnturnedExperience.Lit\Ui\InventoryTidyUiPatch.cs"><Link>EmbeddedLit\Ui\InventoryTidyUiPatch.cs</Link></Compile>
     <Compile Include="..\BetterUnturnedExperience.Lit\InventoryTidyModule.cs"><Link>EmbeddedLit\InventoryTidyModule.cs</Link></Compile>
     <Compile Include="InventoryTidyFeatureRegistration.cs" />
+    <Compile Include="BueHostEventRuntime.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>

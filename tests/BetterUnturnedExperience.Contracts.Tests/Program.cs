@@ -88,6 +88,46 @@ namespace BetterUnturnedExperience.Contracts.Tests
             Assert(bootstrapNetwork != null && bootstrapNetwork.PropertyType == typeof(BueNetwork.IBueNetworkApi),
                 "DEV-V2-14: IFeatureBootstrap.Network carries the pure-C# network API (no host/LMN/Unity type leakage)");
 
+            // DEV-V2-19 ⑤: the TidyCompleted feature event is frozen contract
+            // surface — a readonly struct whose identity string derives from
+            // the publisher FeatureId (registry entries ⑤, change log 2.0).
+            Assert(typeof(TidyCompleted).IsValueType, "DEV-V2-19: TidyCompleted is a readonly struct (value type)");
+            Assert(TidyCompleted.EventId == "io.github.yu80rice.bue.inventory-tidy/tidy-completed",
+                "DEV-V2-19: TidyCompleted event identity derives from the publisher FeatureId (io.github.yu80rice.bue.inventory-tidy/tidy-completed)");
+            var tidyPublisher = typeof(TidyCompleted).GetProperty("Publisher");
+            Assert(tidyPublisher != null && tidyPublisher.PropertyType == typeof(FeatureId),
+                "DEV-V2-19: TidyCompleted.Publisher carries the publisher FeatureId");
+            Assert(typeof(TidyCompleted).GetProperty("FirstPage")?.PropertyType == typeof(byte)
+                && typeof(TidyCompleted).GetProperty("LastPage")?.PropertyType == typeof(byte),
+                "DEV-V2-19: TidyCompleted scope is the inclusive page range FirstPage..LastPage");
+            var tidyResult = typeof(TidyCompleted).GetProperty("Result");
+            Assert(tidyResult != null && tidyResult.PropertyType == typeof(TidyCompletionResult),
+                "DEV-V2-19: TidyCompleted.Result carries the frozen completion result enum");
+            Assert(typeof(TidyCompleted).GetProperty("ConnectionGeneration")?.PropertyType == typeof(ulong),
+                "DEV-V2-19: TidyCompleted.ConnectionGeneration is ulong (0 = not applicable, local path)");
+            Assert(typeof(TidyCompleted).GetProperty("TransactionId")?.PropertyType == typeof(ulong),
+                "DEV-V2-19: TidyCompleted.TransactionId is ulong (feature-private operation identity)");
+            Assert(typeof(TidyCompletionResult).IsEnum && Enum.GetUnderlyingType(typeof(TidyCompletionResult)) == typeof(byte)
+                && (byte)TidyCompletionResult.Succeeded == 1 && (byte)TidyCompletionResult.Rejected == 2 && (byte)TidyCompletionResult.Failed == 3,
+                "DEV-V2-19: TidyCompletionResult is a byte enum frozen (Succeeded=1, Rejected=2, Failed=3)");
+
+            // DEV-V2-19 ⑥: the HostTick host clock is frozen contract surface
+            // — a readonly struct carrying only seq/delta/phase (no feature
+            // logic payload).
+            Assert(typeof(HostTick).IsValueType, "DEV-V2-19: HostTick is a readonly struct (value type)");
+            Assert(HostTick.EventId == "io.github.yu80rice.bue.host/host-tick",
+                "DEV-V2-19: HostTick event identity derives from the platform host identity (io.github.yu80rice.bue.host/host-tick)");
+            Assert(typeof(HostTick).GetProperty("TickNumber")?.PropertyType == typeof(ulong),
+                "DEV-V2-19: HostTick.TickNumber is the monotonic ulong sequence");
+            Assert(typeof(HostTick).GetProperty("DeltaTime")?.PropertyType == typeof(float),
+                "DEV-V2-19: HostTick.DeltaTime is the float seconds increment");
+            var tickPhase = typeof(HostTick).GetProperty("Phase");
+            Assert(tickPhase != null && tickPhase.PropertyType == typeof(TickPhase),
+                "DEV-V2-19: HostTick.Phase carries the frozen tick phase enum");
+            Assert(typeof(TickPhase).IsEnum && Enum.GetUnderlyingType(typeof(TickPhase)) == typeof(byte)
+                && (byte)TickPhase.Update == 0,
+                "DEV-V2-19: TickPhase is a byte enum with Update=0 frozen");
+
             var registration = new StubRegistration("io.example.tracer");
             var runtime = new FeatureRegistrationRuntime();
             FeatureRegistrationResult result;
