@@ -265,6 +265,13 @@ namespace BetterUnturnedExperience.Contracts.BueNetwork
     // generation (CONTEXT「连接代际」). Events let a module react to lifecycle;
     // peer identity and the negotiated channel table support per-module
     // authorization without a peer-FeatureId addressing scheme (Q9).
+    // DEV-V2-17 event timing (frozen, runtime-owned): Connected fires only
+    // after the handshake completes, exactly once per session; Disconnected
+    // fires when an ESTABLISHED session is dropped (transport disconnect,
+    // supersession, peer-side reset) — a pending session vanishes silently;
+    // GenerationChanged fires on a superseded (dead) session object when the
+    // successor session to the same peer establishes, carrying the new
+    // SessionId. All lifecycle callbacks run outside the runtime state lock.
     public interface IConnectionSession
     {
         ulong SessionId { get; }

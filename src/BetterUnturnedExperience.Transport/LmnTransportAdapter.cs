@@ -20,6 +20,15 @@ namespace BetterUnturnedExperience.Transport
         }
 
         public event Action<byte[]> Receive;
+        // DEV-V2-17: lifecycle seam parity with INetworkTransport. The
+        // experimental adapter declares the members; raising them belongs to
+        // the production transport binding (DEV-V2-18).
+#pragma warning disable 0067 // Raised by the DEV-V2-18 production transport binding.
+        public event Action<ulong> PeerConnected;
+        public event Action<ulong> PeerDisconnected;
+#pragma warning restore 0067
+        private static readonly ulong[] EmptyPeers = new ulong[0];
+        public IReadOnlyList<ulong> ConnectedPeers { get { return EmptyPeers; } }
         public bool Send(byte[] frame, bool reliable, ulong targetSteamId) { return frame != null && send((byte[])frame.Clone(), reliable, targetSteamId); }
         public int Pump()
         {

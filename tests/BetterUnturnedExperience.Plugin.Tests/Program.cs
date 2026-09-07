@@ -260,6 +260,11 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     AssertBueV2SessionDrivenSendSemantics(collectAllFailures: true);
                     return 0;
                 }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--bue-v2-handshake-red")
+                {
+                    AssertBueV2AutoHandshakeLifecycle(collectAllFailures: true);
+                    return 0;
+                }
                 AssertSingleDllAssemblyClosure();
                 AssertExternalSdkAssemblyIdentity();
                 Assert(BootstrapGuard.Decide(false, false, true) == BootstrapDecision.Client, "client decision");
@@ -348,6 +353,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 AssertBueV2DirectionalSubscribe();
                 AssertBueV2NetworkInjection();
                 AssertBueV2SessionDrivenSendSemantics();
+                AssertBueV2AutoHandshakeLifecycle();
                 AssertLitSingleplayerPath();
                 AssertRuntimeCompletionBarrierIsolates();
                 AssertManagementPanelConsumesRuntimeCatalog();
@@ -3043,10 +3049,16 @@ namespace BetterUnturnedExperience.Plugin.Tests
             // The client re-initiates the handshake (production topology: the
             // answering side re-arms, the initiator re-handshakes). The channel
             // table survives the cycle — no re-registration, no re-subscribe.
-            a.StartSession(2002UL);
+            // DEV-V2-17: re-initiating over the still-listed established
+            // session supersedes it with ONE fresh connection generation and
+            // returns the new pending session — the re-established topology
+            // rides the replacement, the stale object is gone.
+            var aRearmedSession = a.StartSession(2002UL);
             pair.First.Pump(); pair.Second.Pump(); // A Hello -> B (B answers, Ack)
             pair.First.Pump();                     // B Ack -> A
-            Assert(a.SendToClient(channel, aSession, new byte[] { 0x0C }, true) == NetworkSendResult.Sent,
+            Assert(aRearmedSession != null && a.Sessions.Count == 1 && ReferenceEquals(a.Sessions[0], aRearmedSession),
+                "re-arm: the re-handshake supersedes the stale session with one fresh generation");
+            Assert(a.SendToClient(channel, aRearmedSession, new byte[] { 0x0C }, true) == NetworkSendResult.Sent,
                 "setup: A sends over the re-established topology");
             pair.First.Pump(); pair.Second.Pump();
             Assert(disabledHits == 1, "re-arm: subscriptions survive the disable/enable cycle without re-subscribing");
@@ -3663,6 +3675,540 @@ namespace BetterUnturnedExperience.Plugin.Tests
             public event System.Action<ulong> GenerationChanged;
 #pragma warning restore 0067
             public NetworkSendResult Send(byte[] payload, bool reliable) { return NetworkSendResult.NoSession; }
+        }
+
+        // DEV-V2-17 red regression (GPT watermark): automatic handshake and
+        // session lifecycle. The runtime owns the whole handshake — transport
+        // connected -> auto Hello -> Ack/Reject -> Connected — plus duplicate
+        // Hello dedup, Ack matching by peer + handshake nonce (the initiator's
+        // session id IS the connection generation), disconnect cleanup,
+        // reconnect generation replacement, timeout re-probe backoff, and
+        // version fail-closed. Frozen groups: 流程/时序, 去重, 匹配, 断线与
+        // 重连换代际, fail-closed, 退避, 锁外回调, 重启用重建. RED until the
+        // lifecycle seam (PeerConnected/PeerDisconnected/ConnectedPeers),
+        // the initiator switch, and TickHandshake exist.
+        private static void AssertBueV2AutoHandshakeLifecycle(bool collectAllFailures = false)
+        {
+            var reds = new List<string>();
+            try
+            {
+                void Check(bool condition, string message)
+                {
+                    if (condition) return;
+                    if (collectAllFailures) reds.Add(message);
+                    else throw new InvalidOperationException(message);
+                }
+
+                // Each group collects independently so the stub-stage transcript
+                // names a failure per frozen group instead of aborting at the first.
+                void Group(string name, System.Action body)
+                {
+                    try { body(); }
+                    catch (Exception error) when (collectAllFailures)
+                    {
+                        reds.Add("[" + name + "] " + (error is InvalidOperationException ? error.Message : "UNEXPECTED " + error.GetType().Name + ": " + error.Message));
+                    }
+                }
+
+                var localContract = new ContractVersion(2, 0);
+
+                Group("流程/时序", () =>
+                {
+                    // ---- 流程/时序：transport connected → 自动 Hello → Ack → Connected；
+                    //      握手完成前功能模块视角为空快照 + 显式 NoSession（零握手负担）。
+                    var clientT = new HandshakeTestTransport();
+                    var serverT = new HandshakeTestTransport();
+                    var client = new BetterUnturnedExperience.Core.Network.BueNetworkRuntime(clientT, localContract, 1001UL);
+                    var server = new BetterUnturnedExperience.Core.Network.BueNetworkRuntime(serverT, localContract, 2001UL, handshakeInitiator: false);
+                    var lifecycleChannel = new FeatureId("io.example.v2hand");
+                    Check(client.RegisterChannel(lifecycleChannel, localContract, 1).Accepted && server.RegisterChannel(lifecycleChannel, localContract, 1).Accepted,
+                        "setup: the flow pair registers the lifecycle channel");
+                    Check(clientT.Sent.Count == 0, "流程：连接建立前运行时不发送任何握手帧");
+                    clientT.ConnectPeer(2001UL);
+                    Check(clientT.Sent.Count == 1 && clientT.Sent[0].Frame[4] == HandshakeKindHello && clientT.Sent[0].Target == 0UL && clientT.Sent[0].Reliable,
+                        "流程：transport connected 后运行时自动发出 Hello（单帧 untargeted、可靠位携带）");
+                    Check(client.Sessions.Count == 0, "时序：握手完成前 Sessions 为空快照（pending 不可见，established-only）");
+                    Check(client.SendToServer(lifecycleChannel, new byte[] { 0x01 }, true) == NetworkSendResult.NoSession,
+                        "时序：握手完成前功能模块发送得到显式 NoSession（零握手负担、无静默）");
+                    serverT.ConnectPeer(1001UL);
+                    Check(server.Sessions.Count == 0 && serverT.Sent.Count == 0,
+                        "流程：响应方在 transport connected 时不主动握手（Hello 仅由发起方发出）");
+                    var helloFrame = clientT.Sent[0].Frame;
+                    clientT.ForwardPending(serverT, null);
+                    serverT.Pump();
+                    Check(server.Sessions.Count == 1 && server.Sessions[0].PeerSteamId == 1001UL,
+                        "流程：服务器收到 Hello 即建立会话（响应方同步建立）");
+                    Check(serverT.Sent.Count == 1 && serverT.Sent[0].Frame[4] == HandshakeKindAck && serverT.Sent[0].Target == 1001UL,
+                        "匹配：Ack 定向发回发起方（target=发起方 steam id，不广播）");
+                    serverT.ForwardPending(clientT, null);
+                    clientT.Pump();
+                    Check(client.Sessions.Count == 1, "流程：发起方收到 Ack 后会话进入公开快照");
+                    Check(client.Sessions[0].SessionId == HandshakeRead64(helloFrame, 26),
+                        "代际：Hello 携带的握手 nonce 即发起方会话的连接代际（SessionId）");
+                    var flowSession = client.Sessions[0];
+                    Check(flowSession.PeerContract.Major == 2, "契约：Ack 协商的契约发布到会话（PeerContract）");
+                    var replayConnected = 0;
+                    flowSession.Connected += () => replayConnected++;
+                    clientT.InjectFrame((byte[])serverT.Sent[0].Frame.Clone());
+                    clientT.Pump();
+                    Check(replayConnected == 0, "时序：已建立会话重放 Ack 不重复触发 Connected");
+                    var flowReceived = new List<byte[]>();
+                    server.Subscribe(lifecycleChannel, ChannelDirection.FromClients, (session, payload) => flowReceived.Add(payload));
+                    Check(client.SendToClient(lifecycleChannel, flowSession, new byte[] { 0x17 }, true) == NetworkSendResult.Sent,
+                        "流程：握手完成后功能模块直接收发（零握手负担）");
+                    clientT.ForwardPending(serverT, null);
+                    serverT.Pump();
+                    Check(flowReceived.Count == 1 && flowReceived[0].Length == 1 && flowReceived[0][0] == 0x17,
+                        "流程：Data 帧经会话上下文送达订阅处理器");
+                });
+
+                Group("去重", () =>
+                {
+                    // ---- 去重：响应方对重放 Hello 幂等重 Ack（不产第二会话）；
+                    //      发起方在在途握手期间重复收到连接事件不重建。
+                    var dedupClientT = new HandshakeTestTransport();
+                    var dedupServerT = new HandshakeTestTransport();
+                    var dedupClient = new BetterUnturnedExperience.Core.Network.BueNetworkRuntime(dedupClientT, localContract, 1101UL);
+                    var dedupServer = new BetterUnturnedExperience.Core.Network.BueNetworkRuntime(dedupServerT, localContract, 2101UL, handshakeInitiator: false);
+                    dedupClientT.ConnectPeer(2101UL);
+                    dedupClientT.ForwardPending(dedupServerT, null);
+                    dedupServerT.Pump();
+                    Check(dedupServer.Sessions.Count == 1, "去重：首次 Hello 建立唯一会话");
+                    var dedupNonce = HandshakeRead64(dedupServerT.Sent[0].Frame, 26);
+                    dedupServerT.InjectFrame((byte[])dedupClientT.Sent[0].Frame.Clone());
+                    dedupServerT.Pump();
+                    Check(dedupServer.Sessions.Count == 1, "去重：重放 Hello 不产生第二个会话（按发起方 nonce 去重）");
+                    Check(dedupServerT.CountKind(HandshakeKindAck) == 2, "去重：重放 Hello 得到幂等重 Ack（客户端可恢复）");
+                    Check(HandshakeRead64(dedupServerT.Sent[1].Frame, 26) == dedupNonce, "去重：重 Ack 回带同一握手 nonce");
+                    var dedupHellos = dedupClientT.CountKind(HandshakeKindHello);
+                    dedupClientT.ConnectPeer(2101UL);
+                    Check(dedupClientT.CountKind(HandshakeKindHello) == dedupHellos,
+                        "去重：发起方在在途握手期间重复收到连接事件不重发 Hello（重探归退避管）");
+                    dedupClientT.ForwardPending(dedupServerT, null);
+                    dedupServerT.Pump();
+                    Check(dedupServer.Sessions.Count == 1, "去重：重复连接事件后服务器侧仍只有一条会话");
+                });
+
+                Group("匹配", () =>
+                {
+                    // ---- 匹配：他人 Ack（nonce 不符）不建立会话——废弃「第一个未建立会话」匹配法；
+                    //      服务器 Ack 逐发起方定向。
+                    var hubT = new HandshakeTestTransport();
+                    var peerBT = new HandshakeTestTransport();
+                    var peerCT = new HandshakeTestTransport();
+                    var hub = new BetterUnturnedExperience.Core.Network.BueNetworkRuntime(hubT, localContract, 100UL, handshakeInitiator: false);
+                    var peerB = new BetterUnturnedExperience.Core.Network.BueNetworkRuntime(peerBT, localContract, 200UL);
+                    var peerC = new BetterUnturnedExperience.Core.Network.BueNetworkRuntime(peerCT, localContract, 300UL);
+                    peerB.StartSession(100UL);
+                    peerC.StartSession(100UL);
+                    peerBT.ForwardPending(hubT, null);
+                    peerCT.ForwardPending(hubT, null);
+                    hubT.Pump();
+                    Check(hub.Sessions.Count == 2, "匹配：hub 为两个发起方各建立一条会话");
+                    Check(hubT.CountKind(HandshakeKindAck) == 2
+                        && hubT.Sent.FindAll(record => record.Frame[4] == HandshakeKindAck && record.Target == 200UL).Count == 1
+                        && hubT.Sent.FindAll(record => record.Frame[4] == HandshakeKindAck && record.Target == 300UL).Count == 1,
+                        "匹配：服务器为每个发起方定向回 Ack（target=该发起方），不交底层广播");
+                    // TakeCursor resets make each frame routable to SEVERAL
+                    // destinations (misroute + correct route).
+                    hubT.TakeCursor = 0;
+                    hubT.ForwardPending(peerCT, record => record.Target == 200UL); // B 的 Ack 误投给 C
+                    peerCT.Pump();
+                    Check(peerC.Sessions.Count == 0,
+                        "匹配：他人 Ack（nonce 不符）不建立会话——废弃「第一个未建立会话」匹配法");
+                    hubT.TakeCursor = 0;
+                    hubT.ForwardPending(peerCT, record => record.Target == 300UL);
+                    peerCT.Pump();
+                    Check(peerC.Sessions.Count == 1, "匹配：自己的 Ack（peer+nonce 命中）建立会话");
+                    hubT.TakeCursor = 0;
+                    hubT.ForwardPending(peerBT, record => record.Target == 200UL);
+                    peerBT.Pump();
+                    Check(peerB.Sessions.Count == 1, "匹配：B 的会话按自己的 Ack 建立");
+                });
+
+                Group("断线与重连换代际", () =>
+                {
+                    // ---- 断线与重连换代际：断开清理 + Disconnected；重连新会话身份；
+                    //      旧会话对象收到 GenerationChanged(新代际)；漏断线时新握手替换旧会话。
+                    var genClientT = new HandshakeTestTransport();
+                    var genServerT = new HandshakeTestTransport();
+                    var genClient = new BetterUnturnedExperience.Core.Network.BueNetworkRuntime(genClientT, localContract, 1401UL);
+                    var genServer = new BetterUnturnedExperience.Core.Network.BueNetworkRuntime(genServerT, localContract, 2401UL, handshakeInitiator: false);
+                    genClientT.ConnectPeer(2401UL);
+                    genClientT.ForwardPending(genServerT, null);
+                    genServerT.Pump();
+                    genServerT.ForwardPending(genClientT, null);
+                    genClientT.Pump();
+                    Check(genClient.Sessions.Count == 1 && genServer.Sessions.Count == 1, "重连：基线握手建立");
+                    var genOldClientSession = genClient.Sessions[0];
+                    var genOldServerSession = genServer.Sessions[0];
+                    var genClientDisconnected = 0;
+                    ulong genClientGenerationSignal = 0;
+                    genOldClientSession.Disconnected += () => genClientDisconnected++;
+                    genOldClientSession.GenerationChanged += generation => genClientGenerationSignal = generation;
+                    var genServerDisconnected = 0;
+                    ulong genServerGenerationSignal = 0;
+                    genOldServerSession.Disconnected += () => genServerDisconnected++;
+                    genOldServerSession.GenerationChanged += generation => genServerGenerationSignal = generation;
+                    var genOldClientSessionId = genOldClientSession.SessionId;
+                    genClientT.DisconnectPeer(2401UL);
+                    Check(genClientDisconnected == 1, "断线：transport 断开触发 Disconnected（established 会话）");
+                    Check(genClient.Sessions.Count == 0, "断线：断开方会话即刻出快照（无 ghost）");
+                    genServerT.DisconnectPeer(1401UL);
+                    Check(genServerDisconnected == 1 && genServer.Sessions.Count == 0, "断线：对端同样清理（两端各自响应 transport 断开）");
+                    genClientT.ConnectPeer(2401UL);
+                    genClientT.ForwardPending(genServerT, null);
+                    genServerT.Pump();
+                    genServerT.ForwardPending(genClientT, null);
+                    genClientT.Pump();
+                    Check(genClient.Sessions.Count == 1 && genClient.Sessions[0].SessionId != genOldClientSessionId,
+                        "重连：重连建立新会话身份（连接代际更替）");
+                    Check(genClientGenerationSignal == genClient.Sessions[0].SessionId,
+                        "重连：旧会话对象收到 GenerationChanged(新代际) 信号");
+                    Check(genServer.Sessions.Count == 1 && genServer.Sessions[0].SessionId != genOldServerSession.SessionId,
+                        "重连：服务器侧换代际（新 Hello nonce 替换旧会话）");
+                    Check(genServerGenerationSignal == genServer.Sessions[0].SessionId,
+                        "重连：服务器旧会话对象同样收到 GenerationChanged(新代际)");
+                    Check(genClientT.CountKind(HandshakeKindHello) == 2, "重连：重连发出新 Hello（新 nonce）");
+                    var staleSession = genClient.Sessions[0];
+                    var staleDisconnected = 0;
+                    ulong staleGeneration = 0;
+                    staleSession.Disconnected += () => staleDisconnected++;
+                    staleSession.GenerationChanged += generation => staleGeneration = generation;
+                    var staleSessionId = staleSession.SessionId;
+                    genClientT.ConnectPeer(2401UL); // 漏断线：未断开即再次连接
+                    Check(staleDisconnected == 1, "重连：漏断线时既有 established 会话被替换并触发 Disconnected");
+                    genClientT.ForwardPending(genServerT, null);
+                    genServerT.Pump();
+                    Check(genServer.Sessions.Count == 1, "重连：服务器侧按新 nonce 替换（不双会话）");
+                    genServerT.ForwardPending(genClientT, null);
+                    genClientT.Pump();
+                    Check(genClient.Sessions.Count == 1 && genClient.Sessions[0].SessionId != staleSessionId,
+                        "重连：替换后新代际建立");
+                    Check(staleGeneration == genClient.Sessions[0].SessionId,
+                        "重连：被替换旧会话对象收到 GenerationChanged(新代际)");
+                });
+
+                Group("fail-closed", () =>
+                {
+                    // ---- fail-closed：Reject 按 peer+nonce 精确拆除（另一条握手不受影响、不重试）；
+                    //      发起方对契约 Major 不符的 Ack 拒绝建立且不复活 pending。
+                    var failClientT = new HandshakeTestTransport();
+                    var failGoodServerT = new HandshakeTestTransport();
+                    var failBadServerT = new HandshakeTestTransport();
+                    var failClient = new BetterUnturnedExperience.Core.Network.BueNetworkRuntime(failClientT, localContract, 1501UL);
+                    var failGoodServer = new BetterUnturnedExperience.Core.Network.BueNetworkRuntime(failGoodServerT, localContract, 2501UL, handshakeInitiator: false);
+                    var failBadServer = new BetterUnturnedExperience.Core.Network.BueNetworkRuntime(failBadServerT, new ContractVersion(3, 0), 2601UL, handshakeInitiator: false);
+                    failClientT.ConnectPeer(2601UL);
+                    failClientT.ConnectPeer(2501UL);
+                    failClientT.ForwardPending(failBadServerT, record => record.Index == 0);
+                    failClientT.TakeCursor = 0;
+                    failClientT.ForwardPending(failGoodServerT, record => record.Index == 1);
+                    failBadServerT.Pump();
+                    Check(failBadServer.Sessions.Count == 0, "fail-closed：不兼容 Hello 不建立会话");
+                    Check(failBadServerT.CountKind(HandshakeKindReject) == 1, "fail-closed：服务器对不兼容 Hello 回 Reject");
+                    failGoodServerT.Pump();
+                    failBadServerT.ForwardPending(failClientT, null);
+                    failGoodServerT.ForwardPending(failClientT, null);
+                    failClientT.Pump();
+                    Check(failClient.Sessions.Count == 1 && failClient.Sessions[0].PeerSteamId == 2501UL,
+                        "fail-closed：Reject 仅拆除匹配的 pending（peer+nonce），另一条握手不受影响");
+                    Check(failClientT.CountKind(HandshakeKindHello) == 2, "fail-closed：Reject 后不重发 Hello（版本不兼容不重试）");
+                // 帧头权威（R1-Spec BLOCKER 修复轮钉子）：Ack 的 peer 归属以帧头
+                // sender 为准——payload steamId 声明不可伪造归属。
+                var spoofT = new HandshakeTestTransport();
+                var spoofClient = new BetterUnturnedExperience.Core.Network.BueNetworkRuntime(spoofT, localContract, 1503UL);
+                spoofT.ConnectPeer(2801UL);
+                var spoofNonce = HandshakeRead64(spoofT.Sent[0].Frame, 26);
+                spoofT.ForwardPending(null, null);
+                spoofT.InjectFrame(BuildControlFrame(HandshakeKindAck, 2801UL, 999UL, 2, 0, spoofNonce));
+                spoofT.Pump();
+                Check(spoofClient.Sessions.Count == 1 && spoofClient.Sessions[0].PeerSteamId == 2801UL,
+                    "身份：Ack 的 peer 归属以帧头 sender 为权威（payload steamId 声明不可伪造归属）");
+                    var rogueClientT = new HandshakeTestTransport();
+                    var rogueClient = new BetterUnturnedExperience.Core.Network.BueNetworkRuntime(rogueClientT, localContract, 1502UL);
+                    rogueClientT.ConnectPeer(2701UL);
+                    var rogueNonce = HandshakeRead64(rogueClientT.Sent[0].Frame, 26);
+                    rogueClientT.ForwardPending(null, null); // Hello 无人应答
+                    rogueClientT.InjectFrame(BuildControlFrame(HandshakeKindAck, 2701UL, 2701UL, 3, 0, rogueNonce));
+                    rogueClientT.Pump();
+                    Check(rogueClient.Sessions.Count == 0, "fail-closed：Ack 契约 Major 与本地不符 → 不建立（发起方 fail-closed）");
+                    rogueClientT.InjectFrame(BuildControlFrame(HandshakeKindAck, 2701UL, 2701UL, 2, 0, rogueNonce));
+                    rogueClientT.Pump();
+                    Check(rogueClient.Sessions.Count == 0, "fail-closed：被拆除的 pending 不复活（无 ghost）");
+                });
+
+                Group("退避", () =>
+                {
+                    // ---- 退避：1s 起步倍增、8s 封顶、跨重探在途握手可被迟到的 Ack 建立、建立后停止。
+                    var backoffNow = 0L;
+                    var backoffClientT = new HandshakeTestTransport();
+                    var backoffClient = new BetterUnturnedExperience.Core.Network.BueNetworkRuntime(backoffClientT, localContract, 1601UL, true, () => backoffNow);
+                    backoffClientT.ConnectPeer(2601UL);
+                    Check(backoffClientT.CountKind(HandshakeKindHello) == 1, "退避：连接即发首个 Hello");
+                    backoffNow = 999; backoffClient.TickHandshake();
+                    Check(backoffClientT.CountKind(HandshakeKindHello) == 1, "退避：首个重探期限（1s）未到不重发");
+                    backoffNow = 1000; backoffClient.TickHandshake();
+                    Check(backoffClientT.CountKind(HandshakeKindHello) == 2, "退避：1s 无 Ack 重探");
+                    backoffNow = 2999; backoffClient.TickHandshake();
+                    Check(backoffClientT.CountKind(HandshakeKindHello) == 2, "退避：倍增间隔（2s）未到不重发");
+                    backoffNow = 3000; backoffClient.TickHandshake();
+                    Check(backoffClientT.CountKind(HandshakeKindHello) == 3, "退避：第二次重探（累计 3s，间隔 2s）");
+                    backoffNow = 7000; backoffClient.TickHandshake();
+                    Check(backoffClientT.CountKind(HandshakeKindHello) == 4, "退避：第三次重探（累计 7s，间隔 4s）");
+                    backoffNow = 14999; backoffClient.TickHandshake();
+                    Check(backoffClientT.CountKind(HandshakeKindHello) == 4, "退避：封顶间隔（8s）未到不重发");
+                    backoffNow = 15000; backoffClient.TickHandshake();
+                    Check(backoffClientT.CountKind(HandshakeKindHello) == 5, "退避：第四次重探（间隔封顶 8s）");
+                    backoffNow = 23000; backoffClient.TickHandshake();
+                    Check(backoffClientT.CountKind(HandshakeKindHello) == 6, "退避：封顶后按 8s 周期续探");
+                    Check(backoffClientT.Sent.TrueForAll(record => record.Reliable && record.Target == 0UL && record.Frame[4] == HandshakeKindHello),
+                        "退避：重探帧与首帧同形（Hello/untargeted/可靠）");
+                    backoffClientT.InjectFrame(BuildControlFrame(HandshakeKindAck, 2601UL, 2601UL, 2, 0, HandshakeRead64(backoffClientT.Sent[0].Frame, 26)));
+                    backoffClientT.Pump();
+                    Check(backoffClient.Sessions.Count == 1, "退避：迟到的 Ack 建立会话（在途握手跨重探存活）");
+                    backoffNow = 100000; backoffClient.TickHandshake();
+                    Check(backoffClientT.CountKind(HandshakeKindHello) == 6, "退避：建立后不再重探");
+                });
+
+                Group("锁外回调", () =>
+                {
+                    // ---- 锁外回调：Connected / Disconnected 阻塞期间外线线程可取得状态锁。
+                    var lockClientT = new HandshakeTestTransport();
+                    var lockServerT = new HandshakeTestTransport();
+                    var lockClient = new BetterUnturnedExperience.Core.Network.BueNetworkRuntime(lockClientT, localContract, 1701UL);
+                    var lockServer = new BetterUnturnedExperience.Core.Network.BueNetworkRuntime(lockServerT, localContract, 2701UL, handshakeInitiator: false);
+                    var lockPending = lockClient.StartSession(2701UL); // 手动路径：建立前即可订阅
+                    var connectedEntered = new System.Threading.ManualResetEventSlim(false);
+                    var releaseConnected = new System.Threading.ManualResetEventSlim(false);
+                    var connectedFired = 0;
+                    lockPending.Connected += () => { connectedFired++; connectedEntered.Set(); releaseConnected.Wait(System.TimeSpan.FromSeconds(5)); };
+                    lockClientT.ForwardPending(lockServerT, null);
+                    lockServerT.Pump();
+                    var lockPumpTask = System.Threading.Tasks.Task.Run(() => { lockServerT.ForwardPending(lockClientT, null); lockClientT.Pump(); });
+                    Check(connectedEntered.Wait(System.TimeSpan.FromSeconds(5)), "锁外：Connected 回调在 Ack 处理中被触发");
+                    var lockForeignConnected = System.Threading.Tasks.Task.Run(() => lockClient.Sessions.Count);
+                    Check(lockForeignConnected.Wait(System.TimeSpan.FromSeconds(2)),
+                        "锁外：Connected 回调阻塞期间外线线程可取得状态锁（Connected 不持状态锁执行）");
+                    releaseConnected.Set();
+                    Check(lockPumpTask.Wait(System.TimeSpan.FromSeconds(5)) && connectedFired == 1, "锁外：阻塞释放后握手完成恰好一次 Connected");
+                    var lockSession = lockClient.Sessions[0];
+                    var disconnectedEntered = new System.Threading.ManualResetEventSlim(false);
+                    var releaseDisconnected = new System.Threading.ManualResetEventSlim(false);
+                    var disconnectedFired = 0;
+                    lockSession.Disconnected += () => { disconnectedFired++; disconnectedEntered.Set(); releaseDisconnected.Wait(System.TimeSpan.FromSeconds(5)); };
+                    var lockDropTask = System.Threading.Tasks.Task.Run(() => lockClientT.DisconnectPeer(2701UL));
+                    Check(disconnectedEntered.Wait(System.TimeSpan.FromSeconds(5)), "锁外：Disconnected 回调被触发");
+                    var lockForeignDisconnected = System.Threading.Tasks.Task.Run(() => lockClient.Sessions.Count);
+                    Check(lockForeignDisconnected.Wait(System.TimeSpan.FromSeconds(2)),
+                        "锁外：Disconnected 回调阻塞期间外线线程可取得状态锁（Disconnected 不持状态锁执行）");
+                    releaseDisconnected.Set();
+                    Check(lockDropTask.Wait(System.TimeSpan.FromSeconds(5)) && disconnectedFired == 1 && lockClient.Sessions.Count == 0,
+                        "锁外：断线清理完成后快照为空");
+                });
+
+                Group("重启用重建", () =>
+                {
+                    // ---- 重启用重建：发起侧重启用按 ConnectedPeers 自动重握手（新代际、订阅无需重挂）；
+                    //      响应侧重启用对无会话的对端发复位 Reject，发起方自愈重握手。
+                    var rearmClientT = new HandshakeTestTransport();
+                    var rearmServerT = new HandshakeTestTransport();
+                    var rearmClient = new BetterUnturnedExperience.Core.Network.BueNetworkRuntime(rearmClientT, localContract, 1801UL);
+                    var rearmServer = new BetterUnturnedExperience.Core.Network.BueNetworkRuntime(rearmServerT, localContract, 2801UL, handshakeInitiator: false);
+                    var rearmChannel = new FeatureId("io.example.v2hand");
+                    rearmClient.RegisterChannel(rearmChannel, localContract, 1);
+                    rearmServer.RegisterChannel(rearmChannel, localContract, 1);
+                    var rearmReceived = new List<byte[]>();
+                    rearmClient.Subscribe(rearmChannel, ChannelDirection.FromServer, (session, payload) => rearmReceived.Add(payload));
+                    rearmClientT.ConnectPeer(2801UL);
+                    rearmServerT.ConnectPeer(1801UL);
+                    rearmClientT.ForwardPending(rearmServerT, null);
+                    rearmServerT.Pump();
+                    rearmServerT.ForwardPending(rearmClientT, null);
+                    rearmClientT.Pump();
+                    var rearmOldClientSession = rearmClient.Sessions[0];
+                    var rearmOldDisconnected = 0;
+                    ulong rearmOldGeneration = 0;
+                    rearmOldClientSession.Disconnected += () => rearmOldDisconnected++;
+                    rearmOldClientSession.GenerationChanged += generation => rearmOldGeneration = generation;
+                    rearmClient.SetModuleActive(false);
+                    Check(rearmClient.Sessions.Count == 0, "停用：快照清空（DEV-V2-14 语义保持）");
+                    Check(rearmOldDisconnected == 0, "停用：模块开关本身不触发 Disconnected（DEV-V2-14 冻结语义）");
+                    rearmServer.SetModuleActive(false);
+                    rearmServer.SetModuleActive(true); // 服务器先重启用（接收先挂回）
+                    rearmClient.SetModuleActive(true); // 客户端重启用即按 ConnectedPeers 自动重握手
+                    Check(rearmClientT.CountKind(HandshakeKindHello) == 2, "重启用：发起方按传输层仍连接的对端快照自动重发 Hello");
+                    rearmClientT.ForwardPending(rearmServerT, null);
+                    rearmServerT.Pump();
+                    rearmServerT.ForwardPending(rearmClientT, null);
+                    rearmClientT.Pump();
+                    Check(rearmClient.Sessions.Count == 1 && rearmClient.Sessions[0].SessionId != rearmOldClientSession.SessionId,
+                        "重启用：重建会话使用新连接代际");
+                    Check(rearmOldGeneration == rearmClient.Sessions[0].SessionId,
+                        "重启用：停用前的旧会话对象收到 GenerationChanged(新代际)");
+                    Check(rearmServer.Sessions.Count == 1, "重启用：服务器侧同样重建");
+                    Check(rearmServer.SendToClients(rearmChannel, new byte[] { 0x33 }, true) == NetworkSendResult.Sent,
+                        "重启用：订阅表未重挂即可发送");
+                    rearmServerT.ForwardPending(rearmClientT, null);
+                    rearmClientT.Pump();
+                    Check(rearmReceived.Count == 1 && rearmReceived[0][0] == 0x33, "重启用：已挂订阅无需重挂（Data 直达原订阅）");
+                    // 响应侧停用/重启用：对端（发起方）仍持有 established 会话 —— 复位 Reject 触发自愈。
+                    var healClientT = new HandshakeTestTransport();
+                    var healServerT = new HandshakeTestTransport();
+                    var healClient = new BetterUnturnedExperience.Core.Network.BueNetworkRuntime(healClientT, localContract, 1901UL);
+                    var healServer = new BetterUnturnedExperience.Core.Network.BueNetworkRuntime(healServerT, localContract, 2901UL, handshakeInitiator: false);
+                    healClientT.ConnectPeer(2901UL);
+                    healServerT.ConnectPeer(1901UL);
+                    healClientT.ForwardPending(healServerT, null);
+                    healServerT.Pump();
+                    healServerT.ForwardPending(healClientT, null);
+                    healClientT.Pump();
+                    var healOldSession = healClient.Sessions[0];
+                    var healOldDisconnected = 0;
+                    ulong healOldGeneration = 0;
+                    healOldSession.Disconnected += () => healOldDisconnected++;
+                    healOldSession.GenerationChanged += generation => healOldGeneration = generation;
+                    healServer.SetModuleActive(false);
+                    healServer.SetModuleActive(true);
+                    Check(healServerT.CountKind(HandshakeKindReject) == 1, "自愈：响应侧重启用对无会话的对端发复位 Reject");
+                    healServerT.ForwardPending(healClientT, null);
+                    healClientT.Pump();
+                    Check(healOldDisconnected == 1, "自愈：复位 Reject 拆除发起方的过期 established 会话并触发 Disconnected");
+                    Check(healClientT.CountKind(HandshakeKindHello) == 2, "自愈：发起方收到复位后自动重发 Hello");
+                    healClientT.ForwardPending(healServerT, null);
+                    healServerT.Pump();
+                    healServerT.ForwardPending(healClientT, null);
+                    healClientT.Pump();
+                    Check(healClient.Sessions.Count == 1 && healClient.Sessions[0].SessionId != healOldSession.SessionId,
+                        "自愈：复位后以新代际重建（无 ghost）");
+                    Check(healOldGeneration == healClient.Sessions[0].SessionId, "自愈：被复位旧会话对象收到 GenerationChanged(新代际)");
+                    Check(healServer.Sessions.Count == 1, "自愈：响应方侧重建唯一会话");
+                });
+
+            }
+            catch (Exception error) when (collectAllFailures)
+            {
+                reds.Add("UNEXPECTED: " + error.GetType().FullName + ": " + error.Message);
+            }
+            if (collectAllFailures && reds.Count > 0)
+                throw new InvalidOperationException("DEV-V2-17 red collection (" + reds.Count + "): " + string.Join(" || ", reds));
+        }
+
+        // DEV-V2-17 red-regression transport: full lifecycle control — records
+        // every send, raises PeerConnected/PeerDisconnected on demand, injects
+        // raw frames into the receive path, and exposes the ConnectedPeers
+        // snapshot the runtime re-probes on re-enable.
+        private sealed class HandshakeTestTransport : BetterUnturnedExperience.Core.Network.INetworkTransport
+        {
+            private readonly Queue<byte[]> incoming = new Queue<byte[]>();
+            private readonly List<ulong> connectedPeers = new List<ulong>();
+            public event Action<byte[]> Receive;
+            public event Action<ulong> PeerConnected;
+            public event Action<ulong> PeerDisconnected;
+            public IReadOnlyList<ulong> ConnectedPeers { get { lock (connectedPeers) return connectedPeers.ToArray(); } }
+            internal readonly List<SentRecord> Sent = new List<SentRecord>();
+            internal int TakeCursor;
+            public bool Send(byte[] frame, bool reliable, ulong targetSteamId)
+            {
+                if (frame == null) return false;
+                lock (Sent) Sent.Add(new SentRecord(Sent.Count, (byte[])frame.Clone(), reliable, targetSteamId));
+                return true;
+            }
+            public int Pump()
+            {
+                var count = 0;
+                while (true)
+                {
+                    byte[] frame;
+                    lock (incoming) { if (incoming.Count == 0) break; frame = incoming.Dequeue(); }
+                    var callback = Receive;
+                    if (callback != null) callback(frame);
+                    count++;
+                }
+                return count;
+            }
+            internal void ConnectPeer(ulong peer)
+            {
+                lock (connectedPeers) if (!connectedPeers.Contains(peer)) connectedPeers.Add(peer);
+                var raised = PeerConnected;
+                if (raised != null) raised(peer);
+            }
+            internal void DisconnectPeer(ulong peer)
+            {
+                lock (connectedPeers) connectedPeers.Remove(peer);
+                var raised = PeerDisconnected;
+                if (raised != null) raised(peer);
+            }
+            internal void InjectFrame(byte[] frame)
+            {
+                if (frame == null) return;
+                lock (incoming) incoming.Enqueue((byte[])frame.Clone());
+            }
+            internal void ForwardPending(HandshakeTestTransport to, Func<SentRecord, bool> filter)
+            {
+                while (true)
+                {
+                    SentRecord record;
+                    lock (Sent)
+                    {
+                        if (TakeCursor >= Sent.Count) return;
+                        record = Sent[TakeCursor];
+                        TakeCursor++;
+                    }
+                    if (to != null && (filter == null || filter(record))) to.InjectFrame(record.Frame);
+                }
+            }
+            internal int CountKind(byte kind)
+            {
+                var count = 0;
+                lock (Sent) foreach (var record in Sent) if (record.Frame[4] == kind) count++;
+                return count;
+            }
+        }
+
+        private sealed class SentRecord
+        {
+            internal SentRecord(int index, byte[] frame, bool reliable, ulong target)
+            { Index = index; Frame = frame; Reliable = reliable; Target = target; }
+            internal int Index { get; }
+            internal byte[] Frame { get; }
+            internal bool Reliable { get; }
+            internal ulong Target { get; }
+        }
+
+        // Wire-shape pin for the fail-closed probes: magic "BUE2" + kind +
+        // chanLen 0 + header sender 8 + control payload [steamId 8][major 2]
+        // [minor 2][nonce 8] = 34 bytes. Kind byte pins: 1=Hello, 2=Ack, 3=Reject.
+        private const byte HandshakeKindHello = 1;
+        private const byte HandshakeKindAck = 2;
+        private const byte HandshakeKindReject = 3;
+
+        private static byte[] BuildControlFrame(byte kind, ulong headerSender, ulong payloadSteamId, ushort major, ushort minor, ulong nonce)
+        {
+            var frame = new byte[34];
+            frame[0] = (byte)'B'; frame[1] = (byte)'U'; frame[2] = (byte)'E'; frame[3] = (byte)'2';
+            frame[4] = kind;
+            frame[5] = 0;
+            HandshakeWrite64(frame, 6, headerSender);
+            HandshakeWrite64(frame, 14, payloadSteamId);
+            frame[22] = (byte)major;
+            frame[23] = (byte)(major >> 8);
+            frame[24] = (byte)minor;
+            frame[25] = (byte)(minor >> 8);
+            HandshakeWrite64(frame, 26, nonce);
+            return frame;
+        }
+
+        private static void HandshakeWrite64(byte[] bytes, int offset, ulong value)
+        {
+            for (var i = 0; i < 8; i++) bytes[offset + i] = (byte)(value >> (i * 8));
+        }
+
+        private static ulong HandshakeRead64(byte[] bytes, int offset)
+        {
+            ulong value = 0;
+            for (var i = 0; i < 8; i++) value |= ((ulong)bytes[offset + i]) << (i * 8);
+            return value;
         }
 
         private static string LitTestTag(int index)

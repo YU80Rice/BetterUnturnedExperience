@@ -28,6 +28,17 @@ namespace BetterUnturnedExperience.Core.Network
         }
 
         public event Action<byte[]> Receive;
+        // DEV-V2-17: lifecycle seam. The events are raised by the production
+        // binding (DEV-V2-18 wiring); ConnectedPeers serves the re-enable
+        // re-probe. The adapter declares them so the runtime's automatic
+        // handshake has a stable target — the real engine bindings land with
+        // the frame-binding ticket.
+#pragma warning disable 0067 // Raised by the DEV-V2-18 production transport binding.
+        public event Action<ulong> PeerConnected;
+        public event Action<ulong> PeerDisconnected;
+#pragma warning restore 0067
+        private static readonly ulong[] EmptyPeers = new ulong[0];
+        public IReadOnlyList<ulong> ConnectedPeers { get { return EmptyPeers; } }
         public bool Send(byte[] frame, bool reliable, ulong targetSteamId) { return frame != null && send((byte[])frame.Clone(), reliable, targetSteamId); }
         public int Pump()
         {

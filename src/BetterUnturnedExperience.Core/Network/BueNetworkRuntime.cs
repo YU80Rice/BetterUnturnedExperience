@@ -27,14 +27,40 @@ namespace BetterUnturnedExperience.Core.Network
     /// PartialFailure), SendToClient validates ownership by identity,
     /// establishment, and the live generation, and no send holds the state
     /// lock across the transport call.
+    /// DEV-V2-17: the session lifecycle is automatic — the feature module
+    /// carries zero handshake burden. Transport connected → the runtime
+    /// sends Hello (initiator role) → the responder Acks (synchronous
+    /// establishment) or Rejects (version fail-closed) → Connected fires
+    /// only after establishment. Runtime duties: disconnect cleanup
+    /// (PeerDisconnected), reconnect with a fresh connection generation
+    /// (the stale established session is superseded — Disconnected at drop,
+    /// GenerationChanged(newGeneration) on the dead object when the
+    /// successor establishes), pending-handshake re-probe with doubling
+    /// backoff (TickHandshake, 1s → 8s cap), duplicate-Hello dedup
+    /// (idempotent re-Ack), version fail-closed on both sides, and no ghost
+    /// sessions (one live session per peer). Ack/Reject match by peer +
+    /// handshake nonce — the initiator's session id IS the connection
+    /// generation — never by "first un-established session". The control
+    /// frames' peer identity is the FRAME HEADER sender (the same
+    /// transport-authoritative source DATA dispatch resolves context by);
+    /// the control payload's steamId field is declarative only. Control
+    /// frames carry the 20-byte payload [steamId 8][major 2][minor 2][nonce 8];
+    /// Hello is untargeted (one logical server), Ack/Reject are targeted to
+    /// the initiator. Control-frame sends and every lifecycle callback run
+    /// OUTSIDE the state lock (repo dispatch convention; the DEV-V2-16 named
+    /// deferral hands this lock policy to this ticket). A responder that
+    /// re-arms with sessions missing resets its connected peers (a Reject
+    /// matching no pending handshake), and the peer's initiator self-heals
+    /// with a fresh handshake — the module switch itself still fires no
+    /// lifecycle events (DEV-V2-14 frozen semantics).
     /// Frame format (DEV-V2-06 v2) is internal: magic "BUE2" + kind byte +
     /// length-prefixed channel id + the sender's steam id (8 bytes LE) +
     /// payload — never exposed into Contracts. The sender field lets the
     /// receiver resolve the dispatch context by source instead of "first
     /// session"; sends carry the reliability bit and either an untargeted
     /// target (0) or the addressed session's peer steam id.
-    /// Frame kinds: 0=Data, 1=Hello, 2=Ack, 3=Reject (control frames carry an
-    /// empty channel id).
+    /// Frame kinds: 0=Data, 1=Hello, 2=Ack, 3=Reject (control frames carry
+    /// an empty channel id and the 20-byte control payload).
     /// </summary>
     public sealed class BueNetworkRuntime : IBueNetworkApi
     {
@@ -43,12 +69,29 @@ namespace BetterUnturnedExperience.Core.Network
         private const byte KindHello = 1;
         private const byte KindAck = 2;
         private const byte KindReject = 3;
+        // DEV-V2-17: the pending-handshake re-probe schedule — first retry
+        // after 1s, doubling, capped at 8s; the loop runs while the transport
+        // reports the peer connected (disconnect cleanup owns the rest).
+        internal const int HelloReprobeInitialMs = 1000;
+        internal const int HelloReprobeCapMs = 8000;
         private readonly INetworkTransport transport;
         private readonly ContractVersion localContract;
         private readonly ulong localSteamId;
+        // DEV-V2-17: the initiator role drives the automatic handshake — the
+        // initiator sends Hello when the transport reports a peer connected;
+        // the responder answers Hello instead. Production wiring knows the
+        // local role (the P2P host answers, the client initiates).
+        private readonly bool handshakeInitiator;
+        private readonly Func<long> monotonicMilliseconds;
         private readonly Dictionary<string, ChannelRegistration> channels =
             new Dictionary<string, ChannelRegistration>(StringComparer.Ordinal);
         private readonly Dictionary<ulong, BueNetworkSession> sessions =
+            new Dictionary<ulong, BueNetworkSession>();
+        // DEV-V2-17: the last dropped ESTABLISHED session per peer. When a
+        // successor session to the same peer establishes, the dead object
+        // fires GenerationChanged(newSessionId) so a module still holding it
+        // learns the replacement generation. Bounded by the peer count.
+        private readonly Dictionary<ulong, BueNetworkSession> supersededByPeer =
             new Dictionary<ulong, BueNetworkSession>();
         // DEV-V2-14 ①: subscription tables are keyed by (channel, direction)
         // and decoupled from the channel table — subscribing to an
@@ -72,12 +115,21 @@ namespace BetterUnturnedExperience.Core.Network
         // instance locks.
         private static long nextSessionId = 1;
 
-        public BueNetworkRuntime(INetworkTransport transport, ContractVersion localContract, ulong localSteamId)
+        public BueNetworkRuntime(INetworkTransport transport, ContractVersion localContract, ulong localSteamId, bool handshakeInitiator = true, Func<long> monotonicMilliseconds = null)
         {
             this.transport = transport ?? throw new ArgumentNullException(nameof(transport));
             this.localContract = localContract;
             this.localSteamId = localSteamId;
+            this.handshakeInitiator = handshakeInitiator;
+            this.monotonicMilliseconds = monotonicMilliseconds ?? DefaultMonotonicMilliseconds;
             transport.Receive += OnReceive;
+            transport.PeerConnected += OnPeerConnected;
+            transport.PeerDisconnected += OnPeerDisconnected;
+        }
+
+        private static long DefaultMonotonicMilliseconds()
+        {
+            return System.Diagnostics.Stopwatch.GetTimestamp() / TimeSpan.TicksPerMillisecond;
         }
 
         // Q1: one module = one named channel; FeatureId is the channel name.
@@ -285,9 +337,15 @@ namespace BetterUnturnedExperience.Core.Network
         /// DEV-V2-14 host-internal module switch (never on the contract
         /// surface — features read state from Sessions and send results).
         /// Deactivating detaches the transport receive and drops all
-        /// sessions; reactivating re-attaches and lets the handshake rebuild
-        /// sessions — channel and subscription tables survive untouched, so
-        /// live subscriptions need no re-subscription.
+        /// sessions; reactivating re-attaches and REBUILDS sessions by
+        /// automatic handshake for peers the transport still reports
+        /// connected (DEV-V2-17): the initiator re-probes with a fresh
+        /// Hello, the responder resets each session-less connected peer so
+        /// the peer's initiator self-heals. Channel and subscription tables
+        /// survive untouched — live subscriptions need no re-subscription.
+        /// The switch itself fires no lifecycle events (DEV-V2-14 frozen);
+        /// dropped established sessions wait as the superseded generation
+        /// and signal GenerationChanged when their successor establishes.
         /// </summary>
         public void SetModuleActive(bool active)
         {
@@ -297,6 +355,10 @@ namespace BetterUnturnedExperience.Core.Network
                 moduleActive = active;
                 if (!active)
                 {
+                    foreach (var session in sessions.Values)
+                    {
+                        if (session.Established) supersededByPeer[session.PeerSteamId] = session;
+                    }
                     sessions.Clear();
                     if (receiveAttached) { transport.Receive -= OnReceive; receiveAttached = false; }
                 }
@@ -306,30 +368,216 @@ namespace BetterUnturnedExperience.Core.Network
                     receiveAttached = true;
                 }
             }
+            if (active) ReconcileAfterEnable();
+        }
+
+        // DEV-V2-17 re-enable reconciliation (see SetModuleActive). Runs
+        // without the state lock; each per-peer step takes it as needed and
+        // sends control frames outside.
+        private void ReconcileAfterEnable()
+        {
+            var peers = transport.ConnectedPeers;
+            foreach (var peer in peers)
+            {
+                if (handshakeInitiator) OnPeerConnected(peer);
+                else SendSessionReset(peer);
+            }
+        }
+
+        // The responder side of the re-enable reconciliation: a peer whose
+        // runtime still holds a stale established session to us learns, via
+        // a Reject matching no pending handshake, that our side holds no
+        // session — the peer's initiator drops the stale session and
+        // self-heals with a fresh handshake.
+        private void SendSessionReset(ulong peerSteamId)
+        {
+            bool hasSession;
+            lock (sync) hasSession = FindSessionByPeerLocked(peerSteamId) != null;
+            if (hasSession) return;
+            SendFrame(KindReject, string.Empty, EncodeControl(localSteamId, localContract, 0UL), true, peerSteamId);
         }
 
         /// <summary>
-        /// Host-internal handshake initiator: creates a pending local session
-        /// and sends a Hello frame. The peer validates the contract and replies
-        /// Ack (session established, Connected fires) or Reject (no session).
-        /// Real connection setup is DEV-V2-04 wiring; this is the pure-C#
-        /// handshake seam driven by loopback tests.
+        /// Host-internal handshake initiator seam (manual path; the
+        /// automatic path rides the same reconcile through OnPeerConnected).
+        /// Creates a pending local session and sends a Hello frame; an
+        /// existing PENDING session to the peer is returned as-is (the
+        /// re-probe backoff owns it), an existing ESTABLISHED session is
+        /// superseded by a fresh generation (Disconnected fires outside the
+        /// lock; GenerationChanged on the dead object when the successor
+        /// establishes). The peer validates the contract and replies Ack
+        /// (session established, Connected fires) or Reject (the matching
+        /// pending session tears down). Real connection setup is DEV-V2-04
+        /// wiring; this is the pure-C# handshake seam driven by loopback
+        /// tests.
         /// </summary>
         public IConnectionSession StartSession(ulong peerSteamId)
         {
+            // The injected clock seam is sampled OUTSIDE the state lock (repo
+            // convention: state protection never spans external code).
+            var nowMs = monotonicMilliseconds();
+            BueNetworkSession session;
+            BueNetworkSession superseded;
+            bool created;
             lock (sync)
             {
                 // DEV-V2-14: a deactivated module holds no sessions and sends
                 // no Hello — the caller sees an explicit null, not a ghost.
                 if (!moduleActive) return null;
-                var id = unchecked((ulong)System.Threading.Interlocked.Increment(ref nextSessionId));
-                // The initiator of the handshake is the client side of this
-                // session, so its inbound frames come FROM SERVER.
-                var session = new BueNetworkSession(id, peerSteamId, localContract, ChannelDirection.FromServer);
-                sessions[id] = session;
-                SendFrame(KindHello, string.Empty, EncodeControl(localSteamId, localContract), true, 0UL);
-                return session;
+                session = ReconcileInitiatorSessionLocked(peerSteamId, out superseded, out created, nowMs);
             }
+            if (superseded != null) superseded.FireDisconnected();
+            if (created) SendHello(session);
+            return session;
+        }
+
+        // DEV-V2-17: transport connected → automatic handshake (initiator
+        // role; the responder answers Hello instead). The reconcile keeps
+        // one live session per peer: none → create pending + Hello; a live
+        // pending → keep it (the backoff owns retries); an established one →
+        // supersede (a missed disconnect) with a fresh generation.
+        private void OnPeerConnected(ulong peerSteamId)
+        {
+            // Clock sampled outside the state lock (repo convention).
+            var nowMs = monotonicMilliseconds();
+            BueNetworkSession session;
+            BueNetworkSession superseded;
+            bool created;
+            lock (sync)
+            {
+                if (!moduleActive || !handshakeInitiator) return;
+                session = ReconcileInitiatorSessionLocked(peerSteamId, out superseded, out created, nowMs);
+            }
+            if (superseded != null) superseded.FireDisconnected();
+            if (created) SendHello(session);
+        }
+
+        // DEV-V2-17: transport dropped → cleanup. Every session to the peer
+        // leaves the table (no ghost); established ones fire Disconnected
+        // OUTSIDE the state lock and wait as the superseded generation for a
+        // reconnecting successor.
+        private void OnPeerDisconnected(ulong peerSteamId)
+        {
+            List<BueNetworkSession> dropped = null;
+            lock (sync)
+            {
+                // DEV-V2-14: a deactivated module holds no sessions (and the
+                // switch fires no lifecycle events of its own).
+                if (!moduleActive) return;
+                List<BueNetworkSession> matches = null;
+                foreach (var session in sessions.Values)
+                {
+                    if (session.PeerSteamId != peerSteamId) continue;
+                    (matches ??= new List<BueNetworkSession>()).Add(session);
+                }
+                if (matches == null) return;
+                foreach (var session in matches)
+                {
+                    RemoveSessionLocked(session);
+                    if (session.Established) (dropped ??= new List<BueNetworkSession>()).Add(session);
+                }
+            }
+            if (dropped == null) return;
+            foreach (var session in dropped) session.FireDisconnected();
+        }
+
+        // DEV-V2-17: the pending-handshake re-probe driver. Runtime-level
+        // seam (like SetModuleActive, never on the IBueNetworkApi surface);
+        // the production pump wiring lands with DEV-V2-18. Sessions past
+        // their backoff deadline re-send Hello with doubling delay (1s → 8s
+        // cap) while the handshake stays pending; established sessions never
+        // re-probe. The deadline bookkeeping happens under the state lock,
+        // the sends run outside it.
+        public void TickHandshake()
+        {
+            // Clock sampled outside the state lock (repo convention); a
+            // monotonic sample taken just before acquiring it is at most
+            // conservative about a re-probe deadline.
+            var now = monotonicMilliseconds();
+            List<BueNetworkSession> due = null;
+            lock (sync)
+            {
+                if (!moduleActive) return;
+                foreach (var session in sessions.Values)
+                {
+                    if (session.Established || session.InboundDirection != ChannelDirection.FromServer) continue;
+                    if (now - session.LastHelloAtMs < session.ReprobeBackoffMs) continue;
+                    session.NoteHelloAttemptLocked(now);
+                    (due ??= new List<BueNetworkSession>()).Add(session);
+                }
+            }
+            if (due == null) return;
+            foreach (var session in due) SendHello(session);
+        }
+
+        // One live session per peer (the DEV-V2-17 per-peer invariant that
+        // the duplicate-Hello dedup and the reconnect replacement maintain).
+        private BueNetworkSession FindSessionByPeerLocked(ulong peerSteamId)
+        {
+            foreach (var session in sessions.Values)
+            {
+                if (session.PeerSteamId == peerSteamId) return session;
+            }
+            return null;
+        }
+
+        // The initiator reconcile (see OnPeerConnected). Returns the session
+        // to use; `created` is true when a NEW pending session was made (the
+        // caller sends its Hello outside the lock), `superseded` carries the
+        // dropped established session (the caller fires Disconnected outside
+        // the lock).
+        private BueNetworkSession ReconcileInitiatorSessionLocked(ulong peerSteamId, out BueNetworkSession superseded, out bool created, long nowMs)
+        {
+            created = false;
+            superseded = null;
+            var existing = FindSessionByPeerLocked(peerSteamId);
+            if (existing != null)
+            {
+                if (!existing.Established) return existing;
+                superseded = existing;
+                RemoveSessionLocked(existing);
+            }
+            created = true;
+            return CreateInitiatorSessionLocked(peerSteamId, nowMs);
+        }
+
+        private BueNetworkSession CreateInitiatorSessionLocked(ulong peerSteamId, long nowMs)
+        {
+            var id = unchecked((ulong)System.Threading.Interlocked.Increment(ref nextSessionId));
+            // The initiator of the handshake is the client side of this
+            // session, so its inbound frames come FROM SERVER. The session id
+            // doubles as the handshake nonce — the Ack matches by peer + this
+            // id, and the id IS the connection generation. `nowMs` was sampled
+            // outside the state lock by the caller (repo convention).
+            var session = new BueNetworkSession(id, peerSteamId, localContract, ChannelDirection.FromServer, id, nowMs);
+            sessions[id] = session;
+            return session;
+        }
+
+        private BueNetworkSession RemoveSessionLocked(BueNetworkSession session)
+        {
+            sessions.Remove(session.SessionId);
+            if (session.Established) supersededByPeer[session.PeerSteamId] = session;
+            return session;
+        }
+
+        private void SendHello(BueNetworkSession session)
+        {
+            SendFrame(KindHello, string.Empty, EncodeControl(localSteamId, localContract, session.HandshakeNonce), true, 0UL);
+        }
+
+        // Fires the superseded generation's GenerationChanged with the
+        // successor's session id; called when a successor session to the
+        // same peer establishes. Lock-external by construction.
+        private void ConsumeSupersededSession(ulong peerSteamId, ulong newSessionId)
+        {
+            BueNetworkSession superseded;
+            lock (sync)
+            {
+                if (!supersededByPeer.TryGetValue(peerSteamId, out superseded)) return;
+                supersededByPeer.Remove(peerSteamId);
+            }
+            superseded.FireGenerationChanged(newSessionId);
         }
 
         private void OnReceive(byte[] frame)
@@ -362,93 +610,194 @@ namespace BetterUnturnedExperience.Core.Network
                     DispatchData(channelId, payload, sender);
                     break;
                 case KindHello:
-                    HandleHello(payload);
+                    HandleHello(payload, sender);
                     break;
                 case KindAck:
-                    HandleAck(payload);
+                    HandleAck(payload, sender);
                     break;
                 case KindReject:
-                    HandleReject(payload);
+                    HandleReject(payload, sender);
                     break;
             }
         }
 
-        private void HandleHello(byte[] payload)
+        // DEV-V2-17 (R1-Spec BLOCKER fix): the control-frame peer identity is
+        // the FRAME HEADER sender — the same transport-authoritative source
+        // DATA dispatch resolves context by (DEV-V2-16 frozen). The payload's
+        // steamId field is declarative only and never decides ownership.
+        private void HandleHello(byte[] payload, ulong sender)
         {
-            ulong peerSteamId;
-            ContractVersion peerContract;
-            BueNetworkSession session = null;
+            if (payload == null || payload.Length < 20) return;
+            var peerContract = new ContractVersion(Read16(payload, 8), Read16(payload, 10));
+            var nonce = Read64(payload, 12);
+            var peerSteamId = sender;
+            // Clock sampled outside the state lock (repo convention).
+            var nowMs = monotonicMilliseconds();
+            bool reject = false;
+            BueNetworkSession created = null;
+            BueNetworkSession replaced = null;
+            BueNetworkSession reack = null;
             lock (sync)
             {
                 // DEV-V2-14: the pump thread re-checked moduleActive in
                 // OnReceive but released the lock since — a concurrent disable
                 // must not create a session, send an Ack, or fire Connected.
                 if (!moduleActive) return;
-                if (payload == null || payload.Length < 12) return;
-                peerSteamId = Read64(payload, 0);
-                peerContract = new ContractVersion(Read16(payload, 8), Read16(payload, 10));
                 if (peerContract.Major != localContract.Major)
                 {
-                    // Reject carries the initiator's steam id so its pending
-                    // session can be cleaned up (S3).
-                    SendFrame(KindReject, string.Empty, EncodeControl(peerSteamId, localContract), true, 0UL);
-                    return;
+                    // Version fail-closed: no session is created; the Reject
+                    // echoes the initiator's nonce so the exact pending
+                    // handshake tears down (S3).
+                    reject = true;
                 }
-                var id = unchecked((ulong)System.Threading.Interlocked.Increment(ref nextSessionId));
-                // The Hello responder is the server side of this session, so
-                // its inbound frames come FROM CLIENTS.
-                session = new BueNetworkSession(id, peerSteamId, peerContract, ChannelDirection.FromClients);
-                sessions[id] = session;
-                SendFrame(KindAck, string.Empty, EncodeControl(localSteamId, localContract), true, 0UL);
-                // DEV-V2-16 R1 (Standards BLOCKING): Established is the public
-                // snapshot gate, so it is published under the state lock.
-                session.MarkEstablishedLocked();
+                else
+                {
+                    var existing = FindSessionByPeerLocked(peerSteamId);
+                    if (existing != null && existing.Established && existing.HandshakeNonce == nonce)
+                    {
+                        // Duplicate Hello (retransmit): idempotent re-Ack,
+                        // never a second session.
+                        reack = existing;
+                    }
+                    else
+                    {
+                        if (existing != null)
+                        {
+                            // A different handshake from a known peer — a
+                            // reconnect with a new generation (the stale
+                            // established session supersedes: Disconnected
+                            // fires outside, the successor's establishment
+                            // fires its GenerationChanged) or a stale pending
+                            // one (drops silently).
+                            replaced = existing;
+                            RemoveSessionLocked(existing);
+                        }
+                        var id = unchecked((ulong)System.Threading.Interlocked.Increment(ref nextSessionId));
+                        // The Hello responder is the server side of this session, so
+                        // its inbound frames come FROM CLIENTS.
+                        created = new BueNetworkSession(id, peerSteamId, peerContract, ChannelDirection.FromClients, nonce, nowMs);
+                        sessions[id] = created;
+                        // DEV-V2-16 R1 (Standards BLOCKING): Established is the public
+                        // snapshot gate, so it is published under the state lock.
+                        created.MarkEstablishedLocked();
+                    }
+                }
             }
-            if (session != null) session.FireConnected(); // callback outside the lock
+            // Control-frame sends and lifecycle callbacks run OUTSIDE the
+            // state lock (repo dispatch convention; the DEV-V2-16 named
+            // deferral hands the handshake lock policy to this ticket).
+            if (reject)
+            {
+                SendFrame(KindReject, string.Empty, EncodeControl(localSteamId, localContract, nonce), true, peerSteamId);
+                return;
+            }
+            if (replaced != null && replaced.Established) replaced.FireDisconnected();
+            if (created != null)
+            {
+                SendFrame(KindAck, string.Empty, EncodeControl(localSteamId, localContract, created.HandshakeNonce), true, created.PeerSteamId);
+                created.FireConnected();
+                ConsumeSupersededSession(created.PeerSteamId, created.SessionId);
+            }
+            if (reack != null)
+            {
+                SendFrame(KindAck, string.Empty, EncodeControl(localSteamId, localContract, reack.HandshakeNonce), true, reack.PeerSteamId);
+            }
         }
 
-        private void HandleAck(byte[] payload)
+        // DEV-V2-17 (R1-Spec BLOCKER fix): matching is by FRAME HEADER sender
+        // (transport-authoritative peer identity) + handshake nonce — never
+        // by the payload's declarative steamId, never by "first
+        // un-established session to this peer" (a misdelivered Ack for a
+        // different handshake must not establish anything).
+        private void HandleAck(byte[] payload, ulong sender)
         {
+            if (payload == null || payload.Length < 20) return;
+            var peerContract = new ContractVersion(Read16(payload, 8), Read16(payload, 10));
+            var nonce = Read64(payload, 12);
             BueNetworkSession target = null;
-            ContractVersion peerContract = default(ContractVersion);
             lock (sync)
             {
                 // DEV-V2-14: latching a session established (Connected fires
                 // right after) must not happen on a deactivated module.
                 if (!moduleActive) return;
-                if (payload == null || payload.Length < 12) return;
-                var peerSteamId = Read64(payload, 0);
-                peerContract = new ContractVersion(Read16(payload, 8), Read16(payload, 10));
-                // S2: match the FIRST un-established session to this peer.
                 foreach (var session in sessions.Values)
                 {
-                    if (session.PeerSteamId == peerSteamId && !session.Established) { target = session; break; }
+                    if (session.InboundDirection != ChannelDirection.FromServer) continue;
+                    if (session.SessionId != nonce || session.PeerSteamId != sender || session.Established) continue;
+                    target = session;
+                    break;
                 }
-                // DEV-V2-16 R1 (Standards BLOCKING): publish the negotiated
-                // contract and the snapshot gate bit under the state lock.
-                if (target != null) target.EstablishWithContractLocked(peerContract);
+                if (target != null)
+                {
+                    if (peerContract.Major != localContract.Major)
+                    {
+                        // Initiator-side fail-closed: a negotiated major that
+                        // does not match the local runtime never establishes;
+                        // the pending session tears down (no half state, no
+                        // ghost) and is not resurrected by a later Ack.
+                        sessions.Remove(target.SessionId);
+                        target = null;
+                    }
+                    else
+                    {
+                        // DEV-V2-16 R1 (Standards BLOCKING): publish the negotiated
+                        // contract and the snapshot gate bit under the state lock.
+                        target.EstablishWithContractLocked(peerContract);
+                    }
+                }
             }
-            if (target != null) target.FireConnected(); // callback outside the lock
+            if (target == null) return;
+            target.FireConnected(); // callback outside the lock
+            ConsumeSupersededSession(target.PeerSteamId, target.SessionId);
         }
 
-        private void HandleReject(byte[] payload)
+        // DEV-V2-17 (R1-Spec BLOCKER fix): the Reject's peer identity is the
+        // FRAME HEADER sender (transport-authoritative), never the payload's
+        // declarative steamId.
+        private void HandleReject(byte[] payload, ulong sender)
         {
-            // A rejected Hello leaves no session on the peer; on the initiator,
-            // tear down the pending session so it does not linger as a ghost
-            // (S3). Reject only answers the in-flight handshake, so any
-            // un-established session is the one to clear.
+            if (payload == null || payload.Length < 20) return;
+            var nonce = Read64(payload, 12);
+            var peerSteamId = sender;
+            BueNetworkSession dropped = null;
+            bool heal = false;
             lock (sync)
             {
                 // DEV-V2-14: same disable race as Hello/Ack — stay inert on a
-                // deactivated module (its session table is empty anyway).
+                // deactivated module.
                 if (!moduleActive) return;
-                var ghosts = new List<ulong>();
-                foreach (var pair in sessions)
+                BueNetworkSession pending = null;
+                foreach (var session in sessions.Values)
                 {
-                    if (!pair.Value.Established) ghosts.Add(pair.Key);
+                    if (session.InboundDirection != ChannelDirection.FromServer) continue;
+                    if (session.SessionId != nonce || session.PeerSteamId != peerSteamId || session.Established) continue;
+                    pending = session;
+                    break;
                 }
-                foreach (var id in ghosts) sessions.Remove(id);
+                if (pending != null)
+                {
+                    // A rejected Hello leaves no session on the peer; the
+                    // MATCHING pending handshake tears down (S3) — never "all
+                    // pending" (an in-flight handshake to another peer
+                    // survives) and no retry (a version rejection is not
+                    // transient).
+                    sessions.Remove(pending.SessionId);
+                    return;
+                }
+                var established = FindSessionByPeerLocked(peerSteamId);
+                if (established == null || !established.Established) return;
+                // A Reject that matches no pending handshake is a peer-side
+                // session reset (the responder re-armed holding no sessions):
+                // drop the stale established session; the initiator side
+                // self-heals immediately with a fresh handshake, the responder
+                // side waits for the peer's Hello (a responder never
+                // initiates).
+                dropped = established;
+                RemoveSessionLocked(established);
+                heal = handshakeInitiator;
             }
+            dropped.FireDisconnected(); // callback outside the lock
+            if (heal) StartSession(dropped.PeerSteamId);
         }
 
         private void DispatchData(string channelId, byte[] payload, ulong sender)
@@ -465,11 +814,8 @@ namespace BetterUnturnedExperience.Core.Network
                 // Frame v2: the sender's steam id rides the header, so the
                 // dispatch context resolves by source; a frame from an unknown
                 // peer is dropped instead of falling back to "first session".
-                BueNetworkSession matched = null;
-                foreach (var s in sessions.Values)
-                {
-                    if (s.PeerSteamId == sender) { matched = s; break; }
-                }
+                // DEV-V2-17: the per-peer invariant keeps this unambiguous.
+                var matched = FindSessionByPeerLocked(sender);
                 if (matched == null) return;
                 context = matched;
                 // Direction = where the frame came from, carried by the
@@ -492,12 +838,19 @@ namespace BetterUnturnedExperience.Core.Network
             }
         }
 
-        private byte[] EncodeControl(ulong steamId, ContractVersion contract)
+        // Control payload (DEV-V2-17): [steamId 8][major 2][minor 2][nonce 8]
+        // — the nonce is the initiator's session id (the connection
+        // generation), echoed verbatim by Ack/Reject so the matching
+        // handshake resolves exactly. The steamId field is DECLARATIVE:
+        // the frame header sender is the transport-authoritative peer
+        // identity (R1-Spec BLOCKER fix) and never decides ownership here.
+        private byte[] EncodeControl(ulong steamId, ContractVersion contract, ulong nonce)
         {
-            var bytes = new byte[12];
+            var bytes = new byte[20];
             Write64(bytes, 0, steamId);
             Write16(bytes, 8, contract.Major);
             Write16(bytes, 10, contract.Minor);
+            Write64(bytes, 12, nonce);
             return bytes;
         }
 
@@ -532,8 +885,16 @@ namespace BetterUnturnedExperience.Core.Network
 
         private sealed class BueNetworkSession : IConnectionSession
         {
-            public BueNetworkSession(ulong sessionId, ulong peerSteamId, ContractVersion peerContract, ChannelDirection inboundDirection)
-            { SessionId = sessionId; PeerSteamId = peerSteamId; PeerContract = peerContract; InboundDirection = inboundDirection; }
+            public BueNetworkSession(ulong sessionId, ulong peerSteamId, ContractVersion peerContract, ChannelDirection inboundDirection, ulong handshakeNonce, long nowMilliseconds)
+            {
+                SessionId = sessionId;
+                PeerSteamId = peerSteamId;
+                PeerContract = peerContract;
+                InboundDirection = inboundDirection;
+                HandshakeNonce = handshakeNonce;
+                LastHelloAtMs = nowMilliseconds;
+                ReprobeBackoffMs = HelloReprobeInitialMs;
+            }
             public ulong SessionId { get; }
             public ulong PeerSteamId { get; }
             public ContractVersion PeerContract { get; private set; }
@@ -544,17 +905,29 @@ namespace BetterUnturnedExperience.Core.Network
             // Hello responder. Frozen: direction is the frame source, never
             // the local role.
             internal ChannelDirection InboundDirection { get; }
+            // DEV-V2-17: the handshake nonce — for the initiator its own
+            // session id (the connection generation); for the responder the
+            // initiator's id echoed in the Hello, re-sent verbatim by an
+            // idempotent re-Ack.
+            internal ulong HandshakeNonce { get; }
             internal bool Established { get; private set; }
+            // DEV-V2-17: re-probe bookkeeping for the pending handshake (the
+            // responder side never re-probes — it answers).
+            internal long LastHelloAtMs { get; private set; }
+            internal int ReprobeBackoffMs { get; private set; }
+            internal void NoteHelloAttemptLocked(long nowMilliseconds)
+            {
+                LastHelloAtMs = nowMilliseconds;
+                ReprobeBackoffMs = Math.Min(ReprobeBackoffMs * 2, HelloReprobeCapMs);
+            }
             public event Action Connected;
-#pragma warning disable 0067 // Raised by DEV-V2-04 lifecycle wiring (session teardown / reconnection).
             public event Action Disconnected;
             public event Action<ulong> GenerationChanged;
-#pragma warning restore 0067
             public NetworkSendResult Send(byte[] payload, bool reliable) { return NetworkSendResult.NoSession; }
             // DEV-V2-16 R1 (Standards BLOCKING): the establishment bit feeds
             // the public Sessions snapshot and the send gates, so it is
             // written under the runtime state lock (callers hold it); only
-            // the Connected callback is deferred to outside the lock (repo
+            // the lifecycle callbacks are deferred to outside the lock (repo
             // dispatch convention — state protection never spans external
             // code).
             internal void MarkEstablishedLocked() { Established = true; }
@@ -563,6 +936,22 @@ namespace BetterUnturnedExperience.Core.Network
             {
                 var connected = Connected;
                 if (connected != null) connected();
+            }
+            // DEV-V2-17: Disconnected fires when an established session is
+            // dropped (transport disconnect, supersession, peer-side reset) —
+            // only after Connected fired; a pending session vanishes
+            // silently. GenerationChanged fires on a superseded (dead)
+            // session object when the successor generation to the same peer
+            // establishes, carrying the new session id.
+            internal void FireDisconnected()
+            {
+                var disconnected = Disconnected;
+                if (disconnected != null) disconnected();
+            }
+            internal void FireGenerationChanged(ulong newGeneration)
+            {
+                var changed = GenerationChanged;
+                if (changed != null) changed(newGeneration);
             }
         }
 
@@ -573,7 +962,11 @@ namespace BetterUnturnedExperience.Core.Network
             public string Channel { get; }
             public ChannelDirection Direction { get; }
             public Action<IConnectionSession, byte[]> Handler { get; }
-            public bool Removed;
+            // volatile: written under the state lock (Unsubscribe) but read
+            // outside it (DispatchData's disposed-between-snapshot-and-
+            // dispatch guard) — a plain bool left the read's visibility
+            // undefined (R1-Standards SMELL fix).
+            public volatile bool Removed;
         }
 
         private sealed class Subscription : IDisposable
