@@ -208,3 +208,13 @@ LMN 底层实现 → BUE Network Adapter → IBueNetwork → LIT/LIR/LHT 等模�
 ## 对账注记(2026-09-07,主工作树会话;供 phase-3 开图时对照)
 
 见当次对话回答要点:阶段 1 清单与 V2 第二阶段交付面(DEV-V2-14~22)高度重叠但存在四项差值——限流入平台(契约边界反悔,需决策)、主线程投递契约化(需补注)、诊断包自动化(超出现有 BueRuntimeLog)、Contracts 拆分(与 T7 决议冲突,规划需按"四条件暂缓"改写);"LMN 底层实现→Adapter"演进图已被 phase-2 的自有运行时(BUE 帧)超越,规划该节需按已建成事实改写。详见当次对话。
+
+## 对账注记 2(2026-09-07,用户最终裁定:两层模型——本注记覆盖前注中与本条冲突的表述)
+
+用户纠正 PM 的"源码模块接入+聚合构建"过度修正,最终冻结口径为**两层模型**:
+
+1. **官方功能(第一层)**:BII/LIT/LIR/LHT 源码模块,构建期聚合进唯一 `BetterUnturnedExperience.dll`——玩家安装列表里只有一个官方文件(不变)。
+2. **生态功能(第二层,本注记的核心)**:第三方开发者交付**独立 DLL**,作为普通 BepInEx 插件安装进 plugins 目录,**由 BepInEx 原生自动发现**(BUE 无需自建模块加载器/扫描器);生态 DLL **声明 BUE 为前置**(BepInDependency 指向 BUE GUID),编译期引用 `BetterUnturnedExperience.dll`(`CopyLocal=false`,禁捆绑),运行期经公开桥(`BueRuntimeHost.Register`,SCR-GPT18-001)注册,消费平台服务(BueNetworkApi/IFeatureBootstrap.Network/功能事件/宿主时钟/设置/诊断/隔离)。
+3. **BUE 身份 = 前置库 + 运行时平台**:发现由 BepInEx 原生承担(BUE 不自建);BUE 建的是注册桥(已建)+ 平台服务契约(14~19 已建/在建)+ 开发者契约文档(DEV-V2-23)。
+4. **词汇对齐**:此口径与 CONTEXT 冻结词汇「生态功能模块」("由第三方作者独立发布、通过 BUE 公开契约接入运行时,但不随 BUE 官方发行版交付")完全一致,非新决策——是对愿景文档两处误述(①"以源码模块方式接入"仅对官方功能成立;②"BUE 自动扫描外部模块 DLL 暂不建设"应表述为"发现归 BepInEx 原生,BUE 建桥与服务")的最终纠正。
+5. **对 DEV-V2-23 的影响**:开发者契约文档八节须按此两层模型写——生态路径(前置声明/引用面/CopyLocal/禁捆绑/注册桥/防双装 BUE-PLATFORM-001)为文档主体。
