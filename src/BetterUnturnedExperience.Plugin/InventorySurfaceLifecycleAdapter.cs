@@ -871,6 +871,105 @@ namespace BetterUnturnedExperience.Plugin
             }
         }
 
+        // DEV-V2-24 F-B2: the isolation latch used to fire on ONE failed
+        // frame — a transient hierarchy-probe failure during the inventory
+        // close/reopen transition permanently killed the Better-Item-
+        // Interaction surface for the whole session with zero diagnostics
+        // (real machine: DEV-V2-24-20260908 P2P host). This gate debounces
+        // the decision: only PERSISTENT failure (IsolationStrikeThreshold
+        // consecutive frames) isolates; a healthy frame resets the strikes;
+        // the first failure, the recovery and the latch itself surface
+        // one-shot lines through the DiagnosticLogSink seam so an isolation
+        // is never silent again. Pure bookkeeping — no engine types.
+        internal sealed class TransientIsolationGate
+        {
+            internal const byte IsolationStrikeThreshold = 60;
+
+            private sealed class StrikeLane
+            {
+                internal int Strikes;
+                internal bool Latched;
+            }
+
+            private readonly System.Collections.Generic.Dictionary<byte, StrikeLane> pageLanes =
+                new System.Collections.Generic.Dictionary<byte, StrikeLane>();
+            private readonly StrikeLane pollLane = new StrikeLane();
+
+            /// <summary>One hierarchy frame for one page. Returns true when
+            /// the caller must isolate now (threshold reached); logLine
+            /// carries the one-shot diagnostic for first failure / recovery /
+            /// latch frames (null = silent frame).</summary>
+            internal bool Observe(byte page, bool incompatible, out string logLine)
+            {
+                logLine = null;
+                StrikeLane lane;
+                if (!pageLanes.TryGetValue(page, out lane))
+                {
+                    lane = new StrikeLane();
+                    pageLanes[page] = lane;
+                }
+                if (lane.Latched) return false;
+                if (!incompatible)
+                {
+                    if (lane.Strikes > 0)
+                    {
+                        lane.Strikes = 0;
+                        logLine = "event=surface-probe-recovered page=" + page
+                            + " diagnosticId=BUE-INVENTORY-004";
+                    }
+                    return false;
+                }
+                lane.Strikes++;
+                if (lane.Strikes == 1)
+                {
+                    logLine = "event=surface-probe-failing page=" + page
+                        + " strikes=1/" + IsolationStrikeThreshold
+                        + " diagnosticId=BUE-INVENTORY-004";
+                }
+                if (lane.Strikes >= IsolationStrikeThreshold)
+                {
+                    lane.Latched = true;
+                    logLine = "event=surface-isolated page=" + page
+                        + " strikes=" + lane.Strikes + "/" + IsolationStrikeThreshold
+                        + " reason=hierarchy-incompatible-persistent"
+                        + " diagnosticId=BUE-INVENTORY-003";
+                    return true;
+                }
+                return false;
+            }
+
+            /// <summary>The poll-exception lane (the guarded poll boundary):
+            /// same debounce, one lane for the whole adapter.</summary>
+            internal bool ObservePollFailure(out string logLine)
+            {
+                logLine = null;
+                if (pollLane.Latched) return false;
+                pollLane.Strikes++;
+                if (pollLane.Strikes == 1)
+                {
+                    logLine = "event=surface-poll-failing strikes=1/" + IsolationStrikeThreshold
+                        + " diagnosticId=BUE-INVENTORY-004";
+                }
+                if (pollLane.Strikes >= IsolationStrikeThreshold)
+                {
+                    pollLane.Latched = true;
+                    logLine = "event=surface-isolated strikes=" + pollLane.Strikes + "/" + IsolationStrikeThreshold
+                        + " reason=poll-failure-persistent diagnosticId=BUE-INVENTORY-003";
+                    return true;
+                }
+                return false;
+            }
+
+            /// <summary>A successful poll resets the failure lane; returns
+            /// true when a non-zero strike count was actually cleared.</summary>
+            internal bool ObservePollSuccess()
+            {
+                var reset = pollLane.Strikes > 0;
+                pollLane.Strikes = 0;
+                return reset;
+            }
+        }
+
         // GPT watermark: DEV-16G slice B. Static diagnostic emission seam. The
         // rich one-shot failure reasons (LastPollDiagnostics, Describe*) were
         // built but never logged in production; this sink routes them to the
@@ -896,6 +995,11 @@ namespace BetterUnturnedExperience.Plugin
         // GPT watermark: DEV-16G slice A. Per-page readiness gate instance fed
         // by Poll every frame; it emits only on state transitions.
         private readonly SurfaceReadinessGate surfaceReadinessGate = new SurfaceReadinessGate();
+
+        // DEV-V2-24 F-B2: the debounced isolation decision fed by Poll every
+        // frame (per-page hierarchy lane) and by the guarded poll boundary
+        // (poll-exception lane). See TransientIsolationGate.
+        private readonly TransientIsolationGate transientIsolationGate = new TransientIsolationGate();
 
         // GPT watermark: R13-3 page-local dispatch seam. Removing a rebuilt
         // page must preserve every other live native surface.
@@ -1068,9 +1172,35 @@ namespace BetterUnturnedExperience.Plugin
 
         private void RunGuardedPoll()
         {
-            if (!InvokePollGuarded(guardedPoll, IsolateAndDispatch, CloseAfterPollFailure))
+            // DEV-V2-24 F-B2: the poll boundary debounces its own failures —
+            // a single throwing frame isolates nothing; only persistent
+            // failure (threshold) runs the fail-closed cleanup chain, and
+            // every first failure / latch emits a one-shot diagnostic. The
+            // old immediate isolate (InvokePollGuarded with the isolate
+            // callback) is retained as the static seam for tests and other
+            // callers.
+            try
             {
-                dispatchedSurfaces.Clear();
+                guardedPoll();
+                if (transientIsolationGate.ObservePollSuccess())
+                {
+                    EmitDiagnosticOnce("event=surface-poll-recovered diagnosticId=BUE-INVENTORY-004");
+                }
+            }
+            catch (Exception error)
+            {
+                LastPollDiagnostics = "poll failed: " + error.GetType().FullName + ": " + error.Message;
+                if (transientIsolationGate.ObservePollFailure(out var failureLine))
+                {
+                    EmitDiagnosticOnce(failureLine);
+                    IsolateAndDispatch();
+                    CloseAfterPollFailure();
+                    dispatchedSurfaces.Clear();
+                }
+                else if (failureLine != null)
+                {
+                    EmitDiagnosticOnce(failureLine);
+                }
             }
         }
 
@@ -1187,15 +1317,26 @@ namespace BetterUnturnedExperience.Plugin
                 var hierarchyState = UnturnedInventorySurfaceContext.ProbeNativeHierarchy(liveNativeItems,
                     out liveScroll, out liveGrid, out liveItemsPanel);
                 var liveSurfaceReady = hierarchyState == UnturnedInventorySurfaceContext.NativeHierarchyState.Ready;
-                if (ShouldIsolateOnHierarchyProbeFailure(hierarchyState) && (dashboardActive || isStoring))
+                var hierarchyFailure = ShouldIsolateOnHierarchyProbeFailure(hierarchyState) && (dashboardActive || isStoring);
+                if (transientIsolationGate.Observe(page, hierarchyFailure, out var isolationLine))
                 {
+                    // DEV-V2-24 F-B2: PERSISTENT incompatibility (threshold
+                    // consecutive frames) — the designed fail-closed
+                    // isolation, now debounced and visible. A transient
+                    // failure no longer kills the surface for the session.
                     gateDiagnostics = "featureId=io.github.yu80rice.bue.better-item-interaction"
                         + " errorCode=NativeHierarchyIncompatible diagnosticId=BUE-INVENTORY-003"
                         + " reason=live-parent-chain-invalid page=" + page;
                     LastPollDiagnostics = gateDiagnostics;
+                    EmitDiagnosticOnce(isolationLine);
                     if (dispatchedSurfaces.Count > 0) DiscardAllDispatchedSurfaces("native-hierarchy-incompatible");
                     IsolateAndDispatch();
                     return;
+                }
+                if (isolationLine != null)
+                {
+                    // First failure / recovery one-shots — never silent again.
+                    EmitDiagnosticOnce(isolationLine);
                 }
                 DispatchedSurfaceState dispatched;
                 if (dispatchedSurfaces.TryGetValue(page, out dispatched) &&

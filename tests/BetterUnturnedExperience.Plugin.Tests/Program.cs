@@ -365,6 +365,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 AssertDev16FAreaSourceReachesCandidateSeam();
                 AssertDev16FEquipSlotSourceReachesCandidateSeam();
                 AssertLoggingSurfaceReadinessGate();
+                AssertTransientIsolationGate();
                 AssertLoggingFailureEmission();
                 AssertLoggingRuntimeVerbosity();
                 AssertLoggingBueRuntimeClassification();
@@ -1346,6 +1347,64 @@ namespace BetterUnturnedExperience.Plugin.Tests
             string line6;
             Assert(!gate.Observe(4, false, "native-hierarchy-incomplete", out line6),
                 "readiness gate: post-transition not-ready frames are silent");
+        }
+
+        // DEV-V2-24 F-B2 red regression. The real machine (DEV-V2-24-20260908
+        // P2P host) showed the isolation latch firing on ONE transient
+        // hierarchy-probe failure during the close/reopen transition — BUE's
+        // Better-Item-Interaction surface died for the whole session with
+        // zero log lines. The fix debounces: only PERSISTENT incompatibility
+        // (threshold consecutive frames) latches the isolation, transient
+        // frames self-heal, and every first failure plus the latch itself
+        // emit one-shot diagnostics through the DiagnosticLogSink seam.
+        // RED until the TransientIsolationGate exists (compile CS0246).
+        private static void AssertTransientIsolationGate()
+        {
+            var gate = new InventorySurfaceLifecycleAdapter.TransientIsolationGate();
+
+            // Transient: a few incompatible frames then a ready frame must
+            // never isolate — the reopen-rebuild window self-heals.
+            var isolated = false;
+            string line;
+            for (var frame = 0; frame < 3; frame++)
+            {
+                if (gate.Observe(2, true, out line)) isolated = true;
+                Assert(line == null || frame == 0,
+                    "isolation gate: first failure logs once, subsequent strike frames stay silent");
+            }
+            Assert(!isolated, "isolation gate: 3 transient incompatible frames do not isolate");
+            Assert(!gate.Observe(2, false, out line), "isolation gate: a ready frame resets the strikes");
+            Assert(line != null && line.IndexOf("recover", System.StringComparison.Ordinal) >= 0,
+                "isolation gate: recovery after strikes emits a one-shot recovered line");
+
+            // Persistent: threshold consecutive frames isolate exactly on the
+            // threshold frame, and the latch line names the diagnostic.
+            for (var frame = 1; frame < InventorySurfaceLifecycleAdapter.TransientIsolationGate.IsolationStrikeThreshold; frame++)
+            {
+                Assert(!gate.Observe(2, true, out _),
+                    "isolation gate: strike frames below the threshold stay silent and un-isolated");
+            }
+            string latchLine;
+            Assert(gate.Observe(2, true, out latchLine),
+                "isolation gate: persistent incompatibility isolates exactly at the threshold frame");
+            Assert(latchLine != null && latchLine.IndexOf("BUE-INVENTORY-003", System.StringComparison.Ordinal) >= 0,
+                "isolation gate: the latch line carries the BUE-INVENTORY-003 diagnostic");
+            Assert(!gate.Observe(2, true, out _),
+                "isolation gate: post-latch observations are dormant (one-way latch)");
+
+            // Poll failures share the gate with their own strike lane.
+            var pollGate = new InventorySurfaceLifecycleAdapter.TransientIsolationGate();
+            for (var frame = 1; frame < InventorySurfaceLifecycleAdapter.TransientIsolationGate.IsolationStrikeThreshold; frame++)
+            {
+                Assert(!pollGate.ObservePollFailure(out _),
+                    "isolation gate: poll-failure strikes below the threshold stay un-isolated");
+            }
+            string pollLatch;
+            Assert(pollGate.ObservePollFailure(out pollLatch) && pollLatch != null,
+                "isolation gate: persistent poll failures isolate at the threshold with a latch line");
+            Assert(pollGate.ObservePollSuccess(), "isolation gate: a successful poll resets the failure strikes");
+            Assert(!pollGate.ObservePollFailure(out _),
+                "isolation gate: post-reset poll failures start a fresh strike lane");
         }
 
         // GPT watermark: DEV-16G slice B red regression. The rich failure
