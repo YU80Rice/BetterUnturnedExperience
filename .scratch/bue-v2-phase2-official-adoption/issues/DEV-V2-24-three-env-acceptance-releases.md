@@ -47,3 +47,10 @@ Spec: `../spec.md`（Solution「到达标准」、Testing Decisions「实机验�
 - **候选重授**：新候选 `3cbd62687bf765c618eaa5b6762c1172c7de022b6a50dc64ae1b0bdd0d399e4d`（533504B 两轮 Rebuild 字节一致，CaseId **`DEV-V2-24-CANDIDATE-20260908`**）；前身 `7d5dd3b5…c223`（DEV-V2-23-CANDIDATE-20260908）作废，kit/out 与归档、手册、六模板已换绑。采集 CaseId 不变 = `DEV-V2-24-20260908`。
 - 增量 diff：`audit/2026-09-08/DEV-V2-24/round1-increment.diff`（双轴审查标的）。修复轮提交 = **`e70b7c4`**（候选来源快照 = e102935 + 本增量）。
 - **双轴审查闭环（判词存档 `audit/2026-09-08/DEV-V2-24/review-rounds.md`）**：R1 Standards FINDINGS（2 SMELL——手册 S2/§10 与 sp/p2p-client 模板残留 D0 开放措辞；1 INFO——提交 hash 回填）/ Spec R1 CLEAN → F1-F3（aae2c99，仅文档）→ **R2 双轴全新实例双 CLEAN（Standards 0/0/0 / Spec 0/0/0）**。D0-b 修复轮审查面闭环；候选 `3cbd6268…9e4d` 为已审增量产物，可按手册开始实机采集。
+
+### 2026-09-08 P2P 实机发现两起 LIT 真机缺陷（F-A/F-B）——采集停止，转修复轮
+
+- **进展**：sp 单人 case 已通过并归档（8853cf8）；P2P 双端（本机 Host + 用户 VM Client）实测 **LIR/LHT 通过、LIT 两项 FAIL**（证据 `audit/2026-09-08/evidence/DEV-V2-24-20260908/cases/p2p-{host,client}/`，含幽灵贴图截图）。
+- **F-A（客机整理全程不可用）**：Host :2889 采纳客机会话（gen=2）即拍签发 challenge → :2890 定向发送 `result=LocalTransportUnavailable` 失败，**全程无重试**（恰此一条发送失败）；Client 侧 80 条「尚未收到有效服务端 session challenge」拒绝，RequestTidy 从未发出。反证：同会话 LIR 定向发送（Host :4610 `-> 客机 RepackSuccess`）与 LHT 组播（`广播 Update result=Sent`）均成功——失败是暂时性/状态性，一次重试即可恢复。候选 `3cbd6268…9e4d`。
+- **F-B（主机本地整理幽灵贴图堆叠）**：Host :5134-:5137 本地路径提交成功（`placed=3 指纹守恒验证通过`），但 UI 多容器幽灵贴图堆叠（截图存档）；SP 同路径无此现象——本地提交后的界面刷新/预览清理路径 P2P 差异，根因待查（修复轮代码定位）。
+- **处置（手册 §10 协议）**：停止采集、现场已保留（两端 LogOutput.log + 截图归档）；修复走 real-machine-test-loop：红测先行（LIT 挑战签发失败重臂缝 + F-B 根因）→ 双轴 CLEAN → 新候选 → **换绑后全量重采（含已通过的 sp/P2P LIR/LHT 项，不拼接）**。本票关票顺延。

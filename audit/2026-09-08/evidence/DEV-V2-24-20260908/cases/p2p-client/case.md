@@ -1,31 +1,29 @@
-# case: p2p-client（SteamP2P 客机端）— CaseId `DEV-V2-24-20260908`
+# case: p2p-client（SteamP2P 客机端，虚拟机）— CaseId `DEV-V2-24-20260908`
 
-> 采集时填实全部 TODO；不要改动本文件结构。对应手册 §5（配置 A，Client 侧）。
-> Host 与 Client 时间窗必须**正交重叠**。
+> 对应手册 §4（配置 A,Client 侧）。采集日期 2026-09-08;UMM 诊断包 `UMM-诊断包_20260908_165948`。
+> **本 case 结果 = 部分 FAIL（LIT 全程不可用 = F-A 的客户端面);LIR/LHT 项通过。**
 
-- collector: TODO
-- gameVersion / bepInExVersion: TODO
-- startedUtc / endedUtc: TODO
-- 部署配置: TODO（应 = 配置 A：仅 `BetterUnturnedExperience.dll`）
-
-## 部署指纹
-
-- TODO：逐件哈希输出 + LogLevels 行 + assembly-identity 行原文（= `3CBD6268…9E4D`）
+- collector: 用户（VM 侧自部署,agent 复核锚行）
+- gameVersion / bepInExVersion: 3.26.3.11 / 5.4.23.5
+- startedUtc / endedUtc: TODO（VM Client 会话;CLIENT_STATE t=214.8s 连入 Host）
+- 部署配置: 配置 A（VM plugins 仅候选 BUE）,身份绑定行 :136 = `3CBD6268…9E4D` ✓（path=VM 路径 `C:\Program Files (x86)\Steam\…`;本文件 LogOutput.log SHA-256 `09730512…4f24`）
 
 ## 锚行摘录（Client 侧）
 
-| 手册步骤 | 锚行 | 出现/缺失 | 行号 |
-|---|---|---|---|
-| P1 启动锚 | S1 全套（加载行 / REG-ACCEPT ×5 / takeover-patch / bue-runtime-arm role=client） | TODO | TODO |
-| P2 LIT 客机请求 | `[Tidy] -> 服务器: RequestTidy(reqId=N…)` + `[TidyNet] <- 服务器 TidyCommitted(reqId=N…)` + `-> 服务器 HotkeyFlowAck(reqId=N)`（reqId 与 Host 对齐） | TODO | TODO |
-| P3 LIR 客机压弹 | toast「一键压弹：成功压入 N 发子弹」**截图** | TODO | — |
-| P4 LHT HUD | `[HordeNet] 收到 Update: epoch=… seq=…` + HUD 条**截图** + `/horde` 回复一致 | TODO | TODO |
-| P5 零误报 | 无 `BUE 错误：` 行；`(epoch,seq)` 重复键为零；原版玩法正常 | TODO | — |
+| 步骤 | 结果 | 证据 |
+|---|---|---|
+| P1 启动锚 | 通过 | :294 `bue-runtime-arm result=armed role=client localSteamId=76561199721762479`;:180 LIT 频道注册;:328-:344+ [TidyUI] 反射预热与页 2-5 按钮注入 OK |
+| P2 LIT 客机整理 | **FAIL（F-A 客户端面)** | :690 用户点击（Ctrl+全身整理）→ :691 `客户端尚未收到有效服务端 session challenge;本次整理请求未发送。` → :692 `全身 整理被拒绝:尚未建立联机会话或未收到会话 challenge。`;同类拒绝全程 **80 条**（至 :1083-:1084,断线前未恢复)——RequestTidy 从未发出,Host 侧零收到 |
+| P3 LIR 客机压弹 | 通过 | :867-:936 `-> 服务器: RequestRepackAmmo(reqId=…215-…222)` ×8 发出（**客机会话已建立**,SendToServer 通道正常);Host :4610 `-> 客机 RepackSuccess(reqId=…222, total=10)` 回包链通;toast 用户确认无异常 |
+| P4 LHT HUD | 通过（用户确认) | Host 广播 result=Sent;Client HUD 条与 `/horde` 回复用户确认无异常 |
+| P5 零误报 | BUE 侧零故障 | Error 行均属 SPF 旧插件;BUE 零 `BUE 错误：`/`result=failed` |
+| 防双装基线 | 通过 | VM 侧零 `BUE-PLATFORM-001` 行 |
 
 ## 截图 / 附件清单
 
-- TODO：整理前后背包、toast、HUD 条、面板条目（四件官方中文名齐，含 BII=更好的物品交互）
+- 无本端截图;Host 端幽灵贴图截图见 `../p2p-host/screenshots/`。
 
 ## 结论
 
-- TODO
+- 客机侧 BUE 传输/会话/频道全链正常（LIR/LHT 可用为证);LIT 因 **F-A(服务端挑战签发单发失败无重试)** 全程不可用,与 Host 侧 :2889-:2890 单条发送失败互为因果闭环。
+- 按 real-machine-test-loop:修复轮出新候选后,本环境与全部环境换绑重采。
