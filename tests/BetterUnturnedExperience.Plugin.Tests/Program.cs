@@ -3204,6 +3204,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
 
                 Group("双端收发全链", () => LitMultiplayerGroupFullChain(Check));
                 Group("session challenge", () => LitMultiplayerGroupChallenge(Check));
+                Group("挑战发送失败重臂", () => LitMultiplayerGroupChallengeSendFailureRearm(Check));
                 Group("代际 fault scope", () => LitMultiplayerGroupFaultScope(Check));
                 Group("TidyCompleted 发布", () => LitMultiplayerGroupTidyCompleted(Check));
                 Group("半注册回滚", () => LitMultiplayerGroupHalfRegistration(Check));
@@ -3213,7 +3214,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 reds.Add("UNEXPECTED: " + error.GetType().FullName + ": " + error.Message);
             }
             if (collectAllFailures && reds.Count == 0)
-                Console.WriteLine("DEV-V2-21 LIT multiplayer collection: ALL GREEN (0 failures) — groups: 双端收发全链/session challenge/代际 fault scope/TidyCompleted 发布/半注册回滚");
+                Console.WriteLine("DEV-V2-21 LIT multiplayer collection: ALL GREEN (0 failures) — groups: 双端收发全链/session challenge/挑战发送失败重臂/代际 fault scope/TidyCompleted 发布/半注册回滚");
             if (collectAllFailures && reds.Count > 0)
                 throw new InvalidOperationException("DEV-V2-21 red collection (" + reds.Count + "): " + string.Join(" || ", reds));
         }
@@ -3305,7 +3306,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
             public IConnectionSession ServerSession;
             public IConnectionSession ClientSession;
 
-            public static LitMultiplayerHarness Create(string faultDir)
+            public static LitMultiplayerHarness Create(string faultDir, Func<IBueNetworkApi, IBueNetworkApi> serverNetworkDecorator = null)
             {
                 var localContract = new ContractVersion(2, 0);
                 var feature = new FeatureId(LitRuntime.FeatureIdValue);
@@ -3321,7 +3322,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     ClientAuthority = new FakeLitAuthority(),
                 };
                 harness.ServerBus = new BetterUnturnedExperience.Core.Events.FeatureEventBus();
-                harness.ServerModule = CreateModule(harness.ServerBus, serverRuntime, isServer: true, harness.ServerAuthority, faultDir);
+                harness.ServerModule = CreateModule(harness.ServerBus, serverRuntime, isServer: true, harness.ServerAuthority, faultDir, serverNetworkDecorator);
                 harness.ClientBus = new BetterUnturnedExperience.Core.Events.FeatureEventBus();
                 harness.ClientModule = CreateModule(harness.ClientBus, clientRuntime, isServer: false, harness.ClientAuthority, faultDir);
                 harness.ClientModule.Network.Subscribe(feature, ChannelDirection.FromServer, (s, p) => harness.ClientRawFromServer.Add(p));
@@ -3330,13 +3331,13 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 return harness;
             }
 
-            private static InventoryTidyModule CreateModule(BetterUnturnedExperience.Core.Events.FeatureEventBus bus, BetterUnturnedExperience.Core.Network.BueNetworkRuntime runtime, bool isServer, FakeLitAuthority authority, string faultDir)
+            private static InventoryTidyModule CreateModule(BetterUnturnedExperience.Core.Events.FeatureEventBus bus, BetterUnturnedExperience.Core.Network.BueNetworkRuntime runtime, bool isServer, FakeLitAuthority authority, string faultDir, Func<IBueNetworkApi, IBueNetworkApi> networkDecorator = null)
             {
                 var feature = new FeatureId(LitRuntime.FeatureIdValue);
                 var module = new InventoryTidyModule(feature, new InMemorySettingsPersistence());
                 module.ScopeDirectoryForTests = faultDir;
                 module.FaultContextForTests = () => new LitFaultScopeContext("TestMap", 1);
-                module.NetServiceFactoryForTests = (m, net, book) => new LitTidyNetService(m, net, authority, () => isServer, book);
+                module.NetServiceFactoryForTests = (m, net, book) => new LitTidyNetService(m, networkDecorator != null ? networkDecorator(net) : net, authority, () => isServer, book);
                 var bootstrap = new FeatureBootstrap(default(FeatureScopeIdentity), 1UL, null, bus.Subscriber(feature), bus.Publisher(feature), null, null, null, runtime);
                 var result = module.Start(bootstrap);
                 if (!result.Started) throw new InvalidOperationException("harness: module start failed: " + result.DiagnosticId);
@@ -3591,6 +3592,91 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 "发布：CriticalFailure/ConcurrentMutationAfterCommit→Failed");
             module.PublishTidyCompleted(2, 2, TidyCommitResult.Committed, 0UL, 0UL);
             check(events[4].TransactionId != 0UL, "发布：事务号 0 由模块代际单调号补齐（事件永不为 0）");
+        }
+
+        // DEV-V2-24 F-A red: a challenge send that fails (real machine: one
+        // targeted send returned LocalTransportUnavailable while other sends
+        // on the same session succeeded) must NOT stick the adoption — the
+        // generation leaves the tracked set and the next Tick rediscovers it
+        // and re-issues token+challenge. RED while the failed send leaves the
+        // session tracked (the client stays challenge-less for the whole
+        // session; on machine it produced 80 refusals until disconnect).
+        private static void LitMultiplayerGroupChallengeSendFailureRearm(System.Action<bool, string> check)
+        {
+            var faultDir = NewLitFaultDirectory();
+            var harness = LitMultiplayerHarness.Create(faultDir, net => new FlakyFirstSendToClientNetwork(net, 1));
+            harness.Handshake();
+
+            harness.ServerModule.Tick();
+            harness.Pump();
+            check(harness.ClientRawFromServer.Count == 0,
+                "挑战重臂：注入失败生效——第一次采纳的 challenge 发送未送达（客户端零收到）");
+
+            harness.ServerModule.Tick();
+            harness.Pump();
+            check(harness.ClientRawFromServer.Count > 0 && harness.ClientRawFromServer[0][1] == LitTidyWireCodec.MsgSessionChallenge,
+                "挑战重臂：发送失败后下一拍重新采纳并重发 challenge（采纳不粘滞，F-A）");
+
+            harness.ClientModule.Tick();
+            harness.Pump();
+            var request = harness.ClientModule.RequestTidy(3, TidyMode.SameType, true);
+            check(request == LitTidyRequestResult.Dispatched,
+                "挑战重臂：恢复后客户端请求受理（新 token 全链可用，孤儿 token 已随回滚丢弃）");
+        }
+
+        /// <summary>Delegating IBueNetworkApi wrapper whose first N SendToClient
+        /// calls fail with LocalTransportUnavailable without delivering — the
+        /// transient-transport-failure injector for the challenge-rearm red.</summary>
+        private sealed class FlakyFirstSendToClientNetwork : IBueNetworkApi
+        {
+            private readonly IBueNetworkApi inner;
+            private int remainingFailures;
+
+            internal FlakyFirstSendToClientNetwork(IBueNetworkApi inner, int failures)
+            {
+                this.inner = inner ?? throw new ArgumentNullException(nameof(inner));
+                remainingFailures = failures;
+            }
+
+            public ChannelRegistrationResult RegisterChannel(FeatureId channel, ContractVersion minimumBueContract, ushort featureVersion)
+            {
+                return inner.RegisterChannel(channel, minimumBueContract, featureVersion);
+            }
+
+            public bool UnregisterChannel(FeatureId channel)
+            {
+                return inner.UnregisterChannel(channel);
+            }
+
+            public IDisposable Subscribe(FeatureId channel, ChannelDirection direction, Action<IConnectionSession, byte[]> handler)
+            {
+                return inner.Subscribe(channel, direction, handler);
+            }
+
+            public IReadOnlyList<IConnectionSession> Sessions
+            {
+                get { return inner.Sessions; }
+            }
+
+            public NetworkSendResult SendToServer(FeatureId channel, byte[] payload, bool reliable)
+            {
+                return inner.SendToServer(channel, payload, reliable);
+            }
+
+            public NetworkSendResult SendToClients(FeatureId channel, byte[] payload, bool reliable)
+            {
+                return inner.SendToClients(channel, payload, reliable);
+            }
+
+            public NetworkSendResult SendToClient(FeatureId channel, IConnectionSession session, byte[] payload, bool reliable)
+            {
+                if (remainingFailures > 0)
+                {
+                    remainingFailures--;
+                    return NetworkSendResult.LocalTransportUnavailable;
+                }
+                return inner.SendToClient(channel, session, payload, reliable);
+            }
         }
 
         private static void LitMultiplayerGroupHalfRegistration(System.Action<bool, string> check)

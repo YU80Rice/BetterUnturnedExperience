@@ -289,7 +289,25 @@ namespace BetterUnturnedExperience.Lit
                     faultBook.OpenPeerScope(session.PeerSteamId, session.SessionId);
                     if (sessions.TryBeginSession(session.PeerSteamId, session.SessionId, out var token))
                     {
-                        TrySendToSession(session, LitTidyWireCodec.BuildSessionChallenge(token));
+                        // DEV-V2-24 F-A (real machine DEV-V2-24-20260908 P2P): a
+                        // challenge delivery failure must not stick the
+                        // adoption — the token never reached the client, so
+                        // this generation is treated as UN-ADOPTED: the book
+                        // record (orphan token) and the tracked session go,
+                        // and the next Tick rediscovers the generation and
+                        // re-issues scope+token+challenge. This mirrors the
+                        // exception path's R3-Standards B3 retry semantics;
+                        // scope re-open for the same generation is a no-op.
+                        // Without the rollback a single transient transport
+                        // failure (one targeted send returned
+                        // LocalTransportUnavailable while LIR/LHT sends on the
+                        // SAME session succeeded) locked the client out of
+                        // tidy for the whole session (80 refusals on machine).
+                        if (TrySendToSession(session, LitTidyWireCodec.BuildSessionChallenge(token)) != NetworkSendResult.Sent)
+                        {
+                            sessions.DropSession(session.PeerSteamId, session.SessionId);
+                            liveSessions.Remove(session.SessionId);
+                        }
                     }
                 }
                 catch (Exception error)
