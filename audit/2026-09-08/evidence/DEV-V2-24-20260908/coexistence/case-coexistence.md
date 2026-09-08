@@ -11,7 +11,7 @@
 
 ## 部署指纹
 
-- TODO：三件哈希输出 + LogLevels 行 + assembly-identity 行原文（= `7448B0CE…64C9`）
+- TODO：三件哈希输出 + LogLevels 行 + assembly-identity 行原文（= `2D3DE91D…762E1`）
 
 ## 锚行摘录（建议在单人环境采集，约 10 分钟）
 

@@ -1,0 +1,13 @@
+litfb8 诊断构建 (DEV-V2-24 F-B1b: SP 首拖 NRE 定位插桩)
+sha256: BE3EB09942BE7EB6342C81BA19807437AB3A6DF68467E9C8C9498530F8E0647F
+基线: v4-F1(7448B0CE…64C9) + 故障闸诊断行追加 stack=首帧 (threw/isolated 两行)
+背景: SP 实机(诊断包 20260909_000640)首拖即 NullReferenceException 每帧抛→60 帧隔离(BII 死);
+故障闸按设计工作(吸收→留痕→隔离),但缺堆栈无法点名抛主。本构建只为取 stack= 字段。
+全套 7/7 PASS 0 警告;非候选不作采集。
+
+定位结果(诊断包 20260909_001648,stack= 首帧):
+  at SDG.Unturned.GlazierBox_uGUI.set_BackgroundColor [0x00018]
+IL 核对(Assembly-CSharp.il :92517-92530): 偏移 0x00018 = callvirt Graphic::set_color,
+  操作数为 ldfld imageComponent —— GlazierBox_uGUI 的 uGUI Image 组件为 null。
+imageComponent 生命周期: 仅 ConstructNew() 赋值; ReleaseBoxToPool 入池时主动 stfld null。
+结论: sink 持有的 box 被原生侧回收/未实例化(imageComponent=null),SDG 内部域,BUE 侧自愈。

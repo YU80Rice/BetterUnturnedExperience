@@ -133,3 +133,53 @@ S2 改四件中文名齐口径；§10 与 sp/p2p-client 模板清开放措辞；
 ## 闭环
 
 **双轴最终 CLEAN（Standards=R4 / Spec=R5）**。F-B1 修复轮候选 v4-F1 = `7448B0CE14ECCED001E4E8B4DFCE09416DC66985AB063A904ACD681EC57464C9`（537088B 三轮 Rebuild 一致,identity-sha256.txt v4-F1）；前身 7d5dd3b5…c223/3cbd6268…9e4d(v2)/C9B6B6E4…EB86(v3)/40154219…8A26(v4 预授)均作废。F-C 延期已具名 DEV-V2-25（open）。全量重采绑 v4-F1。
+
+# F-B1b 修复轮（round6-increment.diff;SP 首拖 NRE）
+
+## 根因链（litfb8=BE3EB099…647F,诊断包 20260909_001648）
+
+故障闸 stack= 首帧点名 `SDG.Unturned.GlazierBox_uGUI.set_BackgroundColor [0x00018]`；IL 核对（Assembly-CSharp.il :92517-92530）= `callvirt Graphic::set_color` 操作数 `ldfld imageComponent`=null。GlazierBox_uGUI 的 imageComponent 仅 ConstructNew() 赋值、ReleaseBoxToPool 入池主动置 null——sink 持有的 box 被原生池回收/未实例化，每次预览帧写全 NRE→故障闸 60 帧隔离（新诊断按设计工作，stack= 字段一发定位）。SP 环境首证（v3 后单人未实测过，缺陷在静默 catch 时代不可见）。
+
+## 修复（红测先行）
+
+- `InventoryPreviewVisualSink`：frameElement/iconElement 改可重建；ShowFrame/ShowIcon=try→Apply→catch→`RebuildElements()`（旧元素移除+双容器工厂全新创建+重挂）→Apply 重试一次；二次故障仍传播到预览故障闸（吸收/隔离语义不变）。
+- 故障闸 threw/isolated 行追加 `stack=` 首帧（litfb8 转正，本轮入生产）。
+- 红测 `AssertSinkRebuildsElementsOnNativeWriteFault`（RecordingVisualContainer+TestVisualElement.Poisoned 模拟池化 NRE）：观测红=第 3 断言「poisoned 元素被替换为全新挂载」+「故障横跨后 preview 仍 Candidate」；旗标绿+全套 7/7 PASS 0 警告。
+
+## 候选 v5
+
+`22BE7A3A613EA1F88F2866B0264F030E2A46D2717C63843F75976AEDF9F5C56B`（537600B 三轮 Rebuild 一致 0 警 0 错，CaseId 仍 DEV-V2-24-CANDIDATE-20260908）；v4-F1=7448B0CE…64C9 因 F-B1b 传导编译输入作废；identity/kit/手册/六模板换绑 round6。
+
+## 双轴 R1（全新实例,标的=round6-increment.diff）
+
+- **Standards R1: CLEAN**（agent_26d96a55-2ef8-4e5c-b6b2-69df31944044；0B+5S+1I）
+  - S1 RebuildElements isMounted 先置后挂（AddChild 抛错则状态错位）→F2 采纳=先挂后置,镜像 Mount()。
+  - S2 ShowFrame 成功后 ShowIcon 重建会抹掉本帧 frame（≤1 帧,下帧补画）→F2 采纳=注释具名契约（零分配约束下不做有状态缓存）。
+  - S3 RebuildElements 裸 RemoveChild 未沿 never-throw→F2 采纳=try/catch 防护。
+  - S4 ShowFrame/ShowIcon 重试结构复制→F2 裁定 won't-fix=共享委托 helper 会在零分配热路径逐帧分配闭包（ClientUi.Tests 零分配守卫实测抓获 1.6MB 分配回归）,注释具名。
+  - S5 红测未钉重试成功/二次故障进闸/icon 中毒→F2 采纳=门零触发断言+新元素确被写入+icon 中毒重建场景+毒 all 60 帧进闸场景。
+  - INFO 手册/identity 头部字样漂移→F2 采纳修正。
+- **Spec R1: NOT CLEAN**（agent_c43eccfb-949d-408a-8c04-33d7a509bd2d；2D+1G）
+  - D1 手册来源快照仍指 round5→F2 采纳=改 round6（含 F-B1b 终稿）。
+  - D2 归档「观测红=第 3 断言」与实际断言序不符+强化断言无独立红观测→F2 采纳=归档改按实测描述+外科手术式红验证（摘除重建段→红恰落在「poisoned 元素被替换」断言,恢复后绿）。
+  - GAP 红测未覆盖 ShowIcon 写失败→重建→重试路径→F2 采纳=icon 中毒场景断言。
+- F2 后旗标+全套 7/7 PASS 0 警告;候选 v5 预授 22BE7A3A…5C56B 因 F2 传导编译输入作废,**v5-F2=2D3DE91D…762E1**（537600B 三轮一致）,identity/kit/手册/六模板换绑。
+
+## 双轴 R2（全新实例,标的=含 F2 的 round6-increment.diff 终稿）
+
+- **Standards R2: CLEAN**（agent_37dc54f5-6c72-49e9-9d49-78c4a13ff792；R1 五项复核全部已修复；2 INFO=票面双「下一步」哈希陈旧、evidence identity 头/前身未列 v5 预授——F3 采纳）
+- **Spec R2: NOT CLEAN**（agent_c48ac55d-9d61-4a77-b7e3-893a1625b86d；R1 三项复核全部已修复；1 DEVIATION=票面历史「下一步」行被全局哈希替换扫成 v5 预授哈希未标作废——F3 采纳）
+
+## F3（纯簿记;候选 2D3DE91D…762E1 不变）
+
+- 票面历史「下一步」行标注=R1 时点记录,其 v5 预授哈希已作废（现行绑定见 v5-F2 段）。
+- evidence candidate/identity.txt 头部对齐 v5-F2 口径+前身补 22BE7A3A…5C56B。
+- 本段即 R2 判词回填。
+
+## 双轴 R3（Spec 单轴核验,全新实例;Standards 已于 R2 CLEAN）
+
+- **Spec R3: CLEAN**（agent_377870d9-ecc2-47b1-8644-3adb3250541b；R2 DEVIATION 闭环+两 INFO 处置确认+src/tests 相对 R2 零改动+零新发现）
+
+## F-B1b 闭环
+
+**双轴最终 CLEAN（Standards=R2 / Spec=R3）**。候选 v5-F2 = `2D3DE91D798F2B031BEB19BE59466390EAAB8E31A1E8A04411B517C1B20762E1`（537600B 三轮 Rebuild 一致,identity-sha256.txt v5-F2）；前身链 7d5dd3b5…c223/3cbd6268…9e4d(v2)/C9B6B6E4…EB86(v3)/40154219…8A26(v4 预授)/7448B0CE…64C9(v4-F1)/22BE7A3A…5C56B(v5 预授)均作废。待用户 SP 确认后全量重采绑 v5-F2。

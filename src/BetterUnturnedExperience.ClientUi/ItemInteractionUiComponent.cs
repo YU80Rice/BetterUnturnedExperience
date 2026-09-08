@@ -97,8 +97,13 @@ namespace BetterUnturnedExperience.ClientUi.Internal
     {
         private readonly IVisualContainer topLevelContainer;
         private readonly IVisualContainer gridPanelContainer;
-        private readonly IVisualElement frameElement;
-        private readonly IVisualElement iconElement;
+        // FB1b: element references are REBUILDABLE — the native Glazier pool
+        // can release the backing uGUI components behind BUE's back (machine
+        // 20260909_001648: set_BackgroundColor NRE'd 60 consecutive frames on
+        // a pooled box whose imageComponent was nulled), so a failed write
+        // rebuilds both elements fresh and retries once.
+        private IVisualElement frameElement;
+        private IVisualElement iconElement;
         private bool isMounted;
 
         internal InventoryPreviewVisualSink(IVisualContainer topLevelContainer, IVisualContainer gridPanelContainer)
@@ -169,6 +174,35 @@ namespace BetterUnturnedExperience.ClientUi.Internal
 
         public void ShowFrame(PreviewFrame frame)
         {
+            // FB1b: one rebuild-and-retry on a native write fault — a second
+            // consecutive fault propagates to the preview fault gate. If the
+            // ICON write rebuilds mid-drag, the frame visual re-appears on
+            // the next poll frame (at most one frame without the frame box).
+            // Deliberately NOT a shared delegate helper: the sink hot path is
+            // under the zero-allocation contract and a closure would allocate
+            // per frame (ClientUi.Tests sink allocation guard).
+            try { ApplyFrame(frame); }
+            catch (Exception)
+            {
+                RebuildElements();
+                ApplyFrame(frame);
+            }
+        }
+
+        public void ShowIcon(PreviewIcon icon)
+        {
+            // FB1b: same rebuild-and-retry contract as ShowFrame (duplicated
+            // inline for the same zero-allocation reason).
+            try { ApplyIcon(icon); }
+            catch (Exception)
+            {
+                RebuildElements();
+                ApplyIcon(icon);
+            }
+        }
+
+        private void ApplyFrame(PreviewFrame frame)
+        {
             if (!isMounted) Mount();
             frameElement.PositionOffsetX = frame.Candidate.X * frame.CellPixelSize;
             frameElement.PositionOffsetY = frame.Candidate.Y * frame.CellPixelSize;
@@ -180,7 +214,30 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             frameElement.IsVisible = true;
         }
 
-        public void ShowIcon(PreviewIcon icon)
+        // FB1b: fresh elements from the live container factories replace any
+        // natively released backing, then both are re-mounted. Removal of the
+        // old elements is best-effort (a pooled element may already be
+        // detached natively — never-throw, per the host-event convention);
+        // isMounted flips true only AFTER both children are in, mirroring
+        // Mount()'s ordering.
+        private void RebuildElements()
+        {
+            try
+            {
+                gridPanelContainer.RemoveChild(frameElement);
+                topLevelContainer.RemoveChild(iconElement);
+            }
+            catch (Exception) { }
+            frameElement = gridPanelContainer.CreateBox();
+            iconElement = topLevelContainer.CreateImage();
+            frameElement.IsVisible = false;
+            iconElement.IsVisible = false;
+            gridPanelContainer.AddChild(frameElement);
+            topLevelContainer.AddChild(iconElement);
+            isMounted = true;
+        }
+
+        private void ApplyIcon(PreviewIcon icon)
         {
             if (!isMounted) Mount();
             iconElement.BoundAsset = icon.Asset;
@@ -680,12 +737,19 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             catch (Exception error)
             {
                 previewUpdateFaultFrames++;
+                // DEV-V2-24 F-B1b: name the thrower — the first stack frame of
+                // a swallowed NRE is the difference between a named fix and
+                // another blind repro round.
+                var stackTrace = error.StackTrace ?? string.Empty;
+                var newlineIndex = stackTrace.IndexOf('\n');
+                var firstFrame = (newlineIndex > 0 ? stackTrace.Substring(0, newlineIndex) : stackTrace).Trim();
                 if (previewUpdateFaultFrames >= PreviewUpdateFaultIsolationThreshold)
                 {
                     ClientUiCompositionRoot.EmitDiagnostic("[BUE-DRAG] event=preview-update-isolated"
                         + " consecutive=" + previewUpdateFaultFrames
                         + " errorType=" + error.GetType().Name
                         + " message=" + error.Message
+                        + " stack=" + firstFrame
                         + " diagnosticId=BUE-DRAG-004",
                         ClientUiCompositionRoot.ClientUiDiagnosticLevel.Error);
                     runtime.Isolate();
@@ -698,6 +762,7 @@ namespace BetterUnturnedExperience.ClientUi.Internal
                         + " consecutive=" + previewUpdateFaultFrames
                         + " errorType=" + error.GetType().Name
                         + " message=" + error.Message
+                        + " stack=" + firstFrame
                         + " diagnosticId=BUE-DRAG-004",
                         ClientUiCompositionRoot.ClientUiDiagnosticLevel.Debug);
                 }

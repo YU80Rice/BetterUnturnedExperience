@@ -91,6 +91,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 {
                     AssertPreviewUpdateTransientFaultIsAbsorbedAndVisible();
                     AssertSinkRemountsAfterThirdPartyPanelClear();
+                AssertSinkRebuildsElementsOnNativeWriteFault();
                     return 0;
                 }
                 if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--dev16d-r13-native-delegate-red")
@@ -374,6 +375,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 AssertTransientIsolationGate();
                 AssertPreviewUpdateTransientFaultIsAbsorbedAndVisible();
                 AssertSinkRemountsAfterThirdPartyPanelClear();
+                AssertSinkRebuildsElementsOnNativeWriteFault();
                 AssertLoggingFailureEmission();
                 AssertLoggingRuntimeVerbosity();
                 AssertLoggingBueRuntimeClassification();
@@ -6315,6 +6317,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     "FB1 fault gate: a single preview-update fault must not isolate the feature");
                 Assert(transientEmitted.Exists(entry => entry.Key.Contains("event=preview-update-threw")
                         && entry.Key.Contains("InvalidOperationException")
+                        && entry.Key.Contains("stack=")
                         && entry.Key.Contains("diagnosticId=BUE-DRAG-004")
                         && !entry.Key.Contains("BUE-CLIENTUI-001")
                         && entry.Value == ClientUiCompositionRoot.ClientUiDiagnosticLevel.Debug),
@@ -6365,6 +6368,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     "FB1 fault gate: 60 consecutive preview-update faults isolate the feature");
                 Assert(persistentEmitted.Exists(entry => entry.Key.Contains("event=preview-update-isolated")
                         && entry.Key.Contains("InvalidOperationException")
+                        && entry.Key.Contains("stack=")
                         && entry.Key.Contains("diagnosticId=BUE-DRAG-004")
                         && !entry.Key.Contains("BUE-CLIENTUI-001")
                         && entry.Value == ClientUiCompositionRoot.ClientUiDiagnosticLevel.Error),
@@ -6455,6 +6459,93 @@ namespace BetterUnturnedExperience.Plugin.Tests
             component.OnInventoryClosed();
         }
 
+        // GPT watermark: DEV-V2-24 F-B1b red regression. Glazier pools its box
+        // elements and nulls the uGUI Image component on pool release, so a
+        // native pool-release race behind BUE's back turns every preview
+        // frame write into an NRE (machine 20260909_001648: stack=
+        // GlazierBox_uGUI.set_BackgroundColor, 60 consecutive frames). The
+        // sink must rebuild its elements fresh and retry once instead of
+        // leaving the preview lane dead.
+        private static void AssertSinkRebuildsElementsOnNativeWriteFault()
+        {
+            var emitted = new List<KeyValuePair<string, ClientUiCompositionRoot.ClientUiDiagnosticLevel>>();
+            ClientUiCompositionRoot.DiagnosticSink = (line, level) => emitted.Add(new KeyValuePair<string, ClientUiCompositionRoot.ClientUiDiagnosticLevel>(line, level));
+            try
+            {
+                var gridPanel = new RecordingVisualContainer();
+                var topLevel = new RecordingVisualContainer();
+                var component = new BetterItemInteractionUiComponent(
+                    new InventoryPreviewPresenter(new InventoryDragPresenter(new FixedCandidateEvaluator())),
+                    new NativeInventoryInteractionAdapter(2, 8));
+                component.OnUiInitialized(new TestRoot());
+                var surface = new TestSurfaceContext(
+                    new ContainerReference(ContainerKind.PlayerInventory, 3, 946),
+                    topLevel, gridPanel,
+                    new InventoryGridViewport(0f, 0f, 8, 6, 0f, 0f, 400f, 300f),
+                    50f, 1f, 0f, 0f, new EmptyGridForTest(8, 6), true, 100f, 100f);
+                component.OnInventoryOpened(surface);
+                component.OnDragStarted(946, ItemAssetIdentity.FromItemId(363),
+                    new ItemGridPosition(3, 0, 0, 0));
+                Assert(gridPanel.Children.Count == 1,
+                    "FB1b sink rebuild: the preview frame mounts into the grid panel");
+                var poisonedElement = gridPanel.LastCreatedElement;
+                gridPanel.PoisonLastCreatedElement();
+                InventoryPreviewInput input;
+                Assert(component.TryCreatePreviewInput(946, new ItemGridPosition(3, 0, 0, 0),
+                        100f, 100f, 1, 1, 0, false, 0.5f, 0.5f,
+                        ItemAssetIdentity.FromItemId(363), out input),
+                    "FB1b sink rebuild: the drag builds a preview input");
+                component.OnDragUpdated(input);
+                Assert(component.LifecycleCanRun,
+                    "FB1b sink rebuild: a poisoned native element write must not isolate the feature");
+                Assert(gridPanel.Children.Count == 1 && !gridPanel.Children.Contains(poisonedElement),
+                    "FB1b sink rebuild: the poisoned element was replaced by a fresh mount");
+                var rebuiltFrame = (TestVisualElement)gridPanel.Children[0];
+                Assert(!rebuiltFrame.Poisoned && rebuiltFrame.PositionOffsetX == 50f,
+                    "FB1b sink rebuild: the rebuilt frame element received the frame write");
+                Assert(component.LastPreview.State == PlacementPreviewState.Candidate,
+                    "FB1b sink rebuild: the preview stays Candidate across the native write fault");
+                var gateLines = 0;
+                foreach (var emittedEntry in emitted)
+                {
+                    if (emittedEntry.Key.Contains("preview-update-threw")) gateLines++;
+                }
+                Assert(gateLines == 0,
+                    "FB1b sink rebuild: a healed native write fault never reaches the preview fault gate");
+                var poisonedIcon = (TestVisualElement)topLevel.Children[0];
+                poisonedIcon.Poisoned = true;
+                component.OnDragUpdated(input);
+                Assert(topLevel.Children.Count == 1 && !topLevel.Children.Contains(poisonedIcon),
+                    "FB1b sink rebuild: a poisoned icon element is rebuilt through the same contract");
+                Assert(component.LifecycleCanRun,
+                    "FB1b sink rebuild: the icon rebuild keeps the feature alive");
+
+                // Unhealable scenario: poison the CURRENT elements so the very
+                // next write throws, and poison all newly created ones so the
+                // rebuild retry cannot heal — 60 consecutive frames must walk
+                // the preview fault gate into isolation.
+                ((TestVisualElement)gridPanel.Children[0]).Poisoned = true;
+                ((TestVisualElement)topLevel.Children[0]).Poisoned = true;
+                gridPanel.PoisonAllNewElements = true;
+                topLevel.PoisonAllNewElements = true;
+                for (var frame = 1; frame <= 60; frame++)
+                {
+                    component.OnDragUpdated(input);
+                }
+                Assert(!component.LifecycleCanRun,
+                    "FB1b sink rebuild: a persistently poisoned container isolates through the preview fault gate");
+                Assert(emitted.Exists(entry => entry.Key.Contains("event=preview-update-isolated")
+                        && entry.Key.Contains("InvalidOperationException")
+                        && entry.Key.Contains("diagnosticId=BUE-DRAG-004")),
+                    "FB1b sink rebuild: the unhealable fault surfaces through the gate with its identity");
+                component.OnInventoryClosed();
+            }
+            finally
+            {
+                ClientUiCompositionRoot.DiagnosticSink = null;
+            }
+        }
+
         private sealed class ThrowOnceThenFixedCandidateEvaluator : IPlacementCandidateEvaluator
         {
             private bool threw;
@@ -6482,9 +6573,18 @@ namespace BetterUnturnedExperience.Plugin.Tests
         private sealed class RecordingVisualContainer : IVisualContainer
         {
             internal readonly List<IVisualElement> Children = new List<IVisualElement>();
+            internal IVisualElement LastCreatedElement;
+            internal bool PoisonAllNewElements;
 
-            public IVisualElement CreateBox() { return new TestVisualElement(); }
-            public IVisualElement CreateImage() { return new TestVisualElement(); }
+            public IVisualElement CreateBox() { LastCreatedElement = NewElement(); return LastCreatedElement; }
+            public IVisualElement CreateImage() { LastCreatedElement = NewElement(); return LastCreatedElement; }
+            private TestVisualElement NewElement()
+            {
+                var element = new TestVisualElement();
+                if (PoisonAllNewElements) element.Poisoned = true;
+                return element;
+            }
+            internal void PoisonLastCreatedElement() { ((TestVisualElement)LastCreatedElement).Poisoned = true; }
             public void AddChild(IVisualElement child)
             {
                 if (!Children.Contains(child)) Children.Add(child);
@@ -6513,9 +6613,21 @@ namespace BetterUnturnedExperience.Plugin.Tests
 
         private sealed class TestVisualElement : IVisualElement
         {
+            // FB1b: simulates a Glazier pooled element whose uGUI component
+            // was released natively — property writes throw.
+            public bool Poisoned;
             public float PositionScaleX { get; set; }
             public float PositionScaleY { get; set; }
-            public float PositionOffsetX { get; set; }
+            public float PositionOffsetX
+            {
+                get { return positionOffsetX; }
+                set
+                {
+                    if (Poisoned) throw new InvalidOperationException("FB1b simulated native pool-release NRE");
+                    positionOffsetX = value;
+                }
+            }
+            private float positionOffsetX;
             public float PositionOffsetY { get; set; }
             public float SizeOffsetX { get; set; }
             public float SizeOffsetY { get; set; }
