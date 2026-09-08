@@ -10,7 +10,7 @@
 
 ## 部署指纹
 
-- TODO：逐件哈希输出 + LogLevels 行 + assembly-identity 行原文（= `7D5DD3B5…C223`）
+- TODO：逐件哈希输出 + LogLevels 行 + assembly-identity 行原文（= `3CBD6268…9E4D`）
 
 ## 锚行摘录（Client 侧）
 

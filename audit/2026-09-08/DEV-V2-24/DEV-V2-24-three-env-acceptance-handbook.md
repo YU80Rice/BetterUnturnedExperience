@@ -3,34 +3,31 @@
 > CaseId：`DEV-V2-24-20260908`（三环境 + T7 + 共存共用，采集期间不得更换）
 > 工单：`.scratch/bue-v2-phase2-official-adoption/issues/DEV-V2-24-three-env-acceptance-releases.md`（claimed）
 > 状态：候选已确认、采集 kit 六件就绪、证据包骨架与六份模板就位；**待你按本手册实机采集**。
-> 前置门禁全绿：DEV-V2-20/21/22/23 四票双轴 CLEAN + 全套 7/7 PASS 0 警告；本票**源码零修改**（沿 DEV-V2-07 先例，性质 = 验证与证据）。
+> 前置门禁全绿：DEV-V2-20/21/22/23 四票双轴 CLEAN + 全套 7/7 PASS 0 警告；本票主体为验证与证据（沿 DEV-V2-07 先例），另含 D0-b 面板显示名修复一轮（§0，红测先行 + 双轴审查，新候选见 §1）。
 
-## 0. 采集前拍板点（D0）——先拍板，再采集
+## 0. 采集前拍板点（D0）——已拍板：D0-b 修复轮（2026-09-08，用户拍板）
 
-**BII 面板条目名判别**：规格 story 3 冻结「面板显示四个官方功能的中文名（更好的物品交互 / 背包整理 / 更好的换弹体验 / 更好的尸潮播报）」。源码现状：面板 BII 条目显示名为**英文** `"Better Item Interaction"`（`src/BetterUnturnedExperience.Plugin/ClientUiCompositionRoot.cs:126`），LIT/LIR/LHT 三件中文名已就位（`LitRuntime/LirRuntime/LhtRuntime.DisplayName`）。三环境采集一旦开始，中途换候选 = 全量重采——**先就 D0 拍板**：
+**BII 面板条目名判别**：规格 story 3 冻结「面板显示四个官方功能的中文名（更好的物品交互 / 背包整理 / 更好的换弹体验 / 更好的尸潮播报）」。源码修复前：面板 BII 条目显示名为**英文** `"Better Item Interaction"`（`src/BetterUnturnedExperience.Plugin/ClientUiCompositionRoot.cs:126`）。
 
-- **D0-a 接受现状**：BII 条目维持英文名，story 3 与规格「功能身份与显示名」节的「更好的物品交互」随结单修正登记（中文显示名收敛为三件迁移功能 + BII 沿用英文名）→ 按本手册正常采集；
-- **D0-b 修复轮**：改 BII 面板显示名（一处常量）→ 红测 + 双轴 CLEAN → 新候选 → **届时再按本手册采集**（本手册的候选哈希表届时由 agent 换绑）。
-
-未拍板前不要开始采集。面板实际显示以 S2 步骤截图为准（两种结果都如实入证据）。
+**D0-b 已执行**（修复轮，红测先行 + 双轴审查）：面板 BII 条目显示名改为「更好的物品交互」（一处常量）；红测 = Plugin.Tests 新增断言（面板目录以官方中文名「更好的物品交互」投射 BII 条目，挂 `AssertLitSingleplayerPath` 面板块）——观测红（FAIL 于新断言）→ 改串 → 绿 + 全套 7/7 PASS 0 警告；新候选身份见 §1（前身 `7d5dd3b5…c223` 作废）。REG-ACCEPT 启动日志的 `Better Item Interaction featureId=…` 标签非面板显示名，不在本判别范围、维持原样（手册 S1 锚不受影响）。采集按本手册正常进行，S2 面板步骤的判别点已消解（四件中文名齐）。
 
 ## 1. 候选身份与 kit 清单（三环境必须部署同一份，逐一 certutil 核对）
 
-**候选**（= DEV-V2-23 候选，本票零修改；二十四审计轮两度 `-t:Rebuild` 字节一致，见 `audit/2026-09-08/DEV-V2-24/identity-rebuild1/2.log` + `identity-sha256.txt`）：
+**候选**（= DEV-V2-23 候选 + D0-b 面板显示名修复（§0，源码增量 1 文件 1 串 + 红测断言 1 条）；两轮 `-t:Rebuild` 字节一致，见 `audit/2026-09-08/DEV-V2-24/identity-rebuild1/2.log` + `identity-sha256.txt` v2）：
 
 | 项 | 值 |
 |---|---|
 | 候选 DLL | `audit/2026-09-08/artifacts/DEV-V2-24-20260908/BetterUnturnedExperience.dll`（533504 字节） |
-| SHA-256 | `7d5dd3b5ee740a7929f3b136477114d368e723db981da0604cffa90fdf21c223` |
-| 来源快照 | `e102935`（DEV-V2-23 提交，DEV-V2-14~23 全部修复在内） |
-| 候选阶段 CaseId | `DEV-V2-23-CANDIDATE-20260908`（23 结单授予；RELEASES 换标随本票实机验收） |
+| SHA-256 | `3cbd62687bf765c618eaa5b6762c1172c7de022b6a50dc64ae1b0bdd0d399e4d` |
+| 来源快照 | `e102935`（DEV-V2-23 提交）+ D0-b 修复增量（round1-increment.diff；修复提交 hash 随票面 Comments 补录） |
+| 候选阶段 CaseId | `DEV-V2-24-CANDIDATE-20260908`（前身 `7d5dd3b5…c223` = DEV-V2-23-CANDIDATE-20260908 因 D0-b 作废，不得用于采集） |
 | 采集 CaseId | `DEV-V2-24-20260908`（本手册与全部证据统一使用） |
 
 **kit 一站式目录**：`audit/2026-09-08/DEV-V2-24/kit/out/`（部署从这里拿，**不得重新构建**）：
 
 | 件 | SHA-256 | 字节 | 角色 |
 |---|---|---|---|
-| `BetterUnturnedExperience.dll` | `7d5dd3b5…c223`（完整值见上表） | 533504 | 候选 BUE（裸 BUE 单 DLL 主验配置） |
+| `BetterUnturnedExperience.dll` | `3cbd6268…9e4d`（完整值见上表） | 533504 | 候选 BUE（裸 BUE 单 DLL 主验配置） |
 | `LaunchMultiplayerNet.dll` | `06d8a45438c09fea65f3800bf01a7efb9302f2421bd76aa386f8828701a63055` | 68096 | 独立 LMN v5.0.0.0（仅配置 B 共存用） |
 | `LmnEcosystemFixture.dll` | `2b82114f12abd25c93edd5957fdd510c2e3df25824ba264ef4aaf419f3ba7096` | 9216 | V1 旧插件替身（普通 LMN 消费方，仅配置 B；V1 数字频道 ch250 + V2 命名频道） |
 | `BetterUnturnedExperience.NoOpFixture.dll` | `9ee9944ded11ec97e3462a435b2be822c9a45a16fec0b475497c0456d79bed68` | 6144 | 生态样板插件（仅 T7-1 改名对照用；GUID `io.github.yu80rice.bue.noop`，经公开桥注册） |
@@ -64,7 +61,7 @@
 
 | 步骤 | 期望 | ☐ |
 |---|---|---|
-| S1 启动 | `Better Unturned Experience 加载成功，界面已注入`；`[BUE-UI-TRACE] plugin=io.github.yu80rice.betterunturnedexperience diagnosticId=BUE-MANAGEMENT-TRACE-002 event=assembly-identity path=…\BetterUnturnedExperience.dll sha256=7D5DD3B5…C223`（**身份绑定行，照抄原文**） | ☐ |
+| S1 启动 | `Better Unturned Experience 加载成功，界面已注入`；`[BUE-UI-TRACE] plugin=io.github.yu80rice.betterunturnedexperience diagnosticId=BUE-MANAGEMENT-TRACE-002 event=assembly-identity path=…\BetterUnturnedExperience.dll sha256=3CBD6268…9E4D`（**身份绑定行，照抄原文**） | ☐ |
 | S1 注册 | 五行注册锚全 `accepted=True reason=None diagnosticId=BUE-REG-ACCEPT`：`Better Item Interaction featureId=io.github.yu80rice.bue.better-item-interaction` / `BUE Network Module featureId=io.github.yu80rice.bue.network` / `BUE Inventory Tidy featureId=io.github.yu80rice.bue.inventory-tidy` / `BUE In-Place Reload featureId=io.github.yu80rice.bue.in-place-reload` / `BUE Horde Tracker featureId=io.github.yu80rice.bue.horde-tracker` | ☐ |
 | S1 网络 | `[BUE-V2NET] event=takeover-patch result=installed priority=first targets=NetMessages.ReceiveMessageFromClient,NetMessages.ReceiveMessageFromServer diagnosticId=BUE-V2NET-003` + `[BUE-V2NET] event=bue-runtime-arm result=armed role=server localSteamId=… diagnosticId=BUE-V2NET-003`（进世界后出现；role 以实际为准记录）+ `event=lmn-config-migration result=no-op mapping=empty reason=lmn-has-no-config diagnosticId=BUE-V2NET-001` | ☐ |
 | S1 防双装基线 | 全程 **零** `BUE-PLATFORM-001` 行（无冲突部署基线，SDK 文档 §8 附注） | ☐ |
@@ -125,7 +122,7 @@
 
 1. plugins = `BetterUnturnedExperience.r24.dll`（候选 BUE **改名**，哈希不变）+ `BetterUnturnedExperience.NoOpFixture.dll`；
 2. 启动单人世界（进世界即可）；
-3. 期望：BepInEx 无「缺少依赖/Dependency」告警；BUE 加载行 + `event=assembly-identity path=…\BetterUnturnedExperience.r24.dll sha256=7D5DD3B5…C223`（**path=改名路径**、sha256=候选原值）；NoOpFixture `BUE no-op fixture featureId=io.github.yu80rice.bue.noop accepted=True reason=None diagnosticId=BUE-REG-ACCEPT`（前置按 GUID 解析 + IL 按程序集名绑定，均与文件名无关）；
+3. 期望：BepInEx 无「缺少依赖/Dependency」告警；BUE 加载行 + `event=assembly-identity path=…\BetterUnturnedExperience.r24.dll sha256=3CBD6268…9E4D`（**path=改名路径**、sha256=候选原值）；NoOpFixture `BUE no-op fixture featureId=io.github.yu80rice.bue.noop accepted=True reason=None diagnosticId=BUE-REG-ACCEPT`（前置按 GUID 解析 + IL 按程序集名绑定，均与文件名无关）；
 4. 采完恢复原文件名。**记录**：☐
 
 ### C2+C3+C5（探针 Z 变体会话：LoadFile 二次探测 / 同版本谁保留 / Preloader 观察）
@@ -153,7 +150,7 @@
 |---|---|---|
 | `Better Unturned Experience 加载成功（无界面）` | Info | U3DS 每次启动 |
 | `Better Unturned Experience 加载成功，界面已注入` | Info | 客户端/单人每次启动 |
-| `… event=assembly-identity path=… sha256=7D5DD3B5…C223`（BUE-MANAGEMENT-TRACE-002） | Info | 每端每次启动（**身份绑定行**，逐环境照抄） |
+| `… event=assembly-identity path=… sha256=3CBD6268…9E4D`（BUE-MANAGEMENT-TRACE-002） | Info | 每端每次启动（**身份绑定行**，逐环境照抄） |
 | `Better Item Interaction / BUE Network Module / BUE Inventory Tidy / BUE In-Place Reload / BUE Horde Tracker featureId=… accepted=True reason=None diagnosticId=BUE-REG-ACCEPT` | Info | 每端每次启动（五行） |
 | `[Tidy] 整理按钮补丁已安装（Harmony ID=…）` / `[Lir] 原位换弹补丁已安装（Harmony ID=…）` | Info | 每端每次启动（enabled 时） |
 | `[Tidy] 本地整理已提交（page=N, mode=…, mappings=M）。` | Info | LIT 本地/主机整理提交 |
@@ -189,7 +186,7 @@ audit/2026-09-08/evidence/DEV-V2-24-20260908/
 
 - 每份 `case.md` 的 TODO 字段全部填实（collector / 版本 / UTC 窗口 `Get-Date -AsUTC` O 格式 / 部署指纹 / 锚行+行号 / 截图清单每行附 SHA-256）；结构不改。
 - `deploy-fingerprint.txt` = 该端逐件 certutil 输出 + BepInEx.cfg LogLevels 行 + 采集日期 + `SteamP2PFriends.dll` 在场记录。
-- **身份绑定（LoadSetIdentity）**：每份 case 的 assembly-identity 行 sha256 必须与候选 `7d5dd3b5…c223` 一致；三环境 + T7 + 共存全部绑定同一候选——结单时由 agent 汇总为 RELEASES 候选行的绑定表。
+- **身份绑定（LoadSetIdentity）**：每份 case 的 assembly-identity 行 sha256 必须与候选 `3cbd6268…9e4d` 一致；三环境 + T7 + 共存全部绑定同一候选——结单时由 agent 汇总为 RELEASES 候选行的绑定表。
 - 截图最低清单：sp 面板四条目（D0）、LIT 整理前后、LIR toast；p2p-client toast + LHT HUD；t7 面板红色状态行（C4）。
 - UMM 诊断导出若可用则附上；不可用即在 case.md 注明。
 - 采集完通知 agent：复核锚行与结论 → 双轴独立审查（standards-reviewer / Spec-Reviewer，全新实例）→ CLEAN 后授予 CaseId、落 RELEASES 候选行、真机手册（玩家安装/升级）落盘 → 关票。

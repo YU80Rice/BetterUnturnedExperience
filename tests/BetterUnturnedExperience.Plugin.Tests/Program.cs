@@ -3915,6 +3915,9 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 Assert(HasManagementEntry(composition.ManagementPanel.Model.GetEntries(),
                         "io.github.yu80rice.bue.inventory-tidy", "背包整理"),
                     "panel: the catalog projects the LIT entry under the official Chinese display name 背包整理");
+                Assert(HasManagementEntry(composition.ManagementPanel.Model.GetEntries(),
+                        "io.github.yu80rice.bue.better-item-interaction", "更好的物品交互"),
+                    "panel: the catalog projects the BII entry under the official Chinese display name 更好的物品交互 (DEV-V2-24 D0-b, spec story 3)");
                 composition.Destroy();
             }
             finally

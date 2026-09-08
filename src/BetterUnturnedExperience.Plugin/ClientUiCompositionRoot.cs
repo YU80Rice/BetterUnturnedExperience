@@ -123,7 +123,7 @@ namespace BetterUnturnedExperience.Plugin
             var presentation = component == null
                 ? new FeaturePresentationView(feature, FeaturePresentationState.Available, string.Empty, 1)
                 : component.Lifecycle.Presentation;
-            return new BueFeatureManagementEntry(feature, "Better Item Interaction", "1.0.0", state,
+            return new BueFeatureManagementEntry(feature, "更好的物品交互", "1.0.0", state,
                 presentation, settingsState.GetSnapshot());
         }
 

@@ -1,7 +1,7 @@
 # DEV-V2-24：三环境实机验收 + RELEASES 加行 + 真机手册（终票）
 
 Type: task
-Status: claimed（2026-09-08，/implement 会话；前置 20/21/22/23 四票已核实 resolved；本票源码零修改，按 DEV-V2-07 先例交付采集 kit + 采集手册，用户配合部署与实机采集；真机手册（玩家安装/升级）与 RELEASES 候选行待证据回来后随结单落地）
+Status: claimed（2026-09-08，/implement 会话；前置 20/21/22/23 四票已核实 resolved；采集 kit + 手册就绪后用户就 D0 拍板 = **D0-b 修复轮**——BII 面板显示名改「更好的物品交互」，红测先行 + 全套 7/7 PASS 0 警告，新候选 `3cbd6268…9e4d`（前身 7d5dd3b5…c223 作废）；待实机采集 → 复核 → 双轴 → RELEASES/真机手册/关票）
 Parent: spec.md（V2 第二阶段规格·三插件官方纳入与平台首公里）
 Blocked by: DEV-V2-20（LHT）、DEV-V2-21（LIT 联机）、DEV-V2-22（LIR）、DEV-V2-23（防双装+文档）
 Spec: `../spec.md`（Solution「到达标准」、Testing Decisions「实机验收面」两处）
@@ -37,3 +37,12 @@ Spec: `../spec.md`（Solution「到达标准」、Testing Decisions「实机验�
 - **采集手册**：`audit/2026-09-08/DEV-V2-24/DEV-V2-24-three-env-acceptance-handbook.md`（十节：配置 A 裸 BUE 三环境四功能 + 防双装真机基线 / 配置 B V1 共存 / 配置 C T7 五项独立会话；全部锚行为源码现行串逐一核实）。
 - **D0 采集前拍板点（待用户）**：BII 面板条目显示名为英文 `"Better Item Interaction"`（`ClientUiCompositionRoot.cs:126`），spec story 3 冻结四件中文名含「更好的物品交互」。处置二选一：(a) 接受现状→story 3/规格显示名措辞随结单修正登记；(b) 修复轮（改一处常量→红测+双轴→新候选→届时再采集）。未拍板不采集（中途换候选=全量重采）。
 - **seam 缺口具名（沿 07 先例）**：本票无新生产 seam、无实现缺陷可红，红测面不变；kit 探针/fixture 的正确性判据 = 实机日志行为本身（证据仪器）。全套 7 测试运行器复跑归结单轮。
+
+### 2026-09-08 D0 拍板 = D0-b 修复轮（用户拍板「B」）——BII 面板显示名中文化
+
+- **判别内容**：spec story 3 与「功能身份与显示名」节冻结 BII 显示名 =「更好的物品交互」，面板实况为英文 `"Better Item Interaction"`（`ClientUiCompositionRoot.cs:126`，Legacy DEV-15B 期遗留）。
+- **修复**：该一处显示名常量改「更好的物品交互」。REG-ACCEPT 启动日志标签 `Better Item Interaction featureId=…` 非面板显示名，不属显示名冻结面、维持原样（具名裁定，避免顺手扩大改动面）。
+- **红测先行**：Plugin.Tests `AssertLitSingleplayerPath` 面板块新增断言（面板目录以官方中文名投射 BII 条目）→ **观测红**（FAIL 于新断言，`redtest-run.log`）→ 改串 → **绿**（`greentest-run.log` exit=0）。
+- **全套门禁**：解决方案 Release 重建 0 错误 0 警告（`sln-rebuild-fullsuite.log`）+ 七运行器 7/7 exit=0（`fullsuite-run.log`）。
+- **候选重授**：新候选 `3cbd62687bf765c618eaa5b6762c1172c7de022b6a50dc64ae1b0bdd0d399e4d`（533504B 两轮 Rebuild 字节一致，CaseId **`DEV-V2-24-CANDIDATE-20260908`**）；前身 `7d5dd3b5…c223`（DEV-V2-23-CANDIDATE-20260908）作废，kit/out 与归档、手册、六模板已换绑。采集 CaseId 不变 = `DEV-V2-24-20260908`。
+- 增量 diff：`audit/2026-09-08/DEV-V2-24/round1-increment.diff`（双轴审查标的）。

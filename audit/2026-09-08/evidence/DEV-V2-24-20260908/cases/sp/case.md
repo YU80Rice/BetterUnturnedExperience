@@ -12,7 +12,7 @@
 ## 部署指纹（deploy-fingerprint.txt 要点）
 
 - TODO：plugins 目录逐件 `certutil -hashfile … SHA256` 输出 + BepInEx.cfg `[Logging.Disk] LogLevels` 行
-- TODO：LogOutput.log 中 `event=assembly-identity … sha256=…` 行原文（应 = `7D5DD3B5…C223`）
+- TODO：LogOutput.log 中 `event=assembly-identity … sha256=…` 行原文（应 = `3CBD6268…9E4D`）
 
 ## 锚行摘录（逐条注明 LogOutput.log 行号）
 
