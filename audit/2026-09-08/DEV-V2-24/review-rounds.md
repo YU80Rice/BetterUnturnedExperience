@@ -58,3 +58,78 @@ S2 改四件中文名齐口径；§10 与 sp/p2p-client 模板清开放措辞；
 ## 闭环
 
 **双轴最终 CLEAN（Standards=R3 / Spec=R3）**。修复轮候选 `c9b6b6e4…eb86`（DEV-V2-24-CANDIDATE-20260908，535552B 三轮 Rebuild 一致，identity-sha256.txt v3）；前身 7d5dd3b5…c223 与 3cbd6268…9e4d 作废。F-B1（幽灵覆盖层）未在本轮修复——H2 数据复制已排除，待新候选上提复现率压测后定根因。
+
+# F-B1 修复轮（round5-increment.diff,未提交工作树）
+
+## 背景
+
+实机根因闭环（litfb7=FAF3C0A6…63E7,诊断包 225112/225127）：第三方 SPF 整页重建背包 UI 的环境下,OnDragUpdated catch（第 4 条静默路径）对单帧异常 runtime.Isolate() 永久隔离 BII。修复=预览车道故障闸（60 连续帧去抖+三态诊断 BUE-DRAG-004）+Sink EnsureMounted 自愈重挂。红测 --bue-v2-fb1-red（观测红=首断言,fb1-red-run.log）。
+
+## R1（两个全新实例）
+
+- **Standards R1: CLEAN**（agent_7e616320-3472-4267-8920-a31a4a3a8838；0B+3S+2I）
+  - S1：诊断行双 id（载荷 BUE-DRAG-004 + 绑定追加 BUE-CLIENTUI-001）且 threw/recovered 全走 Error,与 F-B2 通道语义镜像变形。
+  - S2：previewUpdateFaultFrames 跨拖拽代际不复位（59+1=假隔离）。
+  - S3：测试两组件共享 emitted 列表,首帧一次性/2..59 静默/隔离行身份未独立钉。
+  - INFO：EnsureMounted 裸 RemoveChild 无防护（无引擎实证,不升级）；EmitDiagnostic 薄转发/未复用 TransientIsolationGate 与程序集边界一致,不报。
+- **Spec R1: NOT CLEAN**（agent_9306d2c4-050d-4739-8c69-dfe1c6533fb0；2D+1G+1S）
+  - D1：票面冻结 threw/recovered=Debug 级,实现全走 Error。
+  - D2：双 id 污染（与 F-B2 轮 D2 同类病）。
+  - GAP：红测未断言 BUE-DRAG-004。
+  - SMELL：全局 sink 未在票面登记（非阻塞）。
+  - 补充核验：src/ 零 [DEBUG-litfb 残留 ✓;fb1-red-run.log 红→绿链 ✓;F-C 延期登记证据链自洽 ✓。
+
+## F1（全部采纳）
+
+- D1+S1：诊断缝升级 `DiagnosticSink(string, ClientUiDiagnosticLevel)`——threw/recovered=Debug、isolated=Error;Plugin 绑定按级路由,载荷含 diagnosticId= 时不再追加 BUE-CLIENTUI-001。
+- S2：streak 复位=OnDragStarted（新代际清零）+OnInventoryClosed;红测紧判别：59 帧→新代际→1 帧（无复位=恰 60 隔离）。
+- S3+GAP：测试分组 emitted;钉 BUE-DRAG-004 于三行+一次性语义（59 帧 threw 恰 1 行）+异常身份。
+- INFO 采纳：EnsureMounted never-throw 防护。
+- SMELL 采纳：全局 sink 本节+票面登记。
+
+## R2（两个全新实例,标的=含 F1 的 round5-increment.diff 终稿）
+
+
+- **Standards R2: CLEAN**（agent_7090cc67-f2ec-49e6-8d58-112957dcc544；R1 五项复核全部已修复；1 SMELL=测试 sink 丢弃 level 未断言路由/双 id 抑制；2 INFO=证据 identity.txt 头部滞留 v3 字样、EnsureMounted 防御枝）
+- **Spec R2: NOT CLEAN**（agent_f2a6dcde-f9e1-40f5-a55e-d2caa9bcf509；R1 四项复核全部已修复；D1=票面新旧候选授予表述自相矛盾（旧 v4 授予段未标作废指针）；D2=证据 candidate/identity.txt 基线/前身行未随 v4-F1 更新；GAP=红测收 level 未断言 Debug/Error 路由与 BUE-CLIENTUI-001 排除）
+
+## F2（全部采纳；纯测试+文档,候选 7448B0CE…64C9 不受影响）
+
+- Spec D1：票面旧 v4 授予段标「（历史记录,v4 预授已被下方 F1 作废,现行候选=v4-F1）」；旧「下一步」行标被取代注记。
+- Spec D2+Standards INFO：evidence candidate/identity.txt 头部改「v4-F1」、基线补 F-B1 含 F1/round5-increment.diff、前身列表补 v3 与 v4 预授；手册 §1 快照行同步。
+- Spec GAP+Standards SMELL：红测 sink 捕获 (line, level) 元组；threw/recovered 断言 level==Debug、isolated 断言 level==Error，三行均断言 !Contains(BUE-CLIENTUI-001)。
+- Standards INFO（EnsureMounted 防御枝）接受不改（Mount 为构造期正常路径）。
+- F2 后旗标+默认套件 PASS；round5-increment.diff 已再刷新（R3 审查标的）。
+
+## R3（两个全新实例,标的=含 F1+F2 的 round5-increment.diff 终稿）
+
+- **Standards R3: CLEAN**（agent_eab22a95-4ba2-449c-827b-ceb452e94239；R1 三项+R2 SMELL 复核全闭环；1 SMELL=recovered 断言未对称排除 BUE-CLIENTUI-001（断言不齐,非行为回归））
+- **Spec R3: NOT CLEAN**（agent_abeb55c0-c61d-47fd-bca1-bf30429f7daa；R1 四项+R2 三项复核全闭环；2 GAP=①本归档留「（待回填）」占位（本条即回填）；②recovered 断言缺双 id 排除——与 Standards SMELL 同一处）
+
+## F3（两处机械修复）
+
+- recovered 断言补 `!Contains(BUE-CLIENTUI-001)`（与 threw/isolated 对称）。
+- 本归档 R2/R3 段落回填完成（消除占位）。
+- F3 后旗标+默认套件 PASS；候选 7448B0CE…64C9 不变（纯测试+归档）。
+
+## R4（两个全新实例,标的=含 F1+F2+F3 的 round5-increment.diff 终稿）——判词到达时回填,不预置占位
+
+## R4（两个全新实例,标的=含 F1+F2+F3 的 round5-increment.diff 终稿）
+
+- **Standards R4: CLEAN**（agent_530d902b-5f2c-42b3-b4f4-ae7368d0c020；R3 SMELL 复核已修复；2 INFO=①R2 标题下残留占位行（F4-1 处置）②两份身份头口径分叉 v4/v4-F1（F4-2 处置）；生产代码终稿无新 BLOCKING/SMELL,R1-R2 已具名项未回潮）
+- **Spec R4: NOT CLEAN**（agent_c2a21fa4-1522-42c4-900b-d0fe7b6b19f7；R3 两项复核=①已修复 ②归档占位残留实锤；3 发现=GAP 本轮判词未回填+占位残留（F4-1/F4-3 处置）、DEVIATION 归档自述与内容矛盾（同源）、SMELL F-C 延期缺具名后续票（F4-4 处置=新建 DEV-V2-25））
+
+## F4（簿记闭环；纯归档+文档,候选 7448B0CE…64C9 不变）
+
+- F4-1：删除 R2 标题下残留占位行（grep 待回填 清零,本行除外=处置记录）。
+- F4-2：identity-sha256.txt 头部对齐 evidence 侧「v4-F1」口径。
+- F4-3：本段即 R4 判词回填（自指簿记沿 DEV-V2-16 先例:机械记账动作随落盘即执行,由 R5 新实例核验）。
+- F4-4：F-C 具名后续票 DEV-V2-25（`.scratch/bue-v2-phase2-official-adoption/issues/DEV-V2-25-lit-tidy-send-backoff-ratelimit.md`,Status: open），DEV-V2-24 票面 F-C 延期行补票号指针。
+
+## R5（Spec 单轴核验,全新实例;Standards 已于 R4 CLEAN）
+
+- **Spec R5: CLEAN**（agent_4a0e359c-38bb-4727-8524-47be53853ccf；R4 三发现复核全部闭环：占位清零（残留两处均系判词引文）、身份文件三处对齐 v4-F1、F-C 具名票 DEV-V2-25 存在且 Scope/Acceptance 完整；src/tests 相对 R4 被审状态零改动,零新发现）
+
+## 闭环
+
+**双轴最终 CLEAN（Standards=R4 / Spec=R5）**。F-B1 修复轮候选 v4-F1 = `7448B0CE14ECCED001E4E8B4DFCE09416DC66985AB063A904ACD681EC57464C9`（537088B 三轮 Rebuild 一致,identity-sha256.txt v4-F1）；前身 7d5dd3b5…c223/3cbd6268…9e4d(v2)/C9B6B6E4…EB86(v3)/40154219…8A26(v4 预授)均作废。F-C 延期已具名 DEV-V2-25（open）。全量重采绑 v4-F1。

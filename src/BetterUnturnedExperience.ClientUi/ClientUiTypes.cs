@@ -94,6 +94,26 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             state = ClientUiCompositionState.NotInitialized;
         }
 
+        // ClientUi diagnostic seam (DEV-V2-24 F-B1): the composition and the
+        // feature components cannot reach the plugin log directly, so they
+        // emit structured lines through this sink; the plugin binds it to the
+        // runtime log at wiring time, honoring the requested level. Lines
+        // that already carry diagnosticId= are passed through unmodified so
+        // feature-owned ids are never double-tagged.
+        internal enum ClientUiDiagnosticLevel { Debug = 0, Error = 1 }
+        internal static Action<string, ClientUiDiagnosticLevel> DiagnosticSink = null;
+        private static void Emit(string line, ClientUiDiagnosticLevel level)
+        {
+            var sink = DiagnosticSink;
+            if (sink != null) { try { sink(line, level); } catch (Exception) { } }
+        }
+
+        // Internal forwarder so feature components can reach the same sink.
+        internal static void EmitDiagnostic(string line, ClientUiDiagnosticLevel level)
+        {
+            Emit(line, level);
+        }
+
         internal ClientUiCompositionState State { get { return state; } }
         internal IReadOnlyList<FeatureId> IsolatedFeatureIds { get { return isolatedFeatureIds.AsReadOnly(); } }
         internal bool IsSafeMode { get { return safeMode; } }

@@ -87,6 +87,12 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     AssertDev16DR13NonCurrentPageRebuildUsesLiveDispatchSeam();
                     return 0;
                 }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--bue-v2-fb1-red")
+                {
+                    AssertPreviewUpdateTransientFaultIsAbsorbedAndVisible();
+                    AssertSinkRemountsAfterThirdPartyPanelClear();
+                    return 0;
+                }
                 if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--dev16d-r13-native-delegate-red")
                 {
                     AssertDev16DR13NativeDelegateLifecycleIsReversible();
@@ -366,6 +372,8 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 AssertDev16FEquipSlotSourceReachesCandidateSeam();
                 AssertLoggingSurfaceReadinessGate();
                 AssertTransientIsolationGate();
+                AssertPreviewUpdateTransientFaultIsAbsorbedAndVisible();
+                AssertSinkRemountsAfterThirdPartyPanelClear();
                 AssertLoggingFailureEmission();
                 AssertLoggingRuntimeVerbosity();
                 AssertLoggingBueRuntimeClassification();
@@ -6270,6 +6278,219 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 new EmptyGridForTest(8, 6),
                 nativeItems,
                 false);
+        }
+
+        // GPT watermark: DEV-V2-24 F-B1 red regression. A single transient
+        // fault inside the preview-update lane (the production repro: a
+        // third-party listen-host panel repair racing the drag tick) must be
+        // absorbed with a one-shot diagnostic, NOT isolate BII for the whole
+        // session. Only consecutive-fault persistence (60-frame debounce,
+        // same semantics as the surface-lane TransientIsolationGate) may
+        // isolate, and the isolating fault must be visible with its identity.
+        private static void AssertPreviewUpdateTransientFaultIsAbsorbedAndVisible()
+        {
+            var transientEmitted = new List<KeyValuePair<string, ClientUiCompositionRoot.ClientUiDiagnosticLevel>>();
+            ClientUiCompositionRoot.DiagnosticSink = (line, level) => transientEmitted.Add(new KeyValuePair<string, ClientUiCompositionRoot.ClientUiDiagnosticLevel>(line, level));
+            try
+            {
+                var component = new BetterItemInteractionUiComponent(
+                    new InventoryPreviewPresenter(new InventoryDragPresenter(new ThrowOnceThenFixedCandidateEvaluator())),
+                    new NativeInventoryInteractionAdapter(2, 8));
+                component.OnUiInitialized(new TestRoot());
+                var surface = new TestSurfaceContext(
+                    new ContainerReference(ContainerKind.PlayerInventory, 3, 941),
+                    new TestVisualContainer(), new TestVisualContainer(),
+                    new InventoryGridViewport(0f, 0f, 8, 6, 0f, 0f, 400f, 300f),
+                    50f, 1f, 0f, 0f, new EmptyGridForTest(8, 6), true, 100f, 100f);
+                component.OnInventoryOpened(surface);
+                component.OnDragStarted(941, ItemAssetIdentity.FromItemId(363),
+                    new ItemGridPosition(3, 0, 0, 0));
+                InventoryPreviewInput input;
+                Assert(component.TryCreatePreviewInput(941, new ItemGridPosition(3, 0, 0, 0),
+                        100f, 100f, 1, 1, 0, false, 0.5f, 0.5f,
+                        ItemAssetIdentity.FromItemId(363), out input),
+                    "FB1 fault gate: a healthy drag builds a preview input");
+                component.OnDragUpdated(input);
+                Assert(component.LifecycleCanRun,
+                    "FB1 fault gate: a single preview-update fault must not isolate the feature");
+                Assert(transientEmitted.Exists(entry => entry.Key.Contains("event=preview-update-threw")
+                        && entry.Key.Contains("InvalidOperationException")
+                        && entry.Key.Contains("diagnosticId=BUE-DRAG-004")
+                        && !entry.Key.Contains("BUE-CLIENTUI-001")
+                        && entry.Value == ClientUiCompositionRoot.ClientUiDiagnosticLevel.Debug),
+                    "FB1 fault gate: a transient preview-update fault emits a one-shot BUE-DRAG-004 Debug diagnostic with the exception identity and no doubled id");
+                component.OnDragUpdated(input);
+                Assert(component.LastPreview.State == PlacementPreviewState.Candidate,
+                    "FB1 fault gate: the preview recovers on the next healthy frame");
+                Assert(transientEmitted.Exists(entry => entry.Key.Contains("event=preview-update-recovered")
+                        && entry.Key.Contains("diagnosticId=BUE-DRAG-004")
+                        && !entry.Key.Contains("BUE-CLIENTUI-001")
+                        && entry.Value == ClientUiCompositionRoot.ClientUiDiagnosticLevel.Debug),
+                    "FB1 fault gate: recovery after absorbed faults emits a one-shot BUE-DRAG-004 Debug recovery line and no doubled id");
+
+                var persistentEmitted = new List<KeyValuePair<string, ClientUiCompositionRoot.ClientUiDiagnosticLevel>>();
+                ClientUiCompositionRoot.DiagnosticSink = (line, level) => persistentEmitted.Add(new KeyValuePair<string, ClientUiCompositionRoot.ClientUiDiagnosticLevel>(line, level));
+                var persistent = new BetterItemInteractionUiComponent(
+                    new InventoryPreviewPresenter(new InventoryDragPresenter(new ThrowingCandidateEvaluator())),
+                    new NativeInventoryInteractionAdapter(2, 8));
+                persistent.OnUiInitialized(new TestRoot());
+                var persistentSurface = new TestSurfaceContext(
+                    new ContainerReference(ContainerKind.PlayerInventory, 3, 942),
+                    new TestVisualContainer(), new TestVisualContainer(),
+                    new InventoryGridViewport(0f, 0f, 8, 6, 0f, 0f, 400f, 300f),
+                    50f, 1f, 0f, 0f, new EmptyGridForTest(8, 6), true, 100f, 100f);
+                persistent.OnInventoryOpened(persistentSurface);
+                persistent.OnDragStarted(942, ItemAssetIdentity.FromItemId(363),
+                    new ItemGridPosition(3, 0, 0, 0));
+                InventoryPreviewInput persistentInput;
+                Assert(persistent.TryCreatePreviewInput(942, new ItemGridPosition(3, 0, 0, 0),
+                        100f, 100f, 1, 1, 0, false, 0.5f, 0.5f,
+                        ItemAssetIdentity.FromItemId(363), out persistentInput),
+                    "FB1 fault gate: the persistent-fault drag builds a preview input");
+                for (var frame = 1; frame <= 59; frame++)
+                {
+                    persistent.OnDragUpdated(persistentInput);
+                }
+                var threwLineCount = 0;
+                foreach (var emittedEntry in persistentEmitted)
+                {
+                    if (emittedEntry.Key.Contains("event=preview-update-threw")) threwLineCount++;
+                }
+                Assert(threwLineCount == 1,
+                    "FB1 fault gate: absorbed frames stay silent — the threw line is emitted exactly once per streak");
+                Assert(persistent.LifecycleCanRun,
+                    "FB1 fault gate: 59 consecutive preview-update faults stay absorbed by the debounce gate");
+                persistent.OnDragUpdated(persistentInput);
+                Assert(!persistent.LifecycleCanRun,
+                    "FB1 fault gate: 60 consecutive preview-update faults isolate the feature");
+                Assert(persistentEmitted.Exists(entry => entry.Key.Contains("event=preview-update-isolated")
+                        && entry.Key.Contains("InvalidOperationException")
+                        && entry.Key.Contains("diagnosticId=BUE-DRAG-004")
+                        && !entry.Key.Contains("BUE-CLIENTUI-001")
+                        && entry.Value == ClientUiCompositionRoot.ClientUiDiagnosticLevel.Error),
+                    "FB1 fault gate: the isolating preview-update fault emits a BUE-DRAG-004 Error diagnostic with the exception identity and no doubled id");
+
+                // Streak scoping: a fresh drag generation resets the absorbed
+                // streak instead of resuming it toward the threshold — 59
+                // absorbed frames, then a new drag, then ONE fault must stay
+                // absorbed (without the reset that single fault would be the
+                // 60th consecutive frame and would isolate).
+                var resumed = new BetterItemInteractionUiComponent(
+                    new InventoryPreviewPresenter(new InventoryDragPresenter(new ThrowingCandidateEvaluator())),
+                    new NativeInventoryInteractionAdapter(2, 8));
+                resumed.OnUiInitialized(new TestRoot());
+                var resumedSurface = new TestSurfaceContext(
+                    new ContainerReference(ContainerKind.PlayerInventory, 3, 945),
+                    new TestVisualContainer(), new TestVisualContainer(),
+                    new InventoryGridViewport(0f, 0f, 8, 6, 0f, 0f, 400f, 300f),
+                    50f, 1f, 0f, 0f, new EmptyGridForTest(8, 6), true, 100f, 100f);
+                resumed.OnInventoryOpened(resumedSurface);
+                resumed.OnDragStarted(945, ItemAssetIdentity.FromItemId(363),
+                    new ItemGridPosition(3, 0, 0, 0));
+                InventoryPreviewInput resumedInput;
+                Assert(resumed.TryCreatePreviewInput(945, new ItemGridPosition(3, 0, 0, 0),
+                        100f, 100f, 1, 1, 0, false, 0.5f, 0.5f,
+                        ItemAssetIdentity.FromItemId(363), out resumedInput),
+                    "FB1 fault gate: the streak-scope drag builds a preview input");
+                for (var frame = 0; frame < 59; frame++)
+                {
+                    resumed.OnDragUpdated(resumedInput);
+                }
+                Assert(resumed.LifecycleCanRun,
+                    "FB1 fault gate: 59 consecutive faults stay absorbed by the debounce gate");
+                resumed.OnDragStarted(946, ItemAssetIdentity.FromItemId(363),
+                    new ItemGridPosition(3, 0, 0, 0));
+                InventoryPreviewInput resumedInput2;
+                Assert(resumed.TryCreatePreviewInput(946, new ItemGridPosition(3, 0, 0, 0),
+                        100f, 100f, 1, 1, 0, false, 0.5f, 0.5f,
+                        ItemAssetIdentity.FromItemId(363), out resumedInput2),
+                    "FB1 fault gate: the reset-scope drag builds its own preview input");
+                resumed.OnDragUpdated(resumedInput2);
+                Assert(resumed.LifecycleCanRun,
+                    "FB1 fault gate: a new drag generation resets the streak — the first fault of the next drag is not the 60th consecutive frame");
+            }
+            finally
+            {
+                ClientUiCompositionRoot.DiagnosticSink = null;
+            }
+        }
+
+        // GPT watermark: DEV-V2-24 F-B1 red regression. The listen-host panel
+        // repair (SPF-style reconcile) clears the native items panel children
+        // — including the mounted preview frame — behind BUE's back. The next
+        // drag start must re-assert the sink children so one rebuild cannot
+        // leave the preview lane invisibly dead for the session.
+        private static void AssertSinkRemountsAfterThirdPartyPanelClear()
+        {
+            var gridPanel = new RecordingVisualContainer();
+            var topLevel = new RecordingVisualContainer();
+            var component = new BetterItemInteractionUiComponent(
+                new InventoryPreviewPresenter(new InventoryDragPresenter(new FixedCandidateEvaluator())),
+                new NativeInventoryInteractionAdapter(2, 8));
+            component.OnUiInitialized(new TestRoot());
+            var surface = new TestSurfaceContext(
+                new ContainerReference(ContainerKind.PlayerInventory, 3, 943),
+                topLevel, gridPanel,
+                new InventoryGridViewport(0f, 0f, 8, 6, 0f, 0f, 400f, 300f),
+                50f, 1f, 0f, 0f, new EmptyGridForTest(8, 6), true, 100f, 100f);
+            component.OnInventoryOpened(surface);
+            component.OnDragStarted(943, ItemAssetIdentity.FromItemId(363),
+                new ItemGridPosition(3, 0, 0, 0));
+            Assert(gridPanel.Children.Count == 1 && topLevel.Children.Count == 1,
+                "FB1 sink remount: the preview frame and icon mount into their containers");
+            gridPanel.SimulateThirdPartyClear();
+            topLevel.SimulateThirdPartyClear();
+            component.OnDragStarted(944, ItemAssetIdentity.FromItemId(363),
+                new ItemGridPosition(3, 0, 0, 0));
+            Assert(gridPanel.Children.Count == 1 && topLevel.Children.Count == 1,
+                "FB1 sink remount: the next drag start re-asserts the sink children after a third-party clear");
+            InventoryPreviewInput input;
+            Assert(component.TryCreatePreviewInput(944, new ItemGridPosition(3, 0, 0, 0),
+                    100f, 100f, 1, 1, 0, false, 0.5f, 0.5f,
+                    ItemAssetIdentity.FromItemId(363), out input),
+                "FB1 sink remount: a preview input still builds after the third-party clear");
+            component.OnDragUpdated(input);
+            Assert(component.LastPreview.State == PlacementPreviewState.Candidate,
+                "FB1 sink remount: the preview stays healthy across the rebuild boundary");
+            component.OnInventoryClosed();
+        }
+
+        private sealed class ThrowOnceThenFixedCandidateEvaluator : IPlacementCandidateEvaluator
+        {
+            private bool threw;
+            public ItemPlacementPreview Evaluate(PlacementCandidateInput input)
+            {
+                if (!threw)
+                {
+                    threw = true;
+                    throw new InvalidOperationException("FB1 simulated transient preview fault");
+                }
+                return new ItemPlacementPreview(input.DragGeneration, PlacementPreviewState.Candidate,
+                    new ItemGridPosition(input.TargetContainer.Page, 1, 1, input.CurrentRotation),
+                    input.ItemWidth, input.ItemHeight, PlacementReason.None);
+            }
+        }
+
+        private sealed class ThrowingCandidateEvaluator : IPlacementCandidateEvaluator
+        {
+            public ItemPlacementPreview Evaluate(PlacementCandidateInput input)
+            {
+                throw new InvalidOperationException("FB1 simulated persistent preview fault");
+            }
+        }
+
+        private sealed class RecordingVisualContainer : IVisualContainer
+        {
+            internal readonly List<IVisualElement> Children = new List<IVisualElement>();
+
+            public IVisualElement CreateBox() { return new TestVisualElement(); }
+            public IVisualElement CreateImage() { return new TestVisualElement(); }
+            public void AddChild(IVisualElement child)
+            {
+                if (!Children.Contains(child)) Children.Add(child);
+            }
+            public void RemoveChild(IVisualElement child) { Children.Remove(child); }
+            internal void SimulateThirdPartyClear() { Children.Clear(); }
         }
 
         private sealed class FixedCandidateEvaluator : IPlacementCandidateEvaluator

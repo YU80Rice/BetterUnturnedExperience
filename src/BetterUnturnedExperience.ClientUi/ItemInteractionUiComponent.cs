@@ -136,6 +136,28 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             isMounted = true;
         }
 
+        // DEV-V2-24 F-B1: a third-party rebuild of the native items panel
+        // (e.g. the listen-host projection repair clearing panel children)
+        // can remove the mounted preview elements behind BUE's back. Each new
+        // drag start re-asserts the children so one rebuild cannot leave the
+        // preview lane invisibly dead for the rest of the session.
+        internal void EnsureMounted()
+        {
+            if (!isMounted) { Mount(); return; }
+            // Best-effort re-assert: a native container may reject the
+            // remove/add of a child a third-party rebuild already detached.
+            // Per the never-throw host-event convention, this degrades to
+            // "no remount this drag" instead of escaping into the drag tick.
+            try
+            {
+                gridPanelContainer.RemoveChild(frameElement);
+                gridPanelContainer.AddChild(frameElement);
+                topLevelContainer.RemoveChild(iconElement);
+                topLevelContainer.AddChild(iconElement);
+            }
+            catch (Exception) { }
+        }
+
         internal void Unmount()
         {
             if (!isMounted) return;
@@ -473,6 +495,7 @@ namespace BetterUnturnedExperience.ClientUi.Internal
         {
             HidePreview();
             isInventoryOpen = false;
+            previewUpdateFaultFrames = 0;
             currentSurface = null;
             currentContainer = default(ContainerReference);
             currentSessionGeneration = 0;
@@ -590,6 +613,11 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             dragOriginContainer = source.Page == currentContainer.Page && currentContainer.SessionGeneration != 0
                 ? currentContainer : default(ContainerReference);
             ClearActiveDragOccupancy();
+            // A new drag generation scopes the preview-update fault streak:
+            // 59 absorbed faults in one drag must never leak into the next
+            // drag's first frame (the streak measures CONSECUTIVE frames of
+            // one drag, not cumulative history).
+            previewUpdateFaultFrames = 0;
             if (dragSourcePassThrough)
             {
                 runtime.EndDrag();
@@ -603,11 +631,23 @@ namespace BetterUnturnedExperience.ClientUi.Internal
                 BindVisualSink(currentSurface.TopLevelContainer, currentSurface.GridPanelContainer);
                 isInventoryOpen = true;
             }
+            else if (runtime.EnhancedDragActive && previewSink != null)
+            {
+                previewSink.EnsureMounted();
+            }
             if (runtime.EnhancedDragActive) previewPresenter.BeginDrag(dragGeneration);
             else previewPresenter.EndDrag();
         }
 
         private ItemAssetIdentity currentDragAsset;
+
+        // DEV-V2-24 F-B1: the preview-update lane shares the surface lane's
+        // fault semantics — a single transient fault (e.g. a third-party
+        // listen-host panel repair racing the drag tick) is absorbed with a
+        // one-shot diagnostic; only 60 CONSECUTIVE fault frames isolate, and
+        // any healthy frame resets the streak.
+        private const int PreviewUpdateFaultIsolationThreshold = 60;
+        private int previewUpdateFaultFrames;
 
         internal void OnDragUpdated(InventoryPreviewInput input)
         {
@@ -630,11 +670,39 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             try
             {
                 previewPresenter.Update(input, previewSink);
+                if (previewUpdateFaultFrames != 0)
+                {
+                    previewUpdateFaultFrames = 0;
+                    ClientUiCompositionRoot.EmitDiagnostic("[BUE-DRAG] event=preview-update-recovered diagnosticId=BUE-DRAG-004",
+                        ClientUiCompositionRoot.ClientUiDiagnosticLevel.Debug);
+                }
             }
-            catch (Exception)
+            catch (Exception error)
             {
-                runtime.Isolate();
+                previewUpdateFaultFrames++;
+                if (previewUpdateFaultFrames >= PreviewUpdateFaultIsolationThreshold)
+                {
+                    ClientUiCompositionRoot.EmitDiagnostic("[BUE-DRAG] event=preview-update-isolated"
+                        + " consecutive=" + previewUpdateFaultFrames
+                        + " errorType=" + error.GetType().Name
+                        + " message=" + error.Message
+                        + " diagnosticId=BUE-DRAG-004",
+                        ClientUiCompositionRoot.ClientUiDiagnosticLevel.Error);
+                    runtime.Isolate();
+                    HidePreview();
+                    return;
+                }
+                if (previewUpdateFaultFrames == 1)
+                {
+                    ClientUiCompositionRoot.EmitDiagnostic("[BUE-DRAG] event=preview-update-threw"
+                        + " consecutive=" + previewUpdateFaultFrames
+                        + " errorType=" + error.GetType().Name
+                        + " message=" + error.Message
+                        + " diagnosticId=BUE-DRAG-004",
+                        ClientUiCompositionRoot.ClientUiDiagnosticLevel.Debug);
+                }
                 HidePreview();
+                return;
             }
         }
 

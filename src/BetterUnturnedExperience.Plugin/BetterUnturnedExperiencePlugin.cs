@@ -107,6 +107,20 @@ namespace BetterUnturnedExperience.Plugin
                         // heartbeat is removed.
                         inventoryDragAdapter = new InventoryDragPreviewAdapter(Logger, clientUiComposition.OfficialComponent);
 
+                        // DEV-V2-24 F1: level-aware routing (feature lines
+                        // choose Debug/Error themselves) and the generic
+                        // BUE-CLIENTUI-001 tag is appended ONLY when the line
+                        // does not already carry its own diagnosticId=, so
+                        // feature-owned ids are never double-tagged.
+                        BetterUnturnedExperience.ClientUi.Internal.ClientUiCompositionRoot.DiagnosticSink = (line, level) =>
+                        {
+                            var tagged = line.Contains("diagnosticId=");
+                            var text = "[BUE-CLIENTUI] " + line + (tagged ? "" : " diagnosticId=BUE-CLIENTUI-001");
+                            if (level == BetterUnturnedExperience.ClientUi.Internal.ClientUiCompositionRoot.ClientUiDiagnosticLevel.Error)
+                                BueRuntimeLog.Error(text);
+                            else
+                                BueRuntimeLog.Runtime(text);
+                        };
                         inventoryLifecycleAdapter = new InventorySurfaceLifecycleAdapter(Logger,
                             surface =>
                             {

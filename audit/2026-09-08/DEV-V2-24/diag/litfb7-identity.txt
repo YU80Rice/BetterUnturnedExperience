@@ -1,0 +1,13 @@
+litfb7 诊断构建 (DEV-V2-24 F-B1 决定性插桩)
+sha256: FAF3C0A6FB3515CFD10A0AFB589AA090C13C2682CEF07CB448D842444ADB63E7
+大小: 见 bin/Release；三轮 Rebuild 待候选轮才做（诊断构建不作候选）
+插桩位点:
+  - InventoryPreviewWiring.TryCreateCandidateInput: LastCandidateRejectReason 记录全部 6 类拒绝谓词
+  - ItemInteractionUiComponent.OnDragUpdated: 每拖拽代际一行入口标志 (passThrough/open/sink/enhanced/canRun/cur)
+  - ItemInteractionUiComponent.OnDragUpdated: flag-hide / guard-hide 早退探针
+  - ItemInteractionUiComponent.TryCreatePreviewInputCore: occupancy-failed 探针
+  - InventoryDragPreviewAdapter Poll: Hidden+None 时每代际一行 hidden-detail (rejectWhy+open+sink)
+通道: ClientUi 侧经 DiagnosticSink→BueRuntimeLog.Error (恒可见); Plugin 侧 BueRuntimeLog.Runtime (Debug, 本机 cfg LogLevels=All 已开)
+全套测试: 7/7 PASS, 0 警告 0 错误 (litfb7-build.log)
+部署: E:\Steam\...\BepInEx\plugins\BetterUnturnedExperience.dll 已验证同哈希
+前置勘误: litfb5 (58a5dc42) 从未在任何一端运行 (13 包 assembly-identity 矩阵核实, 210433 主机实为 litfb4 cfe5080f) — "litfb5 全零"结论作废
