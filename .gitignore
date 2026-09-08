@@ -27,3 +27,6 @@ audit/**/*.diff
 # ---- IDE ----
 .vs/
 *.user
+
+# ZCode session-local tool state
+.zcode/

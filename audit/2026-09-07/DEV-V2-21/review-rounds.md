@@ -86,3 +86,27 @@ ReadCommittedToken 名称与实义不符；temporaryToken 死字段（构造期 
 ## 终局
 
 **R9 双轴双 CLEAN**（Standards + Spec，全新实例）；R8 两项反驳均被独立裁定成立。轮次链：R1→R2→…→R9 共 9 轮，累计修复 6 BLOCKING + 1 DEVIATION + 8 SMELL，3 次技术/边界反驳被采纳，1 项具名延期（键元组数据团）。
+
+---
+
+# R10（结单后全票重审）与 R11（修复增量复审）——2026-09-08 补档
+
+R10 为结单后全新实例**全票重审轮**（标的=`round10-increment.diff`，4075 行：21634bd+25d7bc7 相对前序提交的全票增量）。**R10 两轴判词原文未随上一会话存档（记录疏漏，与前述 R1–R9 补档同因，失败派发情况不可考）**——本节按幸存证据重建要点：修复轮增量 `round11-increment.diff` 内的修复注释、票面延期注记、红测断言变更；计数不可考处如实标注，不作臆测。
+
+## R10 发现与修复（按幸存证据重建，详证见 round11-increment.diff）
+
+1. **R10-Standards BLOCKING**：`LitTidyFaultScopeBook` 持久统计文件**解析失败**未进入 Degraded——损坏文件被静默当作空 scope（allow-all）。→ 修复：解析失败即 `Degraded=true` 全局降级（所有整理拒绝直到显式恢复），LogError 留痕（LitTidyFaultScopeBook.cs LoadFromDiskLocked）。
+2. **R10-Spec GAP-1**：后继连接代际接管依赖 Tick 发现，challenge 晚一拍（GenerationChanged 处理器带 tracking guard 且不接管后继）。→ 修复：事件拍先 `OnSessionDropped`（旧代精确清理）再 `AdoptSuccessor(newGeneration)` 即时接管+同拍 challenge；首连发现仍走 Tick（established-only 快照冻结语义，R6 反驳维持，注释留痕）。
+3. **R10 死代码**：`DropPeer(ulong)`（peer 前缀整扫）在 LitTidyServerState 三表（sessions/entries/leases）与 LitTidyNetService 已无调用方 → 整体删除；「peer gone entirely=全代际死」语义由断线路径 `OnSessionDropped` 按代际清理保证（R11-Spec 复核无回退）。
+4. **R10-Spec GAP-2**：P2P/U3DS 实机自验在实施环境不可执行 → **裁定具名延期**绑 DEV-V2-24（沿 15/17/18/19 先例；协议行为已由假 transport 全链红测钉死）；裁定调查证据=本目录 `parse-u3ds-lnk*.ps1`（本机 U3DS 快捷方式/Servers 实例勘察）。注记落票面验收行。
+
+**R10 修复轮红→绿锚点（2026-09-08 实测补锚）**：修复源码暂存（四 src 文件 stash、保留新断言）→ `--bue-v2-lit-multiplayer-red` 恰 2 条新断言红：「fault：代际更替由会话事件即时接管（后继 challenge 事件拍发出，无 Tick 延迟）」「fault：持久统计文件损坏 → 解析失败进入全局降级」；恢复修复后复跑 ALL GREEN（0 failures）。
+
+## R11 双轴（全新实例，2026-09-08）— **双双 CLEAN**
+
+- **R11 Standards（agent_ff61a379，18 次工具调用）— CLEAN（0 BLOCKING + 0 SMELL）**。判词原文要点：「增量已对照源码区域核实（LoadFromDiskLocked 解析失败降级、GenerationChanged 事件拍 AdoptSuccessor、DropPeer 删除、注释/红测对齐）」「空 catch 按宿主事件路径 never-throw 惯例裁定：与 Tick:214、RequestTidy:436 同构；challenge 失败已在 OnSessionEstablished:295-301 打日志并移出 liveSessions，Tick 仍可补发现」「PeerPrefix 仍被 GenerationPrefix 使用，非死代码」「键元组数据团维持具名延期，不重开」。
+- **R11 Spec（agent_10bb1343，19 次工具调用）— CLEAN（GAP 0 + DEVIATION 0 + SMELL 0）**。判词原文要点：「GenerationChanged 先按代际清理旧会话，再即时接管后继并发出 challenge，符合票面:14-18、spec.md:161 的代际与 challenge 要求」「旧 DropPeer 删除未造成语义回退（LitTidyNetService.cs:364-386 仍按断线/代际精确清理，保留磁盘统计）」「challenge 测试改为服务器侧旧 token 准入拒绝并验证事件拍新 challenge，符合票面:24 及 spec.md:120-122 握手/代际/fail-closed 语义」「持久化解析失败进入全局 Degraded 符合故障安全要求」「P2P 自验延期注记与 15/17/18/19 的 DEV-V2-24 实机延期先例一致，不构成发现」。
+
+## 终局（R11 后）
+
+**R11 双轴双 CLEAN**；轮次链 R1→…→R9→R10（结单后全票重审）→R11（修复增量复审）共 11 轮。新候选身份：SHA-256 `0687d8f53303581c64e1fbbb2c64d1fa35cbe1573b8f3757bc7a8d7c9549a35d`（417792 B，两轮 `-t:Rebuild` 字节一致，CaseId **DEV-V2-21-CANDIDATE-20260908**，identity-rebuild1/2-r11.log）；R10 修复经 Lit 源码变更传导进 Plugin.dll 确定性编译输入，故身份重新授予而非沿用 78da57c2…。

@@ -240,8 +240,18 @@ namespace BetterUnturnedExperience.Lit
             try
             {
                 if (string.IsNullOrEmpty(scopeFilePath) || !File.Exists(scopeFilePath)) return true; // first boot: empty scope
-                var text = File.ReadAllText(scopeFilePath);
-                return ParseJsonLocked(text);
+                var ok = ParseJsonLocked(File.ReadAllText(scopeFilePath));
+                if (!ok)
+                {
+                    // R10-Standards BLOCKING: a PARSE failure is as fail-closed
+                    // as an IO failure — a corrupted persistent file must never
+                    // silently open as an empty (allow-all) scope; the degraded
+                    // gate refuses everyone until the explicit recovery path
+                    // re-reads it.
+                    LitRuntime.LogError("[TidyFault] 持久统计文件解析失败（可能损坏），进入全局降级（所有整理拒绝，直到显式恢复）");
+                    Degraded = true;
+                }
+                return ok;
             }
             catch (Exception error)
             {

@@ -122,12 +122,6 @@ namespace BetterUnturnedExperience.Lit
             lock (sync) sessions.Remove(SessionKey(peer, connectionGeneration));
         }
 
-        /// <summary>Peer gone entirely (no successor): every session generation for the peer dies — old tokens fail closed.</summary>
-        internal void DropPeer(ulong peer)
-        {
-            lock (sync) LitStateKeys.RemoveMatching(sessions, LitStateKeys.PeerPrefix(peer));
-        }
-
         internal void DropAll()
         {
             lock (sync) sessions.Clear();
@@ -265,11 +259,6 @@ namespace BetterUnturnedExperience.Lit
             lock (sync) LitStateKeys.RemoveMatching(entries, LitStateKeys.GenerationPrefix(peer, connectionGeneration));
         }
 
-        internal void DropPeer(ulong peer)
-        {
-            lock (sync) LitStateKeys.RemoveMatching(entries, LitStateKeys.PeerPrefix(peer));
-        }
-
         internal void DropAll()
         {
             lock (sync) entries.Clear();
@@ -340,11 +329,6 @@ namespace BetterUnturnedExperience.Lit
         internal bool IsHeld(ulong peer)
         {
             lock (sync) return leases.ContainsKey(peer);
-        }
-
-        internal void DropPeer(ulong peer)
-        {
-            lock (sync) leases.Remove(peer);
         }
 
         internal void DropAll()

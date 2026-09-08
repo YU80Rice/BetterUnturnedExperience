@@ -11,11 +11,12 @@ using System.Collections.Generic;
 namespace BetterUnturnedExperience.Lit
 {
     /// <summary>
-    /// The client's session token gate. A temporary token is minted at
-    /// construction (fail-closed on RNG failure); the server's
-    /// MSG_SESSION_CHALLENGE replaces it per connection generation. A send
-    /// is only allowed when the CURRENT generation holds a server-issued
-    /// non-zero token (atomic read — never two separate reads).
+    /// The client's session token gate: holds the SERVER-ISSUED challenge
+    /// tokens per connection generation (R8/R10: the construction-era
+    /// temporary token is gone — the send gate only ever accepts
+    /// server-issued tokens, so the pre-challenge state is simply the empty
+    /// token set). A send is only allowed when the CURRENT generation holds
+    /// a non-zero token (atomic read — never two separate reads).
     /// </summary>
     internal sealed class LitClientSessionToken
     {

@@ -3448,9 +3448,11 @@ namespace BetterUnturnedExperience.Plugin.Tests
             //    closed everywhere (client gate AND server admission).
             var oldToken = ReadChallengeToken(harness.ClientRawFromServer[0]);
             harness.Handshake();
-            var stale = harness.ClientModule.RequestTidy(4, TidyMode.SameType, true);
-            check(stale == LitTidyRequestResult.RejectedNoSession,
-                "challenge：换代际后旧 token 不再可用（客户端门拒绝，需新 challenge）");
+            // R10 fix: the successor challenge is adopted AT THE SESSION
+            // EVENT — by the end of the handshake the client already holds
+            // the NEW generation's token, so the stale-token window lives
+            // SERVER-SIDE only: a crafted old-token request must fail the
+            // token-only admission against the new generation's record.
             var feature = new FeatureId(LitRuntime.FeatureIdValue);
             var executedBeforeProbe = harness.ServerAuthority.ExecuteCount;
             harness.ClientModule.Network.SendToServer(feature,
@@ -3461,11 +3463,10 @@ namespace BetterUnturnedExperience.Plugin.Tests
             check(harness.ServerAuthority.ExecuteCount == executedBeforeProbe,
                 "challenge：旧 token 的伪造请求在服务器 token-only 准入失败（fail-closed，权威零新增执行）");
 
-            // 4. The fresh challenge re-arms the request path.
-            harness.ServerModule.Tick();
-            harness.Pump();
+            // 4. The fresh challenge (delivered at the event beat) re-arms
+            //    the request path with no extra tick.
             var rearm = harness.ClientModule.RequestTidy(3, TidyMode.SameType, true);
-            check(rearm == LitTidyRequestResult.Dispatched, "challenge：新代际新 challenge 后请求恢复受理");
+            check(rearm == LitTidyRequestResult.Dispatched, "challenge：新代际 challenge 事件拍送达后请求恢复受理");
         }
 
         private static void LitMultiplayerGroupFaultScope(System.Action<bool, string> check)
@@ -3515,8 +3516,12 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 "fault：临时熔断不写盘（restoreVerified=true）");
             // Generation supersession (re-handshake, no disconnect): the old
             // generation's TEMP fault dies with it; the successor's scope
-            // opens fresh (the R2-Spec GAP fix).
+            // opens fresh (the R2-Spec GAP fix). R10-Spec GAP: the successor
+            // is adopted AT THE SESSION EVENT — the successor challenge is
+            // issued in the same beat, with no Tick latency.
             tempHarness.Handshake();
+            check(tempHarness.ClientRawFromServer.Count >= 2,
+                "fault：代际更替由会话事件即时接管（后继 challenge 事件拍发出，无 Tick 延迟——R10-Spec GAP 修复）");
             tempHarness.ServerModule.Tick();
             tempHarness.Pump();
             check(tempBook.ScopeActive && !tempBook.IsFaulted(tempHarness.ServerSession.PeerSteamId),
@@ -3525,6 +3530,17 @@ namespace BetterUnturnedExperience.Plugin.Tests
             tempHarness.ServerModule.Tick();
             check(!tempBook.IsFaulted(tempHarness.ServerSession.PeerSteamId),
                 "fault：断线清内存临时熔断（无磁盘残留）");
+
+            // Corrupt persistence file → fail CLOSED (R10-Standards BLOCKING):
+            // a parse failure must degrade the book, never silently open an
+            // allow-all scope over a corrupted history.
+            System.IO.File.WriteAllText(book.ScopeFilePath, "{\"formatVersion\":2,\"records\":[{\"reason\":\"broken\"");
+            var corruptHarness = LitMultiplayerHarness.Create(faultDir);
+            corruptHarness.Handshake();
+            corruptHarness.EstablishChallenge();
+            check(corruptHarness.ServerModule.FaultBook.Degraded
+                && !corruptHarness.ServerModule.FaultBook.IsAllowed(corruptHarness.ServerSession.PeerSteamId),
+                "fault：持久统计文件损坏 → 解析失败进入全局降级（fail-closed——R10-Standards BLOCKING 修复）");
         }
 
         private static void LitMultiplayerGroupTidyCompleted(System.Action<bool, string> check)

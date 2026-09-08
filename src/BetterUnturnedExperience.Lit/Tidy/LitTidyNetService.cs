@@ -98,11 +98,6 @@ namespace BetterUnturnedExperience.Lit
             records.RemoveWhere(key => LitStateKeys.StartsWith(key, LitStateKeys.GenerationPrefix(peer, connectionGeneration)));
         }
 
-        internal void DropPeer(ulong peer)
-        {
-            records.RemoveWhere(key => LitStateKeys.StartsWith(key, LitStateKeys.PeerPrefix(peer)));
-        }
-
         internal void DropAll()
         {
             records.Clear();
@@ -325,9 +320,45 @@ namespace BetterUnturnedExperience.Lit
         private void OnSessionEventGenerationChanged(IConnectionSession session, ulong newGeneration)
         {
             if (GateClosed) return;
-            if (!liveSessions.TryGetValue(session.SessionId, out var tracked) || !ReferenceEquals(tracked, session)) return;
+            // Supersession order (runtime): Disconnected fires on the dead
+            // object FIRST, GenerationChanged SECOND — the tracking guard
+            // must NOT gate here (the dead session is already dropped by the
+            // Disconnected path); the generation-scoped drop is idempotent
+            // and the successor adoption is the point of this event.
             LitRuntime.LogInfo("[TidyNet] 会话代际更替（generation=" + session.SessionId + " → " + newGeneration + "），旧代际状态即清");
             OnSessionDropped(session);
+            AdoptSuccessor(newGeneration);
+        }
+
+        /// <summary>
+        /// R10-Spec GAP fix: the successor generation is adopted AT THE
+        /// SESSION EVENT (no Tick latency) — the dead generation's drop runs
+        /// first, then the successor (already established when
+        /// GenerationChanged fired on the dead object) enters the tracked set
+        /// and receives its scope/challenge in the same beat. First-connect
+        /// discovery still rides the host frame pump: the public Sessions
+        /// snapshot is established-only (DEV-V2-16 ④), so a brand-new
+        /// session's Connected has always already fired before any feature
+        /// can see it — the Tick reconcile is the only observable channel
+        /// for that side (frozen contract, documented in review-rounds.md).
+        /// </summary>
+        private void AdoptSuccessor(ulong newGeneration)
+        {
+            try
+            {
+                if (liveSessions.ContainsKey(newGeneration)) return;
+                var snapshot = network.Sessions;
+                if (snapshot == null) return;
+                for (int i = 0; i < snapshot.Count; i++)
+                {
+                    var successor = snapshot[i];
+                    if (successor == null || successor.SessionId != newGeneration) continue;
+                    liveSessions[newGeneration] = successor;
+                    OnSessionEstablished(successor);
+                    return;
+                }
+            }
+            catch (Exception) { }
         }
 
         private void OnSessionDropped(IConnectionSession session)

@@ -98,3 +98,13 @@ R2 GAP（代际更替残留旧 scope 临时熔断）修复：`OnSessionDropped` 
 - **Spec R8：CLEAN**（GAP 0 / DEVIATION 0 / SMELL 0）——两项反驳（Connected 发现路径等价、联机失败模块 Started 语义）均被独立裁定成立；票面边界内全部要求有实现与红测覆盖。
 - Standards R8（0 BLOCKING + 2 命名 SMELL）：`ReadCommittedToken`→`ReadChallengeToken`（名称对齐实义）；`LitClientSessionToken` 死构造期临时令牌连同无效 RNG 整体删除（发送门只认服务端签发 token，challenge 前拒绝即空 token 自然态）。
 - 复跑：`--bue-v2-lit-multiplayer-red` ALL GREEN；全套默认套件 PASS。
+
+## R10 修复轮（结单后全票重审发现）与红锚补录（2026-09-08）
+
+- R10（结单后全票重审，全新实例，标的=round10-increment.diff 全票增量）发现与修复四项——**判词原文未随上一会话存档**，要点按修复增量 round11-increment.diff 重建，详录 `review-rounds.md`：①持久统计文件**解析失败**未 Degraded（R10-Standards BLOCKING，损坏文件被静默当空 scope=allow-all）→ 解析失败即 `Degraded=true` 全局降级；②后继连接代际接管有 Tick 延迟（R10-Spec GAP）→ GenerationChanged 事件拍 `AdoptSuccessor`，challenge 同拍签发；③`DropPeer(ulong)` 死代码（peer 前缀整扫）四处删除；④P2P/U3DS 实机自验**具名延期**绑 DEV-V2-24（R10-Spec GAP-2 裁定；调查证据 parse-u3ds-lnk*.ps1，本机 U3DS 无可用实例）。
+- **修复轮红→绿锚点（2026-09-08 实测）**：修复源码暂存（四 src 文件 stash、保留新断言）→ `--bue-v2-lit-multiplayer-red` 恰 2 条新断言红：
+  `DEV-V2-21 red collection (2): fault：代际更替由会话事件即时接管（后继 challenge 事件拍发出，无 Tick 延迟——R10-Spec GAP 修复） || fault：持久统计文件损坏 → 解析失败进入全局降级（fail-closed——R10-Standards BLOCKING 修复）`
+  → 恢复修复后复跑 ALL GREEN（0 failures）。红测断言变更：challenge 组旧 token 窗口收窄为服务器侧（伪造旧 token 须被服务器 token-only 准入拒绝、权威零新增执行）+ rearm 免 Tick；fault 组新增上述两断言。
+- 复跑（2026-09-08）：`--bue-v2-lit-multiplayer-red` ALL GREEN；全套默认套件 **7/7 PASS、0 警告**。
+- 候选身份更新：两轮 `-t:Rebuild`（Release）字节一致，SHA-256 `0687d8f53303581c64e1fbbb2c64d1fa35cbe1573b8f3757bc7a8d7c9549a35d`（417792 B），CaseId **DEV-V2-21-CANDIDATE-20260908**（R10 修复经 Lit 源码变更传导进 Plugin.dll 确定性编译输入，身份重新授予而非沿用 78da57c2…；identity-rebuild1/2-r11.log）。
+- **R11 双轴复审（全新实例）：Standards CLEAN（0 BLOCKING + 0 SMELL）/ Spec CLEAN（GAP 0 + DEVIATION 0 + SMELL 0）**——判词原文要点存档于 review-rounds.md。

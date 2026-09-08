@@ -1,6 +1,6 @@
 # DEV-V2-21 结单报告：LIT 迁入·联机路径 + TidyCompleted 发布
 
-日期：2026-09-07 ｜ 票据：`.scratch/bue-v2-phase2-official-adoption/issues/DEV-V2-21-lit-multiplayer-path.md` ｜ 状态：**resolved（双轴 R9 双 CLEAN）**
+日期：2026-09-07（R9 结单）｜ 复审闭环：2026-09-08（R10 全票重审 → R11 双 CLEAN）｜ 票据：`.scratch/bue-v2-phase2-official-adoption/issues/DEV-V2-21-lit-multiplayer-path.md` ｜ 状态：**resolved（双轴 R11 双 CLEAN）**
 
 ## 1. 交付内容
 
@@ -26,16 +26,18 @@ P2P / U3DS 联机背包整理全链 + TidyCompleted 发布 + 宿主模块生命�
   - R7 Standards 1 SMELL → 键拼接走 LitStateKeys；Spec 1 GAP（联机失败模块 Started 语义）→ 设计裁定反驳（宿主停止交接优先）；
   - **R8 Spec CLEAN**（两项反驳均裁定成立）；R8 Standards 2 命名 SMELL → 修复；
   - **R9 双轴双 CLEAN**（Standards CLEAN + Spec CLEAN，R8 反驳维持）。
+  - **R10 结单后全票重审**（全新实例，标的=round10-increment.diff 全票增量）：1 Standards BLOCKING（持久统计文件解析失败未 Degraded=静默 allow-all）+ Spec GAP（后继代际接管 Tick 延迟）+ 死代码 DropPeer 四处 + Spec GAP-2（P2P/U3DS 实机自验不可执行）→ **裁定具名延期**绑 DEV-V2-24（调查证据 parse-u3ds-lnk*.ps1）→ 四项修复（Degraded fail-closed / GenerationChanged 事件拍 AdoptSuccessor / 死代码删除 / 票面延期注记）；修复轮红→绿锚点实测（2 新断言红→ALL GREEN）。判词原文未随上一会话存档，要点按修复增量重建（review-rounds.md 2026-09-08 补档节）。
+  - **R11 修复增量复审双轴双 CLEAN**（全新实例）：Standards 0 BLOCKING + 0 SMELL / Spec GAP 0 + DEVIATION 0 + SMELL 0。
 
 ## 3. 验证与身份
 
-- 全套测试 **7/7 PASS、0 警告**（TreatWarningsAsErrors=true）；`--bue-v2-lit-multiplayer-red` 收集组 ALL GREEN。
-- 候选：`BetterUnturnedExperience.dll` **417792 B**，SHA-256 `78da57c2b2ff67b747ca002c67acb119bba334bd795c37b6959f27784a9b8385`，两轮 `-t:Rebuild` 字节一致（`identity-rebuild1/2.log`、`identity-sha256.txt`）；CaseId `DEV-V2-21-CANDIDATE-20260907`；**RELEASES 换标随 DEV-V2-24 实机验收**（沿 17/18/19 惯例，不继承既往批准）。
+- 全套测试 **7/7 PASS、0 警告**（TreatWarningsAsErrors=true）；`--bue-v2-lit-multiplayer-red` 收集组 ALL GREEN（R10 修复轮红→绿锚点实测：2 新断言红→ALL GREEN，见 red-evidence.md 2026-09-08 节）。
+- 候选（R11 后重新授予）：`BetterUnturnedExperience.dll` **417792 B**，SHA-256 `0687d8f53303581c64e1fbbb2c64d1fa35cbe1573b8f3757bc7a8d7c9549a35d`，两轮 `-t:Rebuild` 字节一致（`identity-rebuild1/2-r11.log`、`identity-sha256.txt`）；CaseId `DEV-V2-21-CANDIDATE-20260908`；前身 `78da57c2…8385`（DEV-V2-21-CANDIDATE-20260907）作废——R10 修复经 Lit 源码变更传导进 Plugin.dll 确定性编译输入。**RELEASES 换标随 DEV-V2-24 实机验收**（沿 17/18/19 惯例，不继承既往批准）。
 
 ## 4. 具名延期 / 边界
 
 1. **键元组数据团**（(peer,generation,token,requestId) 显式传参）——状态表锁域清晰优先，事务键收敛留后续治理（R5 具名，Standards R9 维持延期）。
 2. **Per-peer 限流器**（最小间隔+滑动窗口）未迁——准入门已封重放/容量/串行化面，随管理命令票补齐。
 3. **持久化首启 marker 仪式**简化为 tmp→Replace→.bak 两段原子写（JSON 键结构不变）。
-4. **可靠位与实机行为**：loopback 不观测 reliability 位；P2P/U3DS 实机自验（challenge 拒发行、reqId 双端对齐、ACK 链）绑定 DEV-V2-24。
+4. **可靠位与实机行为**：loopback 不观测 reliability 位；P2P/U3DS 实机自验（challenge 拒发行、reqId 双端对齐、ACK 链）绑定 DEV-V2-24（R10-Spec GAP-2 裁定具名延期；调查证据 parse-u3ds-lnk*.ps1——本机 U3DS 无可用游戏/服务器实例）。
 5. **LIR 消费侧与 LIR/LHT 迁入**属 DEV-V2-22/23（本票发布侧已闭环）。
