@@ -292,6 +292,11 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     AssertBueV2LhtAdoption(collectAllFailures: true);
                     return 0;
                 }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--bue-v2-platform-red")
+                {
+                    AssertBueV2PlatformSelfCheck(collectAllFailures: true);
+                    return 0;
+                }
                 AssertSingleDllAssemblyClosure();
                 AssertExternalSdkAssemblyIdentity();
                 Assert(BootstrapGuard.Decide(false, false, true) == BootstrapDecision.Client, "client decision");
@@ -386,6 +391,8 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 AssertBueV2LitMultiplayerPath();
                 AssertBueV2LirAdoption();
                 AssertBueV2LhtAdoption();
+                AssertBueV2PlatformSelfCheck();
+                AssertPlatformPanelNotice();
                 AssertLitSingleplayerPath();
                 AssertRuntimeCompletionBarrierIsolates();
                 AssertManagementPanelConsumesRuntimeCatalog();
@@ -7800,6 +7807,298 @@ namespace BetterUnturnedExperience.Plugin.Tests
         }
 
         private static void Assert(bool condition, string message) { if (!condition) throw new InvalidOperationException(message); }
+
+        // ═════════════════════════════════════════════════════════════════════
+        // DEV-V2-23: the platform double-install self-check red collection —
+        // the ticket-frozen six cases over the assembly-list injection seam
+        // (no filesystem):
+        //   1. 无冲突          — clean domain (injected + the real test AppDomain):
+        //                        no conflict, no emission, mapper marks self
+        //   2. 同程序集名冲突   — same simple name at a foreign path (incl.
+        //                        case-variant name: binding-fusion conservative
+        //                        over-report) → exactly the copy path reported
+        //   3. 不同程序集名     — Contracts/Core/foreign names → clean
+        //   4. 空路径           — null/empty location → still reported with the
+        //                        unknown-location token, never throws
+        //   5. 重复条目         — duplicated listings dedupe to one finding
+        //   6. 诊断 id 与关键字段 — BUE-PLATFORM-001 + assembly/location/selfPath/
+        //                        suggestion on the log line and panel notice;
+        //                        Warning-level emission, one line per location
+        // The check is diagnostic-only: it never deletes files and never blocks
+        // bootstrap (no file/IO call exists on the decision core).
+        // Panel visibility is ticket scope too but NOT part of the frozen
+        // six-case injection-seam anchor (F1 R1): AssertPlatformPanelNotice
+        // rides the always-run suite below instead.
+        // ═════════════════════════════════════════════════════════════════════
+        private static void AssertBueV2PlatformSelfCheck(bool collectAllFailures = false)
+        {
+            var reds = new List<string>();
+            try
+            {
+                void Check(bool condition, string message)
+                {
+                    if (condition) return;
+                    if (collectAllFailures) reds.Add(message);
+                    else throw new InvalidOperationException(message);
+                }
+
+                void Group(string name, System.Action body)
+                {
+                    try { body(); }
+                    catch (Exception error) when (collectAllFailures)
+                    {
+                        var frame = error.StackTrace != null ? error.StackTrace.Split(new[] { '\n' }, 2)[0].Trim() : "<no stack>";
+                        reds.Add("[" + name + "] " + (error is InvalidOperationException ? error.Message : "UNEXPECTED " + error.GetType().Name + ": " + error.Message + " @ " + frame));
+                    }
+                }
+
+                Group("无冲突", () => PlatformGroupNoConflict(Check));
+                Group("同程序集名冲突", () => PlatformGroupNameConflict(Check));
+                Group("不同程序集名", () => PlatformGroupDifferentName(Check));
+                Group("空路径", () => PlatformGroupEmptyPath(Check));
+                Group("重复条目", () => PlatformGroupDuplicateEntries(Check));
+                Group("诊断 id 与关键字段", () => PlatformGroupDiagnosticFields(Check));
+            }
+            catch (Exception error) when (collectAllFailures)
+            {
+                reds.Add("UNEXPECTED: " + error.GetType().FullName + ": " + error.Message);
+            }
+            if (collectAllFailures && reds.Count == 0)
+                Console.WriteLine("DEV-V2-23 platform self-check collection: ALL GREEN (0 failures) — groups: 无冲突/同程序集名冲突/不同程序集名/空路径/重复条目/诊断 id 与关键字段");
+            if (collectAllFailures && reds.Count > 0)
+                throw new InvalidOperationException("DEV-V2-23 red collection (" + reds.Count + "): " + string.Join(" || ", reds));
+        }
+
+        private static BueLoadedAssemblyView PlatformView(string simpleName, string location, bool isSelf)
+        {
+            return new BueLoadedAssemblyView(simpleName, location, isSelf);
+        }
+
+        private static readonly string PlatformSelfPath = "E:\\Steam\\steamapps\\common\\Unturned\\BepInEx\\plugins\\BetterUnturnedExperience.dll";
+        private static readonly string PlatformCopyPath = "E:\\Steam\\steamapps\\common\\Unturned\\BepInEx\\plugins\\SomeInventoryExtension\\BetterUnturnedExperience.dll";
+
+        // Group 1: no conflict — injected clean list AND the real test AppDomain
+        // (exactly one BUE assembly loaded) both report clean with zero emission.
+        private static void PlatformGroupNoConflict(Action<bool, string> check)
+        {
+            var clean = new List<BueLoadedAssemblyView>
+            {
+                PlatformView("BetterUnturnedExperience", PlatformSelfPath, true),
+                PlatformView("Assembly-CSharp", "E:\\Steam\\steamapps\\common\\Unturned\\Unturned_Data\\Managed\\Assembly-CSharp.dll", false),
+                PlatformView("0Harmony", "E:\\Steam\\steamapps\\common\\Unturned\\BepInEx\\core\\0Harmony.dll", false)
+            };
+            var report = BuePlatformDoubleInstallCheck.Check(clean, BuePlatformDoubleInstallCheck.BueAssemblySimpleName, PlatformSelfPath);
+            check(report != null, "无冲突：Check 返回显式报告（永非 null）");
+            check(!report.HasConflict, "无冲突：干净清单无冲突");
+            check(report.ConflictLocations.Count == 0, "无冲突：冲突路径列表为空");
+
+            var emitted = new List<string>();
+            var previousRecorder = BueRuntimeLog.Recorder;
+            BueRuntimeLog.Recorder = line => emitted.Add(line);
+            var savedSource = BuePlatformDoubleInstallCheck.LoadedAssembliesSource;
+            try
+            {
+                BuePlatformDoubleInstallCheck.LoadedAssembliesSource = () => clean;
+                var runReport = BuePlatformDoubleInstallCheck.Run();
+                check(!runReport.HasConflict, "无冲突：注入干净清单的 Run 无冲突");
+                check(emitted.Count == 0, "无冲突：干净清单零日志发射");
+            }
+            finally
+            {
+                BuePlatformDoubleInstallCheck.LoadedAssembliesSource = savedSource;
+                BueRuntimeLog.Recorder = previousRecorder;
+            }
+
+            // Production wiring: the real AppDomain mapper sees the running BUE
+            // assembly and marks it as self; the real-domain Run is clean.
+            var realViews = BuePlatformDoubleInstallCheck.DefaultAppDomainSource();
+            check(realViews.Count > 0, "无冲突：真实 AppDomain 映射非空");
+            BueLoadedAssemblyView selfView = null;
+            foreach (var view in realViews)
+            {
+                if (view.IsSelf) selfView = view;
+            }
+            check(selfView != null, "无冲突：真实 AppDomain 含 BUE 自身条目");
+            check(selfView != null && selfView.SimpleName == BuePlatformDoubleInstallCheck.BueAssemblySimpleName, "无冲突：自身条目程序集名匹配");
+            var realReport = BuePlatformDoubleInstallCheck.Run();
+            check(!realReport.HasConflict, "无冲突：真实测试域只有一份 BUE，无冲突");
+        }
+
+        // Group 2: same simple name at a foreign path — the exact case the
+        // self-check exists for. Case-variant names are reported too: fusion
+        // binds names case-insensitively, so a diagnostic must over-report.
+        private static void PlatformGroupNameConflict(Action<bool, string> check)
+        {
+            var loaded = new List<BueLoadedAssemblyView>
+            {
+                PlatformView("BetterUnturnedExperience", PlatformSelfPath, true),
+                PlatformView("BetterUnturnedExperience", PlatformCopyPath, false)
+            };
+            var report = BuePlatformDoubleInstallCheck.Check(loaded, BuePlatformDoubleInstallCheck.BueAssemblySimpleName, PlatformSelfPath);
+            check(report.HasConflict, "同程序集名冲突：异路径同名副本检出");
+            check(report.ConflictLocations.Count == 1, "同程序集名冲突：恰一冲突副本");
+            check(report.ConflictLocations[0] == PlatformCopyPath, "同程序集名冲突：报告的是副本路径");
+            check(report.AssemblyName == "BetterUnturnedExperience", "同程序集名冲突：报告程序集名");
+            check(report.SelfPath == PlatformSelfPath, "同程序集名冲突：报告当前 BUE 路径");
+            check(report.Suggestion != null && report.Suggestion.Contains("移除非官方副本"), "同程序集名冲突：含移除建议");
+
+            var caseVariant = new List<BueLoadedAssemblyView>
+            {
+                PlatformView("BetterUnturnedExperience", PlatformSelfPath, true),
+                PlatformView("betterunturnedexperience", PlatformCopyPath, false)
+            };
+            var caseReport = BuePlatformDoubleInstallCheck.Check(caseVariant, BuePlatformDoubleInstallCheck.BueAssemblySimpleName, PlatformSelfPath);
+            check(caseReport.HasConflict, "同程序集名冲突：大小写变体按保守口径检出");
+        }
+
+        // Group 3: different simple names never match — including BUE's own
+        // satellite artifacts (Contracts/Core) whose names merely share a prefix.
+        private static void PlatformGroupDifferentName(Action<bool, string> check)
+        {
+            var loaded = new List<BueLoadedAssemblyView>
+            {
+                PlatformView("BetterUnturnedExperience", PlatformSelfPath, true),
+                PlatformView("BetterUnturnedExperience.Contracts", PlatformCopyPath, false),
+                PlatformView("BetterUnturnedExperience.Core", PlatformCopyPath, false),
+                PlatformView("SomeInventoryExtension", PlatformCopyPath, false)
+            };
+            var report = BuePlatformDoubleInstallCheck.Check(loaded, BuePlatformDoubleInstallCheck.BueAssemblySimpleName, PlatformSelfPath);
+            check(!report.HasConflict, "不同程序集名：非同名程序集不构成冲突");
+            check(report.ConflictLocations.Count == 0, "不同程序集名：冲突列表为空");
+        }
+
+        // Group 4: null/empty locations (dynamic or inaccessible assemblies)
+        // still surface as conflicts under the unknown-location token, never
+        // throw, and collapse into one finding per unknown bucket.
+        private static void PlatformGroupEmptyPath(Action<bool, string> check)
+        {
+            var loaded = new List<BueLoadedAssemblyView>
+            {
+                PlatformView("BetterUnturnedExperience", PlatformSelfPath, true),
+                PlatformView("BetterUnturnedExperience", null, false),
+                PlatformView("BetterUnturnedExperience", string.Empty, false)
+            };
+            var report = BuePlatformDoubleInstallCheck.Check(loaded, BuePlatformDoubleInstallCheck.BueAssemblySimpleName, PlatformSelfPath);
+            check(report.HasConflict, "空路径：位置缺失的同名副本仍检出");
+            check(report.ConflictLocations.Count == 1, "空路径：未知位置去重为一项");
+            check(report.ConflictLocations[0] == BuePlatformDoubleInstallCheck.UnknownLocationToken, "空路径：使用未知位置占位符");
+
+            // A missing self path must not suppress detection of a real copy.
+            var missingSelf = new List<BueLoadedAssemblyView>
+            {
+                PlatformView("BetterUnturnedExperience", PlatformCopyPath, false)
+            };
+            var missingReport = BuePlatformDoubleInstallCheck.Check(missingSelf, BuePlatformDoubleInstallCheck.BueAssemblySimpleName, string.Empty);
+            check(missingReport.HasConflict && missingReport.ConflictLocations[0] == PlatformCopyPath, "空路径：自身路径缺失不吞真实副本");
+        }
+
+        // Group 5: duplicated listings (the same copy enumerated repeatedly,
+        // with and without path case variants) dedupe to a single finding.
+        private static void PlatformGroupDuplicateEntries(Action<bool, string> check)
+        {
+            var emitted = new List<string>();
+            var previousRecorder = BueRuntimeLog.Recorder;
+            BueRuntimeLog.Recorder = line => emitted.Add(line);
+            var savedSource = BuePlatformDoubleInstallCheck.LoadedAssembliesSource;
+            try
+            {
+                BuePlatformDoubleInstallCheck.LoadedAssembliesSource = () => new List<BueLoadedAssemblyView>
+                {
+                    PlatformView("BetterUnturnedExperience", PlatformSelfPath, true),
+                    PlatformView("BetterUnturnedExperience", PlatformCopyPath, false),
+                    PlatformView("BetterUnturnedExperience", PlatformCopyPath, false),
+                    PlatformView("BetterUnturnedExperience", PlatformCopyPath.ToLowerInvariant(), false)
+                };
+                var report = BuePlatformDoubleInstallCheck.Run();
+                check(report.HasConflict, "重复条目：重复同名副本检出");
+                check(report.ConflictLocations.Count == 1, "重复条目：重复路径去重为一项");
+                check(report.ConflictLocations[0] == PlatformCopyPath, "重复条目：保留首个观测到的路径写法");
+                check(emitted.Count == 1, "重复条目：每冲突副本恰一条日志");
+            }
+            finally
+            {
+                BuePlatformDoubleInstallCheck.LoadedAssembliesSource = savedSource;
+                BueRuntimeLog.Recorder = previousRecorder;
+            }
+        }
+
+        // Group 6: the diagnostic contract — id, structured fields, Warning-level
+        // emission (one line per conflict location), panel notice carries the id
+        // and the removal suggestion, and a null assembly list is a developer
+        // error (fail-fast) rather than a silently clean scan.
+        private static void PlatformGroupDiagnosticFields(Action<bool, string> check)
+        {
+            check(BuePlatformDoubleInstallCheck.DiagnosticId == "BUE-PLATFORM-001", "诊断 id：平台自检诊断 id 为 BUE-PLATFORM-001");
+            var loaded = new List<BueLoadedAssemblyView>
+            {
+                PlatformView("BetterUnturnedExperience", PlatformSelfPath, true),
+                PlatformView("BetterUnturnedExperience", PlatformCopyPath, false)
+            };
+            var report = BuePlatformDoubleInstallCheck.Check(loaded, BuePlatformDoubleInstallCheck.BueAssemblySimpleName, PlatformSelfPath);
+            check(report.DiagnosticId == "BUE-PLATFORM-001", "诊断 id：报告携带诊断 id");
+            var logLine = report.BuildConflictLogLine(report.ConflictLocations[0]);
+            check(logLine.Contains("diagnosticId=BUE-PLATFORM-001"), "关键字段：日志行含诊断 id");
+            check(logLine.Contains("assembly=BetterUnturnedExperience"), "关键字段：日志行含检出的程序集名");
+            check(logLine.Contains("conflictLocation=" + PlatformCopyPath), "关键字段：日志行含冲突副本路径");
+            check(logLine.Contains("selfPath=" + PlatformSelfPath), "关键字段：日志行含当前 BUE 路径");
+            check(logLine.Contains("suggestion=移除非官方副本"), "关键字段：日志行含移除非官方副本建议");
+            check(report.NoticeLine.Contains("BUE-PLATFORM-001") && report.NoticeLine.Contains("移除非官方副本"), "关键字段：面板通知含诊断 id 与移除建议");
+
+            var emitted = new List<string>();
+            var previousRecorder = BueRuntimeLog.Recorder;
+            BueRuntimeLog.Recorder = line => emitted.Add(line);
+            var savedSource = BuePlatformDoubleInstallCheck.LoadedAssembliesSource;
+            try
+            {
+                BuePlatformDoubleInstallCheck.LoadedAssembliesSource = () => new List<BueLoadedAssemblyView>
+                {
+                    PlatformView("BetterUnturnedExperience", PlatformSelfPath, true),
+                    PlatformView("BetterUnturnedExperience", PlatformCopyPath, false),
+                    PlatformView("BetterUnturnedExperience", "E:\\somewhere\\else\\BetterUnturnedExperience.dll", false)
+                };
+                BuePlatformDoubleInstallCheck.Run();
+                check(emitted.Count == 2, "诊断发射：两个冲突副本恰两条日志");
+                check(emitted[0].StartsWith("Warning ", StringComparison.Ordinal), "诊断发射：日志级别为 Warning");
+                check(CountToken(emitted, "diagnosticId=BUE-PLATFORM-001") == 2, "诊断发射：每条日志都携带诊断 id");
+            }
+            finally
+            {
+                BuePlatformDoubleInstallCheck.LoadedAssembliesSource = savedSource;
+                BueRuntimeLog.Recorder = previousRecorder;
+            }
+
+            var threw = false;
+            try { BuePlatformDoubleInstallCheck.Check(null, BuePlatformDoubleInstallCheck.BueAssemblySimpleName, PlatformSelfPath); }
+            catch (ArgumentNullException) { threw = true; }
+            check(threw, "参数契约：null 程序集清单 fail-fast");
+        }
+
+        // Panel visibility (ticket acceptance "诊断在日志与面板可见") — separate
+        // from the frozen six-case injection-seam anchor (F1 R1): rides the
+        // always-run suite. The model exposes the notice (default empty,
+        // survives Refresh, entries untouched) so the native panel can render
+        // it next to the compatibility notice.
+        private static void AssertPlatformPanelNotice()
+        {
+            var composition = new BueClientUiCompositionRoot();
+            try
+            {
+                var model = composition.ManagementPanel.Model;
+                Assert(string.IsNullOrEmpty(model.DoubleInstallNotice), "面板可见：默认无双装通知");
+                var entriesBefore = model.GetEntries().Count;
+                model.SetDoubleInstallNotice("检测到 BetterUnturnedExperience 冲突副本（BUE-PLATFORM-001）：请移除非官方副本后重启游戏，详见 BUE 日志。");
+                Assert(model.DoubleInstallNotice.Contains("BUE-PLATFORM-001"), "面板可见：通知可写入并携带诊断 id");
+                model.Refresh(new BueFeatureManagementEntry[0], new LoadedPluginDescriptor[0]);
+                Assert(model.DoubleInstallNotice.Contains("BUE-PLATFORM-001"), "面板可见：通知在 Refresh 后保留");
+                Assert(model.GetEntries().Count == entriesBefore, "面板可见：通知不改变条目集合");
+                model.SetDoubleInstallNotice(null);
+                Assert(string.IsNullOrEmpty(model.DoubleInstallNotice), "面板可见：null 通知归位为空");
+            }
+            finally
+            {
+                composition.Destroy();
+            }
+        }
 
     }
 }

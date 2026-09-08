@@ -61,6 +61,7 @@
     <Compile Include="InventoryDragPreviewAdapter.cs" />
     <Compile Include="InventoryProjectionSink.cs" />
     <Compile Include="BueRuntimeLog.cs" />
+    <Compile Include="BuePlatformDoubleInstallCheck.cs" />
     <Compile Include="..\BetterUnturnedExperience.ClientUi\ManagementPanel.cs"><Link>EmbeddedClientUi\ManagementPanel.cs</Link></Compile>
     <!-- DEV-V2-15: embed the migrated LIT (inventory tidy) domain into the single runtime assembly.
          The old plugin's BepInEx identity, LMN dependency, harness fixtures and dead passive-tidy

@@ -897,8 +897,18 @@ namespace BetterUnturnedExperience.Plugin
                 y += 42;
             }
             listScroll.ContentSizeOffset = new Vector2(0f, y);
-            if (rows.Count == 0) SetStatus("当前没有检测到已加载的外部插件。", false);
+            if (rows.Count == 0) SetStatusWithPlatformNotice("当前没有检测到已加载的外部插件。", false);
             RenderDetails();
+        }
+
+        // DEV-V2-23 (F1 R1): the double-install notice outranks every other
+        // status text and must survive the empty-catalog / unselected early
+        // exits — a diagnosis the player must see never yields to a benign
+        // fallback line.
+        private void SetStatusWithPlatformNotice(string fallbackText, bool fallbackError)
+        {
+            if (!string.IsNullOrEmpty(runtime.Model.DoubleInstallNotice)) SetStatus(runtime.Model.DoubleInstallNotice, true);
+            else SetStatus(fallbackText, fallbackError);
         }
 
         private void RenderDetails()
@@ -928,6 +938,7 @@ namespace BetterUnturnedExperience.Plugin
             {
                 AddDetailLabel(ref y, "选择一个功能或插件查看详情。", ESleekFontSize.Medium);
                 detailScroll.ContentSizeOffset = new Vector2(0f, y + 10);
+                if (!string.IsNullOrEmpty(runtime.Model.DoubleInstallNotice)) SetStatus(runtime.Model.DoubleInstallNotice, true);
                 return;
             }
             AddDetailLabel(ref y, selected.DisplayName, ESleekFontSize.Large);
@@ -970,7 +981,11 @@ namespace BetterUnturnedExperience.Plugin
                 }
             }
             detailScroll.ContentSizeOffset = new Vector2(0f, y + 10);
-            if (runtime.Model.ExternalManagerDetected) SetStatus(runtime.Model.CompatibilityNotice, false);
+            // DEV-V2-23: the double-install diagnosis outranks the compatibility
+            // notice — the player must remove an unofficial copy before anything
+            // else matters.
+            if (!string.IsNullOrEmpty(runtime.Model.DoubleInstallNotice)) SetStatus(runtime.Model.DoubleInstallNotice, true);
+            else if (runtime.Model.ExternalManagerDetected) SetStatus(runtime.Model.CompatibilityNotice, false);
         }
 
         private void AddBueSettingControl(ref int y, ManagementEntryView row, SettingEntryView setting)

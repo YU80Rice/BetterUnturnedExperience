@@ -284,6 +284,7 @@ namespace BetterUnturnedExperience.ClientUi.Internal
         private ManagementSortOrder sortOrder;
         private bool preferencesLoaded;
         private bool externalManagerDetected;
+        private string doubleInstallNotice = string.Empty;
 
         internal ManagementPanelModel(IManagementPanelPreferencesStore preferencesStore, IBueSettingsEditor bueSettingsEditor,
             IPluginConfigEditor pluginConfigEditor = null)
@@ -298,6 +299,17 @@ namespace BetterUnturnedExperience.ClientUi.Internal
         internal ManagementSortOrder SortOrder { get { EnsurePreferencesLoaded(); return sortOrder; } }
         internal bool ExternalManagerDetected { get { return externalManagerDetected; } }
         internal string CompatibilityNotice { get { return externalManagerDetected ? "检测到外部插件管理器；BUE 不会重复修改其状态。" : string.Empty; } }
+
+        // DEV-V2-23: the double-install self-check notice (BUE-PLATFORM-001).
+        // Empty = no conflict. Set once by the host after the Awake self-check
+        // and intentionally untouched by Refresh — the finding reflects the
+        // loaded-assembly state at startup, not the catalog snapshot.
+        internal string DoubleInstallNotice { get { return doubleInstallNotice; } }
+
+        internal void SetDoubleInstallNotice(string value)
+        {
+            doubleInstallNotice = value ?? string.Empty;
+        }
 
         internal void SetExternalManagerDetected(bool detected)
         {

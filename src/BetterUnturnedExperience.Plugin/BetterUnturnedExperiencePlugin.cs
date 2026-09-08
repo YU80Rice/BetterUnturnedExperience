@@ -21,6 +21,7 @@ namespace BetterUnturnedExperience.Plugin
         private bool runtimePumpIsolated;
         private BueClientUiCompositionRoot clientUiComposition;
         private BueNativeManagementPanel nativeManagementPanel;
+        private BueDoubleInstallReport doubleInstallReport;
         private readonly BueRuntimePumpSlot runtimePumpSlot = new BueRuntimePumpSlot();
         private BueRuntimePump runtimePump;
         private BueRuntimePumpBehaviour runtimePumpBehaviour;
@@ -49,6 +50,12 @@ namespace BetterUnturnedExperience.Plugin
                 enabled = true;
                 LogAssemblyIdentity();
                 BueRuntimeLog.Bind(Logger);
+                // DEV-V2-23: the platform double-install self-check — a
+                // diagnostic-only BUE-PLATFORM-001 scan of the assemblies already
+                // in the AppDomain. It must never block bootstrap and never
+                // deletes user files (处置留给用户); panel visibility rides the
+                // report below in the client branch.
+                RunPlatformDoubleInstallSelfCheck();
                 // DEV-V2-19: compose the host event bus + host clock once at
                 // bootstrap; the Update chain drives the clock (TickOnce) and
                 // feature modules subscribe through the frozen seams.
@@ -149,6 +156,10 @@ namespace BetterUnturnedExperience.Plugin
                             Logger.LogWarning("BUE drag preview wiring disabled because inventory lifecycle is unavailable diagnosticId=BUE-DRAG-003");
                         }
                         clientUiComposition.OfficialComponent.ProjectionSink = new LoggingInventoryProjectionSink(Logger);
+                        // DEV-V2-23: surface the self-check finding (if any) on the
+                        // management panel; the log line was emitted at scan time.
+                        if (doubleInstallReport != null && doubleInstallReport.HasConflict)
+                            clientUiComposition.ManagementPanel.Model.SetDoubleInstallNotice(doubleInstallReport.NoticeLine);
                         if (inventoryDragAdapter.HooksInstalled)
                             BueRuntimeLog.Runtime("BUE drag preview wiring enabled diagnosticId=BUE-DRAG-001");
                         else
@@ -170,6 +181,20 @@ namespace BetterUnturnedExperience.Plugin
                 // DEV-16G ticket D: user-facing error lines carry the Chinese
                 // "BUE 错误：" prefix in front of the structured tokens.
                 BueRuntimeLog.ErrorFriendly("Better Unturned Experience featureId=" + FeatureId + " status=BootstrapFailed diagnosticId=" + DiagnosticId + " errorType=" + error.GetType().FullName + " message=" + error.Message);
+            }
+        }
+
+        private void RunPlatformDoubleInstallSelfCheck()
+        {
+            try
+            {
+                doubleInstallReport = BuePlatformDoubleInstallCheck.Run();
+            }
+            catch (Exception error)
+            {
+                // The self-check is a diagnostic, never a gate: a scan-side
+                // failure isolates under BUE-PLATFORM-002 and bootstrap continues.
+                Logger.LogWarning("BUE double-install self-check isolated diagnosticId=BUE-PLATFORM-002 errorType=" + error.GetType().FullName + " message=" + error.Message);
             }
         }
 

@@ -50,6 +50,21 @@ namespace BetterUnturnedExperience.Plugin
             log?.LogInfo(line);
         }
 
+        // DEV-V2-23: user-actionable load-stage warnings (double-install
+        // BUE-PLATFORM-001). Warning level — visible in normal play logs and
+        // always routed to the test recorder, never gated by the runtime
+        // verbosity policy (a diagnosis the player must see is not noise).
+        internal static void Warn(string line)
+        {
+            var recorder = Recorder;
+            if (recorder != null)
+            {
+                recorder("Warning " + line);
+                return;
+            }
+            log?.LogWarning(line);
+        }
+
         // Errors / isolations: always printed with the reason, never swallowed
         // by the runtime-silent gate.
         internal static void Error(string line)
