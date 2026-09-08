@@ -46,3 +46,4 @@ Spec: `../spec.md`（Solution「到达标准」、Testing Decisions「实机验�
 - **全套门禁**：解决方案 Release 重建 0 错误 0 警告（`sln-rebuild-fullsuite.log`）+ 七运行器 7/7 exit=0（`fullsuite-run.log`）。
 - **候选重授**：新候选 `3cbd62687bf765c618eaa5b6762c1172c7de022b6a50dc64ae1b0bdd0d399e4d`（533504B 两轮 Rebuild 字节一致，CaseId **`DEV-V2-24-CANDIDATE-20260908`**）；前身 `7d5dd3b5…c223`（DEV-V2-23-CANDIDATE-20260908）作废，kit/out 与归档、手册、六模板已换绑。采集 CaseId 不变 = `DEV-V2-24-20260908`。
 - 增量 diff：`audit/2026-09-08/DEV-V2-24/round1-increment.diff`（双轴审查标的）。修复轮提交 = **`e70b7c4`**（候选来源快照 = e102935 + 本增量）。
+- **双轴审查闭环（判词存档 `audit/2026-09-08/DEV-V2-24/review-rounds.md`）**：R1 Standards FINDINGS（2 SMELL——手册 S2/§10 与 sp/p2p-client 模板残留 D0 开放措辞；1 INFO——提交 hash 回填）/ Spec R1 CLEAN → F1-F3（aae2c99，仅文档）→ **R2 双轴全新实例双 CLEAN（Standards 0/0/0 / Spec 0/0/0）**。D0-b 修复轮审查面闭环；候选 `3cbd6268…9e4d` 为已审增量产物，可按手册开始实机采集。
