@@ -22,7 +22,7 @@
 | S1 注册 | `BUE … featureId=… accepted=True … diagnosticId=BUE-REG-ACCEPT`（×5：Better Item Interaction / BUE Network Module / BUE Inventory Tidy / BUE In-Place Reload / BUE Horde Tracker） | TODO | TODO |
 | S1 网络 | `event=takeover-patch result=installed … BUE-V2NET-003` + `event=bue-runtime-arm result=armed …` | TODO | TODO |
 | S1 防双装基线 | 全程 **零** `BUE-PLATFORM-001` 行 | TODO | — |
-| S2 面板四条目 | 截图（含判别点 D0 结果记录） | TODO | — |
+| S2 面板功能条目 | 截图（四件官方中文名齐，含 BII=更好的物品交互） | TODO | — |
 | S3 LIT 本地整理 | `[Tidy] 整理按钮补丁已安装（Harmony ID=…）` + `本地整理已提交（page=…）` | TODO | TODO |
 | S4 LIR 本地压弹 | toast「一键压弹：成功压入 N 发子弹」截图 | TODO | — |
 | S5 LIR×LIT 链 | `[MergeA] 整理后自动压弹完成（…）` | TODO | TODO |

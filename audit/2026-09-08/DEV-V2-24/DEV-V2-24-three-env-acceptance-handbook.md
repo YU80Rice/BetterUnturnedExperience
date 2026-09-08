@@ -19,7 +19,7 @@
 |---|---|
 | 候选 DLL | `audit/2026-09-08/artifacts/DEV-V2-24-20260908/BetterUnturnedExperience.dll`（533504 字节） |
 | SHA-256 | `3cbd62687bf765c618eaa5b6762c1172c7de022b6a50dc64ae1b0bdd0d399e4d` |
-| 来源快照 | `e102935`（DEV-V2-23 提交）+ D0-b 修复增量（round1-increment.diff；修复提交 hash 随票面 Comments 补录） |
+| 来源快照 | `e102935`（DEV-V2-23 提交）+ D0-b 修复增量（round1-increment.diff；修复轮提交 `e70b7c4`） |
 | 候选阶段 CaseId | `DEV-V2-24-CANDIDATE-20260908`（前身 `7d5dd3b5…c223` = DEV-V2-23-CANDIDATE-20260908 因 D0-b 作废，不得用于采集） |
 | 采集 CaseId | `DEV-V2-24-20260908`（本手册与全部证据统一使用） |
 
@@ -66,7 +66,7 @@
 | S1 网络 | `[BUE-V2NET] event=takeover-patch result=installed priority=first targets=NetMessages.ReceiveMessageFromClient,NetMessages.ReceiveMessageFromServer diagnosticId=BUE-V2NET-003` + `[BUE-V2NET] event=bue-runtime-arm result=armed role=server localSteamId=… diagnosticId=BUE-V2NET-003`（进世界后出现；role 以实际为准记录）+ `event=lmn-config-migration result=no-op mapping=empty reason=lmn-has-no-config diagnosticId=BUE-V2NET-001` | ☐ |
 | S1 防双装基线 | 全程 **零** `BUE-PLATFORM-001` 行（无冲突部署基线，SDK 文档 §8 附注） | ☐ |
 | S1 三功能注册行 | `[Tidy] 模块已启动（宿主 bootstrap：功能代际=N）` + `[Tidy] 整理按钮补丁已安装（Harmony ID=io.github.yu80rice.bue.inventory-tidy）`；`[Lir] 模块已启动（宿主 bootstrap：功能代际=N，网络注册延迟至首帧游戏线程）` + `[Lir] 原位换弹补丁已安装（Harmony ID=io.github.yu80rice.bue.in-place-reload）`；`[HordeTracker] 已订阅 BeaconManager.onBeaconUpdated + Provider.onServerHosted` + `[HordeTracker] 已注册 /horde 命令（Commander.register）` | ☐ |
-| S2 面板 | G 开背包 → 管理面板：条目含 **Better Item Interaction / BUE 网络模块 / BUE V1 兼容层 / 背包整理 / 更好的换弹体验 / 更好的尸潮播报**（**D0 判别点：BII 条目英文名 → 按 §0 拍板结果记录**）→ **截图**；每个功能开关单独关闭→行为消失→再开启（原生回退，抽验 LIT 或 LIR 一件即可） | ☐ |
+| S2 面板 | G 开背包 → 管理面板：条目含 **更好的物品交互 / BUE 网络模块 / BUE V1 兼容层 / 背包整理 / 更好的换弹体验 / 更好的尸潮播报**（D0-b 已收口：四件官方功能中文名齐，BII 条目=更好的物品交互）→ **截图**；每个功能开关单独关闭→行为消失→再开启（原生回退，抽验 LIT 或 LIR 一件即可） | ☐ |
 | S3 LIT 整理 | 背包多格页（page 2-6）放乱物品 → 点整理按钮（或 Ctrl+点击整理全身）：日志 `[Tidy] 本地整理已提交（page=N, mode=…, mappings=M）。` → 背包同类聚合 → **整理前后截图** | ☐ |
 | S4 LIR 压弹 | 持枪（弹匣未满+有备弹）**双击换弹键** → toast「一键压弹：成功压入 N 发子弹」+ 弹匣压满；单击 R 仍原版 → **截图** | ☐ |
 | S5 LIR×LIT 链 | 整理完成后自动压弹：日志 `[MergeA] 整理后自动压弹完成（target=…, merged=N, txn=…）`（无备弹时为跳过变体行，如实记录） | ☐ |
@@ -194,7 +194,7 @@ audit/2026-09-08/evidence/DEV-V2-24-20260908/
 ## 10. 边界与失败处理
 
 - 证据只证明**同候选同哈希**下四功能三环境可用 + T7 五项事实 + V1 共存承诺；**不自动授予**发布授权——RELEASES 换标与「当前发布物」标记随结单人工验收入账（不继承既往批准）。
-- **D0 判别点**（BII 面板条目英文名）按 §0 拍板结果入证据；未拍板不采集。
+- **D0-b 已收口**（2026-09-08 用户拍板修复轮）：面板 BII 条目 =「更好的物品交互」，S2 直接验收四件官方中文名；修复轮候选身份见 §1。
 - **LHT 时序边界**：信标环节依赖满月夜，允许与 LIT/LIR 分离采集（分次会话分别归档，绑同一 CaseId 与同一候选）。
 - **T7-2/3/5 是观察项**：结果与预期同异都如实入证据；**T7-4 是判据项**：正向场景缺 001 行 = finding。
 - **任何期望步骤与实际不符**：停止采集，保留现场（LogOutput.log + 截图 + 复现步骤），报告 agent。修复走 real-machine-test-loop：红测先行 + 双轴 CLEAN 后出新候选 → **换绑后全量重采，不得新旧候选拼接证据**。**不要现场改动或混采配置**。

@@ -45,4 +45,4 @@ Spec: `../spec.md`（Solution「到达标准」、Testing Decisions「实机验�
 - **红测先行**：Plugin.Tests `AssertLitSingleplayerPath` 面板块新增断言（面板目录以官方中文名投射 BII 条目）→ **观测红**（FAIL 于新断言，`redtest-run.log`）→ 改串 → **绿**（`greentest-run.log` exit=0）。
 - **全套门禁**：解决方案 Release 重建 0 错误 0 警告（`sln-rebuild-fullsuite.log`）+ 七运行器 7/7 exit=0（`fullsuite-run.log`）。
 - **候选重授**：新候选 `3cbd62687bf765c618eaa5b6762c1172c7de022b6a50dc64ae1b0bdd0d399e4d`（533504B 两轮 Rebuild 字节一致，CaseId **`DEV-V2-24-CANDIDATE-20260908`**）；前身 `7d5dd3b5…c223`（DEV-V2-23-CANDIDATE-20260908）作废，kit/out 与归档、手册、六模板已换绑。采集 CaseId 不变 = `DEV-V2-24-20260908`。
-- 增量 diff：`audit/2026-09-08/DEV-V2-24/round1-increment.diff`（双轴审查标的）。
+- 增量 diff：`audit/2026-09-08/DEV-V2-24/round1-increment.diff`（双轴审查标的）。修复轮提交 = **`e70b7c4`**（候选来源快照 = e102935 + 本增量）。
