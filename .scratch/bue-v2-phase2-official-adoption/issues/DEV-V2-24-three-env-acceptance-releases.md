@@ -54,3 +54,12 @@ Spec: `../spec.md`（Solution「到达标准」、Testing Decisions「实机验�
 - **F-A（客机整理全程不可用）**：Host :2889 采纳客机会话（gen=2）即拍签发 challenge → :2890 定向发送 `result=LocalTransportUnavailable` 失败，**全程无重试**（恰此一条发送失败）；Client 侧 80 条「尚未收到有效服务端 session challenge」拒绝，RequestTidy 从未发出。反证：同会话 LIR 定向发送（Host :4610 `-> 客机 RepackSuccess`）与 LHT 组播（`广播 Update result=Sent`）均成功——失败是暂时性/状态性，一次重试即可恢复。候选 `3cbd6268…9e4d`。
 - **F-B（主机本地整理幽灵贴图堆叠）**：Host :5134-:5137 本地路径提交成功（`placed=3 指纹守恒验证通过`），但 UI 多容器幽灵贴图堆叠（截图存档）；SP 同路径无此现象——本地提交后的界面刷新/预览清理路径 P2P 差异，根因待查（修复轮代码定位）。
 - **处置（手册 §10 协议）**：停止采集、现场已保留（两端 LogOutput.log + 截图归档）；修复走 real-machine-test-loop：红测先行（LIT 挑战签发失败重臂缝 + F-B 根因）→ 双轴 CLEAN → 新候选 → **换绑后全量重采（含已通过的 sp/P2P LIR/LHT 项，不拼接）**。本票关票顺延。
+
+### 2026-09-08 修复轮闭环（F-A + F-B2 双轴 R3 双 CLEAN）——候选 v3 重授，F-B1（幽灵）转压测定根因
+
+- **F-A 已修**（`3db75c0`）：challenge 签发失败回滚采纳（DropSession 孤儿 token + liveSessions.Remove）→ 下一拍重发现重发，镜像异常路径 B3 语义；红测新组「挑战发送失败重臂」三断言（红=恰②③，`fixfa-red-run.log` → ALL GREEN 6 组）。
+- **F-B2 已修**（`f89194f`+F1 `03b661f`+F1b `fe3e3cc`）：BII surface 隔离锁存去粘滞+可见化——根因=三条静默路径任一单帧瞬态失败即永久锁存 `isolated=true` 且零日志（第二次整理后强化渲染全灭）；`TransientIsolationGate` 去抖门（连续 60 帧持续失败才隔离，健康帧复位自愈）+ 首失败/恢复/锁存三态一次性诊断行（003 走 EmitDiagnosticOnce/Error，004 走 Runtime/Debug——F1 修正 D2 通道污染）；红测 `AssertTransientIsolationGate`（编译红→绿）。
+- **F-B1（幽灵覆盖层）未在本轮修复**：诊断数据排除数据层复制（插桩计数整理前后每页一致），幽灵=BII 陈旧覆盖层，与触发时序相关（原始会话撞上关开过渡窗口+ESC 暂停）；转新候选压测定根因。
+- **审查链**（判词存档 `audit/2026-09-08/DEV-V2-24/review-rounds.md`）：R2 Standards CLEAN（2S 均具名，S1 采纳/S2 具名延期）+ Spec NOT CLEAN（2D：锁存行双发/004 行被 003 sink 污染）→ F1+F1b → **R3 双轴全新实例双 CLEAN**（Standards 0B（唯一 SMELL 已在 F1b 修复）/ Spec 0/0/0；Spec R3 首派发基础设施零输出作废留痕，判词来自重派新实例）。
+- **候选 v3 重授**：`c9b6b6e40684df04b6141bef1f220a84d49dd96dfa7fae228ff51696e526eb86`（535552B **三轮** Rebuild 一致，CaseId 仍 `DEV-V2-24-CANDIDATE-20260908`）；前身 7d5dd3b5…c223 与 3cbd6268…9e4d 作废；kit/out、归档、identity-sha256.txt v3、手册 §1、六模板换绑；历史 case（sp/p2p×2）加「已归档待重采」横幅。
+- **下一步**：新候选部署（含 VM）→ F-B1 幽灵压测（提复现率：多次关开+整理+ESC 暂停时序）→ 全量重采（手册十节，绑 v3 哈希）。

@@ -25,3 +25,36 @@ S2 改四件中文名齐口径；§10 与 sp/p2p-client 模板清开放措辞；
 ## 闭环
 
 **双轴最终 CLEAN（Standards=R2 / Spec=R2）**。候选 `3cbd6268…9e4d`（DEV-V2-24-CANDIDATE-20260908）为已审增量产物；实机采集按手册（换绑后）进行。
+
+---
+
+# 修复轮审查（F-A + F-B2，2026-09-08）
+
+> 标的 = round3-increment.diff（F-A `3db75c0` + F-B2 `f89194f`）与 round4-increment.diff（F1 `03b661f` + F1b `fe3e3cc`）。每轮全新实例。
+
+## R2（两个全新实例）
+
+- **Standards R2: CLEAN**（agent_a3473cf0-cf77-4083-b1d8-258b779c28a0；0B+2S+3I，均具名可延期）
+  - F-A 回滚与 B3 同构且 token 面更严；OpenPeerScope 同代 no-op；包装器转发全 7 成员。
+  - S1：ObservePollSuccess 不清 Latched 与测试语义不符（→F1 采纳修复）。
+  - S2：宽限窗不对称（Poll 异常宽限内 dispatchedSurfaces 不清理）→具名延期：Poll 逐帧全捕获，≤60 帧残留 overlay 风险可容忍，genuine 失败仍到阈值隔离。
+  - INFO：litfb 拆除彻底 ✓；无「单帧立即隔离」冻结承诺；F-A 事件重复 += 与 B3 同构且守卫幂等。
+- **Spec R2: NOT CLEAN**（agent_e354a55a-8d1b-4739-9e51-ed720f5b8922；2D+0S）
+  - D1：探针分支锁存行双发（隔离分支+通用分支各一次）。
+  - D2：生产 sink 无条件追加 BUE-INVENTORY-003，污染 004 首失败/恢复行的诊断 id。
+
+## F1/F1b（`03b661f` + `fe3e3cc`）
+
+- D1：隔离后跳过通用发射，恰一次。
+- D2：锁存行(003)走 EmitDiagnosticOnce(Error)；首失败/恢复行(004)改走 BueRuntimeLog.Runtime(Debug)，与既有 004 行同通道，id 不再被污染。
+- S1 采纳：ObservePollSuccess 同时清 Latched。
+- F1b：ObservePollSuccess 的 XML 注释同步（Standards R3 唯一 SMELL 处置）。
+
+## R3（两个全新实例）
+
+- **Standards R3: CLEAN**（agent_3cdcd991-09eb-4cff-b5e3-1e46f89c1f5e；0B+1S+1I——唯一 SMELL 即过期 XML 注释，已在 F1b 修复；S2 延期维持）。
+- **Spec R3: CLEAN**（agent_10540155-ebea-461b-a636-9a840ca1b271；0/0/0；首派发因基础设施零输出作废留痕，本判词来自重派的全新实例）。
+
+## 闭环
+
+**双轴最终 CLEAN（Standards=R3 / Spec=R3）**。修复轮候选 `c9b6b6e4…eb86`（DEV-V2-24-CANDIDATE-20260908，535552B 三轮 Rebuild 一致，identity-sha256.txt v3）；前身 7d5dd3b5…c223 与 3cbd6268…9e4d 作废。F-B1（幽灵覆盖层）未在本轮修复——H2 数据复制已排除，待新候选上提复现率压测后定根因。

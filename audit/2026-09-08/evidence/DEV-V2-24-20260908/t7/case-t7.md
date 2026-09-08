@@ -11,7 +11,7 @@
 ## T7-1 改名实机对照（BUE DLL 改名 + NoOpFixture 在场）
 
 - 部署文件名: TODO（如 `BetterUnturnedExperience.r24.dll`）；NoOpFixture.dll 哈希: TODO
-- 锚: BepInEx 无「缺少依赖」告警；BUE 加载行 + assembly-identity 行 path=改名路径 sha256=`3CBD6268…9E4D`；NoOpFixture `accepted=True` 行（IL 绑定按程序集名，文件名无关）
+- 锚: BepInEx 无「缺少依赖」告警；BUE 加载行 + assembly-identity 行 path=改名路径 sha256=`C9B6B6E4…EB86`；NoOpFixture `accepted=True` 行（IL 绑定按程序集名，文件名无关）
 - 结果: TODO（通过 / 异常描述）
 
 ## T7-2 Mono `LoadFile` 二次探测（Z 变体观察，可与 T7-3/T7-5 同会话）
