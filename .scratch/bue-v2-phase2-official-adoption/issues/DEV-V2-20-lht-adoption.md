@@ -1,7 +1,7 @@
 # DEV-V2-20：LHT 纳入——更好的尸潮播报（双件 + 信标守卫 + 组播广播）
 
 Type: task
-Status: ready-for-agent
+Status: resolved（2026-09-08，/implement 会话；双轴最终 CLEAN——Standards=R2 CLEAN（反驳接受，4 INFO 具名可延期）、Spec=R2 CLEAN（REBUTTAL-GAP1 接受，零 GAP/DEVIATION/SMELL）；候选 3bb4452e…6569（528384B 三轮 Rebuild 字节一致，CaseId DEV-V2-20-CANDIDATE-20260908）；结单报告 audit/2026-09-08/DEV-V2-20/）
 Parent: spec.md（V2 第二阶段规格·三插件官方纳入与平台首公里）
 Blocked by: DEV-V2-18（BUE 帧生产消费绑定）、DEV-V2-19（HostTick 契约件）
 Spec: `../spec.md`（「LHT：双件结构与传输上收」一节）

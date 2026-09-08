@@ -6,7 +6,7 @@
     <TargetFrameworkVersion>v4.7.2</TargetFrameworkVersion><LangVersion>10.0</LangVersion><Deterministic>true</Deterministic><DebugType>none</DebugType>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' "><Optimize>true</Optimize><OutputPath>bin\Release\</OutputPath><DefineConstants>TRACE</DefineConstants><WarningLevel>4</WarningLevel><TreatWarningsAsErrors>true</TreatWarningsAsErrors></PropertyGroup>
-  <ItemGroup><Reference Include="System" /><Reference Include="System.Core" /><Reference Include="BepInEx"><HintPath>..\..\..\Libs\BepInEx.dll</HintPath><Private>False</Private></Reference><Reference Include="HarmonyLib"><HintPath>..\..\..\Libs\0Harmony.dll</HintPath><Private>False</Private></Reference><Reference Include="Assembly-CSharp"><HintPath>..\..\..\Libs\Assembly-CSharp.dll</HintPath><Private>False</Private></Reference><Reference Include="SDG.NetTransport"><HintPath>..\..\..\Libs\SDG.NetTransport.dll</HintPath><Private>False</Private></Reference><Reference Include="SDG.Glazier.Runtime"><HintPath>..\..\..\Libs\SDG.Glazier.Runtime.dll</HintPath><Private>False</Private></Reference><Reference Include="UnityEngine"><HintPath>..\..\..\Libs\UnityEngine.dll</HintPath><Private>False</Private></Reference><Reference Include="UnityEngine.CoreModule"><HintPath>..\..\..\Libs\UnityEngine.CoreModule.dll</HintPath><Private>False</Private></Reference><Reference Include="UnityEngine.InputLegacyModule"><HintPath>..\..\..\Libs\UnityEngine.InputLegacyModule.dll</HintPath><Private>False</Private></Reference><Reference Include="UnityEngine.TextRenderingModule"><HintPath>..\..\..\Libs\UnityEngine.TextRenderingModule.dll</HintPath><Private>False</Private></Reference></ItemGroup>
+  <ItemGroup><Reference Include="System" /><Reference Include="System.Core" /><Reference Include="BepInEx"><HintPath>..\..\..\Libs\BepInEx.dll</HintPath><Private>False</Private></Reference><Reference Include="HarmonyLib"><HintPath>..\..\..\Libs\0Harmony.dll</HintPath><Private>False</Private></Reference><Reference Include="Assembly-CSharp"><HintPath>..\..\..\Libs\Assembly-CSharp.dll</HintPath><Private>False</Private></Reference><Reference Include="com.rlabrecque.steamworks.net"><HintPath>..\..\..\Libs\com.rlabrecque.steamworks.net.dll</HintPath><Private>False</Private></Reference><Reference Include="SDG.NetTransport"><HintPath>..\..\..\Libs\SDG.NetTransport.dll</HintPath><Private>False</Private></Reference><Reference Include="SDG.Glazier.Runtime"><HintPath>..\..\..\Libs\SDG.Glazier.Runtime.dll</HintPath><Private>False</Private></Reference><Reference Include="UnityEngine"><HintPath>..\..\..\Libs\UnityEngine.dll</HintPath><Private>False</Private></Reference><Reference Include="UnityEngine.CoreModule"><HintPath>..\..\..\Libs\UnityEngine.CoreModule.dll</HintPath><Private>False</Private></Reference><Reference Include="UnityEngine.InputLegacyModule"><HintPath>..\..\..\Libs\UnityEngine.InputLegacyModule.dll</HintPath><Private>False</Private></Reference><Reference Include="UnityEngine.TextRenderingModule"><HintPath>..\..\..\Libs\UnityEngine.TextRenderingModule.dll</HintPath><Private>False</Private></Reference></ItemGroup>
   <ItemGroup>
     <Compile Include="..\BetterUnturnedExperience.Contracts\ContractTypes.cs"><Link>EmbeddedContracts\ContractTypes.cs</Link></Compile>
     <Compile Include="..\BetterUnturnedExperience.Core\CoreAssemblyMarker.cs"><Link>EmbeddedCore\CoreAssemblyMarker.cs</Link></Compile>
@@ -105,8 +105,32 @@
     <Compile Include="..\BetterUnturnedExperience.Lir\Patches\UseableGunReceiveAttachMagazinePatch.cs"><Link>EmbeddedLir\Patches\UseableGunReceiveAttachMagazinePatch.cs</Link></Compile>
     <Compile Include="..\BetterUnturnedExperience.Lir\Patches\ForceAddItemPatch.cs"><Link>EmbeddedLir\Patches\ForceAddItemPatch.cs</Link></Compile>
     <Compile Include="..\BetterUnturnedExperience.Lir\InPlaceReloadModule.cs"><Link>EmbeddedLir\InPlaceReloadModule.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Lht\LhtRuntime.cs"><Link>EmbeddedLht\LhtRuntime.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Lht\Horde\HordeSnapshot.cs"><Link>EmbeddedLht\Horde\HordeSnapshot.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Lht\Horde\HordeStateTracker.cs"><Link>EmbeddedLht\Horde\HordeStateTracker.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Lht\Horde\PendingHordeSnapshot.cs"><Link>EmbeddedLht\Horde\PendingHordeSnapshot.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Lht\Horde\HordeBeaconView.cs"><Link>EmbeddedLht\Horde\HordeBeaconView.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Lht\Horde\HordeBeaconContextGuard.cs"><Link>EmbeddedLht\Horde\HordeBeaconContextGuard.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Lht\Horde\IHordeTrackingPolicy.cs"><Link>EmbeddedLht\Horde\IHordeTrackingPolicy.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Lht\Horde\DefaultHordeTrackingPolicy.cs"><Link>EmbeddedLht\Horde\DefaultHordeTrackingPolicy.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Lht\Horde\HordeWireCodec.cs"><Link>EmbeddedLht\Horde\HordeWireCodec.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Lht\Horde\IHordeTrackingAuthority.cs"><Link>EmbeddedLht\Horde\IHordeTrackingAuthority.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Lht\Horde\HordeTrackingModule.cs"><Link>EmbeddedLht\Horde\HordeTrackingModule.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Lht\Horde\HordeClientReceiver.cs"><Link>EmbeddedLht\Horde\HordeClientReceiver.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Lht\Horde\HordeProductionAuthority.cs"><Link>EmbeddedLht\Horde\HordeProductionAuthority.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Lht\Presentation\IHordeHudSurface.cs"><Link>EmbeddedLht\Presentation\IHordeHudSurface.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Lht\Presentation\HordePresentationAdapter.cs"><Link>EmbeddedLht\Presentation\HordePresentationAdapter.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Lht\Presentation\PlayerLifeUiHudPatches.cs"><Link>EmbeddedLht\Presentation\PlayerLifeUiHudPatches.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Lht\Presentation\PlayerLifeHudSurface.cs"><Link>EmbeddedLht\Presentation\PlayerLifeHudSurface.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Lht\Patches\BeaconCounterPatches.cs"><Link>EmbeddedLht\Patches\BeaconCounterPatches.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Lht\Command\HordeCommandLogic.cs"><Link>EmbeddedLht\Command\HordeCommandLogic.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Lht\Command\CommandHorde.cs"><Link>EmbeddedLht\Command\CommandHorde.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Lht\Resolve\OwnerResolver.cs"><Link>EmbeddedLht\Resolve\OwnerResolver.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Lht\Resolve\LocationResolver.cs"><Link>EmbeddedLht\Resolve\LocationResolver.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Lht\HordeTrackerModule.cs"><Link>EmbeddedLht\HordeTrackerModule.cs</Link></Compile>
     <Compile Include="InventoryTidyFeatureRegistration.cs" />
     <Compile Include="InPlaceReloadFeatureRegistration.cs" />
+    <Compile Include="HordeTrackerFeatureRegistration.cs" />
     <Compile Include="BueHostEventRuntime.cs" />
     <Compile Include="BueFeatureStartRuntime.cs" />
   </ItemGroup>

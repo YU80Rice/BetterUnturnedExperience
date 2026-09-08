@@ -74,10 +74,14 @@ namespace BetterUnturnedExperience.Plugin
                 // the global zone too; its frame work rides the host clock
                 // and its patches live under its own FeatureId Harmony ID.
                 var lirRegistration = InPlaceReloadFeatureRegistration.Register();
+                // DEV-V2-20: the official horde-tracker module registers in
+                // the global zone the same way — the platform network facade's
+                // horde broadcast consumer, riding the host clock.
+                var lhtRegistration = HordeTrackerFeatureRegistration.Register();
                 if (decision == BootstrapDecision.Client)
                 {
                     pluginUpdateDriver = new BuePluginUpdateDriver(OnPluginUpdateTick);
-                    clientUiComposition = new BueClientUiCompositionRoot(NetworkModuleFeatureRegistration.WiredAdapter, InventoryTidyFeatureRegistration.WiredModule, InPlaceReloadFeatureRegistration.WiredModule);
+                    clientUiComposition = new BueClientUiCompositionRoot(NetworkModuleFeatureRegistration.WiredAdapter, InventoryTidyFeatureRegistration.WiredModule, InPlaceReloadFeatureRegistration.WiredModule, HordeTrackerFeatureRegistration.WiredModule);
                     if (!clientUiComposition.Initialize(isBatchMode, isBatchMode, BueNativeManagementPanel.CanBindNativeUi()))
                     {
                         Logger.LogWarning("BUE client UI composition unavailable diagnosticId=BUE-CLIENTUI-001");
@@ -159,6 +163,7 @@ namespace BetterUnturnedExperience.Plugin
                 BueRuntimeLog.Runtime("BUE Network Module featureId=" + networkRegistration.Feature.Value + " accepted=" + networkRegistration.Accepted + " reason=" + networkRegistration.Reason + " diagnosticId=" + networkRegistration.DiagnosticId);
                 BueRuntimeLog.Runtime("BUE Inventory Tidy featureId=" + litRegistration.Feature.Value + " accepted=" + litRegistration.Accepted + " reason=" + litRegistration.Reason + " diagnosticId=" + litRegistration.DiagnosticId);
                 BueRuntimeLog.Runtime("BUE In-Place Reload featureId=" + lirRegistration.Feature.Value + " accepted=" + lirRegistration.Accepted + " reason=" + lirRegistration.Reason + " diagnosticId=" + lirRegistration.DiagnosticId);
+                BueRuntimeLog.Runtime("BUE Horde Tracker featureId=" + lhtRegistration.Feature.Value + " accepted=" + lhtRegistration.Accepted + " reason=" + lhtRegistration.Reason + " diagnosticId=" + lhtRegistration.DiagnosticId);
             }
             catch (System.Exception error)
             {

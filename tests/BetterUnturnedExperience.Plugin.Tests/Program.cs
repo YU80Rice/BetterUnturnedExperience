@@ -8,6 +8,7 @@ using BetterUnturnedExperience.Plugin;
 using BetterUnturnedExperience.ClientUi.Internal;
 using BetterUnturnedExperience.Lit;
 using BetterUnturnedExperience.Lir;
+using BetterUnturnedExperience.Lht;
 using HarmonyLib;
 using SDG.Unturned;
 using System.IO;
@@ -286,6 +287,11 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     AssertBueV2LirAdoption(collectAllFailures: true);
                     return 0;
                 }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--bue-v2-lht-red")
+                {
+                    AssertBueV2LhtAdoption(collectAllFailures: true);
+                    return 0;
+                }
                 AssertSingleDllAssemblyClosure();
                 AssertExternalSdkAssemblyIdentity();
                 Assert(BootstrapGuard.Decide(false, false, true) == BootstrapDecision.Client, "client decision");
@@ -379,6 +385,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 AssertBueV2EventBusAndHostTick();
                 AssertBueV2LitMultiplayerPath();
                 AssertBueV2LirAdoption();
+                AssertBueV2LhtAdoption();
                 AssertLitSingleplayerPath();
                 AssertRuntimeCompletionBarrierIsolates();
                 AssertManagementPanelConsumesRuntimeCatalog();
@@ -7252,6 +7259,546 @@ namespace BetterUnturnedExperience.Plugin.Tests
             Assert(bueReference, "external SDK output must bind to the public BUE runtime assembly");
             Assert(typeof(FeatureId).Assembly == typeof(BueRuntimeHost).Assembly, "public ABI identity is resolved by BUE runtime assembly");
         }
+        // ═══════════════════════════════════════════════════════════════════
+        // DEV-V2-20: LHT adoption (更好的尸潮播报) — the red-test surface.
+        // Groups (ticket acceptance, 先红后绿):
+        //   1. 信标守卫        — context=false → immediate release (guard input/output;
+        //                        patches share native call sites, never business context)
+        //   2. 组播不含本地     — session-driven SendToClients replaces the
+        //                        Provider.clients handwritten loop + skip-local logic
+        //   3. BUE 帧不可靠 1:1 — the 08 baseline proved 1:1 on the LMN path; the
+        //                        BUE-frame path re-proves it + epoch/seq lifecycle parity
+        //   4. enabled=false 完整停摆 — server stops tracking/broadcast, client stops
+        //                        HUD, /horde has no LHT behavior, channel unregistered
+        //   5. U3DS 双状态      — feature Available + presentation HeadlessOnly; identity
+        //   6. 端到端全链       — register channel → subscribe → SendToClients, fake
+        //                        (loopback) transport: the platform's first real consumer
+        // No behavior is pinned through an installed Harmony patch — the guard
+        // seam, the tracking module entries and the loopback runtime carry it.
+        // ═══════════════════════════════════════════════════════════════════
+        private static void AssertBueV2LhtAdoption(bool collectAllFailures = false)
+        {
+            var reds = new List<string>();
+            try
+            {
+                void Check(bool condition, string message)
+                {
+                    if (condition) return;
+                    if (collectAllFailures) reds.Add(message);
+                    else throw new InvalidOperationException(message);
+                }
+
+                void Group(string name, System.Action body)
+                {
+                    try { body(); }
+                    catch (Exception error) when (collectAllFailures)
+                    {
+                        var frame = error.StackTrace != null ? error.StackTrace.Split(new[] { '\n' }, 2)[0].Trim() : "<no stack>";
+                        reds.Add("[" + name + "] " + (error is InvalidOperationException ? error.Message : "UNEXPECTED " + error.GetType().Name + ": " + error.Message + " @ " + frame));
+                    }
+                }
+
+                Group("信标守卫", () => LhtGroupBeaconContextGuard(Check));
+                Group("组播不含本地", () => LhtGroupMulticastNoLocal(Check));
+                Group("BUE 帧不可靠 1:1", () => LhtGroupUnreliableOneToOneEpoch(Check));
+                Group("enabled=false 完整停摆", () => LhtGroupFullStop(Check));
+                Group("U3DS 双状态", () => LhtGroupPresentationStates(Check));
+                Group("端到端全链", () => LhtGroupEndToEnd(Check));
+            }
+            catch (Exception error) when (collectAllFailures)
+            {
+                reds.Add("UNEXPECTED: " + error.GetType().FullName + ": " + error.Message);
+            }
+            if (collectAllFailures && reds.Count == 0)
+                Console.WriteLine("DEV-V2-20 LHT adoption collection: ALL GREEN (0 failures) — groups: 信标守卫/组播不含本地/BUE 帧不可靠 1:1/enabled=false 完整停摆/U3DS 双状态/端到端全链");
+            if (collectAllFailures && reds.Count > 0)
+                throw new InvalidOperationException("DEV-V2-20 red collection (" + reds.Count + "): " + string.Join(" || ", reds));
+        }
+
+        /// <summary>Records every engine-facing call the LHT tracking module makes (test double).</summary>
+        private sealed class FakeHordeAuthority : IHordeTrackingAuthority
+        {
+            public int BeaconSubscribeCalls, BeaconUnsubscribeCalls, HostedSubscribeCalls, HostedUnsubscribeCalls;
+            public int CommandFlushCalls, CommandDeregisterCalls, StartNotifyCalls, EndNotifyCalls;
+            public bool ServerRole = true;
+            public HordeBeaconView NextBeacon;
+            public int Remaining, Alive;
+
+            public bool IsServerRole() { return ServerRole; }
+            public void SubscribeBeaconUpdated(System.Action<byte, bool> handler) { BeaconSubscribeCalls++; }
+            public void UnsubscribeBeaconUpdated(System.Action<byte, bool> handler) { BeaconUnsubscribeCalls++; }
+            public void SubscribeServerHosted(System.Action handler) { HostedSubscribeCalls++; }
+            public void UnsubscribeServerHosted(System.Action handler) { HostedUnsubscribeCalls++; }
+            public bool TryResolveBeacon(byte nav, out HordeBeaconView beacon) { beacon = NextBeacon; return NextBeacon != null; }
+            public bool TryReadCounters(HordeBeaconView beacon, out int remaining, out int alive)
+            { remaining = Remaining; alive = Alive; return true; }
+            public bool TryFlushHordeCommandRegistration(HordeStatusSource source) { CommandFlushCalls++; return true; }
+            public void DeregisterHordeCommand() { CommandDeregisterCalls++; }
+            public void NotifyHordeStart(HordeBeaconView beacon) { StartNotifyCalls++; }
+            public void NotifyHordeEnd(HordeBeaconView beacon) { EndNotifyCalls++; }
+        }
+
+        /// <summary>Recording HUD surface (the presentation adapter's test double).</summary>
+        private sealed class FakeHudSurface : IHordeHudSurface
+        {
+            public int InstallCalls, UninstallCalls, DrainCalls;
+            public bool LabelReady = true;
+            public bool ThrowOnRender;
+            public readonly List<string> Texts = new List<string>();
+            public readonly List<bool> Visibility = new List<bool>();
+
+            public bool Install() { InstallCalls++; return true; }
+            public void Uninstall() { UninstallCalls++; }
+            public bool IsLabelReady() { return LabelReady; }
+            public void SetText(string text)
+            { if (ThrowOnRender) throw new InvalidOperationException("hud fault"); Texts.Add(text); }
+            public void SetVisible(bool visible)
+            { if (ThrowOnRender) throw new InvalidOperationException("hud fault"); Visibility.Add(visible); }
+            public void DrainDisconnectReset() { DrainCalls++; }
+        }
+
+        /// <summary>A probe network for the tracking/receive paths: counts registration and
+        /// subscription traffic and records every multicast attempt (payload + reliability).</summary>
+        private sealed class LhtSendProbeNetwork : IBueNetworkApi
+        {
+            public int RegisterCalls, UnregisterCalls, SubscribeCalls, DisposedHandles;
+            public readonly List<(byte[] Payload, bool Reliable)> Multicasts = new List<(byte[], bool)>();
+
+            public ChannelRegistrationResult RegisterChannel(FeatureId channel, ContractVersion minimumBueContract, ushort featureVersion)
+            { RegisterCalls++; return new ChannelRegistrationResult(true, channel, FeatureRegistrationReason.None, "PROBE"); }
+            public bool UnregisterChannel(FeatureId channel) { UnregisterCalls++; return true; }
+            public IDisposable Subscribe(FeatureId channel, ChannelDirection direction, Action<IConnectionSession, byte[]> handler)
+            { SubscribeCalls++; return new LhtProbeHandle(this); }
+            public IReadOnlyList<IConnectionSession> Sessions { get { return new IConnectionSession[0]; } }
+            public NetworkSendResult SendToServer(FeatureId channel, byte[] payload, bool reliable) { return NetworkSendResult.NoSession; }
+            public NetworkSendResult SendToClients(FeatureId channel, byte[] payload, bool reliable)
+            { Multicasts.Add((payload, reliable)); return NetworkSendResult.Sent; }
+            public NetworkSendResult SendToClient(FeatureId channel, IConnectionSession session, byte[] payload, bool reliable) { return NetworkSendResult.NoSession; }
+
+            private sealed class LhtProbeHandle : IDisposable
+            {
+                private readonly LhtSendProbeNetwork owner;
+                internal LhtProbeHandle(LhtSendProbeNetwork owner) { this.owner = owner; }
+                public void Dispose() { owner.DisposedHandles++; }
+            }
+        }
+
+        /// <summary>Builds a started LHT module on a fresh bus with the given fakes (no patches pinned: host-test process).</summary>
+        private static HordeTrackerModule NewLhtModule(BetterUnturnedExperience.Core.Events.FeatureEventBus bus, IBueNetworkApi network, FakeHordeAuthority authority, FakeHudSurface surface, bool isServer, bool canUseClientUi = true)
+        {
+            var feature = new FeatureId(LhtRuntime.FeatureIdValue);
+            var module = new HordeTrackerModule(feature, new InMemorySettingsPersistence());
+            module.AuthorityFactoryForTests = () => authority;
+            module.HudSurfaceFactoryForTests = () => surface;
+            module.CanUseClientUiForTests = () => canUseClientUi;
+            authority.ServerRole = isServer;
+            var bootstrap = new FeatureBootstrap(default(FeatureScopeIdentity), 1UL, null, bus.Subscriber(feature), bus.Publisher(feature), null, null, null, network);
+            var result = module.Start(bootstrap);
+            if (!result.Started) throw new InvalidOperationException("harness: LHT module start failed: " + result.DiagnosticId);
+            return module;
+        }
+
+        /// <summary>One fake host frame: monotonic tick numbers, the given delta seconds.</summary>
+        private static HostTick LhtTick(ulong number, float deltaSeconds)
+        {
+            return new HostTick(number, deltaSeconds, TickPhase.Update);
+        }
+
+        private static ulong lhtToggleRequestId;
+
+        /// <summary>Submits the LHT enabled toggle through the frozen scoped settings seam (unique request id, current revision); returns acceptance.</summary>
+        private static bool SubmitLhtToggle(HordeTrackerModule module, bool enabled)
+        {
+            var revision = module.Settings.GetSnapshot(SettingRevisionScope.ClientPreference).Revision;
+            var result = module.Settings.Submit(new ScopedSettingChangeRequest(++lhtToggleRequestId, SettingRevisionScope.ClientPreference, revision,
+                new[] { new SettingMutation("hordetracker.enabled", SettingValue.Toggle(enabled)) }));
+            return result.Accepted;
+        }
+
+        /// <summary>The loopback two-endpoint harness: a server-side and a client-side LHT
+        /// module over one automatic-handshake runtime pair (the LirMultiplayerHarness shape).
+        /// Wire probes on both runtimes record exactly who receives what — the loopback
+        /// proof that the local host is never its own multicast target.</summary>
+        private sealed class LhtMultiplayerHarness
+        {
+            public BetterUnturnedExperience.Core.Network.LocalLoopbackPair Pair;
+            public BetterUnturnedExperience.Core.Network.BueNetworkRuntime ServerRuntime;
+            public BetterUnturnedExperience.Core.Network.BueNetworkRuntime ClientRuntime;
+            public HordeTrackerModule ServerLht;
+            public HordeTrackerModule ClientLht;
+            public FakeHordeAuthority ServerAuthority;
+            public FakeHordeAuthority ClientAuthority;
+            public FakeHudSurface ServerSurface;
+            public FakeHudSurface ClientSurface;
+            public readonly List<byte[]> ClientInbound = new List<byte[]>();
+            public readonly List<byte[]> ServerInbound = new List<byte[]>();
+            public IConnectionSession ServerSession;
+            private ulong tickNumber;
+
+            public static LhtMultiplayerHarness Create()
+            {
+                var localContract = new ContractVersion(2, 0);
+                var pair = BetterUnturnedExperience.Core.Network.LocalLoopbackTransport.CreatePair();
+                var clientRuntime = new BetterUnturnedExperience.Core.Network.BueNetworkRuntime(pair.First, localContract, 1001UL);
+                var serverRuntime = new BetterUnturnedExperience.Core.Network.BueNetworkRuntime(pair.Second, localContract, 2002UL, handshakeInitiator: false);
+                var harness = new LhtMultiplayerHarness
+                {
+                    Pair = pair,
+                    ClientRuntime = clientRuntime,
+                    ServerRuntime = serverRuntime,
+                    ServerAuthority = new FakeHordeAuthority(),
+                    ClientAuthority = new FakeHordeAuthority(),
+                    ServerSurface = new FakeHudSurface(),
+                    ClientSurface = new FakeHudSurface(),
+                };
+                var channel = new FeatureId(LhtRuntime.FeatureIdValue);
+                clientRuntime.Subscribe(channel, ChannelDirection.FromServer, (s, p) => harness.ClientInbound.Add(p));
+                serverRuntime.Subscribe(channel, ChannelDirection.FromClients, (s, p) => harness.ServerInbound.Add(p));
+                serverRuntime.Subscribe(channel, ChannelDirection.FromServer, (s, p) => harness.ServerInbound.Add(p));
+                harness.ServerBus = new BetterUnturnedExperience.Core.Events.FeatureEventBus();
+                harness.ServerLht = NewLhtModule(harness.ServerBus, serverRuntime, harness.ServerAuthority, harness.ServerSurface, isServer: true);
+                harness.ClientBus = new BetterUnturnedExperience.Core.Events.FeatureEventBus();
+                harness.ClientLht = NewLhtModule(harness.ClientBus, clientRuntime, harness.ClientAuthority, harness.ClientSurface, isServer: false);
+                return harness;
+            }
+
+            public BetterUnturnedExperience.Core.Events.FeatureEventBus ServerBus;
+            public BetterUnturnedExperience.Core.Events.FeatureEventBus ClientBus;
+
+            /// <summary>The automatic handshake: the client initiates; two pump rounds establish both sides.</summary>
+            public void Handshake()
+            {
+                ClientRuntime.StartSession(2002UL);
+                Pump();
+                Pump();
+                if (ClientRuntime.Sessions.Count != 1 || ServerRuntime.Sessions.Count != 1)
+                    throw new InvalidOperationException("harness: handshake did not establish both sides");
+                ServerSession = ServerRuntime.Sessions[0];
+            }
+
+            public void TickServer() { ServerLht.OnHostTick(LhtTick(++tickNumber, 0.1f)); }
+            public void TickClient() { ClientLht.OnHostTick(LhtTick(++tickNumber, 0.1f)); }
+            public void Pump() { Pair.First.Pump(); Pair.Second.Pump(); }
+        }
+
+        // Group 1 — the frozen beacon context guard: only the tracked active
+        // beacon's counter changes mark the broadcast dirty; every other call
+        // through the same native call site releases immediately with zero
+        // state change, and the stop boundary clears the guard (spec「上下文
+        // 守卫原则」：补丁可共享原生调用点，不能共享业务上下文).
+        private static void LhtGroupBeaconContextGuard(Action<bool, string> check)
+        {
+            var guard = new HordeBeaconContextGuard();
+            var unrelated = new object();
+            check(!guard.TryRequestBroadcast(unrelated),
+                "信标守卫：无追踪信标时补丁入口立即放行（context=false，不置脏不抛异常）");
+            check(!guard.ConsumeBroadcastDirty(), "信标守卫：放行路径零脏标记");
+
+            var beaconA = new object();
+            guard.Track(beaconA);
+            check(!guard.TryRequestBroadcast(unrelated),
+                "信标守卫：非追踪信标走同一调用点立即放行（共享调用点不共享业务上下文）");
+            check(!guard.ConsumeBroadcastDirty(), "信标守卫：无关信标不产生广播脏标记");
+            check(guard.TryRequestBroadcast(beaconA), "信标守卫：追踪信标自身的计数变更命中上下文");
+            check(guard.ConsumeBroadcastDirty() && !guard.ConsumeBroadcastDirty(),
+                "信标守卫：脏标记单次消费（同帧多次击杀合并为一帧广播）");
+
+            guard.Clear();
+            check(!guard.TryRequestBroadcast(beaconA) && !guard.ConsumeBroadcastDirty(),
+                "信标守卫：Clear 后上下文与脏标记零残留（停止闸门）");
+
+            HordeTrackerModule.OnBeaconCounterPatched(null);
+            check(true, "信标守卫：无活动模块时补丁静态入口静默放行（不 NRE 不抛）");
+        }
+
+        // Group 2 — session-driven multicast replaces the Provider.clients
+        // handwritten loop + skip-local logic: the established session
+        // snapshot is the target set, the local host is never in it (zero
+        // loopback — structural, not a hand-written skip), and the host HUD
+        // is driven by the local authority publish, never a network echo.
+        private static void LhtGroupMulticastNoLocal(Action<bool, string> check)
+        {
+            HordeStateTracker.Clear();
+            PendingHordeSnapshot.Reset();
+            var harness = LhtMultiplayerHarness.Create();
+            try
+            {
+                // Beacon activation with no session yet: local authority only, nothing on the wire.
+                harness.ServerAuthority.NextBeacon = new HordeBeaconView(new object(), "发起者甲", "机场", 100);
+                harness.ServerLht.Tracking.HandleBeaconUpdated(1, true);
+                harness.TickServer(); harness.TickClient();
+                check(harness.ClientInbound.Count == 0 && harness.ServerInbound.Count == 0,
+                    "组播：无会话时广播静默（快照空 → NoSession，零上线帧）");
+                check(HordeStateTracker.Read().IsActive && HordeStateTracker.Read().Total == 100,
+                    "组播：本地权威发布照常（房主 HUD 数据源不依赖网络回环）");
+
+                harness.Handshake();
+
+                // One counter change → one dirty → exactly ONE update frame per established session.
+                harness.ServerAuthority.Remaining = 37;
+                harness.ServerAuthority.Alive = 40;
+                harness.ServerLht.Tracking.OnBeaconCounterChanged(harness.ServerAuthority.NextBeacon.Beacon);
+                harness.TickServer(); harness.Pump();
+                check(harness.ClientInbound.Count == 1,
+                    "组播：一次脏标记恰好一帧 Update 上线（会话驱动组播，1 会话 1 帧）");
+                check(harness.ServerInbound.Count == 0,
+                    "组播：本地主机零回环——服务器双方向入站探针全空（本地身份不在远端会话集合）");
+
+                // Both HUDs render: the host from the local authority (same tick,
+                // no Pump), the client after the frame arrives and drains.
+                check(harness.ServerSurface.Texts.Count >= 1
+                    && harness.ServerSurface.Texts[harness.ServerSurface.Texts.Count - 1].Contains("机场"),
+                    "组播：房主 HUD 由本地权威驱动（广播同帧渲染，无需网络回环）");
+                harness.TickClient();
+                check(harness.ClientSurface.Texts.Count >= 1
+                    && harness.ClientSurface.Texts[harness.ClientSurface.Texts.Count - 1].Contains("机场"),
+                    "组播：客户端 HUD 收到广播后渲染（10Hz 表现层）");
+
+                // The fallback cadence: the first event-free tick broadcasts once
+                // (the migrated timer shape), then the 2s window holds — 25 more
+                // ticks (2.5s) add exactly one more frame.
+                var before = harness.ClientInbound.Count;
+                harness.TickServer(); harness.Pump();
+                check(harness.ClientInbound.Count == before + 1, "组播：兜底路径上线（防事件丢失 + 新客机同步）");
+                before = harness.ClientInbound.Count;
+                for (int i = 0; i < 25; i++) harness.TickServer();
+                harness.Pump();
+                check(harness.ClientInbound.Count == before + 1, "组播：2s 周期兜底在窗口内恰好一帧");
+            }
+            finally
+            {
+                harness.ServerLht.Stop(FeatureStopReason.PluginStopping);
+                harness.ClientLht.Stop(FeatureStopReason.PluginStopping);
+            }
+        }
+
+        // Group 3 — the BUE-frame unreliable 1:1 re-proof (T2 handover point:
+        // the 08 baseline proved 1:1 on the LMN path; the session-driven
+        // SendToClients BUE-frame path must re-prove it) plus the epoch /
+        // sequence lifecycle parity with the 08 baseline.
+        private static void LhtGroupUnreliableOneToOneEpoch(Action<bool, string> check)
+        {
+            HordeStateTracker.Clear();
+            PendingHordeSnapshot.Reset();
+            var authority = new FakeHordeAuthority
+            {
+                NextBeacon = new HordeBeaconView(new object(), "发起者乙", "工厂", 50),
+                Remaining = 20,
+                Alive = 25,
+            };
+            var probe = new LhtSendProbeNetwork();
+            var tracking = new HordeTrackingModule(authority, new DefaultHordeTrackingPolicy(), probe, () => true);
+            tracking.Activate();
+            try
+            {
+                tracking.HandleBeaconUpdated(1, true);
+                tracking.Tick(0.1f);
+                check(probe.Multicasts.Count == 1 && !probe.Multicasts[0].Reliable,
+                    "1:1：Update 广播走不可靠通道（Update 不可靠 / Clear 可靠语义保持）");
+
+                for (int i = 0; i < 63; i++)
+                {
+                    tracking.OnBeaconCounterChanged(authority.NextBeacon.Beacon);
+                    tracking.Tick(0.1f);
+                }
+                check(probe.Multicasts.Count == 64,
+                    "1:1：64 个事件窗口恰好 64 帧不可靠 Update（同帧合并 + 每帧至多一帧）");
+
+                var seen = new HashSet<uint>();
+                for (int i = 0; i < 64; i++)
+                {
+                    check(HordeWireCodec.TryReadUpdate(probe.Multicasts[i].Payload, out var snapshot)
+                        && snapshot.Epoch == 1 && seen.Add(snapshot.Sequence),
+                        "1:1：第 " + (i + 1) + " 帧 epoch=1 且 sequence 无重复键（08 基线语义）");
+                }
+
+                tracking.HandleBeaconUpdated(1, false);
+                tracking.Tick(0.1f);
+                check(probe.Multicasts.Count == 65 && probe.Multicasts[64].Reliable,
+                    "1:1：Clear 恰一帧且走可靠通道（尸潮结束不丢）");
+                check(HordeWireCodec.TryReadClear(probe.Multicasts[64].Payload, out var clearEpoch, out var clearSeq)
+                    && clearEpoch == 1 && clearSeq == 65,
+                    "1:1：Clear 携带 epoch=1 的终结 sequence=65（Update/Clear 共享序号空间）");
+
+                tracking.Tick(0.1f);
+                tracking.Tick(0.1f);
+                check(probe.Multicasts.Count == 65, "1:1：Clear 后零重复 clear（LastBroadcastedActive 停止闸门）");
+
+                // Reactivation: a NEW epoch, the sequence space restarts at 1.
+                tracking.HandleBeaconUpdated(2, true);
+                tracking.Tick(0.1f);
+                check(probe.Multicasts.Count == 66
+                    && HordeWireCodec.TryReadUpdate(probe.Multicasts[65].Payload, out var reborn)
+                    && reborn.Epoch == 2 && reborn.Sequence == 1,
+                    "1:1：信标再激活进入 epoch=2 且序号从 1 重启（旧 epoch 延迟包无法复活新 epoch）");
+            }
+            finally { tracking.Deactivate(); }
+            check(authority.BeaconUnsubscribeCalls == 1, "1:1：Deactivate 退订引擎事件（代际清理）");
+        }
+
+        // Group 4 — enabled=false is a FULL stop: server tracking unsubscribed
+        // (no events → no broadcasts, no /horde), the client subscription is
+        // released + mailbox/state cleared, the HUD goes dark, the channel is
+        // unregistered; re-enable re-arms everything (the old OnDestroy
+        // teardown shape, now riding the settings seam).
+        private static void LhtGroupFullStop(Action<bool, string> check)
+        {
+            HordeStateTracker.Clear();
+            PendingHordeSnapshot.Reset();
+            var bus = new BetterUnturnedExperience.Core.Events.FeatureEventBus();
+            var probe = new LhtSendProbeNetwork();
+            var authority = new FakeHordeAuthority
+            {
+                NextBeacon = new HordeBeaconView(new object(), "发起者丙", "农场", 80),
+                Remaining = 30,
+                Alive = 30,
+            };
+            var surface = new FakeHudSurface();
+            var module = NewLhtModule(bus, probe, authority, surface, isServer: true);
+            check(module.Enabled, "停摆：默认开启（唯一持久化开关 enabled）");
+            check(probe.SubscribeCalls == 1, "停摆：启动时客户端接收恰一次订阅");
+
+            check(SubmitLhtToggle(module, false), "停摆：面板开关可关闭");
+            module.RefreshSwitches();
+            check(!module.Enabled && !module.PatchesInstalled, "停摆：关闭后自身补丁已撤（原生回退）");
+            check(authority.BeaconUnsubscribeCalls == 1, "停摆：服务器信标事件已退订（追踪停摆）");
+            check(authority.CommandDeregisterCalls == 1, "停摆：/horde 已注销（关闭后无 LHT 行为）");
+            check(probe.UnregisterCalls == 1 && probe.DisposedHandles == 1,
+                "停摆：频道已注销 + 接收订阅已释放（完整停摆含网络）");
+
+            // Server: beacon activation produces nothing at all.
+            module.Tracking.HandleBeaconUpdated(1, true);
+            module.OnHostTick(LhtTick(1, 0.1f));
+            check(probe.Multicasts.Count == 0 && authority.StartNotifyCalls == 0,
+                "停摆：关闭后信标激活零广播零通知");
+
+            // Client: the receive gate is closed, the state cleared, the HUD dark.
+            check(!module.Receiver.AcceptFrames, "停摆：客户端接收闸门已关（旧回调无法回写状态）");
+            check(HordeStateTracker.Read().IsActive == false, "停摆：状态追踪已清空");
+            check(surface.UninstallCalls == 1, "停摆：HUD surface 已卸载");
+            module.OnHostTick(LhtTick(2, 0.1f));
+            check(surface.Texts.Count == 0 && surface.Visibility.Count == 0, "停摆：关闭后 HUD 零渲染");
+
+            // Re-enable re-arms: network re-bind, events re-subscribed, patches re-installed.
+            check(SubmitLhtToggle(module, true), "停摆：可重新开启（提交受理）");
+            module.RefreshSwitches();
+            check(module.Enabled && probe.RegisterCalls == 2 && probe.SubscribeCalls == 2,
+                "停摆：重臂后频道重注册 + 接收重订阅");
+            check(authority.BeaconSubscribeCalls == 2, "停摆：重臂后信标事件重订阅");
+            check(module.PatchesInstalled || module.StartGateDiagnostics.Length > 0,
+                "停摆：重臂后补丁重装（测试进程装不上时如实留诊断）");
+            module.Tracking.HandleBeaconUpdated(1, true);
+            module.OnHostTick(LhtTick(3, 0.1f));
+            check(probe.Multicasts.Count == 1, "停摆：重臂后广播恢复");
+            module.Stop(FeatureStopReason.UserDisabled);
+        }
+
+        // Group 5 — identity + the U3DS presentation split: the feature state
+        // is Available in both processes (the module starts headless), the
+        // presentation state is HeadlessOnly when the batch-mode gate is
+        // closed (no PlayerLifeUI HUD), Available otherwise.
+        private static void LhtGroupPresentationStates(Action<bool, string> check)
+        {
+            check(LhtRuntime.FeatureIdValue == "io.github.yu80rice.bue.horde-tracker",
+                "身份：FeatureId 冻结为 io.github.yu80rice.bue.horde-tracker（频道身份同串，旧频道退役）");
+            check(LhtRuntime.DisplayName == "更好的尸潮播报", "身份：官方中文名「更好的尸潮播报」");
+
+            // Headless (batch-mode): starts fine, the HUD surface is never installed.
+            var headlessSurface = new FakeHudSurface();
+            var headlessAuthority = new FakeHordeAuthority();
+            var headless = NewLhtModule(new BetterUnturnedExperience.Core.Events.FeatureEventBus(), new LhtSendProbeNetwork(),
+                headlessAuthority, headlessSurface, isServer: true, canUseClientUi: false);
+            check(headless.Started, "U3DS：无头进程模块正常启动（功能 Available，表现不阻塞验收）");
+            check(headless.PresentationState == FeaturePresentationState.HeadlessOnly, "U3DS：无头进程表现状态=HeadlessOnly");
+            check(headlessSurface.InstallCalls == 0, "U3DS：无头不装 HUD surface（PlayerLifeUI 隔离）");
+            check(headlessAuthority.BeaconSubscribeCalls == 1, "U3DS：无头进程追踪照常激活（服务器权威与表现解耦）");
+            headless.Stop(FeatureStopReason.PluginStopping);
+
+            // Headful: Available.
+            var headful = NewLhtModule(new BetterUnturnedExperience.Core.Events.FeatureEventBus(), new LhtSendProbeNetwork(),
+                new FakeHordeAuthority(), new FakeHudSurface(), isServer: true, canUseClientUi: true);
+            check(headful.PresentationState == FeaturePresentationState.Available, "U3DS：有头进程表现状态=Available");
+            headful.Stop(FeatureStopReason.PluginStopping);
+
+            // HUD 失败只降表现不伤权威追踪：surface 渲染异常被表现层适配器隔离。
+            HordeStateTracker.Clear();
+            HordeStateTracker.Publish(new HordeSnapshot(true, 1, 1, 10, 100, "地点", "发起者"));
+            var throwingAdapter = new HordePresentationAdapter(new FakeHudSurface { ThrowOnRender = true });
+            Exception hudLeak = null;
+            try { throwingAdapter.Tick(10f); }
+            catch (Exception error) { hudLeak = error; }
+            check(hudLeak == null, "U3DS：HUD 渲染异常被表现层隔离（只降表现不伤权威追踪）");
+            HordeStateTracker.Clear();
+
+            // The official registration: definition identity + contract floor.
+            var registration = HordeTrackerFeatureRegistration.CreateRegistration();
+            check(registration.Definition.Feature.Value == LhtRuntime.FeatureIdValue,
+                "身份：官方注册定义携带 FeatureId（面板条目身份=FeatureId）");
+            check(registration.MinimumBueContract.Major == 2, "身份：MinimumBueContract 对齐契约 2.0");
+        }
+
+        // Group 6 — the platform's FIRST real consumer end-to-end: register
+        // channel → subscribe → SendToClients over the loopback transport
+        // (fake transport, full chain green), epoch lifecycle + 1:1 delivery
+        // on the BUE frame path.
+        private static void LhtGroupEndToEnd(Action<bool, string> check)
+        {
+            HordeStateTracker.Clear();
+            PendingHordeSnapshot.Reset();
+            var harness = LhtMultiplayerHarness.Create();
+            try
+            {
+                check(harness.ServerLht.Tracking.Channel.Value == LhtRuntime.FeatureIdValue,
+                    "全链：频道身份 = FeatureId（一词一贯）");
+
+                // Activation before any session: local authority only, zero wire noise.
+                harness.ServerAuthority.NextBeacon = new HordeBeaconView(new object(), "发起者丁", "军事基地", 100);
+                harness.ServerLht.Tracking.HandleBeaconUpdated(1, true);
+                harness.TickServer(); harness.TickClient();
+                check(harness.ClientInbound.Count == 0, "全链：无会话时广播静默（NoSession，客机零噪声）");
+                check(harness.ServerSurface.Texts.Count >= 1, "全链：房主 HUD 本地权威渲染");
+
+                harness.Handshake();
+                check(harness.ServerSession != null, "全链：会话建立（自动握手）");
+
+                // 32 kill windows: one dirty each → exactly 32 unreliable frames 1:1.
+                for (int i = 0; i < 32; i++)
+                {
+                    harness.ServerAuthority.Remaining = 90 - i * 2;
+                    harness.ServerLht.Tracking.OnBeaconCounterChanged(harness.ServerAuthority.NextBeacon.Beacon);
+                    harness.TickServer(); harness.Pump(); harness.TickClient();
+                }
+                check(harness.ClientInbound.Count == 32,
+                    "全链：32 个事件窗口恰好 32 帧上线（BUE 帧不可靠 1:1 复验）");
+                var seqs = new List<uint>();
+                foreach (var payload in harness.ClientInbound)
+                {
+                    if (HordeWireCodec.TryReadUpdate(payload, out var snapshot)) seqs.Add(snapshot.Sequence);
+                }
+                check(seqs.Count == 32, "全链：客户端收到的 32 帧全部可解析");
+                var monotonic = seqs.Count > 0;
+                for (int i = 1; i < seqs.Count; i++) monotonic &= seqs[i] == seqs[i - 1] + 1;
+                check(monotonic, "全链：客户端视角 sequence 严格连续无重复键（08 基线）");
+                check(harness.ClientSurface.Texts.Count >= 1
+                    && harness.ClientSurface.Texts[harness.ClientSurface.Texts.Count - 1].Contains("军事基地"),
+                    "全链：客户端 HUD 渲染尸潮地点（10Hz 表现层）");
+
+                // The horde ends: one clear, the client HUD hides.
+                harness.ServerLht.Tracking.HandleBeaconUpdated(1, false);
+                harness.TickServer(); harness.Pump(); harness.TickClient();
+                check(harness.ClientInbound.Count == 33, "全链：尸潮平息 Clear 恰一帧");
+                check(harness.ClientSurface.Visibility.Count >= 1
+                    && harness.ClientSurface.Visibility[harness.ClientSurface.Visibility.Count - 1] == false,
+                    "全链：Clear 后客户端 HUD 隐藏（分支 B）");
+                check(HordeStateTracker.Read().IsActive == false, "全链：状态追踪回到空（epoch 终结）");
+            }
+            finally
+            {
+                harness.ServerLht.Stop(FeatureStopReason.PluginStopping);
+                harness.ClientLht.Stop(FeatureStopReason.PluginStopping);
+            }
+        }
+
         private static void Assert(bool condition, string message) { if (!condition) throw new InvalidOperationException(message); }
 
     }

@@ -32,6 +32,7 @@ Author: GPT（本会话 charting）
 ## Decisions so far（实施票，续）
 
 - [DEV-V2-21：LIT 迁入·联机路径 + TidyCompleted 发布](issues/DEV-V2-21-lit-multiplayer-path.md)：**resolved（2026-09-07，双轴 R9 双 CLEAN）**——BUE 命名频道+双方向订阅重建联机全链（challenge/账本/lease/事务绑功能+连接代际）；熔断 scope 绑连接代际（清内存留磁盘 JSON 权威）；TidyCompleted 经 OwnedEvents 发布（本地 gen=0/联机会话代际）；宿主模块 Start/Stop+UnsubscribeAll 首公里（`DeferredBueNetworkApi` 永非 null 门面，SDK 登记条目⑦）。候选 `78da57c2…8385`(417792B,CaseId DEV-V2-21-CANDIDATE-20260907)，换标随 24。结单 `audit/2026-09-07/DEV-V2-21/`。
+- [DEV-V2-20：LHT 迁入·尸潮播报](issues/DEV-V2-20-lht-adoption.md)：**resolved（2026-09-08，双轴 R2 双 CLEAN）**——内部双件 HordeTrackingModule（服务器权威，引擎触点收口 IHordeTrackingAuthority）+HordePresentationAdapter（10Hz HUD，只降表现不伤追踪）；信标两 Postfix（Harmony ID=FeatureId）+HordeBeaconContextGuard（context=false 立即放行）；传输上收（ModTransport.Initialize/LMN ABI 守卫删除，SendToClients 会话驱动组播按构造替代 Provider.clients 手写循环+跳本地）；epoch/seq/单槽 mailbox/脏标记/双可靠度/停止闸门保留；enabled=完整停摆（含频道注销）；IHordeTrackingPolicy+IHordeHudSurface 扩展三分法落点；U3DS Available+HeadlessOnly；**BueNetworkApi 生产绑定第一批真实消费者端到端走通**（注册→订阅→SendToClients 全链绿）；BUE 帧不可靠 1:1 复验（T2 移交点，08 LMN 路径基线在 BUE 帧路径重证）；Mono JIT 期 ECall 解析实测→ReadBatchMode NoInlining 缝。候选 `3bb4452e…6569`(528384B,CaseId DEV-V2-20-CANDIDATE-20260908)，换标随 24。结单 `audit/2026-09-08/DEV-V2-20/`。
 
 ## Not yet specified
 
