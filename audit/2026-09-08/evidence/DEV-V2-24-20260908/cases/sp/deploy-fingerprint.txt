@@ -1,0 +1,29 @@
+# deploy-fingerprint — 配置 A（裸 BUE）/ 单人 / 客户端
+# 采集 CaseId: DEV-V2-24-20260908 | 由 agent 代部署 2026-09-08 16:31 (本地时间)
+# 部署目录: E:\Steam\steamapps\common\Unturned\BepInEx\plugins
+
+## plugins 目录终态（配置 A = 仅候选 BUE + 休眠件）
+
+BetterUnturnedExperience.dll
+SHA-256: 3cbd62687bf765c618eaa5b6762c1172c7de022b6a50dc64ae1b0bdd0d399e4d
+字节数: 533504
+来源: audit/2026-09-08/DEV-V2-24/kit/out/BetterUnturnedExperience.dll（未重新构建）
+CaseId(候选阶段): DEV-V2-24-CANDIDATE-20260908
+
+SteamP2PFriends.dll（1101312 B, 2026-09-04 在场）
+角色: 休眠件（无 BepInPlugin 属性，不加载），配置 A 按手册 §1 保留并在指纹记录
+
+## 替换记录
+
+- 部署前在位: BetterUnturnedExperience.dll SHA-256 7d5dd3b5…c223（前身候选
+  DEV-V2-23-CANDIDATE-20260908，因 D0-b 面板显示名修复作废）→ 被新候选原位覆盖
+- 无其它 BUE 相关件需要清理（目录内无旧三插件/LMN/fixture/探针残留）
+
+## BepInEx.cfg（E:\Steam\steamapps\common\Unturned\BepInEx\config\BepInEx.cfg）
+
+[Logging.Disk] LogLevels = All（第 99 行）→ Debug 行已可见，无需修改
+[Logging.Console] LogLevels = Fatal, Error, Warning, Message, Info（第 75 行，维持原样）
+
+## 采集人
+
+collector: 用户（部署由 agent 代执行）; gameVersion/bepInExVersion: 待 S1 后从 LogOutput.log 首部回填
