@@ -960,8 +960,9 @@ namespace BetterUnturnedExperience.Plugin
                 return false;
             }
 
-            /// <summary>A successful poll resets the failure lane; returns
-            /// true when a non-zero strike count was actually cleared.</summary>
+            /// <summary>A successful poll resets the failure lane (strikes
+            /// and a latched flag alike); returns true when anything was
+            /// actually cleared.</summary>
             internal bool ObservePollSuccess()
             {
                 var reset = pollLane.Strikes > 0 || pollLane.Latched;
