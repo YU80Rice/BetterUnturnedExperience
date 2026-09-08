@@ -7,6 +7,7 @@ using BetterUnturnedExperience.Contracts;
 using BetterUnturnedExperience.Core.Placement;
 using BetterUnturnedExperience.Core.Registration;
 using BetterUnturnedExperience.Lit;
+using BetterUnturnedExperience.Lir;
 
 namespace BetterUnturnedExperience.Plugin
 {
@@ -23,13 +24,15 @@ namespace BetterUnturnedExperience.Plugin
         private readonly LoadedPluginCatalogAdapter loadedPluginAdapter;
         private readonly NetworkModuleAdapter networkAdapter;
         private readonly InventoryTidyModule litModule;
+        private readonly InPlaceReloadModule lirModule;
         private readonly bool clientUiAvailable;
         private int factoryInvocationCount;
 
-        internal BueClientUiCompositionRoot(NetworkModuleAdapter networkAdapter = null, InventoryTidyModule litModule = null)
+        internal BueClientUiCompositionRoot(NetworkModuleAdapter networkAdapter = null, InventoryTidyModule litModule = null, InPlaceReloadModule lirModule = null)
         {
             this.networkAdapter = networkAdapter;
             this.litModule = litModule;
+            this.lirModule = lirModule;
             settingsState = new BetterItemInteractionSettingsState();
             var feature = BetterItemInteractionSettingsState.Feature;
             var registry = new GeneratedClientUiRegistry(new[]
@@ -49,7 +52,7 @@ namespace BetterUnturnedExperience.Plugin
             // DEV-V2-15: the tidy module joins the same routing — one route
             // per feature, first match wins, the fallback never sees it.
             IBueSettingsEditor bueSettingsEditor;
-            if (networkAdapter == null && litModule == null)
+            if (networkAdapter == null && litModule == null && lirModule == null)
             {
                 bueSettingsEditor = new BetterItemInteractionSettingsEditor(settingsState);
             }
@@ -64,6 +67,12 @@ namespace BetterUnturnedExperience.Plugin
                 if (litModule != null)
                 {
                     routes.Add((litModule.Feature, new SettingsRuntimeBueEditor(litModule.Settings, litModule.RefreshSwitches)));
+                }
+                // DEV-V2-22: the in-place reload module joins the same
+                // routing — one route for its single enabled toggle.
+                if (lirModule != null)
+                {
+                    routes.Add((lirModule.Feature, new SettingsRuntimeBueEditor(lirModule.Settings, lirModule.RefreshSwitches)));
                 }
                 bueSettingsEditor = new RoutingBueSettingsEditor(new BetterItemInteractionSettingsEditor(settingsState), routes.ToArray());
             }
@@ -120,6 +129,10 @@ namespace BetterUnturnedExperience.Plugin
             // presentation is Available and its panel entry carries the
             // official Chinese display name plus the live settings snapshot.
             if (feature.Value == LitRuntime.FeatureIdValue) return InventoryTidyManagementEntry();
+            // DEV-V2-22: the in-place reload entry — identity = FeatureId,
+            // display name = the official 更好的换弹体验, snapshot = the
+            // module's single enabled toggle.
+            if (feature.Value == LirRuntime.FeatureIdValue) return InPlaceReloadManagementEntry();
             var presentation = entry.ClientUi == null
                 ? new FeaturePresentationView(feature, FeaturePresentationState.PresentationDegraded, "BUE-UI-SATELLITE-001", 1)
                 : new FeaturePresentationView(feature, FeaturePresentationState.Available, string.Empty, 1);
@@ -136,6 +149,18 @@ namespace BetterUnturnedExperience.Plugin
                 : litModule.Settings.GetSnapshot(SettingRevisionScope.ClientPreference);
             var presentation = new FeaturePresentationView(feature, FeaturePresentationState.Available, string.Empty, 1);
             return new BueFeatureManagementEntry(feature, LitRuntime.DisplayName, "0.0.0", FeatureState.Running, presentation, snapshot);
+        }
+
+        // DEV-V2-22: the LIR panel entry — identity = FeatureId, display name
+        // = the official 更好的换弹体验, snapshot = the module's single enabled toggle.
+        private BueFeatureManagementEntry InPlaceReloadManagementEntry()
+        {
+            var feature = lirModule == null ? new FeatureId(LirRuntime.FeatureIdValue) : lirModule.Feature;
+            var snapshot = lirModule == null
+                ? default(FeatureSettingsSnapshot)
+                : lirModule.Settings.GetSnapshot(SettingRevisionScope.ClientPreference);
+            var presentation = new FeaturePresentationView(feature, FeaturePresentationState.Available, string.Empty, 1);
+            return new BueFeatureManagementEntry(feature, LirRuntime.DisplayName, "0.0.0", FeatureState.Running, presentation, snapshot);
         }
 
         // DEV-V2-06: the network facets carry their live SettingsRuntime

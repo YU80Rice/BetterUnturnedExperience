@@ -7,6 +7,7 @@ using BetterUnturnedExperience.NoOpFixture;
 using BetterUnturnedExperience.Plugin;
 using BetterUnturnedExperience.ClientUi.Internal;
 using BetterUnturnedExperience.Lit;
+using BetterUnturnedExperience.Lir;
 using HarmonyLib;
 using SDG.Unturned;
 using System.IO;
@@ -280,6 +281,11 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     AssertBueV2LitMultiplayerPath(collectAllFailures: true);
                     return 0;
                 }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--bue-v2-lir-red")
+                {
+                    AssertBueV2LirAdoption(collectAllFailures: true);
+                    return 0;
+                }
                 AssertSingleDllAssemblyClosure();
                 AssertExternalSdkAssemblyIdentity();
                 Assert(BootstrapGuard.Decide(false, false, true) == BootstrapDecision.Client, "client decision");
@@ -372,6 +378,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 AssertBueV2FrameBinding();
                 AssertBueV2EventBusAndHostTick();
                 AssertBueV2LitMultiplayerPath();
+                AssertBueV2LirAdoption();
                 AssertLitSingleplayerPath();
                 AssertRuntimeCompletionBarrierIsolates();
                 AssertManagementPanelConsumesRuntimeCatalog();
@@ -4560,6 +4567,617 @@ namespace BetterUnturnedExperience.Plugin.Tests
         // the decision core → dispatch, both directions). Tests drive the
         // decision core directly and never install patches — the production
         // prefix stays the only ShouldConsumeInbound caller.
+        // DEV-V2-22: the LIR adoption red collection — seven groups over the
+        // new seams (ReloadContextGuard / IReloadAction+TidyCompletedConsumer
+        // / HostTick driver / feature-private repack channel), the frozen
+        // overlay point (BII drag-in → forceAddItem prefix → context=false →
+        // no reload logic), the own-Harmony-ID stop rule, and the end-to-end
+        // tidy→repack chain with the DEV-V2-21 publisher on the loopback
+        // transport. Zero Harmony patches are installed by these tests; the
+        // overlay point is pinned at the guard's input/output per spec.
+        private static void AssertBueV2LirAdoption(bool collectAllFailures = false)
+        {
+            var reds = new List<string>();
+            try
+            {
+                void Check(bool condition, string message)
+                {
+                    if (condition) return;
+                    if (collectAllFailures) reds.Add(message);
+                    else throw new InvalidOperationException(message);
+                }
+
+                void Group(string name, System.Action body)
+                {
+                    try { body(); }
+                    catch (Exception error) when (collectAllFailures)
+                    {
+                        reds.Add("[" + name + "] " + (error is InvalidOperationException ? error.Message : "UNEXPECTED " + error.GetType().Name + ": " + error.Message));
+                    }
+                }
+
+                Group("叠加点 guard", () => LirGroupOverlayGuard(Check));
+                Group("Stop 只撤自身", () => LirGroupStopOwnHarmony(Check));
+                Group("事件消费", () => LirGroupTidyCompletedConsumer(Check));
+                Group("HostTick 双击驱动", () => LirGroupHostTickDriver(Check));
+                Group("整理→压弹全链", () => LirGroupTidyRepackChain(Check));
+                Group("半注册回滚+首帧延迟", () => LirGroupDeferredInitRollback(Check));
+                Group("enabled 原生回退", () => LirGroupEnabledFallback(Check));
+            }
+            catch (Exception error) when (collectAllFailures)
+            {
+                reds.Add("UNEXPECTED: " + error.GetType().FullName + ": " + error.Message);
+            }
+            if (collectAllFailures && reds.Count == 0)
+                Console.WriteLine("DEV-V2-22 LIR adoption collection: ALL GREEN (0 failures) — groups: 叠加点 guard/Stop 只撤自身/事件消费/HostTick 双击驱动/整理→压弹全链/半注册回滚+首帧延迟/enabled 原生回退");
+            if (collectAllFailures && reds.Count > 0)
+                throw new InvalidOperationException("DEV-V2-22 red collection (" + reds.Count + "): " + string.Join(" || ", reds));
+        }
+
+        /// <summary>Records every engine-facing call the LIR net service makes; defaults produce committed transactions.</summary>
+        private sealed class FakeLirAuthority : ILirRepackAuthority
+        {
+            public int RepackCount;
+            public ulong LastRepackSteamId;
+            public ulong LastRepackRequestId;
+            public LirRepackOutcome NextRepackOutcome = LirRepackOutcome.Committed;
+            public int NextRepackTotal = 60;
+
+            public int MergeCount;
+            public ulong LastMergeSteamId;
+            public ulong LastMergeRequestId;
+            public LirMergeOutcome NextMergeOutcome = LirMergeOutcome.Committed;
+
+            public int LocalResolveCount;
+            public ulong LocalSteamId = 2002UL;
+            public bool LocalKnown = true;
+
+            public LirRepackExecution ExecuteRepack(ulong senderSteamId, ulong requestId)
+            {
+                RepackCount++;
+                LastRepackSteamId = senderSteamId;
+                LastRepackRequestId = requestId;
+                return new LirRepackExecution { Outcome = NextRepackOutcome, TotalTransferred = NextRepackTotal };
+            }
+
+            public LirMergeExecution ExecuteMerge(ulong targetSteamId, ulong requestId)
+            {
+                MergeCount++;
+                LastMergeSteamId = targetSteamId;
+                LastMergeRequestId = requestId;
+                return new LirMergeExecution { Outcome = NextMergeOutcome, TotalMerged = 2 };
+            }
+
+            public bool TryResolveLocalPlayerSteamId(out ulong steamId)
+            {
+                LocalResolveCount++;
+                steamId = LocalKnown ? LocalSteamId : 0UL;
+                return LocalKnown;
+            }
+        }
+
+        /// <summary>The IReloadAction test double: records contexts, optionally throws once.</summary>
+        private sealed class RecordingLirAction : IReloadAction
+        {
+            public readonly List<LirReloadActionContext> Calls = new List<LirReloadActionContext>();
+            public bool ThrowOnExecute;
+
+            public void Execute(LirReloadActionContext context)
+            {
+                Calls.Add(context);
+                if (ThrowOnExecute) throw new InvalidOperationException("synthetic action failure");
+            }
+        }
+
+        /// <summary>A probe network: counts registration/subscription calls, delivers nothing.</summary>
+        private sealed class LirProbeNetwork : IBueNetworkApi
+        {
+            public int RegisterCalls;
+            public int UnregisterCalls;
+            public int SubscribeCalls;
+            public int DisposedHandles;
+
+            public ChannelRegistrationResult RegisterChannel(FeatureId channel, ContractVersion minimumBueContract, ushort featureVersion)
+            { RegisterCalls++; return new ChannelRegistrationResult(true, channel, FeatureRegistrationReason.None, "PROBE"); }
+
+            public bool UnregisterChannel(FeatureId channel) { UnregisterCalls++; return true; }
+
+            public IDisposable Subscribe(FeatureId channel, ChannelDirection direction, Action<IConnectionSession, byte[]> handler)
+            {
+                SubscribeCalls++;
+                return new ProbeHandle(this);
+            }
+
+            public IReadOnlyList<IConnectionSession> Sessions { get { return new IConnectionSession[0]; } }
+            public NetworkSendResult SendToServer(FeatureId channel, byte[] payload, bool reliable) { return NetworkSendResult.NoSession; }
+            public NetworkSendResult SendToClients(FeatureId channel, byte[] payload, bool reliable) { return NetworkSendResult.NoSession; }
+            public NetworkSendResult SendToClient(FeatureId channel, IConnectionSession session, byte[] payload, bool reliable) { return NetworkSendResult.NoSession; }
+
+            private sealed class ProbeHandle : IDisposable
+            {
+                private readonly LirProbeNetwork owner;
+                internal ProbeHandle(LirProbeNetwork owner) { this.owner = owner; }
+                public void Dispose() { owner.DisposedHandles++; }
+            }
+        }
+
+        /// <summary>A network stub whose SECOND subscribe throws — the half-registration rollback surface (DEV-V2-21 pattern).</summary>
+        private sealed class LirRollbackNetwork : IBueNetworkApi
+        {
+            public int SubscribeCalls;
+            public int DisposedHandles;
+            public int UnregisterCalls;
+
+            public ChannelRegistrationResult RegisterChannel(FeatureId channel, ContractVersion minimumBueContract, ushort featureVersion)
+            { return new ChannelRegistrationResult(true, channel, FeatureRegistrationReason.None, "STUB"); }
+
+            public bool UnregisterChannel(FeatureId channel) { UnregisterCalls++; return true; }
+
+            public IDisposable Subscribe(FeatureId channel, ChannelDirection direction, Action<IConnectionSession, byte[]> handler)
+            {
+                if (++SubscribeCalls >= 2) throw new InvalidOperationException("synthetic second-subscribe failure");
+                return new RollbackHandle(this);
+            }
+
+            public IReadOnlyList<IConnectionSession> Sessions { get { return new IConnectionSession[0]; } }
+            public NetworkSendResult SendToServer(FeatureId channel, byte[] payload, bool reliable) { return NetworkSendResult.NoSession; }
+            public NetworkSendResult SendToClients(FeatureId channel, byte[] payload, bool reliable) { return NetworkSendResult.NoSession; }
+            public NetworkSendResult SendToClient(FeatureId channel, IConnectionSession session, byte[] payload, bool reliable) { return NetworkSendResult.NoSession; }
+
+            private sealed class RollbackHandle : IDisposable
+            {
+                private readonly LirRollbackNetwork owner;
+                internal RollbackHandle(LirRollbackNetwork owner) { this.owner = owner; }
+                public void Dispose() { owner.DisposedHandles++; }
+            }
+        }
+
+        /// <summary>Builds a started LIR module on a fresh bus with the given fake authority (no patches land: host-test process).</summary>
+        private static InPlaceReloadModule NewLirModule(BetterUnturnedExperience.Core.Events.FeatureEventBus bus, IBueNetworkApi network, FakeLirAuthority authority, bool isServer, out FakeLirAuthority wired)
+        {
+            var feature = new FeatureId(LirRuntime.FeatureIdValue);
+            var module = new InPlaceReloadModule(feature, new InMemorySettingsPersistence());
+            module.AuthorityFactoryForTests = () => authority;
+            module.NetServiceFactoryForTests = (m, net) => new LirRepackNetwork(net, m.Authority, () => isServer);
+            var bootstrap = new FeatureBootstrap(default(FeatureScopeIdentity), 1UL, null, bus.Subscriber(feature), bus.Publisher(feature), null, null, null, network);
+            var result = module.Start(bootstrap);
+            if (!result.Started) throw new InvalidOperationException("harness: LIR module start failed: " + result.DiagnosticId);
+            wired = authority;
+            return module;
+        }
+
+        /// <summary>One fake host frame: monotonic tick numbers, the given delta seconds.</summary>
+        private static HostTick LirTick(ulong number, float deltaSeconds)
+        {
+            return new HostTick(number, deltaSeconds, TickPhase.Update);
+        }
+
+        // Group 1 — the frozen overlay point: BII drag-in reaches the
+        // forceAddItem prefix with NO reload context (the UseableGun prefix
+        // never ran), so the guard refuses consumption and the LIR in-place
+        // placement decision is never executed — the native path continues.
+        // Pinned at the guard's input/output; no Harmony patch is installed.
+        private static void LirGroupOverlayGuard(Action<bool, string> check)
+        {
+            var guard = new ReloadContextGuard();
+            check(!guard.TryConsumeSlot(out var slot),
+                "叠加点：BII 拖入（无换弹上下文）→ TryConsumeSlot=false → 不执行原位放置逻辑（放行原版）");
+            check(slot.Page == 0 && slot.X == 0 && slot.Y == 0 && slot.Rot == 0 && slot.SizeX == 0 && slot.SizeY == 0,
+                "叠加点：拒绝消费时槽位六元组输出归零（不残留数据）");
+            check(!guard.HasPendingContext, "叠加点：无上下文时 HasPendingContext=false");
+
+            // A real reload: the UseableGun prefix records the new magazine's slot.
+            guard.BeginReload(new ReloadSlotContext(2, 3, 4, 0, 1, 2));
+            check(guard.HasPendingContext, "叠加点：BeginReload 记录新弹匣完整槽位（page,x,y,rot,sx,sy）");
+            check(guard.TryConsumeSlot(out slot)
+                && slot.Page == 2 && slot.X == 3 && slot.Y == 4 && slot.Rot == 0 && slot.SizeX == 1 && slot.SizeY == 2,
+                "叠加点：有效上下文消费返回完整槽位六元组");
+            check(!guard.TryConsumeSlot(out _),
+                "叠加点：槽位单次消费——二次消费拒绝（防后续 forceAddItem 误用）");
+
+            // The Postfix bottom-clean: state never leaks across calls.
+            guard.BeginReload(new ReloadSlotContext(3, 0, 0, 1, 2, 2));
+            guard.Reset();
+            check(!guard.HasPendingContext && !guard.TryConsumeSlot(out _),
+                "叠加点：Reset 兜底清理（异常路径防状态泄漏到下次调用）");
+
+            // The detach-only (page==255) branch never calls BeginReload —
+            // that responsibility sits in the adapter; the guard stores what
+            // it is given without second-guessing (one decision, one place).
+            guard.BeginReload(new ReloadSlotContext(255, 0, 0, 0, 1, 1));
+            check(guard.TryConsumeSlot(out slot) && slot.Page == 255,
+                "叠加点：guard 无 255 特判（detach-only 由 adapter 承担，单一决策点）");
+            guard.Reset();
+        }
+
+        // Group 2 — the stop rule: the module's patches live under the LIR
+        // FeatureId Harmony instance and Stop revokes exactly that instance
+        // (UnpatchSelf) — never another feature's ID. Cross-feature
+        // isolation is structural: each feature owns its own Harmony
+        // instance, so an LIR UnpatchSelf cannot touch BII/LIT patches.
+        private static void LirGroupStopOwnHarmony(Action<bool, string> check)
+        {
+            var bus = new BetterUnturnedExperience.Core.Events.FeatureEventBus();
+            var module = NewLirModule(bus, new LirProbeNetwork(), new FakeLirAuthority(), isServer: true, out _);
+            check(module.PatchHarmonyId == LirRuntime.FeatureIdValue,
+                "Stop 只撤自身：补丁 Harmony ID = LIR FeatureId（io.github.yu80rice.bue.in-place-reload，收编非旧 GUID）");
+
+            module.Stop(FeatureStopReason.PluginStopping);
+            check(!module.PatchesInstalled, "Stop 只撤自身：Stop 后自身补丁已撤销（UnpatchSelf）");
+            check(module.PatchHarmonyId == LirRuntime.FeatureIdValue,
+                "Stop 只撤自身：撤销对象始终是自己的 Harmony ID（从不触他功能 ID）");
+            check(InPlaceReloadModule.ActiveModule == null,
+                "Stop 只撤自身：补丁句柄已清空——adapter 层即刻不再持有本模块（双保险）");
+
+            module.Stop(FeatureStopReason.UserDisabled);
+            check(!module.PatchesInstalled, "Stop 只撤自身：重复 Stop 幂等");
+        }
+
+        // Group 3 — TidyCompleted consumption: success + scope + idempotency +
+        // target resolution + exception isolation. The consumer never acts on
+        // a blind event (spec「LIR 不得见事件就盲执行」).
+        private static void LirGroupTidyCompletedConsumer(Action<bool, string> check)
+        {
+            var action = new RecordingLirAction();
+            // generation → steamId: 0 → local (2002), 7 → peer 1001, unknown → 0.
+            Func<ulong, ulong> resolver = gen => gen == 0UL ? 2002UL : (gen == 7UL ? 1001UL : 0UL);
+            var consumer = new TidyCompletedConsumer(action, resolver);
+            var lit = new FeatureId(LitRuntime.FeatureIdValue);
+
+            consumer.Handle(new TidyCompleted(lit, 2, 6, TidyCompletionResult.Succeeded, 0UL, 1UL));
+            check(action.Calls.Count == 1 && action.Calls[0].TargetSteamId == 2002UL,
+                "消费：成功+范围符合（gen=0 本地）→ 动作恰好执行一次且目标=本地玩家");
+            check(action.Calls[0].ConnectionGeneration == 0UL && action.Calls[0].TransactionId == 1UL,
+                "消费：动作上下文携带连接代际与事务号（可追溯）");
+
+            consumer.Handle(new TidyCompleted(lit, 2, 6, TidyCompletionResult.Rejected, 0UL, 2UL));
+            consumer.Handle(new TidyCompleted(lit, 2, 6, TidyCompletionResult.Failed, 0UL, 3UL));
+            check(action.Calls.Count == 1, "消费：结果非成功（Rejected/Failed）→ 不执行（盲执行被禁止）");
+
+            consumer.Handle(new TidyCompleted(lit, 1, 6, TidyCompletionResult.Succeeded, 0UL, 4UL));
+            consumer.Handle(new TidyCompleted(lit, 2, 7, TidyCompletionResult.Succeeded, 0UL, 5UL));
+            check(action.Calls.Count == 1, "消费：范围出界（压弹域 2..6 之外）→ 不执行");
+
+            // R1-Spec DEVIATION-1 fix: a malformed range (inverted bounds) is
+            // not a valid scope either — it must never reach an action.
+            consumer.Handle(new TidyCompleted(lit, 6, 2, TidyCompletionResult.Succeeded, 0UL, 9UL));
+            check(action.Calls.Count == 1, "消费：非法范围（首页>末页）→ 不执行");
+
+            consumer.Handle(new TidyCompleted(lit, 2, 6, TidyCompletionResult.Succeeded, 7UL, 6UL));
+            check(action.Calls.Count == 2 && action.Calls[1].TargetSteamId == 1001UL,
+                "消费：联机会话代际 → 经会话解析目标 peer（服务器代执行整理的旧 postfix 语义保持）");
+
+            consumer.Handle(new TidyCompleted(lit, 2, 6, TidyCompletionResult.Succeeded, 9UL, 7UL));
+            check(action.Calls.Count == 2, "消费：会话代际解析失败（目标不可知）→ 跳过不执行");
+
+            consumer.Handle(new TidyCompleted(lit, 2, 6, TidyCompletionResult.Succeeded, 7UL, 6UL));
+            consumer.Handle(new TidyCompleted(lit, 2, 6, TidyCompletionResult.Succeeded, 7UL, 5UL));
+            check(action.Calls.Count == 2, "消费：事务号幂等（重复/回退事务号不二次执行）");
+
+            consumer.Handle(new TidyCompleted(lit, 2, 6, TidyCompletionResult.Succeeded, 0UL, 0UL));
+            check(action.Calls.Count == 2, "消费：事务号 0 非法 → 拒绝");
+
+            action.ThrowOnExecute = true;
+            Exception leaked = null;
+            try { consumer.Handle(new TidyCompleted(lit, 2, 6, TidyCompletionResult.Succeeded, 0UL, 8UL)); }
+            catch (Exception error) { leaked = error; }
+            check(leaked == null, "消费：动作异常被隔离，不扩散回事件总线");
+            action.ThrowOnExecute = false;
+        }
+
+        // Group 4 — HostTick-driven period work: the double-tap detector with
+        // the 0.3s window (single click passes the native reload through),
+        // and the bounded main-thread dispatcher (queue limit 64, per-sender
+        // coalescing, success-first drain, work TTL expiry).
+        private static void LirGroupHostTickDriver(Action<bool, string> check)
+        {
+            int fires = 0;
+            bool keyDown = false;
+            var driver = new ReloadInputDriver(() => keyDown, () => fires++);
+            ulong tickNumber = 0;
+            void Frame(bool pressed, float dt)
+            {
+                keyDown = pressed;
+                driver.Tick(LirTick(++tickNumber, dt));
+            }
+
+            Frame(false, 0.1f); Frame(false, 0.1f);
+            check(fires == 0, "驱动：无按键帧不触发");
+
+            Frame(true, 0.1f);
+            check(fires == 0, "驱动：单击只落基线（原版换弹放行）");
+            Frame(false, 0.05f);
+            Frame(true, 0.05f);
+            check(fires == 1, "驱动：0.3s 窗口内第二次按下触发原位压弹（恰一次）");
+
+            // After a trigger the baseline is CLEARED: the next press only
+            // re-arms (the anti-machine-gun rule), the one after fires.
+            Frame(false, 0.05f);
+            Frame(true, 0.05f);
+            check(fires == 1, "驱动：触发后下一按只重锚基线（连击防护）");
+            Frame(false, 0.05f);
+            Frame(true, 0.05f);
+            check(fires == 2, "驱动：重臂后的下一次窗口内双击再次触发");
+            Frame(false, 0.02f);
+
+            Frame(true, 0.1f); Frame(false, 0.4f); Frame(true, 0.05f);
+            check(fires == 2, "驱动：窗口外（>0.3s）第二次按下不触发，基线重锚");
+
+            Frame(false, 0.1f);
+            Frame(true, 0.15f); Frame(false, 0.0f); Frame(true, 0.15f);
+            check(fires == 3, "驱动：窗口边界（0.3s 含）内触发（旧 <= 阈值语义保持）");
+
+            keyDown = false;
+            var boomDriver = new ReloadInputDriver(() => { throw new InvalidOperationException("synthetic key fault"); }, () => fires++);
+            Exception leaked = null;
+            try { boomDriver.Tick(LirTick(++tickNumber, 0.01f)); }
+            catch (Exception error) { leaked = error; }
+            check(leaked == null, "驱动：键轮询异常被隔离，不抛回宿主时钟链");
+
+            // ── the bounded main-thread dispatcher (state progression + TTL) ──
+            // MaxPerFrame=16 mirrors the old per-frame cap — the host drains
+            // every frame, so the tests drain to empty the same way.
+            var executed = new List<string>();
+            var toasts = new List<int>();
+            void DrainAll(LirRepackDispatcher target)
+            {
+                for (var round = 0; round < 8; round++) target.DrainOnMainThread((sender, reqId) => executed.Add("req:" + sender + ":" + reqId), (reqId, total) => toasts.Add(total));
+            }
+
+            var queue = new LirRepackDispatcher();
+            for (ulong i = 1; i <= ReloadRuntimePolicy.QueueLimit; i++)
+            {
+                if (!queue.TryEnqueueRequest(1000UL + i, i)) { check(false, "队列：第 " + i + " 个发送者应受理"); break; }
+            }
+            check(!queue.TryEnqueueRequest(9999UL, 9999UL),
+                "队列：上限 " + ReloadRuntimePolicy.QueueLimit + " 满——第 65 个发送者拒绝（fail-closed）");
+            DrainAll(queue);
+            check(executed.Count == ReloadRuntimePolicy.QueueLimit, "队列：drain 状态推进——64 项全部派发");
+
+            var coalesceQueue = new LirRepackDispatcher();
+            check(coalesceQueue.TryEnqueueRequest(1001UL, 1UL), "队列：新队列受理");
+            check(coalesceQueue.TryEnqueueRequest(1001UL, 2UL), "队列：同发送者合并（coalesce 返回 true 不占槽）");
+            DrainAll(coalesceQueue);
+            check(executed.Count == ReloadRuntimePolicy.QueueLimit + 1 && executed[executed.Count - 1] == "req:1001:1",
+                "队列：同发送者只派发首次请求（旧合并语义保持）");
+
+            var priorityQueue = new LirRepackDispatcher();
+            priorityQueue.TryEnqueueRequest(1001UL, 1UL);
+            priorityQueue.TryEnqueueSuccess(9UL, 60);
+            var order = new List<string>();
+            priorityQueue.DrainOnMainThread((sender, reqId) => order.Add("req"), (reqId, total) => order.Add("toast:" + total));
+            check(order.Count == 2 && order[0] == "toast:60" && order[1] == "req",
+                "队列：回包优先于请求（防请求洪泛饿死客户端 UI，旧语义保持）");
+
+            var ttlQueue = new LirRepackDispatcher();
+            long fakeTicks = 1_000_000;
+            ttlQueue.TicksForTests = () => fakeTicks;
+            check(ttlQueue.TryEnqueueRequest(1001UL, 1UL), "TTL：受理");
+            fakeTicks += (long)(System.Diagnostics.Stopwatch.Frequency * (ReloadRuntimePolicy.WorkTtlSeconds + 1f));
+            DrainAll(ttlQueue);
+            check(executed.Count == ReloadRuntimePolicy.QueueLimit + 1,
+                "TTL：超时判断——超过工作 TTL 的积压项被丢弃不执行（入队不等于授权）");
+
+            var closedQueue = new LirRepackDispatcher();
+            closedQueue.Shutdown();
+            check(!closedQueue.TryEnqueueRequest(1001UL, 1UL), "队列：Shutdown 后拒绝入队（停机不接受新工作）");
+        }
+
+        /// <summary>The two-peer loopback harness for the LIR chain: client (1001) double-taps, server (2002) executes; both modules run with fake authorities.</summary>
+        private sealed class LirMultiplayerHarness
+        {
+            public BetterUnturnedExperience.Core.Network.LocalLoopbackPair Pair;
+            public BetterUnturnedExperience.Core.Network.BueNetworkRuntime ServerRuntime;
+            public BetterUnturnedExperience.Core.Network.BueNetworkRuntime ClientRuntime;
+            public InPlaceReloadModule ServerLir;
+            public InPlaceReloadModule ClientLir;
+            public FakeLirAuthority ServerAuthority;
+            public FakeLirAuthority ClientAuthority;
+            public BetterUnturnedExperience.Core.Events.FeatureEventBus ServerBus;
+            public BetterUnturnedExperience.Core.Events.FeatureEventBus ClientBus;
+            public readonly List<string> ServerToasts = new List<string>();
+            public readonly List<string> ClientToasts = new List<string>();
+            public IConnectionSession ServerSession;
+            public IConnectionSession ClientSession;
+            private ulong tickNumber;
+
+            public static LirMultiplayerHarness Create()
+            {
+                var localContract = new ContractVersion(2, 0);
+                var pair = BetterUnturnedExperience.Core.Network.LocalLoopbackTransport.CreatePair();
+                var clientRuntime = new BetterUnturnedExperience.Core.Network.BueNetworkRuntime(pair.First, localContract, 1001UL);
+                var serverRuntime = new BetterUnturnedExperience.Core.Network.BueNetworkRuntime(pair.Second, localContract, 2002UL, handshakeInitiator: false);
+                var harness = new LirMultiplayerHarness
+                {
+                    Pair = pair,
+                    ClientRuntime = clientRuntime,
+                    ServerRuntime = serverRuntime,
+                    ServerAuthority = new FakeLirAuthority(),
+                    ClientAuthority = new FakeLirAuthority(),
+                };
+                harness.ServerBus = new BetterUnturnedExperience.Core.Events.FeatureEventBus();
+                harness.ServerLir = CreateModule(harness.ServerBus, serverRuntime, isServer: true, harness.ServerAuthority, harness.ServerToasts);
+                harness.ClientBus = new BetterUnturnedExperience.Core.Events.FeatureEventBus();
+                harness.ClientLir = CreateModule(harness.ClientBus, clientRuntime, isServer: false, harness.ClientAuthority, harness.ClientToasts);
+                return harness;
+            }
+
+            private static InPlaceReloadModule CreateModule(BetterUnturnedExperience.Core.Events.FeatureEventBus bus, BetterUnturnedExperience.Core.Network.BueNetworkRuntime runtime, bool isServer, FakeLirAuthority authority, List<string> toasts)
+            {
+                var feature = new FeatureId(LirRuntime.FeatureIdValue);
+                var module = new InPlaceReloadModule(feature, new InMemorySettingsPersistence());
+                module.AuthorityFactoryForTests = () => authority;
+                module.NetServiceFactoryForTests = (m, net) => new LirRepackNetwork(net, m.Authority, () => isServer);
+                module.RoleProbeForTests = () => isServer;
+                module.ToastSink = message => toasts.Add(message);
+                var bootstrap = new FeatureBootstrap(default(FeatureScopeIdentity), 1UL, null, bus.Subscriber(feature), bus.Publisher(feature), null, null, null, runtime);
+                var result = module.Start(bootstrap);
+                if (!result.Started) throw new InvalidOperationException("harness: LIR module start failed: " + result.DiagnosticId);
+                return module;
+            }
+
+            /// <summary>The automatic handshake: the client initiates; two pump rounds establish both sides.</summary>
+            public void Handshake()
+            {
+                ClientSession = ClientRuntime.StartSession(2002UL);
+                Pump();
+                Pump();
+                if (ClientRuntime.Sessions.Count != 1 || ServerRuntime.Sessions.Count != 1)
+                    throw new InvalidOperationException("harness: handshake did not establish both sides");
+                ServerSession = ServerRuntime.Sessions[0];
+            }
+
+            /// <summary>Drives one host frame on BOTH modules (session reconcile, deferred init, dispatcher drain, input).</summary>
+            public void TickAll()
+            {
+                tickNumber++;
+                ServerLir.OnHostTick(LirTick(tickNumber, 0.016f));
+                ClientLir.OnHostTick(LirTick(tickNumber, 0.016f));
+            }
+
+            public void Pump()
+            {
+                Pair.First.Pump();
+                Pair.Second.Pump();
+            }
+        }
+
+        // Group 5 — the tidy→repack chain end-to-end on the loopback transport:
+        // DEV-V2-21's TidyCompleted publish feeds LIR's consumer (server-side,
+        // generation→peer target resolution), and the client double-tap rides
+        // the feature-private repack channel to the server authority and back.
+        private static void LirGroupTidyRepackChain(Action<bool, string> check)
+        {
+            var harness = LirMultiplayerHarness.Create();
+            var lit = new FeatureId(LitRuntime.FeatureIdValue);
+
+            // Client double-tap before any session: refused, nothing on the wire.
+            harness.ClientLir.OnDoubleTapReload();
+            check(harness.ServerAuthority.RepackCount == 0, "全链：无会话时客机压弹请求拒绝发送（联机网络层未就绪语义保持）");
+
+            harness.Handshake();
+            harness.TickAll();
+            check(harness.ServerSession != null && harness.ClientSession != null, "全链：会话建立");
+
+            // The DEV-V2-21 publisher: LIT reports a committed tidy for the
+            // client's session generation → LIR merges THAT peer's magazines.
+            var published = harness.ServerBus.Publisher(lit).TryPublish(TidyCompleted.EventId,
+                new TidyCompleted(lit, 2, 6, TidyCompletionResult.Succeeded, harness.ServerSession.SessionId, 42UL));
+            check(published, "全链：TidyCompleted 经宿主总线发布（DEV-V2-21 发布端）");
+            check(harness.ServerAuthority.MergeCount == 1 && harness.ServerAuthority.LastMergeSteamId == 1001UL && harness.ServerAuthority.LastMergeRequestId != 0UL,
+                "全链：LIR 消费验成功+范围 → 整理后自动压弹恰好一次且目标=整理发起 peer（代际解析）");
+
+            // A failed tidy never reaches the reload action.
+            harness.ServerBus.Publisher(lit).TryPublish(TidyCompleted.EventId,
+                new TidyCompleted(lit, 2, 6, TidyCompletionResult.Rejected, harness.ServerSession.SessionId, 43UL));
+            check(harness.ServerAuthority.MergeCount == 1, "全链：整理失败（Rejected）→ 不自动压弹");
+
+            // Client double-tap repack over the wire: request → server
+            // authority → targeted reliable reply → client toast.
+            harness.ClientLir.OnDoubleTapReload();
+            check(harness.ServerAuthority.RepackCount == 0, "全链：请求入队后须待服务器主线程 drain 才执行（状态推进）");
+            harness.Pump();
+            harness.TickAll();
+            check(harness.ServerAuthority.RepackCount == 1 && harness.ServerAuthority.LastRepackSteamId == 1001UL && harness.ServerAuthority.LastRepackRequestId != 0UL,
+                "全链：服务器权威执行压弹事务（目标=请求 peer，请求号非零）");
+            harness.Pump();
+            harness.TickAll();
+            check(harness.ClientToasts.Count == 1 && harness.ClientToasts[0].Contains("60"),
+                "全链：服务器按会话定向回包 → 客机 toast 显示压入 60 发（requestId 匹配回包链）");
+            check(harness.ServerToasts.Count == 0, "全链：远端客户端的成功不在服务器本地显示（toast 归属正确）");
+
+            // The server-role double-tap (single player / listen host): local
+            // execution through the same main-thread entry, local toast.
+            harness.ServerLir.OnDoubleTapReload();
+            harness.TickAll();
+            check(harness.ServerAuthority.RepackCount == 2 && harness.ServerAuthority.LastRepackSteamId == 2002UL,
+                "全链：单机/房主双击走本地主线程事务入口（与远端请求共用，不自发网络包）");
+            check(harness.ServerToasts.Count == 1 && harness.ServerToasts[0].Contains("60"),
+                "全链：本地玩家成功 toast 本地显示");
+        }
+
+        // Group 6 — the network registration is deferred to the first frame
+        // game thread (the migrated semantic, now inside the module
+        // lifecycle) with half-registration rollback: a second-subscribe
+        // failure disposes every handle, unregisters the channel and leaves
+        // the local path alive — and never retries.
+        private static void LirGroupDeferredInitRollback(Action<bool, string> check)
+        {
+            // Deferred: no channel traffic at Start, exactly once at the
+            // first HostTick.
+            var probe = new LirProbeNetwork();
+            var bus = new BetterUnturnedExperience.Core.Events.FeatureEventBus();
+            var module = NewLirModule(bus, probe, new FakeLirAuthority(), isServer: true, out _);
+            check(probe.RegisterCalls == 0 && probe.SubscribeCalls == 0,
+                "首帧延迟：模块 Start 不注册频道（注册延迟到首帧游戏线程，语义保持）");
+            module.OnHostTick(LirTick(1UL, 0.016f));
+            check(probe.RegisterCalls == 1 && probe.SubscribeCalls == 2,
+                "首帧延迟：首个 HostTick 注册频道+双方向订阅（各恰一次）");
+            module.OnHostTick(LirTick(2UL, 0.016f));
+            check(probe.RegisterCalls == 1 && probe.SubscribeCalls == 2,
+                "首帧延迟：后续帧不重复初始化");
+            module.Stop(FeatureStopReason.PluginStopping);
+            check(probe.UnregisterCalls == 1 && probe.DisposedHandles == 2,
+                "首帧延迟：Stop 注销频道并释放全部订阅句柄");
+
+            // Half-registration rollback: the SECOND subscribe throws.
+            var rollback = new LirRollbackNetwork();
+            var rollbackBus = new BetterUnturnedExperience.Core.Events.FeatureEventBus();
+            var rollbackModule = NewLirModule(rollbackBus, rollback, new FakeLirAuthority(), isServer: true, out _);
+            Exception leaked = null;
+            try { rollbackModule.OnHostTick(LirTick(1UL, 0.016f)); }
+            catch (Exception error) { leaked = error; }
+            check(leaked == null, "半注册：初始化异常不抛回宿主时钟链");
+            check(rollbackModule.MultiplayerReady == false,
+                "半注册：联机子系统启动失败如实上报（MultiplayerReady=false）");
+            check(rollback.UnregisterCalls == 1 && rollback.DisposedHandles == 1,
+                "半注册：已成功方向被撤销（句柄 Dispose+频道注销），零残留");
+            rollbackModule.OnHostTick(LirTick(2UL, 0.016f));
+            check(rollback.SubscribeCalls == 2, "半注册：失败后不重试（单机路径保持可用）");
+            check(rollbackModule.Started, "半注册：模块本体保持 Started（本地路径存活）");
+        }
+
+        // Group 7 — the single persisted switch: off = native fallback (own
+        // patches off, no reload work at all), on = everything re-arms.
+        private static void LirGroupEnabledFallback(Action<bool, string> check)
+        {
+            var bus = new BetterUnturnedExperience.Core.Events.FeatureEventBus();
+            var probe = new LirProbeNetwork();
+            var authority = new FakeLirAuthority();
+            var module = NewLirModule(bus, probe, authority, isServer: true, out _);
+            check(module.Enabled, "设置：默认开启（唯一持久化开关 enabled）");
+
+            var off = SubmitLirToggle(module, false);
+            check(off, "设置：面板开关可关闭");
+            module.RefreshSwitches();
+            check(!module.Enabled && !module.PatchesInstalled, "设置：关闭=原生回退（自身补丁已撤）");
+            module.OnDoubleTapReload();
+            module.OnHostTick(LirTick(10UL, 0.016f));
+            check(authority.RepackCount == 0, "设置：关闭后双击不产生任何压弹行为");
+            module.OnHostTick(LirTick(11UL, 0.016f));
+            var lit = new FeatureId(LitRuntime.FeatureIdValue);
+            bus.Publisher(lit).TryPublish(TidyCompleted.EventId, new TidyCompleted(lit, 2, 6, TidyCompletionResult.Succeeded, 0UL, 1UL));
+            check(authority.MergeCount == 0, "设置：关闭后整理完成事件不触发自动压弹");
+
+            var on = SubmitLirToggle(module, true);
+            check(on, "设置：可重新开启（提交受理）");
+            module.RefreshSwitches();
+            check(module.Enabled, "设置：重新开启后模块翻转回启用");
+            check(module.PatchesInstalled || module.StartGateDiagnostics.Length > 0, "设置：开启=补丁重装（测试进程装不上时如实留诊断）");
+            module.Stop(FeatureStopReason.UserDisabled);
+        }
+
+        private static ulong lirToggleRequestId;
+
+        /// <summary>Submits the LIR enabled toggle through the frozen scoped settings seam (unique request id, current revision); returns acceptance.</summary>
+        private static bool SubmitLirToggle(InPlaceReloadModule module, bool enabled)
+        {
+            var revision = module.Settings.GetSnapshot(SettingRevisionScope.ClientPreference).Revision;
+            var result = module.Settings.Submit(new ScopedSettingChangeRequest(++lirToggleRequestId, SettingRevisionScope.ClientPreference, revision,
+                new[] { new SettingMutation("inplacereload.enabled", SettingValue.Toggle(enabled)) }));
+            return result.Accepted;
+        }
+
         private static void AssertBueV2FrameBinding(bool collectAllFailures = false)
         {
             var reds = new List<string>();

@@ -70,10 +70,14 @@ namespace BetterUnturnedExperience.Plugin
                 // the global zone the same way; the tidy button patch and
                 // the local single-player transaction arm here.
                 var litRegistration = InventoryTidyFeatureRegistration.Register();
+                // DEV-V2-22: the official in-place-reload module registers in
+                // the global zone too; its frame work rides the host clock
+                // and its patches live under its own FeatureId Harmony ID.
+                var lirRegistration = InPlaceReloadFeatureRegistration.Register();
                 if (decision == BootstrapDecision.Client)
                 {
                     pluginUpdateDriver = new BuePluginUpdateDriver(OnPluginUpdateTick);
-                    clientUiComposition = new BueClientUiCompositionRoot(NetworkModuleFeatureRegistration.WiredAdapter, InventoryTidyFeatureRegistration.WiredModule);
+                    clientUiComposition = new BueClientUiCompositionRoot(NetworkModuleFeatureRegistration.WiredAdapter, InventoryTidyFeatureRegistration.WiredModule, InPlaceReloadFeatureRegistration.WiredModule);
                     if (!clientUiComposition.Initialize(isBatchMode, isBatchMode, BueNativeManagementPanel.CanBindNativeUi()))
                     {
                         Logger.LogWarning("BUE client UI composition unavailable diagnosticId=BUE-CLIENTUI-001");
@@ -154,6 +158,7 @@ namespace BetterUnturnedExperience.Plugin
                 BueRuntimeLog.Runtime("Better Item Interaction featureId=" + officialRegistration.Feature.Value + " accepted=" + officialRegistration.Accepted + " reason=" + officialRegistration.Reason + " diagnosticId=" + officialRegistration.DiagnosticId);
                 BueRuntimeLog.Runtime("BUE Network Module featureId=" + networkRegistration.Feature.Value + " accepted=" + networkRegistration.Accepted + " reason=" + networkRegistration.Reason + " diagnosticId=" + networkRegistration.DiagnosticId);
                 BueRuntimeLog.Runtime("BUE Inventory Tidy featureId=" + litRegistration.Feature.Value + " accepted=" + litRegistration.Accepted + " reason=" + litRegistration.Reason + " diagnosticId=" + litRegistration.DiagnosticId);
+                BueRuntimeLog.Runtime("BUE In-Place Reload featureId=" + lirRegistration.Feature.Value + " accepted=" + lirRegistration.Accepted + " reason=" + lirRegistration.Reason + " diagnosticId=" + lirRegistration.DiagnosticId);
             }
             catch (System.Exception error)
             {

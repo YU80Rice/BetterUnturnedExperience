@@ -84,7 +84,29 @@
     <Compile Include="..\BetterUnturnedExperience.Lit\Tidy\LocalTidyExecutor.cs"><Link>EmbeddedLit\Tidy\LocalTidyExecutor.cs</Link></Compile>
     <Compile Include="..\BetterUnturnedExperience.Lit\Ui\InventoryTidyUiPatch.cs"><Link>EmbeddedLit\Ui\InventoryTidyUiPatch.cs</Link></Compile>
     <Compile Include="..\BetterUnturnedExperience.Lit\InventoryTidyModule.cs"><Link>EmbeddedLit\InventoryTidyModule.cs</Link></Compile>
+    <!-- DEV-V2-22: embed the migrated LIR (in-place reload) domain into the single runtime assembly.
+         The old plugin's BepInEx identity, LMN dependency and the cross-plugin TidyServicePostfixPatch
+         (replaced by the TidyCompleted feature event) are NOT in this list. -->
+    <Compile Include="..\BetterUnturnedExperience.Lir\LirRuntime.cs"><Link>EmbeddedLir\LirRuntime.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Lir\ReloadRuntimePolicy.cs"><Link>EmbeddedLir\ReloadRuntimePolicy.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Lir\Reload\IReloadAction.cs"><Link>EmbeddedLir\Reload\IReloadAction.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Lir\Reload\ReloadContextGuard.cs"><Link>EmbeddedLir\Reload\ReloadContextGuard.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Lir\Reload\TidyCompletedConsumer.cs"><Link>EmbeddedLir\Reload\TidyCompletedConsumer.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Lir\Reload\ReloadInputDriver.cs"><Link>EmbeddedLir\Reload\ReloadInputDriver.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Lir\Reload\AutoReloadAfterTidyAction.cs"><Link>EmbeddedLir\Reload\AutoReloadAfterTidyAction.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Lir\Net\LirRepackWireCodec.cs"><Link>EmbeddedLir\Net\LirRepackWireCodec.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Lir\Net\LirRepackDispatcher.cs"><Link>EmbeddedLir\Net\LirRepackDispatcher.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Lir\Net\LirRepackNetwork.cs"><Link>EmbeddedLir\Net\LirRepackNetwork.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Lir\Service\LirRepackAuthority.cs"><Link>EmbeddedLir\Service\LirRepackAuthority.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Lir\Service\LirRepackGate.cs"><Link>EmbeddedLir\Service\LirRepackGate.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Lir\Service\LirProductionAuthority.cs"><Link>EmbeddedLir\Service\LirProductionAuthority.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Lir\Service\AmmoRepackService.cs"><Link>EmbeddedLir\Service\AmmoRepackService.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Lir\Service\LirToast.cs"><Link>EmbeddedLir\Service\LirToast.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Lir\Patches\UseableGunReceiveAttachMagazinePatch.cs"><Link>EmbeddedLir\Patches\UseableGunReceiveAttachMagazinePatch.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Lir\Patches\ForceAddItemPatch.cs"><Link>EmbeddedLir\Patches\ForceAddItemPatch.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Lir\InPlaceReloadModule.cs"><Link>EmbeddedLir\InPlaceReloadModule.cs</Link></Compile>
     <Compile Include="InventoryTidyFeatureRegistration.cs" />
+    <Compile Include="InPlaceReloadFeatureRegistration.cs" />
     <Compile Include="BueHostEventRuntime.cs" />
     <Compile Include="BueFeatureStartRuntime.cs" />
   </ItemGroup>
