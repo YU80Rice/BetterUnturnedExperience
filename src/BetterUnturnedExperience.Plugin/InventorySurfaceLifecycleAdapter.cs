@@ -964,8 +964,9 @@ namespace BetterUnturnedExperience.Plugin
             /// true when a non-zero strike count was actually cleared.</summary>
             internal bool ObservePollSuccess()
             {
-                var reset = pollLane.Strikes > 0;
+                var reset = pollLane.Strikes > 0 || pollLane.Latched;
                 pollLane.Strikes = 0;
+                pollLane.Latched = false;
                 return reset;
             }
         }
@@ -1184,7 +1185,7 @@ namespace BetterUnturnedExperience.Plugin
                 guardedPoll();
                 if (transientIsolationGate.ObservePollSuccess())
                 {
-                    EmitDiagnosticOnce("event=surface-poll-recovered diagnosticId=BUE-INVENTORY-004");
+                    BueRuntimeLog.Runtime("[BUE-INVENTORY] event=surface-poll-recovered diagnosticId=BUE-INVENTORY-004");
                 }
             }
             catch (Exception error)
@@ -1199,7 +1200,7 @@ namespace BetterUnturnedExperience.Plugin
                 }
                 else if (failureLine != null)
                 {
-                    EmitDiagnosticOnce(failureLine);
+                    BueRuntimeLog.Runtime("[BUE-INVENTORY] " + failureLine);
                 }
             }
         }
@@ -1335,8 +1336,11 @@ namespace BetterUnturnedExperience.Plugin
                 }
                 if (isolationLine != null)
                 {
-                    // First failure / recovery one-shots — never silent again.
-                    EmitDiagnosticOnce(isolationLine);
+                    // First failure / recovery are 004-class observations: a
+                    // one-shot Debug line, NOT the 003-class
+                    // diagnostic-failure sink — the sink's envelope would
+                    // mislabel their diagnostic id (Spec R2 DEVIATION-2).
+                    BueRuntimeLog.Runtime("[BUE-INVENTORY] " + isolationLine);
                 }
                 DispatchedSurfaceState dispatched;
                 if (dispatchedSurfaces.TryGetValue(page, out dispatched) &&
