@@ -80,6 +80,7 @@
     <Compile Include="..\BetterUnturnedExperience.Lit\Tidy\LitTidyClientState.cs"><Link>EmbeddedLit\Tidy\LitTidyClientState.cs</Link></Compile>
     <Compile Include="..\BetterUnturnedExperience.Lit\Tidy\LitTidyFaultScopeBook.cs"><Link>EmbeddedLit\Tidy\LitTidyFaultScopeBook.cs</Link></Compile>
     <Compile Include="..\BetterUnturnedExperience.Lit\Tidy\LitTidyNetService.cs"><Link>EmbeddedLit\Tidy\LitTidyNetService.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Lit\Tidy\LitTidySendHealth.cs"><Link>EmbeddedLit\Tidy\LitTidySendHealth.cs</Link></Compile>
     <Compile Include="..\BetterUnturnedExperience.Lit\Tidy\LitTidyProductionAuthority.cs"><Link>EmbeddedLit\Tidy\LitTidyProductionAuthority.cs</Link></Compile>
     <Compile Include="..\BetterUnturnedExperience.Lit\Tidy\HotkeySnapshot.cs"><Link>EmbeddedLit\Tidy\HotkeySnapshot.cs</Link></Compile>
     <Compile Include="..\BetterUnturnedExperience.Lit\Tidy\ManualTidyService.cs"><Link>EmbeddedLit\Tidy\ManualTidyService.cs</Link></Compile>

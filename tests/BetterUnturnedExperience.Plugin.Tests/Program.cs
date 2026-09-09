@@ -112,6 +112,12 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     Console.WriteLine("DEV-V2-24 F-E engine peer identity collection: ALL GREEN (2 groups) — groups: SteamIdPlausible 段校验/ClientPeer·LocalSteamId 决策真值表");
                     return 0;
                 }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--bue-v2-lit-sendhealth-red")
+                {
+                    AssertBueV2LitSendHealth(collectAllFailures: true);
+                    Console.WriteLine("DEV-V2-25 LIT send health collection: ALL GREEN (3 groups) — groups: 重臂退避真值表/限频+降级+恢复清零/harness 持续失败全链");
+                    return 0;
+                }
                 if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--dev16d-r13-native-delegate-red")
                 {
                     AssertDev16DR13NativeDelegateLifecycleIsReversible();
@@ -419,6 +425,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 AssertBueV2FrameBinding();
                 AssertBueV2EventBusAndHostTick();
                 AssertBueV2LitMultiplayerPath();
+                AssertBueV2LitSendHealth();
                 AssertBueV2LirAdoption();
                 AssertBueV2LhtAdoption();
                 AssertBueV2PlatformSelfCheck();
@@ -3312,6 +3319,310 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 throw new InvalidOperationException("DEV-V2-21 red collection (" + reds.Count + "): " + string.Join(" || ", reds));
         }
 
+        /// <summary>The re-arm backoff truth table against a fake clock: the
+        /// FIRST retry after a challenge failure stays immediate (the frozen
+        /// DEV-V2-24 F-A contract — one transient blip recovers on the next
+        /// Tick), from the second consecutive failure the wait doubles along
+        /// the BueNetworkRuntime re-probe precedent (1s → 8s cap, monotone),
+        /// a Sent challenge clears the series (failures start fresh), and a
+        /// dropped generation leaves no residue.</summary>
+        private static void LitSendHealthGroupRearmBackoff(System.Action<bool, string> check)
+        {
+            var stamp = new DateTime(2026, 9, 9, 12, 0, 0, DateTimeKind.Utc);
+            DateTime Clock() { return stamp; }
+            void AdvanceMs(int ms) { stamp = stamp.AddMilliseconds(ms); }
+
+            var book = new LitChallengeRearmBook(Clock);
+            check(book.ShouldAttempt(2UL) && !book.HasPending(2UL),
+                "退避真值表：新代际无退避记录，立即允许重臂");
+
+            book.NoteChallengeFailure(2UL);
+            check(book.HasPending(2UL) && book.ShouldAttempt(2UL),
+                "退避真值表：首次失败后下一拍立即允许重试（F-A 冻结契约，零等待位）");
+
+            book.NoteChallengeFailure(2UL);
+            AdvanceMs(999);
+            check(!book.ShouldAttempt(2UL), "退避真值表：第二次连续失败后 999ms 内不允许重臂");
+            AdvanceMs(1);
+            check(book.ShouldAttempt(2UL), "退避真值表：第二次连续失败后满 1000ms 允许重臂");
+
+            book.NoteChallengeFailure(2UL);
+            AdvanceMs(1999);
+            check(!book.ShouldAttempt(2UL), "退避真值表：第三次连续失败后 1999ms 内不允许重臂");
+            AdvanceMs(1);
+            check(book.ShouldAttempt(2UL), "退避真值表：第三次连续失败后满 2000ms 允许重臂");
+
+            book.NoteChallengeFailure(2UL);
+            AdvanceMs(3999);
+            check(!book.ShouldAttempt(2UL), "退避真值表：第四次连续失败后 3999ms 内不允许重臂");
+            AdvanceMs(1);
+            check(book.ShouldAttempt(2UL), "退避真值表：第四次连续失败后满 4000ms 允许重臂");
+
+            book.NoteChallengeFailure(2UL);
+            AdvanceMs(7999);
+            check(!book.ShouldAttempt(2UL), "退避真值表：第五次连续失败后 7999ms 内不允许重臂");
+            AdvanceMs(1);
+            check(book.ShouldAttempt(2UL), "退避真值表：第五次连续失败后满 8000ms 允许重臂");
+
+            book.NoteChallengeFailure(2UL);
+            AdvanceMs(7999);
+            check(!book.ShouldAttempt(2UL), "退避真值表：第六次连续失败仍在 8000ms 封顶内");
+            AdvanceMs(1);
+            check(book.ShouldAttempt(2UL), "退避真值表：封顶后每 8000ms 允许一次重臂");
+
+            check(book.ConsecutiveFailures(2UL) == 6, "退避真值表：连续失败计数贯穿全程");
+
+            book.NoteChallengeSent(2UL);
+            check(!book.HasPending(2UL) && book.ShouldAttempt(2UL) && book.ConsecutiveFailures(2UL) == 0,
+                "退避真值表：challenge 送达即清零（恢复后失败序列从零重开）");
+
+            book.NoteChallengeFailure(3UL);
+            book.DropGeneration(3UL);
+            check(!book.HasPending(3UL) && book.ConsecutiveFailures(3UL) == 0,
+                "退避真值表：代际丢弃即清该代际记录（更替/断开不留残留）");
+        }
+
+        /// <summary>The send-failure rate limiter truth table: per
+        /// (generation, send-result-kind) series — the first failure warns,
+        /// then every 50th warns with the cumulative total attached; ONE
+        /// BUE-LIT-003 link-degraded diagnostic per episode at the 10th
+        /// consecutive same-kind failure; the first success after a
+        /// degraded episode signals link-recovered and resets the series so
+        /// the next failure warns immediately again; kind flips and
+        /// generation drops reset without residue.</summary>
+        private static void LitSendHealthGroupRateLimitAndRecovery(System.Action<bool, string> check)
+        {
+            var limiter = new LitSendFailureRateLimiter();
+
+            // gen 2 — WARN cadence only: 1000 sustained same-kind failures
+            var warnStamps = new List<long>();
+            for (int i = 1; i <= 1000; i++)
+            {
+                if (limiter.ShouldWarn(2UL, NetworkSendResult.LocalTransportUnavailable, out var total))
+                {
+                    warnStamps.Add(total);
+                    check(total == i, "限频真值表：WARN 附带累计计数与真实累计一致（第 " + i + " 条失败）");
+                }
+            }
+            check(warnStamps.Count == 20,
+                "限频真值表：1000 条持续同类失败仅 20 条 WARN（首条+此后每累计 50 条一条，有界）");
+            check(warnStamps[0] == 1 && warnStamps[1] == 51 && warnStamps[warnStamps.Count - 1] == 951,
+                "限频真值表：WARN 落点=首条与此后每累计 50 条（1/51/…/951）");
+
+            // gen 3 — degradation threshold, single shot per episode, recovery, reset
+            for (int i = 1; i <= 9; i++)
+            {
+                limiter.ShouldWarn(3UL, NetworkSendResult.LocalTransportUnavailable, out _);
+                check(!limiter.ShouldReportDegradation(3UL, NetworkSendResult.LocalTransportUnavailable, out _),
+                    "限频真值表：阈值前不上抛（第 " + i + " 条连续失败）");
+            }
+            limiter.ShouldWarn(3UL, NetworkSendResult.LocalTransportUnavailable, out _);
+            check(limiter.ShouldReportDegradation(3UL, NetworkSendResult.LocalTransportUnavailable, out var atThreshold) && atThreshold == 10,
+                "限频真值表：第 10 条连续失败触发结构性降级上抛（BUE-LIT-003）");
+            for (int i = 11; i <= 60; i++)
+            {
+                limiter.ShouldWarn(3UL, NetworkSendResult.LocalTransportUnavailable, out _);
+                check(!limiter.ShouldReportDegradation(3UL, NetworkSendResult.LocalTransportUnavailable, out _),
+                    "限频真值表：episode 内结构性诊断不重抛（不炸帧）");
+            }
+            check(limiter.NoteSuccess(3UL),
+                "限频真值表：劣化 episode 中的首次成功上抛 link-recovered 信号");
+            check(!limiter.NoteSuccess(3UL),
+                "限频真值表：恢复信号仅上抛一次（episode 结束后序列已清）");
+            check(limiter.ShouldWarn(3UL, NetworkSendResult.LocalTransportUnavailable, out var freshTotal) && freshTotal == 1,
+                "限频真值表：恢复后清零——新失败首条立即 WARN");
+            check(!limiter.ShouldReportDegradation(3UL, NetworkSendResult.LocalTransportUnavailable, out _),
+                "限频真值表：恢复后降级阈值重新累计（1 < 10 不上抛）");
+
+            // gen 4 — kind flip opens a fresh series (and re-arms the threshold)
+            for (int i = 1; i <= 12; i++) limiter.ShouldWarn(4UL, NetworkSendResult.LocalTransportUnavailable, out _);
+            check(limiter.ShouldReportDegradation(4UL, NetworkSendResult.LocalTransportUnavailable, out _),
+                "限频真值表：gen4 达阈值（异类切换前的对照组）");
+            check(limiter.ShouldWarn(4UL, NetworkSendResult.NoSession, out var flippedTotal) && flippedTotal == 1,
+                "限频真值表：同类切换即新序列——异类失败首条立即 WARN");
+            check(!limiter.ShouldReportDegradation(4UL, NetworkSendResult.NoSession, out _),
+                "限频真值表：异类新序列降级阈值重新累计（不上抛）");
+
+            // gen 5/6 — cross-generation isolation and drop cleanup
+            for (int i = 1; i <= 10; i++) limiter.ShouldWarn(5UL, NetworkSendResult.NoSession, out _);
+            check(limiter.ShouldReportDegradation(5UL, NetworkSendResult.NoSession, out var gen5Consecutive) && gen5Consecutive == 10,
+                "限频真值表：不同代际序列互不干扰（gen5 独立计数至阈值）");
+            limiter.DropGeneration(5UL);
+            check(!limiter.ShouldReportDegradation(5UL, NetworkSendResult.NoSession, out _) &&
+                limiter.ShouldWarn(5UL, NetworkSendResult.NoSession, out _),
+                "限频真值表：代际丢弃即清序列（重开为全新首条）");
+        }
+
+        /// <summary>The sustained-failure harness run: a server whose
+        /// targeted sends stay refused while the fake clock crosses
+        /// minutes. On machine (DEV-V2-24, v6 P2P) this shape produced 8333
+        /// WARN lines by re-arming every frame; here the re-arm backoff and
+        /// the WARN limiter must bound both the attempts (monotone gaps —
+        /// the two same-instant attempts are the F-A next-beat retry, then
+        /// 1s/2s/4s/8s/8s) and the log lines (first + every 50th, ONE
+        /// BUE-LIT-003 degradation diagnostic), and flipping the transport
+        /// back must deliver the challenge and recover the full tidy
+        /// chain.</summary>
+        private static void LitSendHealthGroupSustainedFailureHarness(System.Action<bool, string> check)
+        {
+            var faultDir = NewLitFaultDirectory();
+            var clock = new FakeClock();
+            SustainedFailureNetwork injector = null;
+            var harness = LitMultiplayerHarness.Create(faultDir, net => injector = new SustainedFailureNetwork(net, clock.Now), clock.Now);
+            harness.Handshake();
+
+            var emitted = new List<string>();
+            var infoEmitted = new List<string>();
+            var previousSink = LitRuntime.ErrorLogSink;
+            var previousInfoSink = LitRuntime.LogSink;
+            LitRuntime.ErrorLogSink = line => emitted.Add(line);
+            LitRuntime.LogSink = line => infoEmitted.Add(line);
+            try
+            {
+                static int CountLines(List<string> lines, string needle)
+                {
+                    var count = 0;
+                    for (int i = 0; i < lines.Count; i++) { if (lines[i].Contains(needle)) count++; }
+                    return count;
+                }
+                Func<int> warnCount = () => CountLines(emitted, "定向发送未送达");
+                Func<int> degradedCount = () => CountLines(emitted, "BUE-LIT-003 event=link-degraded");
+                Func<int> recoveredCount = () => CountLines(infoEmitted, "BUE-LIT-003 event=link-recovered");
+
+                harness.ServerModule.Tick();
+                harness.Pump();
+                harness.ServerModule.Tick();
+                harness.Pump();
+                check(injector.SendToClientCalls == 2,
+                    "harness 持续失败：首次采纳+下一拍立即重臂=恰好两次尝试（F-A 冻结契约保留）");
+                check(harness.ClientRawFromServer.Count == 0,
+                    "harness 持续失败：两次尝试均未送达（客户端零收到）");
+
+                for (int i = 0; i < 5; i++) { harness.ServerModule.Tick(); harness.Pump(); }
+                check(injector.SendToClientCalls == 2 && warnCount() == 1,
+                    "harness 持续失败：退避窗口内逐拍 Tick 不再自旋（尝试钉在 2，WARN 仅首条）");
+
+                clock.AdvanceMs(1000); harness.ServerModule.Tick(); harness.Pump();
+                clock.AdvanceMs(2000); harness.ServerModule.Tick(); harness.Pump();
+                clock.AdvanceMs(4000); harness.ServerModule.Tick(); harness.Pump();
+                clock.AdvanceMs(8000); harness.ServerModule.Tick(); harness.Pump();
+                clock.AdvanceMs(8000); harness.ServerModule.Tick(); harness.Pump();
+                check(injector.SendToClientCalls == 7,
+                    "harness 持续失败：1s/2s/4s/8s/8s 各到期一次（尝试总数=7）");
+                var gaps = injector.SendGapMs();
+                var monotone = true;
+                for (int i = 1; i < gaps.Count; i++) { if (gaps[i] < gaps[i - 1]) { monotone = false; break; } }
+                check(monotone && gaps[0] == 0 && gaps[1] == 0 && gaps[2] == 1000 && gaps[3] == 2000 && gaps[4] == 4000 && gaps[5] == 8000 && gaps[6] == 8000,
+                    "harness 持续失败：重臂间隔序列（0,0=下一拍 F-A 重试,1000,2000,4000,8000,8000）单调不减");
+
+                for (int i = 0; i < 5; i++) { clock.AdvanceMs(8000); harness.ServerModule.Tick(); harness.Pump(); }
+                check(degradedCount() == 1,
+                    "harness 持续失败：第 10 次连续失败上抛 BUE-LIT-003 link-degraded 且仅一条（不炸帧）");
+
+                for (int i = 0; i < 43; i++) { clock.AdvanceMs(8000); harness.ServerModule.Tick(); harness.Pump(); }
+                check(injector.SendToClientCalls == 55,
+                    "harness 持续失败：模拟 ~7 分钟共 55 次尝试（封顶后每 8s 一次）");
+                check(warnCount() == 2,
+                    "harness 持续失败：55 次尝试仅 2 条 WARN（首条+第 51 条，机上是 8333 条）");
+                check(degradedCount() == 1,
+                    "harness 持续失败：长劣化episode内结构性诊断始终恰一条");
+
+                injector.Fail = false;
+                clock.AdvanceMs(8000);
+                harness.ServerModule.Tick();
+                harness.Pump();
+                check(injector.SendToClientCalls == 56 &&
+                    harness.ClientRawFromServer.Count > 0 &&
+                    harness.ClientRawFromServer[0][1] == LitTidyWireCodec.MsgSessionChallenge,
+                    "harness 持续失败：传输恢复后下一次到期重臂即送达 challenge");
+                check(recoveredCount() == 1,
+                    "harness 持续失败：恢复拍上抛 BUE-LIT-003 link-recovered 恰一条");
+                check(warnCount() == 2,
+                    "harness 持续失败：成功拍不产生新 WARN（失败序列清零）");
+
+                harness.ClientModule.Tick();
+                harness.Pump();
+                var request = harness.ClientModule.RequestTidy(3, TidyMode.SameType, true);
+                check(request == LitTidyRequestResult.Dispatched,
+                    "harness 持续失败：恢复后客户端整理请求受理（token 全链可用）");
+                harness.Pump();
+                harness.ServerModule.Tick();
+                harness.Pump();
+                check(harness.ClientRawFromServer.Exists(p => p[1] == LitTidyWireCodec.MsgTidyCommitted),
+                    "harness 持续失败：恢复后 TidyCommitted 全链复通");
+            }
+            finally
+            {
+                LitRuntime.ErrorLogSink = previousSink;
+                LitRuntime.LogSink = previousInfoSink;
+            }
+        }
+
+        /// <summary>Delegating IBueNetworkApi wrapper whose SendToClient calls
+        /// are refused with LocalTransportUnavailable while Fail is set (no
+        /// delivery) — the sustained-transport-unavailability injector for
+        /// the DEV-V2-25 harness group; call stamps ride the injected clock
+        /// for the re-arm-gap assertions.</summary>
+        private sealed class SustainedFailureNetwork : IBueNetworkApi
+        {
+            private readonly IBueNetworkApi inner;
+            private readonly Func<DateTime> clock;
+            private readonly List<DateTime> callStamps = new List<DateTime>();
+
+            internal bool Fail = true;
+            internal int SendToClientCalls { get { return callStamps.Count; } }
+
+            internal SustainedFailureNetwork(IBueNetworkApi inner, Func<DateTime> clock)
+            {
+                this.inner = inner ?? throw new ArgumentNullException(nameof(inner));
+                this.clock = clock ?? throw new ArgumentNullException(nameof(clock));
+            }
+
+            internal List<long> SendGapMs()
+            {
+                var gaps = new List<long>();
+                for (int i = 1; i < callStamps.Count; i++)
+                {
+                    gaps.Add((long)(callStamps[i] - callStamps[i - 1]).TotalMilliseconds);
+                }
+                if (callStamps.Count > 0) gaps.Insert(0, 0);
+                return gaps;
+            }
+
+            public ChannelRegistrationResult RegisterChannel(FeatureId channel, ContractVersion minimumBueContract, ushort featureVersion)
+            { return inner.RegisterChannel(channel, minimumBueContract, featureVersion); }
+
+            public bool UnregisterChannel(FeatureId channel) { return inner.UnregisterChannel(channel); }
+
+            public IDisposable Subscribe(FeatureId channel, ChannelDirection direction, Action<IConnectionSession, byte[]> handler)
+            { return inner.Subscribe(channel, direction, handler); }
+
+            public IReadOnlyList<IConnectionSession> Sessions { get { return inner.Sessions; } }
+
+            public NetworkSendResult SendToServer(FeatureId channel, byte[] payload, bool reliable)
+            { return inner.SendToServer(channel, payload, reliable); }
+
+            public NetworkSendResult SendToClients(FeatureId channel, byte[] payload, bool reliable)
+            { return inner.SendToClients(channel, payload, reliable); }
+
+            public NetworkSendResult SendToClient(FeatureId channel, IConnectionSession session, byte[] payload, bool reliable)
+            {
+                callStamps.Add(clock());
+                if (Fail) return NetworkSendResult.LocalTransportUnavailable;
+                return inner.SendToClient(channel, session, payload, reliable);
+            }
+        }
+
+        /// <summary>Injectable fake clock for the send-health seams (the Lit
+        /// domain reads wall-clock DateTime; the books take the reader as a
+        /// delegate so tests step simulated minutes instantly).</summary>
+        private sealed class FakeClock
+        {
+            internal DateTime UtcNow = new DateTime(2026, 9, 9, 12, 0, 0, DateTimeKind.Utc);
+            internal DateTime Now() { return UtcNow; }
+            internal void AdvanceMs(int ms) { UtcNow = UtcNow.AddMilliseconds(ms); }
+        }
+
         /// <summary>The fake engine authority: records the calls the service makes; defaults produce a committed transaction.</summary>
         private sealed class FakeLitAuthority : ILitTidyAuthority
         {
@@ -3399,7 +3710,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
             public IConnectionSession ServerSession;
             public IConnectionSession ClientSession;
 
-            public static LitMultiplayerHarness Create(string faultDir, Func<IBueNetworkApi, IBueNetworkApi> serverNetworkDecorator = null)
+            public static LitMultiplayerHarness Create(string faultDir, Func<IBueNetworkApi, IBueNetworkApi> serverNetworkDecorator = null, Func<DateTime> clock = null)
             {
                 var localContract = new ContractVersion(2, 0);
                 var feature = new FeatureId(LitRuntime.FeatureIdValue);
@@ -3415,7 +3726,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     ClientAuthority = new FakeLitAuthority(),
                 };
                 harness.ServerBus = new BetterUnturnedExperience.Core.Events.FeatureEventBus();
-                harness.ServerModule = CreateModule(harness.ServerBus, serverRuntime, isServer: true, harness.ServerAuthority, faultDir, serverNetworkDecorator);
+                harness.ServerModule = CreateModule(harness.ServerBus, serverRuntime, isServer: true, harness.ServerAuthority, faultDir, serverNetworkDecorator, clock);
                 harness.ClientBus = new BetterUnturnedExperience.Core.Events.FeatureEventBus();
                 harness.ClientModule = CreateModule(harness.ClientBus, clientRuntime, isServer: false, harness.ClientAuthority, faultDir);
                 harness.ClientModule.Network.Subscribe(feature, ChannelDirection.FromServer, (s, p) => harness.ClientRawFromServer.Add(p));
@@ -3424,13 +3735,13 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 return harness;
             }
 
-            private static InventoryTidyModule CreateModule(BetterUnturnedExperience.Core.Events.FeatureEventBus bus, BetterUnturnedExperience.Core.Network.BueNetworkRuntime runtime, bool isServer, FakeLitAuthority authority, string faultDir, Func<IBueNetworkApi, IBueNetworkApi> networkDecorator = null)
+            private static InventoryTidyModule CreateModule(BetterUnturnedExperience.Core.Events.FeatureEventBus bus, BetterUnturnedExperience.Core.Network.BueNetworkRuntime runtime, bool isServer, FakeLitAuthority authority, string faultDir, Func<IBueNetworkApi, IBueNetworkApi> networkDecorator = null, Func<DateTime> clock = null)
             {
                 var feature = new FeatureId(LitRuntime.FeatureIdValue);
                 var module = new InventoryTidyModule(feature, new InMemorySettingsPersistence());
                 module.ScopeDirectoryForTests = faultDir;
                 module.FaultContextForTests = () => new LitFaultScopeContext("TestMap", 1);
-                module.NetServiceFactoryForTests = (m, net, book) => new LitTidyNetService(m, networkDecorator != null ? networkDecorator(net) : net, authority, () => isServer, book);
+                module.NetServiceFactoryForTests = (m, net, book) => new LitTidyNetService(m, networkDecorator != null ? networkDecorator(net) : net, authority, () => isServer, book, clock);
                 var bootstrap = new FeatureBootstrap(default(FeatureScopeIdentity), 1UL, null, bus.Subscriber(feature), bus.Publisher(feature), null, null, null, runtime);
                 var result = module.Start(bootstrap);
                 if (!result.Started) throw new InvalidOperationException("harness: module start failed: " + result.DiagnosticId);
@@ -3787,6 +4098,55 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 "回滚：联机服务显式未启动（本地单人路径不受影响）");
             check(!module.MultiplayerReady,
                 "回滚：模块启动面诚实暴露联机未就绪（MultiplayerReady=false，可观察不静默）");
+        }
+
+        // DEV-V2-25 red anchor: the LIT targeted-send health surfaces. Three
+        // collected groups — the challenge re-arm backoff truth table (first
+        // retry immediate = the frozen DEV-V2-24 F-A contract; from the
+        // second consecutive failure the interval doubles along the
+        // BueNetworkRuntime re-probe precedent 1s → 8s cap, monotone,
+        // cleared on success), the per-(generation, send-result-kind)
+        // failure rate limiter (first WARN + every 50th with the cumulative
+        // count, ONE BUE-LIT-003 link-degraded diagnostic per episode at
+        // the threshold, link-recovered on the first success, series reset),
+        // and the harness-level sustained-failure run (bounded WARN lines
+        // over a storm that on machine produced 8333, monotone attempt
+        // gaps, exactly one degradation line, full-chain recovery after the
+        // transport returns). RED until the send-health seams exist
+        // (compile CS0246, then runtime assertions).
+        private static void AssertBueV2LitSendHealth(bool collectAllFailures = false)
+        {
+            var reds = new List<string>();
+            try
+            {
+                void Check(bool condition, string message)
+                {
+                    if (condition) return;
+                    if (collectAllFailures) reds.Add(message);
+                    else throw new InvalidOperationException(message);
+                }
+
+                void Group(string name, System.Action body)
+                {
+                    try { body(); }
+                    catch (Exception error) when (collectAllFailures)
+                    {
+                        reds.Add("[" + name + "] " + (error is InvalidOperationException ? error.Message : "UNEXPECTED " + error.GetType().Name + ": " + error.Message));
+                    }
+                }
+
+                Group("重臂退避真值表", () => LitSendHealthGroupRearmBackoff(Check));
+                Group("限频+降级+恢复清零", () => LitSendHealthGroupRateLimitAndRecovery(Check));
+                Group("harness 持续失败全链", () => LitSendHealthGroupSustainedFailureHarness(Check));
+            }
+            catch (Exception error) when (collectAllFailures)
+            {
+                reds.Add("UNEXPECTED: " + error.GetType().FullName + ": " + error.Message);
+            }
+            if (collectAllFailures && reds.Count == 0)
+                Console.WriteLine("DEV-V2-25 LIT send health collection: ALL GREEN (0 failures) — groups: 重臂退避真值表/限频+降级+恢复清零/harness 持续失败全链");
+            if (collectAllFailures && reds.Count > 0)
+                throw new InvalidOperationException("DEV-V2-25 red collection (" + reds.Count + "): " + string.Join(" || ", reds));
         }
 
         // DEV-V2-15 red anchor: LIT (inventory tidy) adoption, single-player

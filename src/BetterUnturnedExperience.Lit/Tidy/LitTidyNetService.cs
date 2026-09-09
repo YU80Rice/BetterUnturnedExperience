@@ -135,7 +135,10 @@ namespace BetterUnturnedExperience.Lit
         private readonly LitPendingRestoreBook pendingRestores = new LitPendingRestoreBook();
         private readonly Dictionary<ulong, IConnectionSession> liveSessions = new Dictionary<ulong, IConnectionSession>();
         private readonly HashSet<ulong> challengeFaultLogged = new HashSet<ulong>(); // R3-Standards B3: one fault line per generation
+        private readonly HashSet<ulong> sessionEventsWired = new HashSet<ulong>(); // DEV-V2-25: lifecycle wiring once per generation
         private readonly List<IDisposable> subscriptionHandles = new List<IDisposable>();
+        private readonly LitChallengeRearmBook challengeRearm;   // DEV-V2-25: challenge re-arm backoff (attempts)
+        private readonly LitSendFailureRateLimiter sendFailures = new LitSendFailureRateLimiter(); // DEV-V2-25: WARN bound + degradation surface (lines)
         private bool quiesced; // stop phase 1: reject new frames/requests, sends still work for drain compensations
         private bool stopped;  // stop phase 3: full teardown
 
@@ -145,13 +148,14 @@ namespace BetterUnturnedExperience.Lit
             get { return stopped || quiesced; }
         }
 
-        internal LitTidyNetService(InventoryTidyModule module, IBueNetworkApi network, ILitTidyAuthority authority, Func<bool> isServerRole, LitTidyFaultScopeBook faultBook)
+        internal LitTidyNetService(InventoryTidyModule module, IBueNetworkApi network, ILitTidyAuthority authority, Func<bool> isServerRole, LitTidyFaultScopeBook faultBook, Func<DateTime> clock = null)
         {
             this.module = module ?? throw new ArgumentNullException(nameof(module));
             this.network = network ?? throw new ArgumentNullException(nameof(network));
             this.authority = authority ?? throw new ArgumentNullException(nameof(authority));
             this.isServerRole = isServerRole ?? throw new ArgumentNullException(nameof(isServerRole));
             this.faultBook = faultBook ?? throw new ArgumentNullException(nameof(faultBook));
+            challengeRearm = new LitChallengeRearmBook(clock ?? (Func<DateTime>)(() => DateTime.UtcNow));
             admission = new LitAdmissionGate(sessions, ledger, leases);
         }
 
@@ -230,11 +234,40 @@ namespace BetterUnturnedExperience.Lit
             {
                 if (!seen.Contains(pair.Key)) (dead ??= new List<ulong>()).Add(pair.Key);
             }
-            if (dead == null) return;
+            if (dead == null)
+            {
+                DriveDueRearms();
+                return;
+            }
             for (int i = 0; i < dead.Count; i++)
             {
                 if (liveSessions.TryGetValue(dead[i], out var dropped)) OnSessionDropped(dropped);
                 else liveSessions.Remove(dead[i]);
+            }
+            DriveDueRearms();
+        }
+
+        /// <summary>
+        /// DEV-V2-25: the re-arm driver. A backoff-parked generation stays
+        /// tracked, so Tick's discovery never re-fires for it — this driver
+        /// re-enters the establish path once its deadline passes. Entries are
+        /// snapshotted first: the establish path may add/remove tracked
+        /// sessions while it runs.
+        /// </summary>
+        private void DriveDueRearms()
+        {
+            List<ulong> due = null;
+            foreach (var pair in liveSessions)
+            {
+                if (challengeRearm.HasPending(pair.Key) && challengeRearm.ShouldAttempt(pair.Key))
+                {
+                    (due ??= new List<ulong>()).Add(pair.Key);
+                }
+            }
+            if (due == null) return;
+            for (int i = 0; i < due.Count; i++)
+            {
+                if (liveSessions.TryGetValue(due[i], out var session)) OnSessionEstablished(session);
             }
         }
 
@@ -257,6 +290,9 @@ namespace BetterUnturnedExperience.Lit
             clientPending.ClearAll();
             clientWait.ClearAll();
             liveSessions.Clear();
+            challengeRearm.DropAll();
+            sendFailures.DropAll();
+            sessionEventsWired.Clear();
             Started = false;
             LitRuntime.LogInfo("[TidyNet] 服务已停止（频道注销、内存态清空、磁盘持久统计保留）");
         }
@@ -275,11 +311,25 @@ namespace BetterUnturnedExperience.Lit
             // code). This discovery IS the Connected equivalent for the
             // snapshot surface: a session found established and unseen is
             // treated as connected (scope open + challenge), and the poll
-            // remains the reconciliation safety net.
-            session.Disconnected += () => OnSessionEventDisconnected(session);
-            session.GenerationChanged += newGeneration => OnSessionEventGenerationChanged(session, newGeneration);
+            // remains the reconciliation safety net. DEV-V2-25: the wiring
+            // runs ONCE per generation — the re-arm path re-enters this
+            // method for the same session object, and duplicate handlers
+            // would double every later drop/supersession line (the paired
+            // 会话代际更替 lines in the DEV-V2-24 v6 host log).
+            if (sessionEventsWired.Add(session.SessionId))
+            {
+                session.Disconnected += () => OnSessionEventDisconnected(session);
+                session.GenerationChanged += newGeneration => OnSessionEventGenerationChanged(session, newGeneration);
+            }
             if (isServerRole())
             {
+                // DEV-V2-25: the re-arm backoff gate. A generation whose
+                // challenge send keeps failing parks here — it stays TRACKED
+                // (the dead-session poll must still see it vanish) but skips
+                // the scope/book/challenge work until its backoff deadline;
+                // Tick's re-arm driver re-enters this path when due. The
+                // first retry stays immediate (F-A frozen contract).
+                if (challengeRearm.HasPending(session.SessionId) && !challengeRearm.ShouldAttempt(session.SessionId)) return;
                 // R3-Standards B3: a fault here (e.g. the RNG's fail-closed
                 // throw) must not orphan the session — the generation leaves
                 // the tracked set so the next Tick rediscovers and RETRIES;
@@ -294,19 +344,27 @@ namespace BetterUnturnedExperience.Lit
                         // adoption — the token never reached the client, so
                         // this generation is treated as UN-ADOPTED: the book
                         // record (orphan token) and the tracked session go,
-                        // and the next Tick rediscovers the generation and
-                        // re-issues scope+token+challenge. This mirrors the
-                        // exception path's R3-Standards B3 retry semantics;
-                        // scope re-open for the same generation is a no-op.
-                        // Without the rollback a single transient transport
-                        // failure (one targeted send returned
-                        // LocalTransportUnavailable while LIR/LHT sends on the
-                        // SAME session succeeded) locked the client out of
-                        // tidy for the whole session (80 refusals on machine).
+                        // and the next re-arm re-issues scope+token+challenge.
+                        // This mirrors the exception path's R3-Standards B3
+                        // retry semantics; scope re-open for the same
+                        // generation is a no-op. Without the rollback a single
+                        // transient transport failure (one targeted send
+                        // returned LocalTransportUnavailable while LIR/LHT
+                        // sends on the SAME session succeeded) locked the
+                        // client out of tidy for the whole session (80
+                        // refusals on machine). DEV-V2-25: the re-arm is now
+                        // backoff-gated (immediate first retry, then 1s→8s
+                        // doubling) so sustained unavailability cannot spin
+                        // one attempt per frame.
                         if (TrySendToSession(session, LitTidyWireCodec.BuildSessionChallenge(token)) != NetworkSendResult.Sent)
                         {
+                            challengeRearm.NoteChallengeFailure(session.SessionId);
                             sessions.DropSession(session.PeerSteamId, session.SessionId);
                             liveSessions.Remove(session.SessionId);
+                        }
+                        else
+                        {
+                            challengeRearm.NoteChallengeSent(session.SessionId);
                         }
                     }
                 }
@@ -395,6 +453,9 @@ namespace BetterUnturnedExperience.Lit
             sessions.DropSession(peer, generation);
             ledger.DropGeneration(peer, generation);
             pendingRestores.DropGeneration(peer, generation);
+            challengeRearm.DropGeneration(generation);
+            sendFailures.DropGeneration(generation);
+            sessionEventsWired.Remove(generation);
             if (!isServerRole())
             {
                 clientToken.DropGeneration(generation);
@@ -417,7 +478,24 @@ namespace BetterUnturnedExperience.Lit
                 var result = network.SendToClient(Channel, session, payload, reliable: true);
                 if (result != NetworkSendResult.Sent)
                 {
-                    LitRuntime.LogWarning("[TidyNet] 定向发送未送达（generation=" + session.SessionId + ", result=" + result + "）");
+                    // DEV-V2-25: same-generation same-kind failures are
+                    // rate-limited (first + every 50th, cumulative count
+                    // attached) and a sustained series raises ONE structural
+                    // BUE-LIT-003 diagnostic per episode. The DEV-V2-24
+                    // machine storms (1199/1057/8333/1650 unbounded lines)
+                    // must stay bounded without hiding the degraded state.
+                    if (sendFailures.ShouldWarn(session.SessionId, result, out var seriesTotal))
+                    {
+                        LitRuntime.LogWarning("[TidyNet] 定向发送未送达（generation=" + session.SessionId + ", result=" + result + ", 累计=" + seriesTotal + "）");
+                    }
+                    if (sendFailures.ShouldReportDegradation(session.SessionId, result, out var consecutive))
+                    {
+                        LitRuntime.LogError("[TidyNet] BUE-LIT-003 event=link-degraded generation=" + session.SessionId + " lastResult=" + result + " consecutiveFailures=" + consecutive + " —— 定向出向通道持续不可达，重臂已退避；恢复时上抛 link-recovered");
+                    }
+                }
+                else if (sendFailures.NoteSuccess(session.SessionId))
+                {
+                    LitRuntime.LogInfo("[TidyNet] BUE-LIT-003 event=link-recovered generation=" + session.SessionId + " —— 定向出向通道已恢复，失败计数清零");
                 }
                 return result;
             }
