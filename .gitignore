@@ -12,6 +12,11 @@
 *.exe
 *.pdb
 
+# ---- 正式交付包例外(2026-09-09 用户拍板「V2 第二阶段 v8 正式交付入库」)----
+# publish/ 下的交付 DLL=正式发布物(身份以 RELEASES 行 10 + 包内交付说明.md 哈希为准),强制入库;
+# 其余 *.dll 禁令不变——候选 DLL 仍只经 audit/ 磁盘归档 + RELEASES.md 登记。
+!publish/**/*.dll
+
 # ---- 原型 vendored 运行时(prototypes/.video-deps = OpenCV/numpy,可重建,>100MB)----
 .video-deps/
 __pycache__/
