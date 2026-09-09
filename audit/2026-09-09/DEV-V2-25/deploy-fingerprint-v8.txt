@@ -1,0 +1,7 @@
+# DEV-V2-25 候选 v8 本机部署指纹（agent 代部署）
+时间: 2026-09-09 18:29 (文件 mtime)
+目标: E:\Steam\steamapps\common\Unturned\BepInEx\plugins\BetterUnturnedExperience.dll
+部署前: a1b339bf7d6945b8e67c32355cb8cfcc0eb95ecb2112b9ce5eb396f09a871359 (544768B, v7, RELEASES 行 9 当前发布物)
+部署后: f7b7513c569b8d2830ccdbf7bb4ab0c9e0b6abded88b2708e0a9f3b8303df569 (548352B, v8 候选) —— 与候选身份一致 ✓
+同目录在位: SteamP2PFriends.dll (1101312B, 未动) = 配置 A 终态
+VM 客机: 待用户自行复制 v8 覆盖（当前 VM 为配置 B 四件含 v7——P2P 轮前须换）
