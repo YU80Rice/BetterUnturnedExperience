@@ -3,6 +3,7 @@
 ## 来源
 
 - 项目：`LaunchInventoryTidy`（Launch 系列三插件之一）
+- 开源仓库：https://github.com/YU80Rice/LaunchInventoryTidy
 - 本地来源快照：`D:\Agent-工作目录\DevelopMyUNMultiplayerModAndModloader\Archive\2-未闭环验证项目\LaunchInventoryTidy`
 - 采用时版本：`0.0.0` 验收候选（DEV-V2-08 生态验证 kit 绑定的 LIT 候选，SHA-256 `7e35d7c7…5417`）
 - 作者署名：`YU80Rice`
