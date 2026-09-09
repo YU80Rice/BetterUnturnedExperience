@@ -1,6 +1,6 @@
 # DEV-V2-25 LIT 整理网络：定向发送失败退避 + 告警限频 + 传输持续失败面可见化
 
-- **Status**: claimed
+- **Status**: resolved
 - **Type**: implementation
 - **Priority**: P1
 - **Blocked By**: —（与 DEV-V2-24 并行可开工；24 不被本票阻塞）
@@ -45,3 +45,5 @@ DEV-V2-24 P2P 实机两轮捕获同案：主机 LitTidyNetService 对既成会�
 - **2026-09-09 候选 v8 重授+部署（用户拍板「构建 v8 并部署,实机验收作为 25 关单依据」,ZCode）**：上一条关单 Comment 的「不重授候选」被用户裁定推翻——理由成立：既定节奏=每票候选（14..23 先例），25 关单时按票面「随发布节奏」字面跳过该仪式，导致源码树领先于被验收发布物。**处置：Status resolved→claimed（重开），关单依据升级=实机验收轮**。仪式：三轮全方案 Rebuild 字节一致（candidate-v8-rebuild1/2/3.log，0 错 0 警）→ **候选 v8=f7b7513c569b8d2830ccdbf7bb4ab0c9e0b6abded88b2708e0a9f3b8303df569（548352B）**，CaseId=DEV-V2-25-CANDIDATE-20260909，身份链=identity-sha256.txt，取件副本=artifacts/BetterUnturnedExperience-v8.dll；源码基线=304dbd3。代部署本机 `E:\Steam\...\BepInEx\plugins\BetterUnturnedExperience.dll` 部署后哈希核验一致（deploy-fingerprint-v8.txt；部署前=v7 a1b339bf…，SPF 原位=配置 A 终态）。**v7 不作废——v8 实机验收通过且用户批准前，RELEASES 行 9 的当前发布物仍为 v7**。待办=用户 VM 客机复制 v8 覆盖（VM 现态配置 B 含 v7）→P2P 实机验收轮（主机+客机进世界、做一次整理、观察劣化窗日志形态、退出+UMM 诊断包）→agent 回收核验（预期形态：劣化窗内零星几条 WARN+至多一条 BUE-LIT-003 event=link-degraded，无逐帧风暴；无劣化窗则整轮零风暴记录）→终关单（勾票更新+RELEASES 指针随用户批准前移+结单报告 §6 落定）。
 
 - **2026-09-09 傍晚 Scope 4 缺口补收关闭（ZCode）**：UMM 工作目录盘点（research 报告 `.scratch/bue-v2-phase2-official-adoption/research/2026-09-09-umm-diag-archive-inventory.md`）发现证据 A/B 原始包 210433/225112/225127 **完整在位**——原判「未归档」系检索遗漏 UMM 目录（当时只搜库内/git/游戏目录/TEMP），scope4-evidence-check.md §0 已如实修正。三包整包补归档至 `audit/2026-09-09/DEV-V2-25/evidence/scope4-raw/`（SHA 核对一致，含 225127:1111 缺口核心行），证据 B 读法现可从原始数据重放。同轮把 24 票引用的其余 13 份夜场/诊断轮日志（195933/195934/204042/204026/210425/000640/001648/081731/083303/083313/113740/120001/183015）按盘点建议落位补归档（哈希逐项核对）。本票 Scope 4 证据链自此完整：原始包（scope4-raw）+ 库内 v6/v7 等效核对（scope4-evidence-check.md §1-§3）双轨。
+
+- **2026-09-09 终关单（ZCode,用户实机验收通过）**：v8 P2P 验收轮（包 193108 主机/193114 客机）全判据通过——双端 assembly-identity=F7B7513C…(v8)✓；001=0 双端；**定向发送未送达=主机恰 1 条**（generation=2, LocalTransportUnavailable, **累计=1** 新限频格式；对照 F-C 家族历史 1199/1057/8333/1650 条逐帧风暴=归零至首失败行）；**BUE-LIT-003 degraded=0**（连续失败未达 10,下一拍重试即成功=F-A 单帧抖动形态,降级/恢复诊断按设计待命）；整理全链成立（客机 challenge gen=2 应用→整理按钮 ×4 page5 SameType/MaxRects→RequestTidy Dispatched→主机代执行 TidyCommitted ×4+ACK→HotkeyFlowAck 回传）；BUE Error=0。**用户观察量化证实**：刷屏者=SPF `[ResourceObs] caseId=SPF-0.2.4.8-Experimental-StructureBaseline` 播报（主机 2025/3308 行,Info 级,SPF 域另案——其 3 条 Error 一并带给 SPF 项目）；BUE 剩余行为 Debug 级心跳（LogLevels=All 才可见,既有设计）。case 档案=audit/2026-09-09/DEV-V2-25/evidence/v8-acceptance-p2p/case-v8-20260909.md（含用户验收原话引用）。判词：Scope 1/2/3 实机成立+Scope 4 证据链双轨闭合（scope4-raw 原始包+v6/v7 等效核对）,红→绿+双轴 R2 双 CLEAN+实机验收,四层依据齐备,Status=resolved 终态。RELEASES 行 9→10（v8 转正）待用户批准。
