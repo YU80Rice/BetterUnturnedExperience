@@ -432,6 +432,8 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 Assert(runtime.Catalog.Entries[0].Definition.Feature.Value == "io.github.yu80rice.bue.better-item-interaction", "catalog order is deterministic by feature identity");
                 var late = NoOpFeatureRegistration.Register();
                 Assert(late.Reason == FeatureRegistrationReason.PhaseClosed, "fixture late registration is rejected");
+                // F-E: pure truth tables, no host state — runs before F-D.
+                AssertBueV2FeEnginePeerIdentity();
                 // F-D: runs last — it replaces the bound runtime and clears the
                 // host on purpose, so nothing after it may depend on that state.
                 AssertBueV2FdHeadlessCompletionSurvival();
@@ -6718,6 +6720,8 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 "F-E: base+2^32-1 (the last account number) is plausible");
             Assert(!BueEngineNet.SteamIdPlausible(76561197960265728UL + 4294967296UL),
                 "F-E: base+2^32 falls outside the individual account segment");
+            Assert(!BueEngineNet.SteamIdPlausible(BueEngineNet.PlaceholderServerPeerId),
+                "F-E: the placeholder itself lies outside the steam64 account segment (collision-free bookkeeping key)");
 
             // 组 2：决策真值表 —— 直连 FakeIP/0/listen host/菜单 四景。
             Assert(BueEngineNet.ClientPeerDecision(false, false, 76561199030780228UL) == 0UL,
