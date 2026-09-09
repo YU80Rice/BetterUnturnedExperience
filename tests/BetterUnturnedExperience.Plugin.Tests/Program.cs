@@ -106,6 +106,12 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     Console.WriteLine("DEV-V2-24 F-D headless completion survival collection: ALL GREEN (5 groups) — groups: 场景驱动完成链/共享tick链帧去重/退出teardown/纯门决策真值表/链Reset哨兵归位");
                     return 0;
                 }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--bue-v2-fe-red")
+                {
+                    AssertBueV2FeEnginePeerIdentity();
+                    Console.WriteLine("DEV-V2-24 F-E engine peer identity collection: ALL GREEN (2 groups) — groups: SteamIdPlausible 段校验/ClientPeer·LocalSteamId 决策真值表");
+                    return 0;
+                }
                 if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--dev16d-r13-native-delegate-red")
                 {
                     AssertDev16DR13NativeDelegateLifecycleIsReversible();
@@ -6687,6 +6693,55 @@ namespace BetterUnturnedExperience.Plugin.Tests
         // loss, the drive is idempotent and reaches the module-start path,
         // the tick chain dedupes drivers within one frame and stays
         // monotonic, and quit teardown still fully detaches the chain.
+        // F-E: on a FakeIP direct-connect (U3DS without a GSLT token) the
+        // client engine leaves Provider.server at zero while the server's own
+        // identity is a self-assigned non-steam64 value — the initiator never
+        // arms (ClientPeer==0) so no BUE session can form. The fix converges
+        // both sides onto a shared placeholder whenever the engine identity
+        // is not a plausible steam64 individual account; plausible ids
+        // (listen host, GSLT server) pass through unchanged. Pure truth
+        // tables — the session bookkeeping key never rides the wire.
+        private static void AssertBueV2FeEnginePeerIdentity()
+        {
+            // 组 1：SteamIdPlausible 段校验。
+            Assert(BueEngineNet.SteamIdPlausible(76561199030780228UL),
+                "F-E: a real steam64 individual account id is plausible");
+            Assert(!BueEngineNet.SteamIdPlausible(0UL),
+                "F-E: zero is never a plausible engine identity");
+            Assert(!BueEngineNet.SteamIdPlausible(90292445196063768UL),
+                "F-E: the FakeIP self-assigned id (U3DS no-GSLT) is outside the steam64 account segment");
+            Assert(!BueEngineNet.SteamIdPlausible(76561197960265727UL),
+                "F-E: an id below the steam64 base is not plausible");
+            Assert(BueEngineNet.SteamIdPlausible(76561197960265728UL),
+                "F-E: the steam64 base itself is plausible (half-open interval lower bound)");
+            Assert(BueEngineNet.SteamIdPlausible(76561197960265728UL + 4294967295UL),
+                "F-E: base+2^32-1 (the last account number) is plausible");
+            Assert(!BueEngineNet.SteamIdPlausible(76561197960265728UL + 4294967296UL),
+                "F-E: base+2^32 falls outside the individual account segment");
+
+            // 组 2：决策真值表 —— 直连 FakeIP/0/listen host/菜单 四景。
+            Assert(BueEngineNet.ClientPeerDecision(false, false, 76561199030780228UL) == 0UL,
+                "F-E: the menu state (not connected) never yields a peer");
+            Assert(BueEngineNet.ClientPeerDecision(true, true, 76561199030780228UL) == 0UL,
+                "F-E: the server role never yields a client peer");
+            Assert(BueEngineNet.ClientPeerDecision(true, false, 76561199030780228UL) == 76561199030780228UL,
+                "F-E: a plausible server id passes through unchanged (listen host / GSLT)");
+            Assert(BueEngineNet.ClientPeerDecision(true, false, 0UL) == BueEngineNet.PlaceholderServerPeerId,
+                "F-E: the FakeIP direct-connect client (Provider.server zero) converges on the placeholder peer");
+            Assert(BueEngineNet.ClientPeerDecision(true, false, 90292445196063768UL) == BueEngineNet.PlaceholderServerPeerId,
+                "F-E: an implausible non-zero server id also converges on the placeholder peer");
+            Assert(BueEngineNet.LocalSteamIdDecision(true, 76561199030780228UL) == 76561199030780228UL,
+                "F-E: the listen host keeps its real identity");
+            Assert(BueEngineNet.LocalSteamIdDecision(true, 90292445196063768UL) == BueEngineNet.PlaceholderServerPeerId,
+                "F-E: the U3DS FakeIP self-id converges on the placeholder so both sides pair");
+            Assert(BueEngineNet.LocalSteamIdDecision(true, 0UL) == BueEngineNet.PlaceholderServerPeerId,
+                "F-E: an unresolvable server identity arms with the placeholder instead of fail-closing");
+            Assert(BueEngineNet.LocalSteamIdDecision(false, 76561199721762479UL) == 76561199721762479UL,
+                "F-E: the client's own id passes through unchanged");
+            Assert(BueEngineNet.LocalSteamIdDecision(false, 0UL) == 0UL,
+                "F-E: an unresolvable client identity still fail-closes to zero");
+        }
+
         private static void AssertBueV2FdHeadlessCompletionSurvival()
         {
             // 组 1：场景驱动完成链 —— 宿主死亡后仍可完成注册。

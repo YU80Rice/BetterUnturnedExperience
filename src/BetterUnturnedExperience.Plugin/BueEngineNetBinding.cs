@@ -117,6 +117,34 @@ namespace BetterUnturnedExperience.Plugin
             transportConnectionProperty = steamPlayerType.GetProperty("transportConnection", BindingFlags.Public | BindingFlags.Instance);
         }
 
+        // F-E: engine identity plausibility + peer identity decisions (pure;
+        // truth tables pinned by --bue-v2-fe-red). Steam64 individual accounts
+        // occupy [76561197960265728, +2^32); FakeIP self-assigned ids (the
+        // U3DS-without-GSLT case, e.g. 90292445196063768) and zero fall
+        // outside — the initiator and the responder must converge on the same
+        // session bookkeeping key or the initiator never arms (the key never
+        // rides the wire: client→server sends are untargeted over the client
+        // transport pipe, server→client targets the client's real id).
+        internal const ulong Steam64Base = 76561197960265728UL;
+        internal const ulong PlaceholderServerPeerId = 0xB0E0000000000001UL;
+
+        internal static bool SteamIdPlausible(ulong raw)
+        {
+            return raw >= Steam64Base && raw - Steam64Base <= 4294967295UL;
+        }
+
+        internal static ulong ClientPeerDecision(bool connected, bool isServer, ulong providerServerRaw)
+        {
+            if (!connected || isServer) return 0UL;
+            return SteamIdPlausible(providerServerRaw) ? providerServerRaw : PlaceholderServerPeerId;
+        }
+
+        internal static ulong LocalSteamIdDecision(bool isServer, ulong providerSelfRaw)
+        {
+            if (!isServer) return providerSelfRaw;
+            return SteamIdPlausible(providerSelfRaw) ? providerSelfRaw : PlaceholderServerPeerId;
+        }
+
         internal static bool IsServer()
         {
             try
@@ -133,8 +161,9 @@ namespace BetterUnturnedExperience.Plugin
             try
             {
                 Resolve();
-                var selfProperty = IsServer() ? providerServerProperty : providerClientProperty;
-                return SteamIdOfProviderValue(selfProperty);
+                var isServer = IsServer();
+                var selfProperty = isServer ? providerServerProperty : providerClientProperty;
+                return LocalSteamIdDecision(isServer, SteamIdOfProviderValue(selfProperty));
             }
             catch (Exception) { return 0UL; }
         }
@@ -162,10 +191,8 @@ namespace BetterUnturnedExperience.Plugin
             try
             {
                 Resolve();
-                if (providerIsConnectedProperty == null) return 0UL;
-                if (!(providerIsConnectedProperty.GetValue(null) is bool connected) || !connected) return 0UL;
-                if (IsServer()) return 0UL; // the host's own client side is never a BUE session peer
-                return SteamIdOfProviderValue(providerServerProperty);
+                var connected = providerIsConnectedProperty != null && providerIsConnectedProperty.GetValue(null) is bool c && c;
+                return ClientPeerDecision(connected, IsServer(), SteamIdOfProviderValue(providerServerProperty));
             }
             catch (Exception) { return 0UL; }
         }

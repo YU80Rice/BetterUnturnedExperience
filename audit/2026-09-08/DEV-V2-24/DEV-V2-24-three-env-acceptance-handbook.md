@@ -13,21 +13,21 @@
 
 ## 1. 候选身份与 kit 清单（三环境必须部署同一份，逐一 certutil 核对）
 
-**候选**（= DEV-V2-23 候选 + D0-b 面板显示名修复 + F-A 挑战重臂 + F-B2 隔离去抖 + F-B1 故障闸 + F-B1b 池化自愈 + **F-B1c listen-host 投影对账器 + F-D 无头完成链静态化**（实机缺陷修复轮，见票面 Comments 与 review-rounds.md）；三轮 `-t:Rebuild` 字节一致，见 `audit/2026-09-09/DEV-V2-24/candidate-v6-rebuild1/2/3.log` + `identity-sha256.txt` v6）：
+**候选**（= DEV-V2-23 候选 + D0-b 面板显示名修复 + F-A 挑战重臂 + F-B2 隔离去抖 + F-B1 故障闸 + F-B1b 池化自愈 + **F-B1c listen-host 投影对账器 + F-D 无头完成链静态化**（实机缺陷修复轮，见票面 Comments 与 review-rounds.md）；三轮 `-t:Rebuild` 字节一致，见 `audit/2026-09-09/DEV-V2-24/candidate-v7-rebuild1/2/3.log` + `identity-sha256.txt` v6）：
 
 | 项 | 值 |
 |---|---|
-| 候选 DLL | `audit/2026-09-08/artifacts/DEV-V2-24-20260908/BetterUnturnedExperience.dll`（544256 字节） |
-| SHA-256 | `626bc330236481aa8ef357579d9b685e7aa2472c25e6ce4b19511f666bcd2715` |
-| 来源快照 | `e102935` + D0-b（`e70b7c4`）+ F-A（`3db75c0`）+ F-B2（`f89194f`/`03b661f`/`fe3e3cc`）+ F-B1 含 F1（`728d2b9`）+ F-B1b 池化自愈（`7b02874`）+ F-B1c 对账器 + F-D 完成链（`54f228d`）；增量 round7-increment.diff（F-B1c+F-D 终稿） |
-| 候选阶段 CaseId | `DEV-V2-24-CANDIDATE-20260909`（前身 `7d5dd3b5…c223`/`3cbd6268…9e4d`/`c9b6b6e4…eb86`/`40154219…8a26`/`7448b0ce…64c9`/`22be7a3a…5c56b`/`2d3de91d…762e1` 均作废，不得用于采集） |
+| 候选 DLL | `audit/2026-09-08/artifacts/DEV-V2-24-20260908/BetterUnturnedExperience.dll`（544768 字节） |
+| SHA-256 | `a1b339bf7d6945b8e67c32355cb8cfcc0eb95ecb2112b9ce5eb396f09a871359` |
+| 来源快照 | `e102935` + D0-b（`e70b7c4`）+ F-A（`3db75c0`）+ F-B2（`f89194f`/`03b661f`/`fe3e3cc`）+ F-B1 含 F1（`728d2b9`）+ F-B1b 池化自愈（`7b02874`）+ F-B1c 对账器 + F-D 完成链（`54f228d`）+ F-E 引擎对等身份收敛（本轮）；增量 round8-increment.diff |
+| 候选阶段 CaseId | `DEV-V2-24-CANDIDATE-20260909`（前身 `7d5dd3b5…c223`/`3cbd6268…9e4d`/`c9b6b6e4…eb86`/`40154219…8a26`/`7448b0ce…64c9`/`22be7a3a…5c56b`/`2d3de91d…762e1`/`626bc330…d2715` 均作废，不得用于采集） |
 | 采集 CaseId | `DEV-V2-24-20260908`（本手册与全部证据统一使用） |
 
 **kit 一站式目录**：`audit/2026-09-08/DEV-V2-24/kit/out/`（部署从这里拿，**不得重新构建**）：
 
 | 件 | SHA-256 | 字节 | 角色 |
 |---|---|---|---|
-| `BetterUnturnedExperience.dll` | `626bc330…d2715`（完整值见上表） | 544256 | 候选 BUE（裸 BUE 单 DLL 主验配置） |
+| `BetterUnturnedExperience.dll` | `a1b339bf…71359`（完整值见上表） | 544768 | 候选 BUE（裸 BUE 单 DLL 主验配置） |
 | `LaunchMultiplayerNet.dll` | `06d8a45438c09fea65f3800bf01a7efb9302f2421bd76aa386f8828701a63055` | 68096 | 独立 LMN v5.0.0.0（仅配置 B 共存用） |
 | `LmnEcosystemFixture.dll` | `2b82114f12abd25c93edd5957fdd510c2e3df25824ba264ef4aaf419f3ba7096` | 9216 | V1 旧插件替身（普通 LMN 消费方，仅配置 B；V1 数字频道 ch250 + V2 命名频道） |
 | `BetterUnturnedExperience.NoOpFixture.dll` | `9ee9944ded11ec97e3462a435b2be822c9a45a16fec0b475497c0456d79bed68` | 6144 | 生态样板插件（仅 T7-1 改名对照用；GUID `io.github.yu80rice.bue.noop`，经公开桥注册） |
