@@ -40,12 +40,14 @@
     <Compile Include="NetworkSettingsEditor.cs" />
     <Compile Include="BetterUnturnedExperiencePlugin.cs" />
     <Compile Include="BueRuntimePump.cs" />
+    <Compile Include="BueRuntimeCompletionChain.cs" />
     <!-- DEV-16A: embed the pure-C# ClientUi seam into the single runtime assembly. -->
     <Compile Include="..\BetterUnturnedExperience.ClientUi\ClientUiTypes.cs"><Link>EmbeddedClientUi\ClientUiTypes.cs</Link></Compile>
     <Compile Include="..\BetterUnturnedExperience.ClientUi\InventoryDragPresenter.cs"><Link>EmbeddedClientUi\InventoryDragPresenter.cs</Link></Compile>
     <Compile Include="..\BetterUnturnedExperience.ClientUi\NativeInventoryInteractionAdapter.cs"><Link>EmbeddedClientUi\NativeInventoryInteractionAdapter.cs</Link></Compile>
     <Compile Include="..\BetterUnturnedExperience.ClientUi\InventoryPreviewWiring.cs"><Link>EmbeddedClientUi\InventoryPreviewWiring.cs</Link></Compile>
     <Compile Include="..\BetterUnturnedExperience.ClientUi\InventoryProjectionRelay.cs"><Link>EmbeddedClientUi\InventoryProjectionRelay.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.ClientUi\ListenHostProjectionReconciler.cs"><Link>EmbeddedClientUi\ListenHostProjectionReconciler.cs</Link></Compile>
     <Compile Include="..\BetterUnturnedExperience.ClientUi\ItemInteractionUiComponent.cs"><Link>EmbeddedClientUi\ItemInteractionUiComponent.cs</Link></Compile>
     <Compile Include="..\BetterUnturnedExperience.ClientUi\SettingsSnapshotPresenter.cs"><Link>EmbeddedClientUi\SettingsSnapshotPresenter.cs</Link></Compile>
     <Compile Include="..\BetterUnturnedExperience.ClientUi\BetterItemInteractionLifecycle.cs"><Link>EmbeddedClientUi\BetterItemInteractionLifecycle.cs</Link></Compile>

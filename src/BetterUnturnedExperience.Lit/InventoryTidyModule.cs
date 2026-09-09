@@ -168,6 +168,12 @@ namespace BetterUnturnedExperience.Lit
                 default: mapped = TidyCompletionResult.Failed; break;
             }
             publisher.TryPublish(TidyCompleted.EventId, new TidyCompleted(Feature, firstPage, lastPage, mapped, connectionGeneration, transactionId));
+            // F-B1c: the tidy moves are out-of-band mutations — they leave the
+            // vanilla listen-host dashboard projection stale. The feature that
+            // invalidated the projection reconciles it on the same beat (any
+            // outcome: a compensated failure has also moved items back). The
+            // dispatcher is engine-gated and a no-op off the listen host.
+            ClientUi.Internal.ListenHostProjectionReconciler.OnTidyPagesCommitted(firstPage, lastPage);
         }
 
         /// <summary>

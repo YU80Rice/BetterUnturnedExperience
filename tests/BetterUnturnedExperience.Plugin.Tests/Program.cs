@@ -94,6 +94,18 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 AssertSinkRebuildsElementsOnNativeWriteFault();
                     return 0;
                 }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--bue-v2-fb1c-red")
+                {
+                    AssertBueV2Fb1cProjectionReconciler();
+                    Console.WriteLine("DEV-V2-24 F-B1c projection reconciler collection: ALL GREEN (5 groups) — groups: 决策核矩阵/分派路由+no-op/纯编排+TIDYABLE全域/BUE-LIT-001诊断行/harness全链接线");
+                    return 0;
+                }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--bue-v2-fd-red")
+                {
+                    AssertBueV2FdHeadlessCompletionSurvival();
+                    Console.WriteLine("DEV-V2-24 F-D headless completion survival collection: ALL GREEN (5 groups) — groups: 场景驱动完成链/共享tick链帧去重/退出teardown/纯门决策真值表/链Reset哨兵归位");
+                    return 0;
+                }
                 if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--dev16d-r13-native-delegate-red")
                 {
                     AssertDev16DR13NativeDelegateLifecycleIsReversible();
@@ -376,6 +388,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 AssertPreviewUpdateTransientFaultIsAbsorbedAndVisible();
                 AssertSinkRemountsAfterThirdPartyPanelClear();
                 AssertSinkRebuildsElementsOnNativeWriteFault();
+                AssertBueV2Fb1cProjectionReconciler();
                 AssertLoggingFailureEmission();
                 AssertLoggingRuntimeVerbosity();
                 AssertLoggingBueRuntimeClassification();
@@ -413,6 +426,9 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 Assert(runtime.Catalog.Entries[0].Definition.Feature.Value == "io.github.yu80rice.bue.better-item-interaction", "catalog order is deterministic by feature identity");
                 var late = NoOpFeatureRegistration.Register();
                 Assert(late.Reason == FeatureRegistrationReason.PhaseClosed, "fixture late registration is rejected");
+                // F-D: runs last — it replaces the bound runtime and clears the
+                // host on purpose, so nothing after it may depend on that state.
+                AssertBueV2FdHeadlessCompletionSurvival();
                 Console.WriteLine("DEV-14/DEV-16B plugin runtime tests: PASS"); return 0;
             }
             catch (Exception error) { Console.WriteLine("DEV-14 official registration parity tests: FAIL"); Console.WriteLine(error.ToString()); return 1; }
@@ -6466,6 +6482,367 @@ namespace BetterUnturnedExperience.Plugin.Tests
         // GlazierBox_uGUI.set_BackgroundColor, 60 consecutive frames). The
         // sink must rebuild its elements fresh and retry once instead of
         // leaving the preview lane dead.
+        // F-B1c: vanilla listen-host UI projection goes stale after BUE's
+        // out-of-band tidy moves (and join-time churn) — the feature that
+        // invalidated the projection reconciles it. Red test freezes: the
+        // reference-exact decision core, the test-safe dispatcher routing
+        // (hook first, engine dispatcher bound in-game only), the pure
+        // repair orchestration over the page-view seam, the diagnostic
+        // line identity, and the end-to-end tidy-publish wiring through
+        // the multiplayer harness. Engine (SDG-touching) paths stay
+        // NoInlining and are never JIT'd on the host test path.
+        private sealed class FakeProjectionPage : IInventoryProjectionPageView
+        {
+            internal List<object> Authoritative = new List<object>();
+            internal List<object> Rendered = new List<object>();
+            internal List<object> Pending = new List<object>();
+            internal int RepairCount;
+            internal byte PageValue;
+
+            public byte Page { get { return PageValue; } }
+            public int AuthoritativeCount { get { return Authoritative.Count; } }
+            public object AuthoritativeAt(int index) { return Authoritative[index]; }
+            public int RenderedCount { get { return Rendered.Count; } }
+            public object RenderedJarAt(int index) { return Rendered[index]; }
+            public int PendingCount { get { return Pending.Count; } }
+            public object PendingJarAt(int index) { return Pending[index]; }
+
+            public void RepairFromAuthoritative()
+            {
+                RepairCount++;
+                // Mirror what the vanilla repair does: projection becomes the
+                // authoritative multiset, pending queue drains.
+                Rendered = new List<object>(Authoritative);
+                Pending.Clear();
+            }
+        }
+
+        private static void AssertBueV2Fb1cProjectionReconciler()
+        {
+            // 组 1：决策核 — reference-exact match matrix（SPF ProjectionIsExact 同语义）。
+            var jarA = new object();
+            var jarB = new object();
+            var jarC = new object();
+            Assert(ProjectionReconcileDecision.IsExact(new[] { jarA, jarB }, new[] { jarB }, new[] { jarA }),
+                "F-B1c: rendered+pending must match authoritative as an order-insensitive reference multiset");
+            Assert(ProjectionReconcileDecision.IsExact(new object[0], new object[0], new object[0]),
+                "F-B1c: an empty page is exact (no repair needed)");
+            Assert(!ProjectionReconcileDecision.IsExact(new[] { jarA }, new[] { jarA, jarB }, new object[0]),
+                "F-B1c: a stale rendered element (rendered extra) is inexact");
+            Assert(!ProjectionReconcileDecision.IsExact(new[] { jarA }, new object[0], new[] { jarA, jarB }),
+                "F-B1c: a stale pending element (pending extra) is inexact");
+            Assert(!ProjectionReconcileDecision.IsExact(new[] { jarA, jarB, jarC }, new[] { jarA }, new[] { jarB }),
+                "F-B1c: a missing projection element (authoritative extra) is inexact");
+            Assert(!ProjectionReconcileDecision.IsExact(new[] { jarA }, new[] { jarB }, new object[0]),
+                "F-B1c: reference identity matters — two distinct jars are never equal");
+            Assert(!ProjectionReconcileDecision.IsExact(null, new object[0], new object[0]),
+                "F-B1c: null authoritative fails closed to inexact");
+
+            // 组 2：分派路由 — hook 先行，hook 未绑时分派器为静默 no-op
+            // （宿主测试路径永不 JIT 引擎方法）。
+            byte routedFirst = 0;
+            byte routedLast = 0;
+            var routedCount = 0;
+            ListenHostProjectionReconciler.ReconcileHook = (first, last) =>
+            {
+                routedFirst = first;
+                routedLast = last;
+                routedCount++;
+            };
+            try
+            {
+                ListenHostProjectionReconciler.OnTidyPagesCommitted(3, 3);
+                Assert(routedCount == 1 && routedFirst == 3 && routedLast == 3,
+                    "F-B1c: the tidy-commit dispatcher routes the committed page range to the reconcile hook");
+                ListenHostProjectionReconciler.OnDashboardSurfaceOpened();
+                Assert(routedCount == 2 && routedFirst == HotkeySnapshotUtil.TIDYABLE_PAGE_MIN && routedLast == HotkeySnapshotUtil.TIDYABLE_PAGE_MAX,
+                    "F-B1c: the dashboard-open dispatcher reconciles the whole tidyable page range");
+            }
+            finally
+            {
+                ListenHostProjectionReconciler.ReconcileHook = null;
+            }
+            ListenHostProjectionReconciler.OnTidyPagesCommitted(3, 3);
+            Assert(routedCount == 2,
+                "F-B1c: with no hook and no engine dispatcher the dispatchers are a silent no-op (test-safe)");
+
+            // 组 3：纯修复编排 — page-view seam 上的精确跳过/陈旧重建/fail-closed。
+            var requestedPages = new List<byte>();
+            Func<byte, IInventoryProjectionPageView> factory = page =>
+            {
+                requestedPages.Add(page);
+                if (page == 3)
+                {
+                    var stale = new FakeProjectionPage { PageValue = page };
+                    stale.Authoritative.Add(jarA);
+                    stale.Rendered.Add(jarA);
+                    stale.Rendered.Add(jarB); // 陈旧元素：权威里没有
+                    return stale;
+                }
+                var exact = new FakeProjectionPage { PageValue = page };
+                exact.Authoritative.Add(jarA);
+                exact.Rendered.Add(jarA);
+                return exact;
+            };
+            var repaired = ListenHostProjectionReconciler.ReconcileRange(2, 4, factory);
+            Assert(requestedPages.Count == 3 && requestedPages[0] == 2 && requestedPages[1] == 3 && requestedPages[2] == 4,
+                "F-B1c: the orchestrator consults the factory for every page in the inclusive range");
+            Assert(repaired == 1,
+                "F-B1c: exactly the inexact page is repaired");
+            Assert(!requestedPages.Contains(255),
+                "F-B1c: no page outside the requested range is consulted");
+
+            Func<byte, IInventoryProjectionPageView> nullFactory = page => null;
+            Assert(ListenHostProjectionReconciler.ReconcileRange(2, 6, nullFactory) == 0,
+                "F-B1c: a factory that declines every page (engine gate closed) repairs nothing and never throws");
+
+            var orderPage = new FakeProjectionPage { PageValue = 2 };
+            orderPage.Authoritative.Add(jarB);
+            orderPage.Authoritative.Add(jarA);
+            orderPage.Rendered.Add(jarA);
+            Assert(ListenHostProjectionReconciler.ReconcileRange(2, 2, p => orderPage) == 1,
+                "F-B1c: a stale page repairs exactly once");
+            Assert(orderPage.RepairCount == 1,
+                "F-B1c: the repair command is issued once per inexact page");
+
+            // 组 3b：TIDYABLE 全域 —— 开包路径恰好咨询 2..6 每页一次。
+            var fullRangePages = new List<byte>();
+            Func<byte, IInventoryProjectionPageView> rangeFactory = page => { fullRangePages.Add(page); return null; };
+            ListenHostProjectionReconciler.ReconcileRange(HotkeySnapshotUtil.TIDYABLE_PAGE_MIN, HotkeySnapshotUtil.TIDYABLE_PAGE_MAX, rangeFactory);
+            Assert(fullRangePages.Count == 5 && fullRangePages[0] == 2 && fullRangePages[4] == 6,
+                "F-B1c: the open-trigger range consults exactly the five dashboard pages 2..6");
+
+            // 组 4：诊断行 — 修复发生时一条 Debug 行，携带 BUE-LIT-001 身份与计数。
+            var previousRecorder = BueRuntimeLog.Recorder;
+            var captured = new List<string>();
+            try
+            {
+                BueRuntimeLog.Recorder = line => captured.Add(line);
+                var stalePage = new FakeProjectionPage { PageValue = 3 };
+                stalePage.Authoritative.Add(jarA);
+                stalePage.Rendered.Add(jarA);
+                stalePage.Rendered.Add(jarB);
+                ListenHostProjectionReconciler.ReconcileRange(3, 3, p => stalePage);
+                Assert(captured.Exists(line => line.Contains("listen-host 投影对账修复")
+                        && line.Contains("page=3")
+                        && line.Contains("authoritative=1")
+                        && line.Contains("renderedBefore=2")
+                        && line.Contains("diagnosticId=BUE-LIT-001")),
+                    "F-B1c: a repair emits the BUE-LIT-001 reconcile line with page identity and counts");
+
+                captured.Clear();
+                var exactPage = new FakeProjectionPage { PageValue = 3 };
+                exactPage.Authoritative.Add(jarA);
+                exactPage.Rendered.Add(jarA);
+                ListenHostProjectionReconciler.ReconcileRange(3, 3, p => exactPage);
+                Assert(captured.Count == 0,
+                    "F-B1c: an exact page emits no diagnostic (silent exact-match skip)");
+            }
+            finally
+            {
+                BueRuntimeLog.Recorder = previousRecorder;
+            }
+
+            // 组 5：端到端接线 — 整理提交发布 TidyCompleted 的同一拍路由对账。
+            var faultDir = NewLitFaultDirectory();
+            var harness = LitMultiplayerHarness.Create(faultDir);
+            harness.Handshake();
+            harness.EstablishChallenge();
+            var reconcilePages = new List<KeyValuePair<byte, byte>>();
+            ListenHostProjectionReconciler.ReconcileHook = (first, last) => reconcilePages.Add(new KeyValuePair<byte, byte>(first, last));
+            try
+            {
+                var request = harness.ClientModule.RequestTidy(3, TidyMode.SameType, true);
+                Assert(request == LitTidyRequestResult.Dispatched,
+                    "F-B1c wiring: the client tidy request is dispatched");
+                harness.Pump();
+                harness.ServerModule.Tick();
+                harness.Pump();
+                harness.ClientModule.Tick();
+                harness.Pump();
+                harness.ServerModule.Tick();
+                harness.Pump();
+                Assert(harness.ServerAuthority.ExecuteCount == 1,
+                    "F-B1c wiring: the authority executes the tidy exactly once");
+                Assert(harness.ServerTidyEvents.Count == 1,
+                    "F-B1c wiring: the reconcile wiring does not alter TidyCompleted publication semantics");
+                Assert(reconcilePages.Count == 1 && reconcilePages[0].Key == 3 && reconcilePages[0].Value == 3,
+                    "F-B1c wiring: the tidy commit routes the committed page to the reconcile hook on the same beat");
+            }
+            finally
+            {
+                ListenHostProjectionReconciler.ReconcileHook = null;
+            }
+        }
+
+        // F-D: on the U3DS headless boot the game destroyed the plugin host
+        // component between Awake and the first Start/Update frame; the old
+        // OnDestroy cleared the runtime host and the completion barrier never
+        // fired again — AnnounceReady/module starts/network arm never ran.
+        // The fix staticizes the completion drive (static scene-loaded core +
+        // preserved runtime host on a non-quit sweep) and adds a DDOL
+        // headless survival pump driving the shared per-frame tick chain
+        // (mirror/network/clock/tidy/completion, frame-deduped). Red test
+        // freezes: the scene drive completes an open runtime after host
+        // loss, the drive is idempotent and reaches the module-start path,
+        // the tick chain dedupes drivers within one frame and stays
+        // monotonic, and quit teardown still fully detaches the chain.
+        private static void AssertBueV2FdHeadlessCompletionSurvival()
+        {
+            // 组 1：场景驱动完成链 —— 宿主死亡后仍可完成注册。
+            BueRuntimeCompletionChain.ResetForTests();
+            BueRuntimeLog.ResetReadyAnnouncement();
+            var previousRecorder = BueRuntimeLog.Recorder;
+            var captured = new List<string>();
+            BueRuntimeLog.Recorder = line => captured.Add(line);
+            try
+            {
+                BueRuntimeHost.Clear();
+                var runtime = new FeatureRegistrationRuntime();
+                BueRuntimeHost.Bind(runtime);
+                runtime.OpenRegistration();
+                BueRuntimeCompletionChain.HeadlessDecision = true;
+                var healed = 0;
+                BueRuntimeCompletionChain.HeadlessPumpHealer = () => healed++;
+
+                BueRuntimeCompletionChain.OnSceneLoadedCore();
+                Assert(BueRuntimeHost.CurrentRuntime != null
+                        && BueRuntimeHost.CurrentRuntime.Phase == FeatureRegistrationPhase.RuntimeReady,
+                    "F-D: the scene-loaded drive completes the open runtime even after the plugin host is gone");
+                Assert(captured.Exists(line => line.Contains("加载成功")),
+                    "F-D: completion announces ready through the survival chain");
+                Assert(healed == 1,
+                    "F-D: the scene drive invokes the headless pump healer before completing");
+                Assert(captured.Exists(line => line.Contains("event=module-start result=skipped reason=feature-network-unavailable")),
+                    "F-D: completion reaches the module-start path (skipped without a wired network adapter)");
+
+                BueRuntimeCompletionChain.OnSceneLoadedCore();
+                Assert(healed == 2,
+                    "F-D: repeated drives keep healing the headless pump");
+                Assert(captured.FindAll(line => line.Contains("加载成功")).Count == 1,
+                    "F-D: the ready announcement fires exactly once across repeated drives");
+
+                // healer 抛异常不破坏驱动（never-throw 契约 + 失败留痕）。
+                BueRuntimeCompletionChain.HeadlessPumpHealer = () => { throw new InvalidOperationException("healer boom"); };
+                BueRuntimeCompletionChain.OnSceneLoadedCore();
+                Assert(BueRuntimeHost.CurrentRuntime != null
+                        && BueRuntimeHost.CurrentRuntime.Phase == FeatureRegistrationPhase.RuntimeReady,
+                    "F-D: a throwing healer never breaks the scene drive");
+                Assert(captured.Exists(line => line.Contains("event=headless-pump-heal-failed")),
+                    "F-D: a healer failure is diagnosed, not swallowed");
+            }
+            finally
+            {
+                BueRuntimeLog.Recorder = previousRecorder;
+                BueRuntimeCompletionChain.ResetForTests();
+                BueRuntimeHost.Clear();
+            }
+
+            // 组 2：共享 tick 链 —— 同帧去重、跨帧单调、时钟接续。
+            BetterUnturnedExperience.Plugin.BueHostEventRuntime.Clear();
+            Assert(BetterUnturnedExperience.Plugin.BueHostEventRuntime.EnsureCreated(),
+                "F-D: the host event runtime is created for the tick chain");
+            var chainFeature = new FeatureId("io.github.yu80rice.bue.test.fdchain");
+            var ticks = new List<HostTick>();
+            BetterUnturnedExperience.Plugin.BueHostEventRuntime.Bus.Subscriber(chainFeature).Subscribe<HostTick>(ticks.Add);
+            var frameCounter = 100;
+            BueRuntimeTickChain.FrameProvider = () => frameCounter;
+            try
+            {
+                BueRuntimeTickChain.Tick();
+                BueRuntimeTickChain.Tick();
+                Assert(ticks.Count == 1,
+                    "F-D: the tick chain dedupes multiple drivers within one frame");
+                frameCounter = 101;
+                BueRuntimeTickChain.Tick();
+                Assert(ticks.Count == 2,
+                    "F-D: the next frame ticks exactly once through the chain");
+                Assert(ticks[0].TickNumber == 1 && ticks[1].TickNumber == 2,
+                    "F-D: host tick numbering stays strictly monotonic through the chain");
+                Assert(ticks.TrueForAll(t => t.Phase == TickPhase.Update),
+                    "F-D: chain-driven ticks carry the frozen Update phase");
+            }
+            finally
+            {
+                BueRuntimeTickChain.FrameProvider = null;
+                BetterUnturnedExperience.Plugin.BueHostEventRuntime.Clear();
+            }
+
+            // 组 3：退出 teardown —— 摘干净链条（与扫毁保留语义相对）。
+            BueRuntimeCompletionChain.ResetForTests();
+            BueRuntimeLog.ResetReadyAnnouncement();
+            var teardownRecorder = BueRuntimeLog.Recorder;
+            var teardownCaptured = new List<string>();
+            BueRuntimeLog.Recorder = line => teardownCaptured.Add(line);
+            try
+            {
+                BueRuntimeHost.Clear();
+                var runtime2 = new FeatureRegistrationRuntime();
+                BueRuntimeHost.Bind(runtime2);
+                runtime2.OpenRegistration();
+                var unsubscribed = 0;
+                BueRuntimeCompletionChain.SceneLoadedUnsubscriber = () => unsubscribed++;
+
+                BueRuntimeCompletionChain.TeardownForQuit();
+                Assert(unsubscribed == 1,
+                    "F-D: quit teardown unsubscribes the static scene drive");
+                Assert(BueRuntimeHost.CurrentRuntime == null,
+                    "F-D: quit teardown clears the runtime host");
+                teardownCaptured.Clear();
+                BueRuntimeCompletionChain.OnSceneLoadedCore();
+                Assert(!teardownCaptured.Exists(line => line.Contains("加载成功")),
+                    "F-D: after quit teardown a scene drive neither completes nor announces");
+            }
+            finally
+            {
+                BueRuntimeLog.Recorder = teardownRecorder;
+                BueRuntimeCompletionChain.ResetForTests();
+                BueRuntimeHost.Clear();
+            }
+
+            // 组 4：纯门决策真值表 —— listen-host 资格与仪表盘页域（无 SDG）。
+            // 生产端 IsEligibleLocalHostEngine/BuildEnginePageView 用引擎状态
+            // 调用这两个纯函数；真值表在此钉死。
+            Assert(BetterUnturnedExperience.ClientUi.Internal.ListenHostProjectionReconciler.IsEligibleLocalHostDecision(true, true, true),
+                "F-D gate: listen host (server+client+local player) is eligible");
+            Assert(!BetterUnturnedExperience.ClientUi.Internal.ListenHostProjectionReconciler.IsEligibleLocalHostDecision(true, false, true),
+                "F-D gate: a dedicated server (U3DS) is not eligible");
+            Assert(!BetterUnturnedExperience.ClientUi.Internal.ListenHostProjectionReconciler.IsEligibleLocalHostDecision(false, true, true),
+                "F-D gate: a pure remote client is not eligible");
+            Assert(!BetterUnturnedExperience.ClientUi.Internal.ListenHostProjectionReconciler.IsEligibleLocalHostDecision(true, true, false),
+                "F-D gate: a missing local player is not eligible");
+            Assert(BetterUnturnedExperience.ClientUi.Internal.ListenHostProjectionReconciler.IsReconcilablePage(2)
+                    && BetterUnturnedExperience.ClientUi.Internal.ListenHostProjectionReconciler.IsReconcilablePage(6),
+                "F-D gate: the tidyable dashboard bounds 2..6 are reconcilable");
+            Assert(!BetterUnturnedExperience.ClientUi.Internal.ListenHostProjectionReconciler.IsReconcilablePage(1)
+                    && !BetterUnturnedExperience.ClientUi.Internal.ListenHostProjectionReconciler.IsReconcilablePage(7)
+                    && !BetterUnturnedExperience.ClientUi.Internal.ListenHostProjectionReconciler.IsReconcilablePage(255),
+                "F-D gate: pages outside the dashboard range are rejected");
+
+            // 组 5：共享链 Reset —— 哨兵归位：同一帧号在 Reset 后可再次执行
+            // （不 Reset 则帧去重会跳过它，这是判别性差异）。
+            BueRuntimeTickChain.FrameProvider = () => 5;
+            BueRuntimeTickChain.Tick();
+            BueRuntimeTickChain.Tick();
+            BueRuntimeTickChain.Reset();
+            BueRuntimeTickChain.FrameProvider = () => 5;
+            var ticksAfterReset = new List<HostTick>();
+            BetterUnturnedExperience.Plugin.BueHostEventRuntime.Clear();
+            Assert(BetterUnturnedExperience.Plugin.BueHostEventRuntime.EnsureCreated(), "F-D: host event runtime recreated for the reset group");
+            BetterUnturnedExperience.Plugin.BueHostEventRuntime.Bus.Subscriber(new FeatureId("io.github.yu80rice.bue.test.fdreset")).Subscribe<HostTick>(ticksAfterReset.Add);
+            try
+            {
+                BueRuntimeTickChain.Tick();
+                Assert(ticksAfterReset.Count == 1,
+                    "F-D: after chain reset the same frame number ticks again (sentinel cleared)");
+            }
+            finally
+            {
+                BueRuntimeTickChain.Reset();
+                BetterUnturnedExperience.Plugin.BueHostEventRuntime.Clear();
+            }
+        }
+
         private static void AssertSinkRebuildsElementsOnNativeWriteFault()
         {
             var emitted = new List<KeyValuePair<string, ClientUiCompositionRoot.ClientUiDiagnosticLevel>>();

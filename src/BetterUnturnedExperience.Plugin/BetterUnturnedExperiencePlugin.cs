@@ -1,6 +1,7 @@
 using BepInEx;
 using System;
 using System.IO;
+using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using BetterUnturnedExperience.Contracts;
 using BetterUnturnedExperience.Core.Registration;
@@ -14,8 +15,6 @@ namespace BetterUnturnedExperience.Plugin
     {
         private const string FeatureId = "io.github.yu80rice.betterunturnedexperience";
         private const string DiagnosticId = "BUE-BOOTSTRAP-001";
-        private bool runtimeReadyLogged;
-        private bool sceneLoadedSubscribed;
         private int updateTickCount;
         private int runtimePumpTickCount;
         private bool runtimePumpIsolated;
@@ -26,10 +25,13 @@ namespace BetterUnturnedExperience.Plugin
         private BueRuntimePump runtimePump;
         private BueRuntimePumpBehaviour runtimePumpBehaviour;
         private BuePluginUpdateDriver pluginUpdateDriver;
-        private BueRuntimeCompletionBarrier completionBarrier;
         private InventorySurfaceLifecycleAdapter inventoryLifecycleAdapter;
         private InventoryDragPreviewAdapter inventoryDragAdapter;
-        private bool isHeadlessDecision;
+        // F-D: the headless survival pump — an independent DDOL GameObject
+        // (ordinary objects survive the host sweep on 3.26.3.9 where
+        // HideAndDontSave ones do not) driving the shared tick chain.
+        private BueRuntimePump headlessPump;
+        private BueRuntimePumpBehaviour headlessPumpBehaviour;
 
         // DEV-16D R5: the drag adapter depends on the inventory lifecycle
         // heartbeat.  Keep the activation decision at one host-testable seam so
@@ -50,6 +52,12 @@ namespace BetterUnturnedExperience.Plugin
                 enabled = true;
                 LogAssemblyIdentity();
                 BueRuntimeLog.Bind(Logger);
+                // F-B1c: bind the listen-host projection reconciler's engine
+                // path here (and only here) so the tidy-publish and
+                // inventory-open dispatchers stay silent no-ops on the host
+                // test path — no test ever JITs an SDG-touching method.
+                BetterUnturnedExperience.ClientUi.Internal.ListenHostProjectionReconciler.EngineDispatcher =
+                    BetterUnturnedExperience.ClientUi.Internal.ListenHostProjectionReconciler.BindEngine();
                 // DEV-V2-23: the platform double-install self-check — a
                 // diagnostic-only BUE-PLATFORM-001 scan of the assemblies already
                 // in the AppDomain. It must never block bootstrap and never
@@ -62,7 +70,12 @@ namespace BetterUnturnedExperience.Plugin
                 BueHostEventRuntime.EnsureCreated();
                 var isBatchMode = Application.isBatchMode;
                 var decision = BootstrapGuard.Decide(isBatchMode, isBatchMode, !isBatchMode);
-                isHeadlessDecision = decision == BootstrapDecision.Headless;
+                // F-D: the completion chain is static — it survives the plugin
+                // host component being destroyed mid-boot (the U3DS sweep).
+                BueRuntimeCompletionChain.HeadlessDecision = decision == BootstrapDecision.Headless;
+                BueRuntimeCompletionChain.SceneLoadedUnsubscriber = UnsubscribeSceneLoadedStatic;
+                BueRuntimeTickChain.FrameProvider = () => Time.frameCount;
+                EnsureSceneLoadedSubscribedStatic();
                 BueRuntimeLog.Runtime("[BUE-UI-TRACE] plugin=io.github.yu80rice.betterunturnedexperience diagnosticId=BUE-BOOTSTRAP-002 event=runtime-gate decision=" + decision + " batchMode=" + isBatchMode + " headless=" + isBatchMode);
                 var runtime = new FeatureRegistrationRuntime();
                 BueRuntimeHost.Bind(runtime);
@@ -85,6 +98,16 @@ namespace BetterUnturnedExperience.Plugin
                 // the global zone the same way — the platform network facade's
                 // horde broadcast consumer, riding the host clock.
                 var lhtRegistration = HordeTrackerFeatureRegistration.Register();
+                if (decision == BootstrapDecision.Headless)
+                {
+                    // F-D: the survival pump doubles as a completion driver —
+                    // on U3DS the plugin host can be destroyed before the
+                    // first Start/Update frame, and the pump (independent DDOL
+                    // ordinary object) then carries the whole chain. The scene
+                    // drive re-attaches it whenever it is found destroyed.
+                    EnsureHeadlessSurvivalPump();
+                    BueRuntimeCompletionChain.HeadlessPumpHealer = EnsureHeadlessSurvivalPump;
+                }
                 if (decision == BootstrapDecision.Client)
                 {
                     pluginUpdateDriver = new BuePluginUpdateDriver(OnPluginUpdateTick);
@@ -125,6 +148,12 @@ namespace BetterUnturnedExperience.Plugin
                             surface =>
                             {
                                 clientUiComposition.OpenInventory(surface);
+                                // F-B1c: a dashboard open on the listen host is
+                                // the join-time repair moment — stale projection
+                                // elements (the「重叠/幽灵」symptom) rebuild here
+                                // before the player interacts. Engine-gated:
+                                // no-op off the listen host.
+                                BetterUnturnedExperience.ClientUi.Internal.ListenHostProjectionReconciler.OnDashboardSurfaceOpened();
                                 // [DEV-16D] Rebind the grid's placed-item
                                 // delegate on each fresh session dispatch so a
                                 // rebuilt UI gets BUE's decision wrapper.
@@ -180,9 +209,10 @@ namespace BetterUnturnedExperience.Plugin
                             Logger.LogWarning("BUE drag preview wiring disabled diagnosticId=BUE-DRAG-003 diagnostics=" + inventoryDragAdapter.GateDiagnostics);
                         BueRuntimeLog.Runtime("BUE client UI composition ready featureId=io.github.yu80rice.bue.better-item-interaction diagnosticId=BUE-CLIENTUI-002");
                     }
+                    // F-D: completion refresh rides the static chain hook (the
+                    // instance may be gone by the time completion fires).
+                    BueRuntimeCompletionChain.CompletionRefreshHook = RefreshManagementPanelHook;
                 }
-                SceneManager.sceneLoaded += OnSceneLoaded;
-                sceneLoadedSubscribed = true;
                 BueRuntimeLog.Runtime("Better Unturned Experience featureId=" + FeatureId + " status=BootstrapReady decision=" + decision + " diagnosticId=" + DiagnosticId);
                 BueRuntimeLog.Runtime("Better Item Interaction featureId=" + officialRegistration.Feature.Value + " accepted=" + officialRegistration.Accepted + " reason=" + officialRegistration.Reason + " diagnosticId=" + officialRegistration.DiagnosticId);
                 BueRuntimeLog.Runtime("BUE Network Module featureId=" + networkRegistration.Feature.Value + " accepted=" + networkRegistration.Accepted + " reason=" + networkRegistration.Reason + " diagnosticId=" + networkRegistration.DiagnosticId);
@@ -215,7 +245,7 @@ namespace BetterUnturnedExperience.Plugin
         public void Start()
         {
             BueRuntimeLog.Runtime("[BUE-UI-TRACE] plugin=io.github.yu80rice.betterunturnedexperience diagnosticId=BUE-MANAGEMENT-TRACE-002 event=start-entered");
-            TryCompleteRuntime();
+            BueRuntimeCompletionChain.TryCompleteRuntimeCore();
         }
 
         private void AttachRuntimePump()
@@ -263,7 +293,9 @@ namespace BetterUnturnedExperience.Plugin
                     runtimePumpIsolated = true;
                     DestroyRuntimePump();
                 }
-                TryCompleteRuntime();
+                // F-D: the client pump also carries the shared chain — it
+                // survives a host sweep and is frame-deduped against Update.
+                BueRuntimeTickChain.Tick();
             }
             catch (Exception error)
             {
@@ -276,31 +308,11 @@ namespace BetterUnturnedExperience.Plugin
         private void Update()
         {
             if (pluginUpdateDriver != null) pluginUpdateDriver.Update();
-            // DEV-V2-10 F-A: drives the deferred V1 mirror retry once LMN's
-            // assembly loads (BUE bootstraps first under BepInEx name order);
-            // throttled and silent inside the adapter, headless included.
-            NetworkModuleFeatureRegistration.WiredAdapter?.RetryPendingMirror();
-            // DEV-V2-18: the BUE runtime pump — engine peer-state diff,
-            // inbound frame dispatch, handshake re-probe; every stage
-            // fault-isolated inside the adapter, headless included.
-            NetworkModuleFeatureRegistration.WiredAdapter?.TickNetwork();
-            // DEV-V2-19: the host clock beat — one HostTick per Update, the
-            // single frame-level driver seam for feature modules (never-throw
-            // into this chain).
-            BueHostEventRuntime.TickOnce();
-            // DEV-V2-21: the tidy dispatcher pump rides the host frame chain
-            // (headless included; the client-only plugin driver no longer
-            // owns it). Never throws into this chain.
-            try { InventoryTidyFeatureRegistration.WiredModule?.Tick(); }
-            catch (Exception error)
-            {
-                Logger.LogWarning("[BUE-V2HOST] event=tidy-pump result=failed errorType=" + error.GetType().Name);
-            }
-            // Some BepInEx/Unity hosts do not dispatch a plugin Start message
-            // before the first frame. Keep the same host-owned barrier as a
-            // one-shot next-frame fallback; external features still cannot
-            // advance the registration phase.
-            TryCompleteRuntime();
+            // F-D: the shared per-frame chain (frame-deduped) — mirror retry,
+            // network pump, host clock, tidy dispatcher, completion drive.
+            // The headless survival pump carries the chain when this
+            // component has been destroyed.
+            BueRuntimeTickChain.Tick();
         }
 
         private void OnPluginUpdateTick()
@@ -318,79 +330,70 @@ namespace BetterUnturnedExperience.Plugin
             // chain (headless included) — this client driver no longer owns it.
         }
 
-        private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
+        private static bool sceneLoadedSubscribedStatic;
+
+        private static void EnsureSceneLoadedSubscribedStatic()
         {
-            TryCompleteRuntime();
+            if (sceneLoadedSubscribedStatic) return;
+            SceneManager.sceneLoaded += OnSceneLoadedStaticHandler;
+            sceneLoadedSubscribedStatic = true;
         }
 
-        private void TryCompleteRuntime()
+        private static void OnSceneLoadedStaticHandler(Scene scene, LoadSceneMode mode)
         {
-            if (runtimeReadyLogged) return;
-            if (completionBarrier == null) completionBarrier = new BueRuntimeCompletionBarrier(CompleteRuntimeOnce, LogRuntimeCompletionIsolated);
-            if (!completionBarrier.TryComplete()) return;
-            runtimeReadyLogged = true;
-            // DEV-16G ticket D: the ONE aggregate success line. All per-subsystem
-            // load Info is demoted to Debug; this is the only load-stage
-            // announcement a normal play session sees. Headless announces load
-            // without UI.
-            BueRuntimeLog.AnnounceReady(isHeadlessDecision);
+            BueRuntimeCompletionChain.OnSceneLoadedCore();
         }
 
-        private void LogRuntimeCompletionIsolated(Exception error)
+        private static void UnsubscribeSceneLoadedStatic()
         {
-            BueRuntimeLog.ErrorFriendly("Better Unturned Experience featureId=" + FeatureId + " status=RuntimeCompletionIsolated decision=Isolate errorType=" + error.GetType().FullName + " diagnosticId=" + DiagnosticId + " message=" + error.Message);
+            if (!sceneLoadedSubscribedStatic) return;
+            SceneManager.sceneLoaded -= OnSceneLoadedStaticHandler;
+            sceneLoadedSubscribedStatic = false;
         }
 
-        private bool CompleteRuntimeOnce()
+        // F-D: the headless survival pump — an independent DDOL GameObject
+        // (ordinary objects survive the host sweep on 3.26.3.9 where
+        // HideAndDontSave ones do not) driving the shared tick chain. Its
+        // callback targets the static chain only, so it keeps ticking after
+        // this component has been destroyed; the scene-drive healer
+        // re-attaches it if it is ever destroyed too.
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private void EnsureHeadlessSurvivalPump()
         {
-            var runtime = BueRuntimeHost.CurrentRuntime;
-            if (runtime == null || runtime.Phase != FeatureRegistrationPhase.RegistrationOpen) return false;
-            if (!runtime.CompleteRuntime()) return false;
-            // DEV-V2-21: the host barrier composes the module start path —
-            // each catalog module receives its FeatureBootstrap (stable
-            // feature network facade + host bus views) and starts here, not
-            // at registration time.
-            TryStartRegisteredModules();
-            TryRefreshAfterCompletion();
-            UnsubscribeSceneLoaded();
-            return true;
-        }
-
-        private void TryStartRegisteredModules()
-        {
+            if (headlessPumpBehaviour != null && headlessPumpBehaviour.gameObject != null) return;
+            if (headlessPump != null) headlessPump.Clear();
+            headlessPump = new BueRuntimePump(BueRuntimeTickChain.Tick);
             try
             {
-                var featureNetwork = NetworkModuleFeatureRegistration.WiredAdapter?.FeatureNetworkApi;
-                if (featureNetwork == null)
-                {
-                    BueRuntimeLog.Runtime("[BUE-V2HOST] event=module-start result=skipped reason=feature-network-unavailable");
-                    return;
-                }
-                BueFeatureStartRuntime.StartCatalog(BueRuntimeHost.CurrentRuntime, featureNetwork);
+                headlessPumpBehaviour = BueRuntimePumpBehaviour.Attach(headlessPump);
+                BueRuntimeLog.Runtime("[BUE-UI-TRACE] plugin=io.github.yu80rice.betterunturnedexperience event=headless-survival-pump-attached diagnosticId=BUE-BOOTSTRAP-003");
             }
             catch (Exception error)
             {
-                Logger.LogWarning("[BUE-V2HOST] event=module-start result=failed errorType=" + error.GetType().Name + " message=" + error.Message);
+                headlessPump = null;
+                Logger.LogWarning("[BUE-UI-TRACE] plugin=io.github.yu80rice.betterunturnedexperience event=headless-survival-pump-failed errorType=" + error.GetType().FullName + " message=" + error.Message);
             }
         }
 
-        private void TryRefreshAfterCompletion()
+        private void DestroyHeadlessPump()
         {
-            try
+            var behaviour = headlessPumpBehaviour;
+            headlessPumpBehaviour = null;
+            if (headlessPump != null)
             {
-                if (clientUiComposition != null) clientUiComposition.RefreshManagementPanel();
+                headlessPump.Clear();
+                headlessPump = null;
             }
-            catch (Exception error)
+            if (behaviour != null)
             {
-                Logger.LogWarning("BUE client UI refresh after completion isolated errorType=" + error.GetType().FullName + " diagnosticId=BUE-CLIENTUI-004");
+                var pumpObject = behaviour.gameObject;
+                if (pumpObject != null) UnityEngine.Object.Destroy(pumpObject);
             }
         }
 
-        private void UnsubscribeSceneLoaded()
+        private void RefreshManagementPanelHook()
         {
-            if (!sceneLoadedSubscribed) return;
-            SceneManager.sceneLoaded -= OnSceneLoaded;
-            sceneLoadedSubscribed = false;
+            if (clientUiComposition != null) clientUiComposition.RefreshManagementPanel();
         }
 
         private void LogAssemblyIdentity()
@@ -435,9 +438,15 @@ namespace BetterUnturnedExperience.Plugin
         {
             if (!applicationQuitting)
             {
+                // [R19]/F-D: a component teardown is NOT an application quit.
+                // The runtime host, the static completion chain and the
+                // survival pump are deliberately PRESERVED here — the U3DS
+                // host sweep destroyed the plugin before its first Update
+                // frame, and the chain must still be able to complete the
+                // runtime and tick the modules afterwards. Only the client
+                // UI driver (which dies with this component anyway) is cut.
                 try
                 {
-                    UnsubscribeSceneLoaded();
                     if (pluginUpdateDriver != null) pluginUpdateDriver.Clear();
                     BueRuntimeLog.Runtime("[BUE-UI-TRACE] plugin=io.github.yu80rice.betterunturnedexperience event=host-destroyed state=preserved patches-kept=true diagnosticId=BUE-CLIENTUI-005");
                 }
@@ -445,13 +454,12 @@ namespace BetterUnturnedExperience.Plugin
                 {
                     Logger.LogWarning("[BUE-UI-TRACE] plugin=io.github.yu80rice.betterunturnedexperience event=host-destroyed-preserve-failed errorType=" + error.GetType().FullName);
                 }
-                BueRuntimeHost.Clear();
                 return;
             }
             try
             {
-                UnsubscribeSceneLoaded();
                 DestroyRuntimePump();
+                DestroyHeadlessPump();
                 if (pluginUpdateDriver != null) pluginUpdateDriver.Clear();
                 if (nativeManagementPanel != null) nativeManagementPanel.Destroy();
                 if (inventoryDragAdapter != null) inventoryDragAdapter.IsolateAndDetach();
@@ -472,7 +480,9 @@ namespace BetterUnturnedExperience.Plugin
             {
                 Logger.LogWarning("BUE client UI teardown isolated diagnosticId=BUE-CLIENTUI-003 errorType=" + error.GetType().FullName);
             }
-            BueRuntimeHost.Clear();
+            // F-D: quit teardown detaches the static chain (scene drive,
+            // seams, barrier state) together with the runtime host.
+            BueRuntimeCompletionChain.TeardownForQuit();
         }
     }
 }
