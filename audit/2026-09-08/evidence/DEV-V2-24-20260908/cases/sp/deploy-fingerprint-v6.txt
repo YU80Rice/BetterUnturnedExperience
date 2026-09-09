@@ -1,0 +1,8 @@
+# DEV-V2-24 配置 A 部署指纹(v6,2026-09-09)
+目标 = E:\Steam\steamapps\common\Unturned\BepInEx\plugins (本机客户端)
+BetterUnturnedExperience.dll SHA-256 = 626BC330236481AA8EF357579D9B685E7AA2472C25E6CE4B19511F666BCD2715 (544256B, 候选 v6, CaseId DEV-V2-24-CANDIDATE-20260909)
+同目录留置 = SteamP2PFriends.dll (用户自研 P2P 联机方案,SPF=P2P 环境地基,非 BUE 系插件,SP 轮无害留置)
+配置 A 口径 = 裸 BUE 单 DLL(无 LMN/LmnEcosystemFixture/NoOpFixture/探针件)
+cfg = [Logging.Disk] LogLevels=All (Debug 锚行直进 LogOutput.log)
+U3DS 同步部署 = E:\Steam\steamapps\common\U3DS\BepInEx\plugins (同哈希核验一致)
+部署时间 = 2026-09-09 11:08

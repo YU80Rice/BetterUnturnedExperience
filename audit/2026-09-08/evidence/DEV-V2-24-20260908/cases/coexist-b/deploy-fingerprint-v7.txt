@@ -1,0 +1,8 @@
+# DEV-V2-24 配置 B 部署指纹(v7,2026-09-09,本机客户端)
+- 部署位置 = E:\Steam\steamapps\common\Unturned\BepInEx\plugins\
+- BetterUnturnedExperience.dll sha256=a1b339bf7d6945b8e67c32355cb8cfcc0eb95ecb2112b9ce5eb396f09a871359(544768B,候选 v7,CaseId DEV-V2-24-CANDIDATE-20260909)
+- LaunchMultiplayerNet.dll sha256=06d8a45438c09fea65f3800bf01a7efb9302f2421bd76aa386f8828701a63055(68096B,独立 LMN v5.0.0.0)
+- LmnEcosystemFixture.dll sha256=2b82114f12abd25c93edd5957fdd510c2e3df25824ba264ef4aaf419f3ba7096(9216B,V1 旧插件替身)
+- 三件与手册 §1 哈希表逐一核对一致;SPF(SteamP2PFriends.dll,用户自有)保留在场不受配置管理
+- [Logging.Disk] LogLevels=All ✓;U3DS 侧无需采配置 B(手册 §6)
+- 采集 CaseId = DEV-V2-24-20260908;会话 = §6 共存承诺(单人,约 10 分钟)

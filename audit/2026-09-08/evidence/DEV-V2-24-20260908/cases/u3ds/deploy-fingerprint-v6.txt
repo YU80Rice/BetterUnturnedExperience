@@ -1,0 +1,9 @@
+# DEV-V2-24 配置 A 部署指纹(v6,U3DS,2026-09-09)
+目标 = E:\Steam\steamapps\common\U3DS\BepInEx\plugins
+BetterUnturnedExperience.dll SHA-256 = 626BC330236481AA8EF357579D9B685E7AA2472C25E6CE4B19511F666BCD2715 (544256B, 候选 v6, CaseId DEV-V2-24-CANDIDATE-20260909)
+配置 A 口径 = U3DS 侧仅候选 BUE 单 DLL(无 LMN/夹具/探针件)
+cfg = [Logging.Disk] LogLevels=All (99 行,Debug 锚行直进 LogOutput.log)
+实例 = Servers/U3DS_Coop (Rocket 在装;Commands.dat: Name U3DS Co-op / Map PEI / Port 27015)
+/horde 管理员 = 控制台 Admin <客机SteamID> 现场授权(Adminlist.dat 为二进制格式不手编)
+U1 新锚(v6) = event=headless-survival-pump-attached BUE-BOOTSTRAP-003 + 「加载成功（无界面）」 + 三功能模块启动行
+部署时间 = 2026-09-09 11:32

@@ -134,7 +134,7 @@
    - **T7-5 Preloader `AssemblyResolve`**：LogOutput Preloader 段在探针在场时有无新增解析错误/异常；只记录，不承诺；
 3. 同时预期：Z 探针程序集在 BUE Awake **之后**才进入 AppDomain → 001 行**不出现**（SDK §6 冻结边界：自检只看「已进入 AppDomain」的程序集；若出现则记录为过报事实）。**记录**：☐
 
-### C4（T7-4）不同 GUID + 同程序集名（红测+实机双证的正向半）——探针 A 变体会话
+### C4（T7-4）不同 GUID + 同程序集名（红测+实机双证；正向双证见实机补注二）——探针 A 变体会话
 
 1. plugins = 候选 BUE（原名）+ `BueSameAsmProbe-ABefore.dll`（A 变体 GUID 排序在 BUE 前 → 副本程序集先于 BUE Awake 进入 AppDomain）；
 2. 启动单人世界；
@@ -143,6 +143,10 @@
    - **面板**：G → 管理面板 → 底部红色状态行「错误：检测到 BetterUnturnedExperience 冲突副本（BUE-PLATFORM-001）：请移除非官方副本后重启游戏，详见 BUE 日志。」→ **截图**；
 4. 摘除探针重启 → 001 不再出现（用户处置路径验证）；全程确认 BUE **没有**删除/移动/改名任何文件（探针 DLL 仍在原处）；
 5. 若 001 未出现：**停止采集**，保留 LogOutput + BepInEx 加载序行，报 agent（= 诊断漏报 finding，走 real-machine-test-loop）。**记录**：☐
+
+> **实机补注（2026-09-09，C4 采集后）**：第 3 步期望未被满足——001 双证均未出现，**判定为非诊断漏报**。根因= BepInEx 类型扫描段（先于一切插件 Awake）即撞 Mono LoadFrom 身份折叠：扫描按文件名序先装载 BetterUnturnedExperience.dll，探针文件反射解析时按身份返回已加载的 BUE 副本，探针类型/特性解析不到被 `Skipping over type … no metadata attribute` 跳过——**探针程序集从未进入 AppDomain**（`[PROBE] awake` 零条，Chainloader 无探针 Loading 行；GUID 序在前的 A 变体同样被折叠，扫描序按文件名）。001 按冻结契约（DEV-V2-23：只扫已进入 AppDomain 者，零文件 IO）无从触发=契约边界按设计工作。防双装三层图景：**引擎身份折叠（标准路径上游阻断）→ BUE-PLATFORM-001（AppDomain 内检测，红测已证）→ 建议性处置**。T7-4 处置=红测半 CLEAN 维持 + 实机半以引擎折叠边界事实入档（cases/t7/case-c4-20260909.md）；SDK 文档 §6/§8 实机事实附注随关票文档轮落。手册原期望文本保留不改写，以本补注为准。
+>
+> **实机补注二（2026-09-09，C4'/C4'' 修正仪器轮）**：按 real-machine-test-loop 修正仪器后**实机正向双证已完整取得**。C4'（首版 LoadFile 探针）实证 BepInEx **惰性装载**（插件程序集在各自实例化拍才进 AppDomain，探针 Awake 时 BUE 尚未装载）；C4''（双副本盲种：复制 BUE DLL 两份到 %TEMP% 后 `Assembly.LoadFile` 注入，绕过身份绑定）使 BUE Awake 扫描时同名实例=3，**逐条两条 001 Warning**（conflictLocation 分别指向两个 %TEMP% 副本、selfPath=正版路径，字段与 DEV-V2-23 冻结票面逐字一致）+ 管理面板底边红色状态行（双场景截图）——正版未被劫持（identity 行仍指 plugins+候选哈希）。T7-4「红测+实机双证」成立；「001=非标准装载路径兜底」由推论升格为实机证据。证据=cases/t7/case-c4lf-20260909.md（C4'）+ case-c4lf2-20260909.md（C4''）+ deploy-fingerprint-c4lf|c4lf2.txt。
 
 ## 8. 预期日志行速查表
 

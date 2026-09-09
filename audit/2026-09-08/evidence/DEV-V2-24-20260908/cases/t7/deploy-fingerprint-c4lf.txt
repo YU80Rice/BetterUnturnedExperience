@@ -1,0 +1,8 @@
+# DEV-V2-24 T7 C4'（LoadFile 修正仪器）部署指纹(v7,2026-09-09 14:46,本机客户端)
+- 采集 CaseId = DEV-V2-24-20260908;会话 = T7-4 实机正向双证补采(C4' = C4 finding 的 real-machine-test-loop 修正仪器轮)
+- 背景 = cases/t7/case-c4-20260909.md:标准 BepInEx 装载路径上 Mono LoadFrom 身份折叠使同名副本进不了 AppDomain,001 正向不可达;本仪器走非标准装载通道(File.Copy 到 %TEMP% + Assembly.LoadFile,不做身份绑定检查)在 BUE Awake 前注入第二个同名程序集实例
+- 部署位置 = E:\Steam\steamapps\common\Unturned\BepInEx\plugins\
+- BetterUnturnedExperience.dll sha256=a1b339bf…71359(544768B,候选 v7,CaseId DEV-V2-24-CANDIDATE-20260909)
+- BueLoadFileProbe.dll sha256=0bde73e2d7396e4a50f5d064d94ce6d8fbce5ae806bccadfc5347805316198b4(5120B,GUID io.github.yu80rice.aaa-loadfile-probe 序在 BUE 前;源码 kit/BueLoadFileProbe/,构建 build-probe-lf.log)
+- SteamP2PFriends.dll(用户自有)b6a3acc9…885986 保留
+- 预期:LogOutput `[PROBE-LF] event=seed result=loaded … appdomainCopies=2` → BUE Awake 扫描 → `BUE double-install detected diagnosticId=BUE-PLATFORM-001 assembly=BetterUnturnedExperience conflictLocation=…\BueLoadFileProbe-seed.dll(temp) selfPath=…\plugins\BetterUnturnedExperience.dll` Warning 行 + 面板底部红色状态行(截图);探针会写 %TEMP%\BueLoadFileProbe-seed.dll(仪器自身行为,BUE 仍零文件操作)

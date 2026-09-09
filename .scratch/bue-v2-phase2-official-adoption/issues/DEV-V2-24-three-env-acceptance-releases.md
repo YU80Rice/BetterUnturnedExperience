@@ -1,7 +1,7 @@
 # DEV-V2-24：三环境实机验收 + RELEASES 加行 + 真机手册（终票）
 
 Type: task
-Status: claimed（2026-09-08，/implement 会话；前置 20/21/22/23 四票已核实 resolved；采集 kit + 手册就绪后用户就 D0 拍板 = **D0-b 修复轮**——BII 面板显示名改「更好的物品交互」，红测先行 + 全套 7/7 PASS 0 警告，新候选 `3cbd6268…9e4d`（前身 7d5dd3b5…c223 作废）；待实机采集 → 复核 → 双轴 → RELEASES/真机手册/关票）
+Status: **resolved**（2026-09-09 关单。候选 v7=`A1B339BF…71359` 为当前发布物（RELEASES 行 9）；十轮实机验收全过（三环境/共存 B/T7 含 T7-4 实机正向双证经 C4'/C4'' 修正仪器链）；关单文档轮双轴 R1→R4 迭代，R4 Standards CLEAN+Spec 仅余关单动作项→本关单动作（勾票/Status/判词落档）执行后由 R5 双轴终态复审确认（判词见结单报告 §6）；采集 CaseId=`DEV-V2-24-20260908` 正式授予；结单报告 `audit/2026-09-09/DEV-V2-24/结单报告.md`；F-C 转开放票 DEV-V2-25）
 Parent: spec.md（V2 第二阶段规格·三插件官方纳入与平台首公里）
 Blocked by: DEV-V2-20（LHT）、DEV-V2-21（LIT 联机）、DEV-V2-22（LIR）、DEV-V2-23（防双装+文档）
 Spec: `../spec.md`（Solution「到达标准」、Testing Decisions「实机验收面」两处）
@@ -21,11 +21,11 @@ Spec: `../spec.md`（Solution「到达标准」、Testing Decisions「实机验�
 
 ## 验收条件
 
-- [ ] 三环境证据包齐全且绑定同一 LoadSetIdentity（裸 BUE 单 DLL）
-- [ ] T7 五项实机记录落盘，其中「不同 GUID + 同程序集名」红测 + 实机双证
-- [ ] V1 共存证据（BUE + 独立 LMN 部署下旧插件收发）
-- [ ] RELEASES 候选行 + 真机手册落盘
-- [ ] 双轴独立审查 CLEAN；CaseId 授予；地图/规格同步终态
+- [x] 三环境证据包齐全且绑定同一 LoadSetIdentity（裸 BUE 单 DLL）——SP/P2P/U3DS `assembly-identity` 行逐轮绑 `A1B339BF…71359`+三轮确定性重建（LoadSetIdentity 轻量链口径见 RELEASES 注记）
+- [x] T7 五项实机记录落盘，其中「不同 GUID + 同程序集名」红测 + 实机双证——五项落盘（cases/t7/）；第 4 项红测半 CLEAN（DEV-V2-23）+实机正向双证经 C4 finding→C4'/C4'' 修正仪器链取得（逐条 001 Warning×2+面板红行双场景截图，case-c4lf2-20260909.md）
+- [x] V1 共存证据（BUE + 独立 LMN 部署下旧插件收发）——共存 B 双端 B1–B6 全锚（cases/coexist-b/，P2P 双端形态偏离如实记录）；裸 BUE 无独立 LMN 下 V1 数字频道插件不收发=已承认边界随档
+- [x] RELEASES 候选行 + 真机手册落盘——RELEASES 行 9（当前发布物）+`docs/BetterUnturnedExperience-Player-Handbook.md`
+- [x] 双轴独立审查 CLEAN；CaseId 授予；地图/规格同步终态——采集 CaseId=`DEV-V2-24-20260908` 授予；关单文档轮 R1→R4 迭代（每轮两轴全新实例并行）后关单动作执行、R5 终态复审确认（判词见结单报告 §6）；CONTEXT.md 三词条+SDK §8 补注终态落盘
 
 ## Comments
 
@@ -115,3 +115,15 @@ Spec: `../spec.md`（Solution「到达标准」、Testing Decisions「实机验�
 - **F-E 实现轮闭环（2026-09-09 中午,红测先行+Phase-6 摘探）**：`BueEngineNet` 增纯决策三件（`SteamIdPlausible`=steam64 个体段 [76561197960265728,+2^32) 校验、`ClientPeerDecision`、`LocalSteamIdDecision`）+常量 `PlaceholderServerPeerId=0xB0E0000000000001`（记账键不上线:客户端→服务器无目标管道发送,服务器→客户端按客户端真实 ID 定向）;`ClientPeer()`/`LocalSteamId()` 改走纯决策（不可信→两侧同一占位=会话配对收敛;listen host/GSLT 真实 ID 原样透传零变化;客户端自身 ID 恒透传,0 仍 fail-closed）。litfb9 探针全摘（grep=0）。红测 `--bue-v2-fe-red` 两组真值表入旗标+默认套件（fd 末位前）。**坑:文件里有两个类——BueEngineNetBinding(22-49,注入缝包装)≠BueEngineNet(63+,解析器)**,红测首写指错类名→CS0117 十七连→发现类结构→改指 BueEngineNet;增量构建残留状态需 -t:Rebuild。观测红=编译红→实现→旗标绿（ALL GREEN 行）→全套 7/7→全方案 Rebuild 0 警（fe-*.log）。**待=双轴审查→候选 v7 重授→全量重采**。
 
 - **F-E 双轴补正与闭环（2026-09-09 午后,用户质询「只做了 Spec 轴」后补正）**：F-E 实现轮首审违规地把两轴合进同一 Spec-Reviewer——用户指出后补独立 Standards 轴（fresh 实例）。**Standards R1 NOT CLEAN**：[BLOCKING] fe 真值表未接默认套件（只挂旗标,7/7 绿锁不住——真回归漏过面）+[SMELL] 未钉占位值落在 steam64 段外（碰撞面）→ **F1s 全采纳**（默认套件 F-D 调用前接入 fe,注释锚定 fd 末位约束;补 `!SteamIdPlausible(PlaceholderServerPeerId)` 断言;python 锚点非唯一/缩进不符两次回滚后以唯一注释锚落位）→ **Standards R2 CLEAN**（复审直跑 exe 双验证）。**F-E 双轴最终 CLEAN（Spec=R2 / Standards=R2,各自全新实例互不干扰）**。v7 二进制不受测试侧 F1s 影响（Plugin.dll 编译输入仅 src）,哈希 a1b339bf…71359 维持。流程教训入册：双轴=两个独立子代理并行,任何一轮都不得合并轴;「入旗标+默认套件」缺一即未完成。
+
+- **重采进度·v7 单机+P2P 合并轮主干通过（2026-09-09 12:53,用户实测「四功能均无异常」,UMM 包 125312/125324）**：双端身份=A1B339BF…71359(v7)✓;PLATFORM-001=0;客户端 BUE Error 级 0 条。**F-E 常规路径实机成立**：P2P 双端 `armed role=server/client`(真实 steam64 透传,占位路径未触发)✓。**F-A 客机网络整理全链 ×3**（reqId 1/2/3→服务器代执行 TidyAll 指纹守恒→TidyCommitted→HotkeyFlowAck→快捷键恢复验证）+ challenge gen=2 + 退出代际清理✓。**F-B1c 跨端成立**：对账器紧随 TidyCommitted 拍触发 ×2(page=2/3,BUE-LIT-001)=预测①整理拍对账跨端复现✓。**F-C 大爆发如实留痕**：`定向发送未送达(generation=2, LocalTransportUnavailable)` ×1650(v6 轮 8333,同族无退避),用户面无损,DEV-V2-25(open)既登记。**LHT P4 双侧 ✓**：主机 epoch=2/3 广播 result=Sent ×18;客机 HUD 注入(800x35 @ MiddleCenter)+收到 epoch=2/3 全序列零重复键。BII 双端存活(BUE-DRAG 397/68)。安全拒绝路径实机现身(page 3 重叠 Prepare 失败 ×4+ALL_PAGES 拒绝 ×2,零改动 fail-closed)。**待补锚=P3 客机实弹 LIR**（`dispatcher summary` 零条=本轮客机未触发网络压弹,本地压弹静默系设计）——并入下轮(U3DS 客机双击换弹同路径覆盖,或 P2P 一分钟补采)。归档=cases/sp|p2p-host|p2p-client/case-v7-20260909.md+双端完整日志。
+
+- **重采进度·v7 U3DS 轮全链通过=F-E 修复实机验证成立（2026-09-09 13:00,用户自启 U3DS_Coop+本机客户端直连 127.0.0.1:27015,实测「四功能也无异常」）**：双端身份=A1B339BF…71359(v7)✓。**F-D 无头完成链成立**（pump-attached ×2 healer 重挂+加载成功（无界面）+模块启动齐）。**F-E 占位路径双侧实锤**：服务端 `armed role=server localSteamId=12745186945458503681`=PlaceholderServerPeerId(0xB0E0000000000001,FakeIP 假身被替换)且对端会话键=客机真实 id;客户端 `armed role=client`(v6 轮此处恒零)——两侧记账键按设计收敛,challenge gen=2 应用=握手完成;**v6 四功能全死 vs v7 全活=修复实机验证成立**。客机网络整理代执行 ×8(TidyCommitted+ACK 齐);**U3 LIR 跨端实弹 ✓**：`-> 客机 RepackSuccess(reqId=…482, total=26)`+dispatcher summary 两窗各 dispatches=1(rejected/missing 全零)——第二发 …483 服务端已执行弹匣已满 NoChange 静默(旧语义,正确 no-op 非丢包,源码 ExecuteRepackFor default 分支背书);客户端 dispatches=1=成功回包 drain→toast。**U4 LHT ✓**：/horde 注册+尸潮爆发 epoch=1 Alberton,广播 Sent seq=1..7(remaining 递减权威追踪活跃),客机 HUD 注入+收齐零重复键。BII 存活(BUE-DRAG ×168)。断开清理干净(scope 关+代际清)。F-C 族 ×253 如实留痕(DEV-V2-25)。**剩余=P2P 环境客机实弹 LIR(P3 严格口径,一轮一分钟)+共存 B+T7 五项**。归档=cases/u3ds/case-v7-20260909-server|client.md+双端完整日志。
+
+- **重采进度·共存 B 轮双端通过 + P3 缺口清零（2026-09-09 13:26,用户实测,UMM 包 132554/132622）**：**会话形态偏离如实记录**——手册 §6 冻结配置 B=单人,实跑=P2P 双端配置 B(用户自行把三件套装上 VM),方向更严:本地缝锚照常触发+新增跨端回环维度,共存承诺证据有效。B1 fixture ready 双端 ✓;B2 `v1-table-mirror channels=2 deferred=true`→重试成功(恰为手册预料形态)✓;B3 双向回环 ✓(本进程 send-broadcast→recv-from-server 同 seq 配对;跨端 send-to-server seq=11..26 递增无重复→recv-from-client→定向 send-pong);B4/B5 双放行锚 ✓;B6 决策核干净 ✓(双端零 unknown-channel-dropped/零 delegated;Error 仅 F-C 族 ×1456 主机,DEV-V2-25)。**P3 补锚同轮闭环**：客机双击换弹 ×4(reqId …499..502)→主机 dispatcher ×4 窗 dispatches=1 零拒收→`RepackSuccess(…501, total=3)`+`(…502, total=4)` 定向送达→客机成功回包 drain ×2=toast ×2;…499/…500=弹匣满 NoChange 静默(同 U3DS …483 定型,旧语义)。**验收表 P2P 节缺口清零,仅剩 T7 五项**。归档=cases/coexist-b/case-v7-20260909.md+deploy-fingerprint-v7.txt+双端完整日志。
+
+- **T7-4 实机正向双证补采闭环（2026-09-09 14:45–15:19,关单文档轮 R2 Spec GAP 驱动的 real-machine-test-loop）**：C4 finding（标准路径探针被扫描段身份折叠）→**C4' 仪器轮**（14:57,UMM 145719:LoadFile 探针首版 seed miss=`no-bue-in-appdomain`——BepInEx **惰性装载**实证:插件程序集在各自实例化拍才进 AppDomain）→**C4'' 修正仪器轮**（15:19,UMM 151902:双副本盲种——复制 BUE DLL 两份到 %TEMP%+`Assembly.LoadFile` 绕过身份绑定注入,BUE Awake 扫描时同名实例=3→**逐条两条 001 Warning**(conflictLocation=%TEMP% seed1/2、selfPath=正版、字段与 DEV-V2-23 冻结票面逐字一致)+**面板底边红色状态行**(双场景截图);正版未被劫持(identity=plugins+候选哈希),BUE 全功能正常）。**T7-4「红测+实机双证」完整成立;「001=非标准装载路径兜底」由推论升格为实机证据**。探针=证据仪器非生产代码(候选 v7 不变),写 %TEMP% 系仪器自身行为,BUE 零文件操作;采后摘探针+清 %TEMP%,本机恢复配置 A 终态。归档=cases/t7/case-c4lf|c4lf2-20260909.md+deploy-fingerprint-c4lf|c4lf2.txt+build-probe-lf|lf2.log+双截图。
+
+- **关单（2026-09-09 下午,用户指示「执行关单程序」）**：关单文档包=RELEASES 行 9(候选 v7,当前发布物)+真机玩家手册 `docs/BetterUnturnedExperience-Player-Handbook.md`+SDK §8 实机补注+CONTEXT.md 三词条(单 DLL 交付形态/独立 LMN 保留语义/防双装边界)+结单报告 `audit/2026-09-09/DEV-V2-24/结单报告.md`。双轴审查链（每轮两轴全新实例并行,零上下文）：R1 双 NC(Standards BLOCKING=RELEASES 篇首指针/Spec LoadSetIdentity 口径+手册矛盾)→F1;R2 Standards CLEAN+Spec GAP(T7-4 实机正向双证未取得)→**F2=C4'/C4'' 仪器链补采**;R3 Standards CLEAN(3 SMELL)+Spec NC(关单动作未执行+「正向半」残留)→F3;R4 Standards CLEAN/Spec NC 仅余关单动作→**F4=关单动作执行**（勾票+Status=resolved+判词落档+手册 C4 标题口径同步）→R5 终态复审（判词见结单报告 §6）。采集 CaseId=`DEV-V2-24-20260908` 正式授予。F-C 转开放票 DEV-V2-25。
+
+- **T7 五项采集完成（2026-09-09 13:42–14:02,配置 C 三独立会话,用户单人进出,agent 换装）**：**T7-1 ✓**（改名对照:assembly-identity path=BetterUnturnedExperience.r24.dll+sha256=候选原值,NoOpFixture 经公开桥 accepted=True,零 001,零缺依赖告警;cases/t7/case-c1-20260909.md）。**T7-2/3/5 ✓ 事实观察**（Z 探针:类型扫描段即被 `Skipping over type … no metadata attribute` 折叠,[PROBE] awake 零条=Mono 按身份返回已加载 BUE 副本,第二副本从未进 AppDomain;官方副本承担类型绑定;Preloader 零新增解析异常;cases/t7/case-c2c3c5-20260909.md）。**T7-4 finding→边界事实处置**（A 探针:001 双证均未出现=手册 C4 前提被证伪——BepInEx 扫描段按文件名序先装 BUE 赢身份竞速,探针反射解析被折叠跳过,**同程序集名副本经标准装载路径永远到不了 Awake**;非诊断漏报:AppDomain 确实只有一个副本,冻结契约(零文件 IO,只扫已进入者)按设计工作;红测半 CLEAN 维持;防双装三层=引擎折叠→001 兜底→建议处置;面板无红行=通知位正确未置;BUE 零文件操作,探针原封;cases/t7/case-c4-20260909.md+用户面板截图;手册 §7 C4 增实机补注,SDK §6/§8 附注随关票文档轮）。**配置 C 会话后本机恢复配置 A 终态**（候选 v7 原名+SPF）。至此 24 全部实机采集项完成。

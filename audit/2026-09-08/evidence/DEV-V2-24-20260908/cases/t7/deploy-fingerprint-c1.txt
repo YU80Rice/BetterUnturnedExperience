@@ -1,0 +1,7 @@
+# DEV-V2-24 T7 C1 部署指纹(v7,2026-09-09 13:32,本机客户端)
+- 采集 CaseId = DEV-V2-24-20260908;会话 = T7-1 改名实机对照(配置 C 独立会话,单人,进世界即出)
+- 部署位置 = E:\Steam\steamapps\common\Unturned\BepInEx\plugins\
+- BetterUnturnedExperience.r24.dll sha256=a1b339bf7d6945b8e67c32355cb8cfcc0eb95ecb2112b9ce5eb396f09a871359(544768B=候选 v7 原件改名,哈希不变,CaseId DEV-V2-24-CANDIDATE-20260909)
+- BetterUnturnedExperience.NoOpFixture.dll sha256=9ee9944ded11ec97e3462a435b2be822c9a45a16fec0b475497c0456d79bed68(6144B,手册 §1 一致)
+- 配置 B 两件(LaunchMultiplayerNet.dll/LmnEcosystemFixture.dll)已摘除;SPF(用户自有)保留
+- 注:手册 S1/C1 行内期望写作 sha256=2D3DE91D…762E1 系旧候选时代的陈旧文本;身份绑定以 §1 候选表现行值为准(a1b339bf…71359),C1 期望=path=改名路径+sha256=候选原值

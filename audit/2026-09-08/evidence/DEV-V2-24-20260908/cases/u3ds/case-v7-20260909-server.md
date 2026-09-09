@@ -1,0 +1,11 @@
+# DEV-V2-24 u3ds case·服务端(v7,2026-09-09 13:00,用户实测「四功能也无异常」)
+- 日志 = E:\Steam\steamapps\common\U3DS\BepInEx\LogOutput.log(U3DS_Coop,PEI,27015);sha256=04b7528c…5922e24
+- 身份 = A1B339BF…71359(v7)✓(:15)
+- **F-D 无头完成链实机成立**:`event=headless-survival-pump-attached` ×2(:20/:29,泵扫毁后 healer 重挂)+「加载成功（无界面）」(:47)+首帧网络注册/模块启动全就位
+- **F-E 占位路径服务端实锤**:`armed role=server localSteamId=12745186945458503681`(:49)= **PlaceholderServerPeerId 0xB0E0000000000001**——FakeIP 假身(90292445…,steam64 段外)被 LocalSteamIdDecision 替换为占位;对端会话键=客机真实 id(peer scope peer=76561199030780228,:53)——两侧记账键按设计收敛
+- **客机网络整理代执行 ×8**:快捷键快照已验证(reqId=1..8)+`-> 客机 TidyCommitted(result=Committed)` ×8+ACK 处理完成 ×8
+- **U3 LIR 跨端实弹 ✓**:`-> 客机 RepackSuccess(reqId=639245266573168482, total=26)`+dispatcher summary ×2 窗口各 dispatches=1(rejected/missing/parseErrors 全零)——第二窗=第二发请求(…483)已接收并执行,弹匣已满→NoChange 静默无回包(旧语义「a scan ran, nothing to deliver」,正确 no-op 非丢包)
+- **U4 LHT 活跃尸潮 ✓**:/horde 已注册(Commander.register);尸潮爆发 nav=10 epoch=1 Alberton by=DiDATUT;广播 Update result=Sent seq=1..7(remaining 100→98 递减,权威追踪活跃)
+- 断开清理:peer scope 已关闭+会话代际已清(generation=2,临时态清,磁盘持久统计保留)(:373-374)
+- F-C 家族如实留痕:`定向发送未送达(generation=N, LocalTransportUnavailable)` ×253(Error 级)=DEV-V2-25(open),用户面无损
+- 完整日志=logoutput-v7-u3ds-server-20260909-1300.log

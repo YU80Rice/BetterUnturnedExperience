@@ -205,5 +205,15 @@ conflictLocation=<冲突副本路径> selfPath=<当前 BUE 路径> suggestion=�
 
 **证据纪律**：实机记录统一绑定候选身份（`assembly-identity sha256` 锚行与 RELEASES 候选哈希一致），沿 `audit/RELEASES.md` 的门禁与批准链。
 
+### §8 实机执行结果补注（2026-09-09，DEV-V2-24 采集，候选 `a1b339bf…71359`）
+
+原文保留不改写，以下为实机事实：
+
+- **第 1 项（改名对照）✓**：`BetterUnturnedExperience.r24.dll` 加载成功，`assembly-identity path=…r24.dll sha256=候选原值`，生态样板经公开桥 `accepted=True`，零 001——GUID 前置解析与 IL 程序集名绑定均与文件名无关实证。
+- **第 2/3 项（LoadFile 二次探测/同版本谁保留）事实**：BepInEx 类型扫描段（先于一切插件 Awake）即发生 Mono LoadFrom **身份折叠**——同程序集名副本被 `Skipping over type … as no metadata attribute is specified` 跳过，`[PROBE] awake` 零条，**副本程序集从未进入 AppDomain**；类型绑定始终由官方副本承担；Preloader 零新增解析异常。
+- **第 4 项（不同 GUID + 同程序集名）**：红测半 CLEAN 维持（`--bue-v2-platform-red`，真实 AppDomain 注入两副本验证决策核）；**实机正向双证经修正仪器完整取得（C4''，2026-09-09）**——标准 BepInEx 装载路径上同名副本在类型扫描段即被身份折叠、到不了 Awake（实机实证：C4/C4' 两轮，含 BepInEx **惰性装载**机制：插件程序集在各自实例化拍才进 AppDomain）；改以 `Assembly.LoadFile`（绕过身份绑定的**非标准装载通道**）注入两个同名副本后，BUE Awake 扫描见 3 个同名实例，**逐条两条 001 Warning**（conflictLocation=%TEMP% 副本、selfPath=正版路径，字段与本节冻结票面逐字一致）+ 管理面板底边红色状态行，正版未被劫持（identity 行仍指 plugins+候选哈希）。**001 作为「非标准装载路径进来的副本的兜底网」由此从推论升格为实机证据**（威胁模型的忠实模拟：rogue loader 正是绕过身份绑定注入副本的通道）。
+- **附注修订**：无冲突部署零 001 行在三环境（SP/P2P/U3DS）× 多轮全部成立；「冲突部署出现 Warning 诊断行与面板红色状态行」在**标准 BepInEx 插件包装的同名副本**上不成立（副本被引擎层折叠于上游），该期望**仅适用于绕过身份绑定的装载通道**（C4'' 已实证该通道下 001 逐条触发+面板红行）。
+- **防双装三层图景（实机确立，双向验证）**：引擎身份折叠（标准路径上游阻断，C4/C4' 实证）→ BUE-PLATFORM-001（AppDomain 内检测，红测+C4'' 实机正向双证）→ 建议性处置（移除非官方副本；BUE 不删除任何文件，实机核验探针原封）。
+
 
 
