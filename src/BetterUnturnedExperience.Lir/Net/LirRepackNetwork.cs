@@ -148,8 +148,43 @@ namespace BetterUnturnedExperience.Lir
             return liveSessions.TryGetValue(generation, out var session) ? session.PeerSteamId : 0UL;
         }
 
-        /// <summary>The host-frame drain: queued requests execute, queued replies toast (module's ToastSink).</summary>
+        // DEV-V3-04: the platform main-thread dispatcher seam (the module
+        // binds it at Start from bootstrap.MainThread). Official first
+        // consumption of the IFeatureMainThread surface — repack execution
+        // moves to the host-frame drain via a POSTED task, so LIR no longer
+        // owns the main-thread handoff pump; the business queue (per-sender
+        // coalesce, reply priority, TTL, throttled summary) stays feature-
+        // private policy. Null = a host that has not wired the seam (stage
+        // baseline): the historical inline drain is kept, unchanged.
+        private IFeatureMainThread mainThread;
+
+        internal void BindMainThread(IFeatureMainThread view) { mainThread = view; }
+
+        /// <summary>The per-beat drain handoff: posted to the platform
+        /// dispatcher when wired (execution rides the host pump beat), inline
+        /// on the unwired baseline. A rejected post is visible and retried
+        /// next beat — never silently dropped.</summary>
         internal void Drain()
+        {
+            if (stopped) return;
+            var seam = mainThread;
+            if (seam == null)
+            {
+                DrainOnce();
+                return;
+            }
+            var posted = seam.Post(DrainOnce);
+            if (!posted.Posted)
+            {
+                LirRuntime.LogDiagnostic("[RepackNet] 主线程投递被拒（reason=" + posted.Reason
+                    + ", diagnostic=" + posted.DiagnosticId + "），队内工作下一拍重投");
+            }
+        }
+
+        /// <summary>The drain body: queued requests execute, queued replies
+        /// toast (module's ToastSink). Runs on the host main thread — via the
+        /// platform dispatcher pump when the seam is wired.</summary>
+        internal void DrainOnce()
         {
             if (stopped) return;
             dispatcher.DrainOnMainThread(ExecuteRepackFor, (requestId, total) =>

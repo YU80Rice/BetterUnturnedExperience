@@ -120,7 +120,46 @@ namespace BetterUnturnedExperience.Contracts
         // instance for the module's whole lifetime, explicit results while
         // the network module is not ready, no Host/LMN/Unity type leakage.
         BueNetwork.IBueNetworkApi Network { get; }
+        // DEV-V3-04: the platform main-thread dispatcher seam (availability
+        // matrix row: null before this ticket, composed non-null by the host
+        // start path from DEV-V3-04 on). Modules hand work that must run on
+        // the Unity/Unturned main thread to this ONE seam instead of building
+        // their own pumps; the inbound network handler runs on the transport
+        // pump thread (SDK-frozen), and posting from it is the sanctioned
+        // thread handoff. A module must tolerate null here until its host
+        // wires it (the stage-baseline rule).
+        IFeatureMainThread MainThread { get; }
     }
+    // DEV-V3-04: the main-thread dispatcher contract (Minor 2.1 additive).
+    // The minimal behavior surface is frozen here (the ticket fixed the type
+    // and member names):
+    //   - exactly ONE post method, one-way fire-and-forget: the task returns
+    //     nothing and there is no wait handle (need a result? publish a
+    //     feature event or send a network reply);
+    //   - every post answers with an explicit result — accepted, capacity
+    //     rejection, or invalidated are distinguishable; the call itself
+    //     never throws across the module boundary (null task is the
+    //     developer-error fail-fast, the null-handler discipline);
+    //   - after module stop, isolation or host shutdown, posting = explicit
+    //     failure + structured diagnostic (never silently swallowed);
+    //   - over capacity = explicit failure + diagnostic (never silently
+    //     dropped);
+    //   - each task is bound to the submitting module's LifecycleGeneration:
+    //     once the generation is superseded, un-executed tasks never run;
+    //   - a single task's execution fault is isolated into a diagnostic
+    //     (never spreads, never breaks the host main-thread pump);
+    //   - self-built Update pumps / unbounded queues are forbidden — this
+    //     seam is the platform's sanctioned handoff, pumped by the host.
+    public enum MainThreadPostReason : byte { None = 0, CapacityExceeded = 1, GenerationInvalid = 2 }
+    public readonly struct MainThreadPostResult
+    {
+        public bool Posted { get; }
+        public MainThreadPostReason Reason { get; }
+        public string DiagnosticId { get; }
+        public MainThreadPostResult(bool posted, MainThreadPostReason reason, string diagnosticId)
+        { Posted = posted; Reason = reason; DiagnosticId = diagnosticId ?? string.Empty; }
+    }
+    public interface IFeatureMainThread { MainThreadPostResult Post(Action task); }
     // DEV-V3-03: IFeatureLifetime carries the resource-ownership seam
     // (TryTrack) plus the minimal read-only status query (member named by
     // DEV-V3-03; Minor 2.1 additive). The view is bound to the feature's own
@@ -364,6 +403,12 @@ namespace BetterUnturnedExperience.Contracts.BueNetwork
     // Q11: explicit, localizable send outcome. Hot paths never throw.
     // DEV-V2-16 ③: PartialFailure joins the frozen outcome set — a multicast
     // that delivered to some established sessions and failed on others.
+    // DEV-V3-04: Throttled (205, additive) — the platform per-session send
+    // budget refused the send (the frame was NOT handed to the transport and
+    // NOT silently dropped; a structured diagnostic accompanies the refusal).
+    // Old modules must degrade safely on the new value: only explicit Sent
+    // counts as success, an unknown result value is never a success (SDK
+    // discipline; the safe-degradation shape is red-anchored).
     public enum NetworkSendResult : ushort
     {
         None = 0,
@@ -373,6 +418,7 @@ namespace BetterUnturnedExperience.Contracts.BueNetwork
         PeerUnreachable = 202,
         PayloadTooLarge = 203,
         PartialFailure = 204,
+        Throttled = 205,
         LocalTransportUnavailable = 900
     }
 

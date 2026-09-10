@@ -195,11 +195,19 @@ namespace BetterUnturnedExperience.Plugin
             // DEV-V2-10 F-A: deferred V1 mirror retry (throttled inside the
             // adapter). DEV-V2-18: engine peer-state diff, inbound frame
             // dispatch, handshake re-probe. DEV-V2-19: the host clock beat.
-            // DEV-V2-21: the tidy dispatcher pump. All fault-isolated inside
-            // their adapters; never throws into this chain.
+            // DEV-V2-21: the tidy dispatcher pump. DEV-V3-04: the platform
+            // main-thread dispatcher beat (after the clock, same chain). All
+            // fault-isolated inside their adapters; never throws into this
+            // chain.
             NetworkModuleFeatureRegistration.WiredAdapter?.RetryPendingMirror();
             NetworkModuleFeatureRegistration.WiredAdapter?.TickNetwork();
             BueHostEventRuntime.TickOnce();
+            // DEV-V3-04: the platform main-thread dispatcher beat — the ONE
+            // sanctioned pump (features post through bootstrap.MainThread and
+            // never build pumps of their own). Runs after the host clock so a
+            // feature's per-beat posts execute in the same chain beat; fault-
+            // isolated inside the composition root, never throws here.
+            BueMainThreadRuntime.TickOnce();
             try { InventoryTidyFeatureRegistration.WiredModule?.Tick(); }
             catch (Exception error)
             {

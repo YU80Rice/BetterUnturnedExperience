@@ -27,3 +27,29 @@ Spec: `../spec.md`（「网络（V3-T5 → DEV-V3-04）」节）
 - [ ] 官方先行消费锚：LIR 迁移 dispatcher 真实消费断言；LIT 告警限频退役后链路健康覆盖回归
 - [ ] 双轴独立审查（每轮全新实例）CLEAN；全套测试 0 警告 0 错误
 - [ ] **候选纪律**：本票不产正式候选 DLL、不更新 RELEASES、不授 CaseId（中间构建=开发态内部基线）
+
+## Comments
+
+### 本票定案（2026-09-10 /implement 开工定音，票面授权自定项）
+
+**契约形状（Minor 2.1 加性，逐条入冻结面清单）**
+1. `NetworkSendResult.Throttled = 205`（ushort，结果组邻位；旧模块安全降级纪律=未知/新结果值不得当成功，红测锚）。
+2. `IFeatureBootstrap` 第 12 成员 **`IFeatureMainThread MainThread { get; }`**（类型名与成员名本票定；矩阵行=DEV-V3-04 后可用）。
+3. `IFeatureMainThread`：恰一个投递方法 `MainThreadPostResult Post(Action task)`——单向 fire-and-forget（无返回句柄；需结果走事件回发/网络响应）；null task=开发期错误 fail-fast（同 null-handler 纪律，先浮出 BUE-MT-004 诊断行再抛）。
+4. `MainThreadPostReason : byte { None=0, CapacityExceeded=1, GenerationInvalid=2 }`（成功/容量拒绝/已失效三态可区分）；`MainThreadPostResult` 显式三元组 `Posted/Reason/DiagnosticId`（FeatureEventRegistrationResult 先例）。
+5. 诊断码族：**BUE-NET-001** 预算拒绝(Throttled)/002 链路 degraded/003 recovered/004 入站 handler 异常/005 回放失败投影（reason 四态=not-ready/detached/replay-failed/transport-unavailable）；**BUE-MT-ACCEPT** 投递成功/001 容量拒绝/002 代际或作用域失效/003 执行期单任务异常隔离/004 无效任务/005 非主线程泵拒绝/006 宿主泵组合带失败（R1-Standards deferrable 补具名）。另有宿主内部观察行 BUE-MT-GEN（开代际）/BUE-MT-CREATED（组合根）——非拒绝语义、不入附录 B 拒绝码表（R2-Spec 文档完整性条具名递延 08）。
+
+**数值（本票定，可观察可测试）**
+- 发送预算：**每会话（ConnectionGeneration）固定窗 2000ms 内 256 条数据发送**；超窗即重置；SendToServer 记账于已建立快照的会话（客户端拓扑单服务器对等）；控制帧/握手帧不过预算（平台内部流量，预算管作者数据发送）。
+- dispatcher 队列：**全局容量 256 待处理任务；每拍至多执行 32 任务**（LIT 先例 200/10 量级按平台流量放大，判断题具名）。
+- 链路健康：连续传输失败阈值 **10**（DEV-V2-25 先例冻结）；Throttled/参数门拒绝不计入失败（未执行≠传输失败）；PartialFailure 的失败目标计该会话失败、送达目标计恢复。
+- 聚合规则扩展（既有冻结语义不动）：全送达→Sent；全传输失败→LocalTransportUnavailable；混合（含被节流未执行）→PartialFailure（不静默吞）；纯节流（无执行无失败）→Throttled。
+
+**实现落位**
+- 预算+健康+入站诊断在 `BueNetworkRuntime`（ctor 加性尾参 `Action<string> diagnosticSink = null`；判定在锁内、诊断行全在锁外——DEV-V3-02 F1 纪律）；账本新文件 `Core/Network/NetworkSendGuard.cs`（internal）。
+- dispatcher 本体新文件 `Core/Dispatch/MainThreadDispatcherRuntime.cs`（public=宿主组合面，非 SDK 契约）；Plugin 组合根 `BueMainThreadRuntime`（BueHostEventRuntime 先例）；泵挂在 `BueRuntimeTickChain.Tick()` 的 HostTick 之后（同一宿主主线程泵链，禁自建泵的平台侧兑现）；构造线程=主线程守卫。
+- 代际绑定=提交时视图携带 (owner, generation)；`OpenGeneration` 换代即撤旧代未执行任务（显式诊断）；停止/隔离/宿主停止=`InvalidateOwner/ShutdownHost`→投递显式失败+pending 不执行；BueFeatureStartRuntime 在 Start/enable/stop/isolate/StopAll 各边界接线。
+- 回放投影在 `DeferredBueNetworkApi`（ctor 加性可选 sink；NetworkModuleAdapter 绑定既有 DiagnosticLogSink）；not-ready/detached 行为每 episode 一条（防用户路径逐帧刷）；全部空 catch 消除。
+- LIT：`LitSendFailureRateLimiter` 退役（重臂退避 `LitChallengeRearmBook` 业务保留）；TrySendToSession 的逐帧 WARN/BUE-LIT-003 上下抛删除，链路事实=平台 BUE-NET-002/003；DEV-V2-25 测试组按此更新（退役回归锚）。
+- LIR：`NetService.Drain()` 每拍直跑改为主线程节拍上 `bootstrap.MainThread.Post(drainOnce)`（业务队列/合并/TTL/摘要=功能私有保留）；`MainThread==null`（未接线宿主/既有夹具）回退直跑=旧语义（矩阵阶段基线侧的模块侧容忍）；官方先行消费锚=真模块+真 dispatcher：入站泵线程帧→执行只发生在 dispatcher 泵拍，Stop 后 pending 不执行。
+- NoOp 生态对照最小延伸（ProbeState 记 MainThread 可得+投递受理），全链 probe 归 08。

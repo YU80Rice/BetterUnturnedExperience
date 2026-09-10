@@ -18,7 +18,11 @@ namespace BetterUnturnedExperience.Core.Registration
     /// </summary>
     public sealed class FeatureBootstrap : IFeatureBootstrap
     {
-        public FeatureBootstrap(FeatureScopeIdentity identity, ulong lifecycleGeneration, IScopedFeatureSettings settings, IFeatureEventSubscriber events, IOwnedFeatureEventPublisher ownedEvents, IFeatureEventRegistry eventRegistry, IFeatureLogger logger, IDependencyCapabilityView dependencies, IFeatureLifetime lifetime, IBueNetworkApi network)
+        // DEV-V3-04: the optional trailing mainThread parameter is the
+        // additive Minor 2.1 extension (the DEV-V2-21 additive-surface
+        // precedent — existing call sites keep compiling and observe the
+        // stage-baseline null; the host start path passes the real view).
+        public FeatureBootstrap(FeatureScopeIdentity identity, ulong lifecycleGeneration, IScopedFeatureSettings settings, IFeatureEventSubscriber events, IOwnedFeatureEventPublisher ownedEvents, IFeatureEventRegistry eventRegistry, IFeatureLogger logger, IDependencyCapabilityView dependencies, IFeatureLifetime lifetime, IBueNetworkApi network, IFeatureMainThread mainThread = null)
         {
             Identity = identity;
             LifecycleGeneration = lifecycleGeneration;
@@ -30,6 +34,7 @@ namespace BetterUnturnedExperience.Core.Registration
             Dependencies = dependencies;
             Lifetime = lifetime;
             Network = network ?? throw new ArgumentNullException(nameof(network));
+            MainThread = mainThread;
         }
 
         public FeatureScopeIdentity Identity { get; }
@@ -45,5 +50,9 @@ namespace BetterUnturnedExperience.Core.Registration
         public IDependencyCapabilityView Dependencies { get; }
         public IFeatureLifetime Lifetime { get; }
         public IBueNetworkApi Network { get; }
+        // DEV-V3-04: the platform main-thread dispatcher view — composed by
+        // the host start path from DEV-V3-04 on (availability matrix row;
+        // null until wired, the stage-baseline rule).
+        public IFeatureMainThread MainThread { get; }
     }
 }

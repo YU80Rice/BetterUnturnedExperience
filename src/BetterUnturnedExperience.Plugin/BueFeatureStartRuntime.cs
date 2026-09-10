@@ -24,7 +24,10 @@ namespace BetterUnturnedExperience.Plugin
     /// CoreSafeMode escalation). The availability matrix rows this ticket
     /// wires: Dependencies (the frozen-catalog read-only capability lookup)
     /// and Lifetime (TryTrack + the read-only status query) are composed
-    /// non-null from here on; Settings/MainThread/Logger stay null (06/04/07).
+    /// non-null from here on; DEV-V3-04 additionally wires MainThread (the
+    /// platform dispatcher view — generation-opened per start, owner-
+    /// invalidated at every stop/isolation boundary, host-shutdown at
+    /// teardown); Settings/Logger stay null (06/07).
     ///
     /// The panel enable/disable seam (SetFeatureEnabled) rides the SAME
     /// machine: disable = module.Stop(UserDisabled) → subscriptions dropped →
@@ -106,6 +109,7 @@ namespace BetterUnturnedExperience.Plugin
                     BueRuntimeLog.Runtime("[BUE-V2HOST] event=module-start result=failed stage=start feature=" + feature.Value + " errorType=" + error.GetType().Name + " message=" + error.Message);
                     TrackEntry(feature, machine, null, bootstrap.Lifetime, identity, featureNetwork);
                     machine.Isolate(feature, FrameworkErrorCode.ModuleStartFailed, "errorType=" + error.GetType().Name, "start");
+                    InvalidateMainThread(feature, "start-fault"); // DEV-V3-04: 隔离撤投递账（隔离后不可再投递）
                     continue;
                 }
                 if (!result.Started)
@@ -113,6 +117,7 @@ namespace BetterUnturnedExperience.Plugin
                     BueRuntimeLog.Runtime("[BUE-V2HOST] event=module-start result=not-started feature=" + feature.Value + " diagnostic=" + result.DiagnosticId);
                     TrackEntry(feature, machine, null, bootstrap.Lifetime, identity, featureNetwork);
                     machine.Isolate(feature, FrameworkErrorCode.ModuleStartFailed, result.DiagnosticId, "start-result");
+                    InvalidateMainThread(feature, "start-result");
                     continue;
                 }
                 machine.CompleteStart(feature, result.DiagnosticId);
@@ -143,6 +148,14 @@ namespace BetterUnturnedExperience.Plugin
                 var entry = snapshot[i];
                 if (entry.Stopped) continue;
                 StopEntry(entry, reason);
+            }
+            // DEV-V3-04: the host stop boundary — after every module stopped,
+            // the dispatcher refuses all posts and drains un-executed (宿主
+            // 停止后投递=显式失败). A later catalog start (same-process
+            // reload) reopens a generation through ComposeBootstrap.
+            if (reason == FeatureStopReason.PluginStopping)
+            {
+                BueMainThreadRuntime.Shutdown("plugin-stopping");
             }
         }
 
@@ -220,6 +233,7 @@ namespace BetterUnturnedExperience.Plugin
             {
                 BueRuntimeLog.Runtime("[BUE-V2HOST] event=feature-panel result=enable-failed stage=start feature=" + feature.Value + " errorType=" + error.GetType().Name + " message=" + error.Message);
                 machine.Isolate(feature, FrameworkErrorCode.ModuleStartFailed, "errorType=" + error.GetType().Name, "start");
+                InvalidateMainThread(feature, "enable-fault");
                 entry.Stopped = true;
                 return false;
             }
@@ -227,6 +241,7 @@ namespace BetterUnturnedExperience.Plugin
             {
                 BueRuntimeLog.Runtime("[BUE-V2HOST] event=feature-panel result=enable-failed stage=start feature=" + feature.Value + " diagnostic=" + result.DiagnosticId);
                 machine.Isolate(feature, FrameworkErrorCode.ModuleStartFailed, result.DiagnosticId, "start-result");
+                InvalidateMainThread(feature, "enable-not-started");
                 entry.Stopped = true;
                 return false;
             }
@@ -291,6 +306,9 @@ namespace BetterUnturnedExperience.Plugin
                 }
             }
             entry.Machine.CompleteStop(entry.Feature);
+            // DEV-V3-04: 停止边界——该功能的待处理主线程任务全部撤账（未执行
+            // 任务不再执行），之后的投递=显式失败（矩阵 MainThread 行为面）。
+            InvalidateMainThread(entry.Feature, reason.ToString());
             lock (sync)
             {
                 entry.Module = null;
@@ -298,16 +316,31 @@ namespace BetterUnturnedExperience.Plugin
             }
         }
 
+        private static void InvalidateMainThread(FeatureId feature, string reason)
+        {
+            try { BueMainThreadRuntime.Dispatcher.InvalidateOwner(feature, reason); }
+            catch (Exception error)
+            {
+                BueRuntimeLog.Runtime("[BUE-V2HOST] event=main-thread result=invalidate-failed feature=" + feature.Value
+                    + " reason=" + reason + " errorType=" + error.GetType().Name);
+            }
+        }
+
         /// <summary>
         /// The bootstrap composition for one (feature, generation): Identity
         /// binds the registration's own definition set; Events/OwnedEvents/
         /// EventRegistry are the host bus views; Dependencies and Lifetime are
-        /// the machine's wired views (DEV-V3-03 matrix rows); Settings and
-        /// Logger stay null until their tickets (06/07).
+        /// the machine's wired views (DEV-V3-03 matrix rows); MainThread is
+        /// the platform dispatcher view for this generation (DEV-V3-04 matrix
+        /// row — opening the generation supersedes any older one, so a
+        /// re-enabled feature's stale pending work never executes); Settings
+        /// and Logger stay null until their tickets (06/07).
         /// </summary>
         private static FeatureBootstrap ComposeBootstrap(FeatureLifecycleRuntime machine, FeatureId feature, ulong generation, FeatureScopeIdentity identity, IBueNetworkApi featureNetwork)
         {
             var bus = BueHostEventRuntime.Bus;
+            var dispatcher = BueMainThreadRuntime.Dispatcher;
+            dispatcher.OpenGeneration(feature, generation);
             return new FeatureBootstrap(
                 identity,
                 generation,
@@ -318,7 +351,8 @@ namespace BetterUnturnedExperience.Plugin
                 null,
                 machine.CreateDependenciesView(),
                 machine.CreateLifetimeView(feature, generation),
-                featureNetwork);
+                featureNetwork,
+                dispatcher.CreateView(feature, generation));
         }
     }
 }

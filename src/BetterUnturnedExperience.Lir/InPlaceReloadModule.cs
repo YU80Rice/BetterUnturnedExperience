@@ -72,6 +72,12 @@ namespace BetterUnturnedExperience.Lir
         internal IFeatureEventSubscriber Events { get; private set; }
         internal IBueNetworkApi Network { get; private set; }
         internal ulong LifecycleGeneration { get; private set; }
+        /// <summary>DEV-V3-04: the platform main-thread dispatcher view — the
+        /// official first consumer of the seam (泵线程→BUE dispatcher→LIR
+        /// 主线程业务). Null until a host wires it (availability-matrix stage
+        /// baseline): the network service then falls back to the historical
+        /// inline host-frame drain, so pre-wiring hosts keep the old shape.</summary>
+        internal IFeatureMainThread MainThread { get; private set; }
 
         /// <summary>The engine-facing authority (production default or the test fake).</summary>
         internal ILirRepackAuthority Authority { get; private set; }
@@ -106,6 +112,7 @@ namespace BetterUnturnedExperience.Lir
             Events = bootstrap.Events;
             Network = bootstrap.Network;
             LifecycleGeneration = bootstrap.LifecycleGeneration;
+            MainThread = bootstrap.MainThread; // DEV-V3-04: nullable stage-baseline seam (see the property)
             EnsureStarted();
 
             Authority = AuthorityFactoryForTests != null ? AuthorityFactoryForTests() : new LirProductionAuthority();
@@ -113,6 +120,11 @@ namespace BetterUnturnedExperience.Lir
             NetService = NetServiceFactoryForTests != null
                 ? NetServiceFactoryForTests(this, bootstrap.Network)
                 : new LirRepackNetwork(bootstrap.Network, Authority, LirProductionAuthority.IsServerRole);
+            // DEV-V3-04 official first consumption: the repack main-thread
+            // handoff rides the platform dispatcher instead of LIR's own
+            // drain pump (the business queue — per-sender coalesce, reply
+            // priority, TTL, throttled summary — stays feature-private).
+            NetService.BindMainThread(MainThread);
             if (ToastSink == null) ToastSink = LirToast.Show;
             NetService.BindToastSink(ToastSink);
             // The consumer resolves the event's generation → target player:

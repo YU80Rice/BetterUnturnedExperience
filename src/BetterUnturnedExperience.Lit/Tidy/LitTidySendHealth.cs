@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using BetterUnturnedExperience.Contracts.BueNetwork;
 
 // DEV-V2-25: the targeted-send health seams for the LIT tidy protocol. The
 // DEV-V2-24 machine evidence (four P2P rounds, WARN storms of 1199 / 1057 /
@@ -11,9 +10,12 @@ using BetterUnturnedExperience.Contracts.BueNetwork;
 // each generation's birth rides a transport readiness window bounded by the
 // engine-level P2P authentication completing, after which the SAME session
 // delivers TidyCommitted/LHT/LIR traffic — time-window selectivity, not
-// per-channel. Two bounded policy seams fix the surface: the re-arm backoff
-// (below) throttles the ATTEMPTS, and the failure rate limiter bounds the
-// LINES and raises one structural degradation diagnostic per episode.
+// per-channel. DEV-V2-25 fixed the surface with two bounded policy seams:
+// the re-arm backoff (below) throttling the ATTEMPTS, and the failure rate
+// limiter bounding the LINES. DEV-V3-04 retires the second seam — platform
+// link health (BUE-NET-002/003 电平式诊断) and the send budget (Throttled +
+// BUE-NET-001) now own failure visibility; the re-arm backoff below STAYS
+// (业务重试/退避不上收 — V3-T5 裁决一).
 namespace BetterUnturnedExperience.Lit
 {
     /// <summary>
@@ -87,87 +89,16 @@ namespace BetterUnturnedExperience.Lit
         }
     }
 
-    /// <summary>
-    /// Per-(connection-generation, send-result-kind) failure series. The
-    /// first failure of a series warns and every WarnEveryNth-th cumulative
-    /// failure warns again (the message carries the running total); the 1st
-    /// diagnostic of a degraded state goes out once at the threshold as ONE
-    /// BUE-LIT-003 link-degraded line per episode (never per failure —
-    /// 不炸帧); the first successful send after a degraded episode reports
-    /// link-recovered and resets the series. A different result kind or a
-    /// generation drop resets without residue. Client-initiated sends
-    /// (RequestTidy, HotkeyFlowAck) are user-paced and ride their own
-    /// explicit result handling — this book covers the server's
-    /// session-addressed path (challenge / TidyCommitted / TidyHotkeyResult).
-    /// </summary>
-    internal sealed class LitSendFailureRateLimiter
-    {
-        internal const int WarnEveryNth = 50;
-        internal const int DegradationThreshold = 10;
-
-        private sealed class Series
-        {
-            internal NetworkSendResult Kind;
-            internal long Total;               // consecutive same-kind failures so far
-            internal long WarnedAtTotal;       // the total the last WARN went out at
-            internal bool DegradationReported;
-        }
-
-        private readonly Dictionary<ulong, Series> series = new Dictionary<ulong, Series>();
-
-        /// <summary>Records one failure; true when this failure must produce a WARN line (series total is returned for the cumulative count).</summary>
-        internal bool ShouldWarn(ulong generation, NetworkSendResult result, out long seriesTotal)
-        {
-            var entry = Obtain(generation, result);
-            entry.Total++;
-            seriesTotal = entry.Total;
-            if (entry.Total == 1 || entry.Total - entry.WarnedAtTotal >= WarnEveryNth)
-            {
-                entry.WarnedAtTotal = entry.Total;
-                return true;
-            }
-            return false;
-        }
-
-        /// <summary>True exactly once per episode, when the consecutive same-kind failures reach the threshold.</summary>
-        internal bool ShouldReportDegradation(ulong generation, NetworkSendResult result, out long consecutiveFailures)
-        {
-            consecutiveFailures = 0;
-            if (!series.TryGetValue(generation, out var entry) || entry.Kind != result || entry.Total < DegradationThreshold)
-            {
-                return false;
-            }
-            if (entry.DegradationReported) return false;
-            entry.DegradationReported = true;
-            consecutiveFailures = entry.Total;
-            return true;
-        }
-
-        /// <summary>Records a successful send; true when the just-ended episode had reported degradation (the caller emits link-recovered).</summary>
-        internal bool NoteSuccess(ulong generation)
-        {
-            if (!series.TryGetValue(generation, out var entry)) return false;
-            var wasDegraded = entry.DegradationReported;
-            series.Remove(generation);
-            return wasDegraded;
-        }
-
-        internal void DropGeneration(ulong generation)
-        {
-            series.Remove(generation);
-        }
-
-        internal void DropAll()
-        {
-            series.Clear();
-        }
-
-        private Series Obtain(ulong generation, NetworkSendResult result)
-        {
-            if (series.TryGetValue(generation, out var entry) && entry.Kind == result) return entry;
-            entry = new Series { Kind = result };
-            series[generation] = entry;
-            return entry;
-        }
-    }
+    // DEV-V3-04 RETIRED (the whole LitSendFailureRateLimiter class lived
+    // here): the per-frame WARN cadence (first + every 50th) and the
+    // BUE-LIT-003 degraded/recovered episode surface are platform
+    // responsibilities now — BueNetworkRuntime's session link health raises
+    // ONE BUE-NET-002 degraded per episode and ONE BUE-NET-003 recovered on
+    // delivery, the send budget answers over-limit sends with an explicit
+    // Throttled + BUE-NET-001 line (官方报告链路健康，功能处理业务重试；
+    // T5 裁决一「LIT 告警限频被链路健康接管后可退役」). Only the business
+    // re-arm backoff (LitChallengeRearmBook above) stays feature-private.
+    // The DEV-V2-25 harness evidence (DEV-V2-24 F-A 风暴 8333/1199/1057/1650
+    // 条逐帧告警) is the regression this retirement root-fixes; the retired
+    // absence is red-anchored in the DEV-V3-04 test groups.
 }

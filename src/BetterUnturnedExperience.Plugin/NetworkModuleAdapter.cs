@@ -101,8 +101,10 @@ namespace BetterUnturnedExperience.Plugin
         // bootstrap (IFeatureBootstrap.Network, frozen never-null) and may
         // register/subscribe before the engine role is decided; the deferred
         // API holds those registrations and replays them onto the runtime
-        // when the pump arms it.
-        private readonly DeferredBueNetworkApi featureNetworkApi = new DeferredBueNetworkApi();
+        // when the pump arms it. DEV-V3-04: the facade's replay-failure
+        // projection (未就绪/重放失败/模块停止/传输不可用 four families,禁空
+        // catch) rides the same diagnostic seam as every other adapter line.
+        private readonly DeferredBueNetworkApi featureNetworkApi = new DeferredBueNetworkApi(line => Emit("[BUE-NET] " + line));
         private Action<byte[]> inboundBueFeeder;
         private bool localIdentityFaultRecorded;
         private bool networkEnabled = true;
@@ -240,7 +242,11 @@ namespace BetterUnturnedExperience.Plugin
             bueTransport = new HostNetworkTransportAdapter(EngineSend, feeder => inboundBueFeeder = feeder);
             // The injected clock feeds the handshake re-probe backoff — the
             // explicit adapter parameter wins over the binding's own clock.
-            networkRuntime = new BueNetworkRuntime(bueTransport, new ContractVersion(2, 0), localSteamId, handshakeInitiator: !serverRole, injectedMonotonicMilliseconds ?? engineBinding.MonotonicMilliseconds);
+            // DEV-V3-04: the runtime's structured diagnostics (budget
+            // throttling, session link health, inbound handler faults) ride
+            // the same adapter sink — official and ecosystem sends report
+            // through one seam (T5: 诊断走内部 seam，不新增公开 Logger 成员).
+            networkRuntime = new BueNetworkRuntime(bueTransport, new ContractVersion(2, 0), localSteamId, handshakeInitiator: !serverRole, injectedMonotonicMilliseconds ?? engineBinding.MonotonicMilliseconds, line => Emit("[BUE-NET] " + line));
             // DEV-V2-21: the feature network identity arms — deferred channel
             // registrations and directional subscriptions replay onto the
             // live runtime here (the attach is one-shot with the runtime).

@@ -38,6 +38,12 @@ namespace BetterUnturnedExperience.NoOpFixture
             public bool Tracked;
             public bool ResourceDisposed;
             public FeatureState QueriedStateAtStart;
+            // DEV-V3-04 ecosystem-side contrast: the probe observes the
+            // wired MainThread dispatcher seam and gets an explicit accepted
+            // post through it (the full post-wiring chain probe lands with
+            // DEV-V3-08).
+            public bool MainThreadAvailable;
+            public bool MainThreadPosted;
         }
 
         public static ProbeState LastProbe { get; private set; }
@@ -84,6 +90,14 @@ namespace BetterUnturnedExperience.NoOpFixture
                 resource = new ProbeResource(probe);
                 probe.Tracked = bootstrap.Lifetime.TryTrack(resource);
                 probe.QueriedStateAtStart = bootstrap.Lifetime.CurrentStatus.State;
+                // DEV-V3-04: the dispatcher seam's ecosystem-side contrast —
+                // observe the wired view and post through it (fire-and-
+                // forget, an accepted explicit result; full-chain probe→08).
+                if (bootstrap.MainThread != null)
+                {
+                    probe.MainThreadAvailable = true;
+                    probe.MainThreadPosted = bootstrap.MainThread.Post(() => { }).Posted;
+                }
                 probe.Started = true;
                 return new FeatureStartResult(true, FrameworkErrorCode.None, "BUE-NOOP-START");
             }

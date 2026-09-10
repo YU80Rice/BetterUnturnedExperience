@@ -349,6 +349,50 @@ namespace BetterUnturnedExperience.Contracts.Tests
                 && typeof(IDependencyCapabilityView).GetMethod("TryGet") != null,
                 "DEV-V3-03: Dependencies stays the read-only catalog capability lookup (Has/TryGet, no solver)");
 
+            // DEV-V3-04: the network transport-rules surface (Minor 2.1
+            // additive). The Throttled send result joins the frozen outcome
+            // set with a dedicated value; the platform main-thread dispatcher
+            // seam (IFeatureBootstrap.MainThread) carries EXACTLY one
+            // fire-and-forget post method returning an explicit three-way
+            // result (success / capacity rejection / generation invalid) —
+            // no result object, no wait handle (need a result: event or
+            // network reply). Old modules must degrade safely on the new
+            // enum value: only explicit Sent counts as success.
+            Assert(Enum.GetUnderlyingType(typeof(BueNetwork.NetworkSendResult)) == typeof(ushort)
+                    && (ushort)BueNetwork.NetworkSendResult.Throttled == 205,
+                "DEV-V3-04: NetworkSendResult.Throttled is the additive value 205 in the frozen ushort set");
+            var sendValues = (Array)Enum.GetValues(typeof(BueNetwork.NetworkSendResult));
+            var throttledSeen = 0;
+            for (var valueIndex = 0; valueIndex < sendValues.Length; valueIndex++)
+            {
+                if ((ushort)sendValues.GetValue(valueIndex) == 205) throttledSeen++;
+            }
+            Assert(throttledSeen == 1, "DEV-V3-04: the Throttled value 205 is unique (no reuse of a frozen value)");
+            Assert(typeof(BueNetwork.IBueNetworkApi).GetMethods().Length == 7
+                    && typeof(BueNetwork.IBueNetworkApi).GetMethod("IsNetworkReady") == null
+                    && typeof(BueNetwork.IBueNetworkApi).GetMethod("GetBindingState") == null
+                    && typeof(BueNetwork.IBueNetworkApi).GetMethod("GetTransportHealth") == null,
+                "DEV-V3-04: the network API surface stays the frozen seven members (no binding-state/health query surface added)");
+            var mtMethods = typeof(IFeatureMainThread).GetMethods();
+            Assert(typeof(IFeatureMainThread).IsInterface && mtMethods.Length == 1
+                    && mtMethods[0].Name == "Post"
+                    && mtMethods[0].ReturnType == typeof(MainThreadPostResult)
+                    && mtMethods[0].GetParameters().Length == 1
+                    && mtMethods[0].GetParameters()[0].ParameterType == typeof(Action),
+                "DEV-V3-04: IFeatureMainThread carries exactly one fire-and-forget Post(Action) seam");
+            Assert(typeof(IFeatureBootstrap).GetProperty("MainThread") != null
+                    && typeof(IFeatureBootstrap).GetProperty("MainThread").PropertyType == typeof(IFeatureMainThread),
+                "DEV-V3-04: IFeatureBootstrap composes the MainThread dispatcher member (matrix row wired by DEV-V3-04)");
+            Assert((byte)MainThreadPostReason.None == 0
+                    && (byte)MainThreadPostReason.CapacityExceeded == 1
+                    && (byte)MainThreadPostReason.GenerationInvalid == 2,
+                "DEV-V3-04: MainThreadPostReason values are frozen (None=0/CapacityExceeded=1/GenerationInvalid=2)");
+            var mtAccepted = new MainThreadPostResult(true, MainThreadPostReason.None, "BUE-MT-ACCEPT");
+            var mtRejected = new MainThreadPostResult(false, MainThreadPostReason.CapacityExceeded, "BUE-MT-001");
+            Assert(mtAccepted.Posted && mtAccepted.Reason == MainThreadPostReason.None && mtAccepted.DiagnosticId == "BUE-MT-ACCEPT"
+                    && !mtRejected.Posted && mtRejected.Reason == MainThreadPostReason.CapacityExceeded && mtRejected.DiagnosticId == "BUE-MT-001",
+                "DEV-V3-04: MainThreadPostResult carries the explicit outcome triple (posted/reason/diagnostic)");
+
             var presentation = new FeaturePresentationView(new FeatureId("io.example.tracer"), FeaturePresentationState.PresentationDegraded, "BUE-UI-001", 1UL);
             Assert(presentation.State == FeaturePresentationState.PresentationDegraded && presentation.PresentationRevision == 1UL, "presentation state is a separate value projection");
             Console.WriteLine("DEV-10 registration runtime tests: PASS");

@@ -121,17 +121,52 @@ namespace BetterUnturnedExperience.Core.Network
         // keeps uniqueness even when two runtimes increment under different
         // instance locks.
         private static long nextSessionId = 1;
+        // DEV-V3-04: the per-session send budget + link-health book (numbers
+        // fixed by the ticket on NetworkSendGuard) and the structured
+        // diagnostic sink (T5: 诊断走内部 seam，本票不新增公开 Logger 成员；
+        // 生产绑定宿主 runtime log，测试自捕获). Lines never run under the
+        // state lock: decisions produce data, emission happens after release.
+        private readonly NetworkSendGuard sendGuard = new NetworkSendGuard();
+        private readonly Action<string> diagnosticSink;
 
-        public BueNetworkRuntime(INetworkTransport transport, ContractVersion localContract, ulong localSteamId, bool handshakeInitiator = true, Func<long> monotonicMilliseconds = null)
+        public BueNetworkRuntime(INetworkTransport transport, ContractVersion localContract, ulong localSteamId, bool handshakeInitiator = true, Func<long> monotonicMilliseconds = null, Action<string> diagnosticSink = null)
         {
             this.transport = transport ?? throw new ArgumentNullException(nameof(transport));
             this.localContract = localContract;
             this.localSteamId = localSteamId;
             this.handshakeInitiator = handshakeInitiator;
             this.monotonicMilliseconds = monotonicMilliseconds ?? DefaultMonotonicMilliseconds;
+            this.diagnosticSink = diagnosticSink;
             transport.Receive += OnReceive;
             transport.PeerConnected += OnPeerConnected;
             transport.PeerDisconnected += OnPeerDisconnected;
+        }
+
+        private void EmitDiagnostic(string line)
+        {
+            var sink = diagnosticSink;
+            if (sink == null || line == null) return;
+            try { sink(line); }
+            catch (Exception) { }
+        }
+
+        private static string ThrottleLine(string channel, ulong generation, int used)
+        {
+            return "event=network-send result=throttled channel=" + channel + " generation=" + generation
+                + " windowMs=" + NetworkSendGuard.BudgetWindowMs + " budget=" + NetworkSendGuard.BudgetPerWindow
+                + " used=" + used + " diagnosticId=BUE-NET-001";
+        }
+
+        private static string DegradedLine(ulong generation, NetworkSendResult lastFailure, long consecutiveFailures)
+        {
+            return "event=network-link result=degraded generation=" + generation + " lastResult=" + lastFailure
+                + " consecutiveFailures=" + consecutiveFailures + " diagnosticId=BUE-NET-002";
+        }
+
+        private static string RecoveredLine(ulong generation, long afterFailures)
+        {
+            return "event=network-link result=recovered generation=" + generation + " afterFailures=" + afterFailures
+                + " diagnosticId=BUE-NET-003";
         }
 
         private static long DefaultMonotonicMilliseconds()
@@ -180,22 +215,72 @@ namespace BetterUnturnedExperience.Core.Network
         // DEV-V2-16: the transport call runs OUTSIDE the state lock.
         public NetworkSendResult SendToServer(FeatureId channel, byte[] payload, bool reliable)
         {
-            bool hasEstablished;
+            List<BueNetworkSession> established;
             lock (sync)
             {
                 if (!channels.ContainsKey(channel.Value)) return NetworkSendResult.ChannelNotRegistered;
-                hasEstablished = EstablishedSnapshot().Count > 0;
+                established = EstablishedSnapshot();
             }
-            if (!hasEstablished) return NetworkSendResult.NoSession;
+            if (established.Count == 0) return NetworkSendResult.NoSession;
             if (!IsEncapsulatable(channel.Value, payload)) return NetworkSendResult.PayloadTooLarge;
+            // DEV-V3-04: the untargeted server-bound frame is accounted to the
+            // established session it rides (the client topology has exactly
+            // one server peer; multi-session clients are out of the frozen
+            // scope). Clock sampled OUTSIDE the state lock (repo convention).
+            var attributed = established[0].SessionId;
+            var nowMs = monotonicMilliseconds();
+            return SendSingle(channel.Value, payload, reliable, attributed, 0UL, nowMs);
+        }
+
+        // One budgeted, health-tracked executed send (SendToServer /
+        // SendToClient share it): gates already decided, frame NOT built yet.
+        private NetworkSendResult SendSingle(string channelId, byte[] payload, bool reliable, ulong generation, ulong target, long nowMs)
+        {
+            string diagnostic = null;
+            lock (sync)
+            {
+                if (!sendGuard.TryConsume(generation, nowMs, out var used))
+                {
+                    diagnostic = ThrottleLine(channelId, generation, used);
+                }
+            }
+            if (diagnostic != null)
+            {
+                EmitDiagnostic(diagnostic);
+                return NetworkSendResult.Throttled;
+            }
+            var one = ExecuteFrame(KindData, channelId, payload, reliable, target);
+            NoteOutcome(generation, one);
+            return one;
+        }
+
+        private NetworkSendResult ExecuteFrame(byte kind, string channelId, byte[] payload, bool reliable, ulong target)
+        {
             try
             {
-                return SendFrame(KindData, channel.Value, payload, reliable, 0UL);
+                return SendFrame(kind, channelId, payload, reliable, target);
             }
             catch (Exception)
             {
                 return NetworkSendResult.LocalTransportUnavailable;
             }
+        }
+
+        // The health note under the state lock; the level lines emit after
+        // release (never a callback under the lock).
+        private void NoteOutcome(ulong generation, NetworkSendResult one)
+        {
+            string degraded = null;
+            string recovered = null;
+            lock (sync)
+            {
+                sendGuard.NoteSendOutcome(generation, one == NetworkSendResult.Sent, one,
+                    out var reportDegraded, out var reportRecovered, out var consecutiveFailures);
+                if (reportDegraded) degraded = DegradedLine(generation, one, consecutiveFailures);
+                else if (reportRecovered) recovered = RecoveredLine(generation, consecutiveFailures);
+            }
+            EmitDiagnostic(degraded);
+            EmitDiagnostic(recovered);
         }
 
         // DEV-V2-16 ③: session-driven multicast. SendToClients sends ONE
@@ -218,7 +303,8 @@ namespace BetterUnturnedExperience.Core.Network
             }
             if (targets.Count == 0) return NetworkSendResult.NoSession;
             if (!IsEncapsulatable(channel.Value, payload)) return NetworkSendResult.PayloadTooLarge;
-            return SendTargets(KindData, channel.Value, payload, reliable, targets);
+            var nowMs = monotonicMilliseconds();
+            return SendTargets(KindData, channel.Value, payload, reliable, targets, nowMs);
         }
 
         // Q9 + DEV-V2-16: per-session addressing WITHOUT a SteamId overload.
@@ -234,6 +320,7 @@ namespace BetterUnturnedExperience.Core.Network
         public NetworkSendResult SendToClient(FeatureId channel, IConnectionSession session, byte[] payload, bool reliable)
         {
             ulong target;
+            ulong generation;
             lock (sync)
             {
                 if (!channels.ContainsKey(channel.Value)) return NetworkSendResult.ChannelNotRegistered;
@@ -242,16 +329,11 @@ namespace BetterUnturnedExperience.Core.Network
                     return NetworkSendResult.NoSession;
                 if (!live.Established) return NetworkSendResult.NoSession;
                 target = live.PeerSteamId;
+                generation = live.SessionId;
             }
             if (!IsEncapsulatable(channel.Value, payload)) return NetworkSendResult.PayloadTooLarge;
-            try
-            {
-                return SendFrame(KindData, channel.Value, payload, reliable, target);
-            }
-            catch (Exception)
-            {
-                return NetworkSendResult.LocalTransportUnavailable;
-            }
+            var nowMs = monotonicMilliseconds();
+            return SendSingle(channel.Value, payload, reliable, generation, target, nowMs);
         }
 
         // The established session snapshot, taken under the state lock; the
@@ -280,25 +362,54 @@ namespace BetterUnturnedExperience.Core.Network
         // call outside the state lock; a transport that throws is one failed
         // target, never an exception on the caller's hot path (Q11: hot
         // paths never throw).
-        private NetworkSendResult SendTargets(byte kind, string channelId, byte[] payload, bool reliable, List<BueNetworkSession> targets)
+        // DEV-V3-04 aggregation extension (the frozen table stays intact for
+        // the pre-existing combinations): budget decisions run under the
+        // state lock in one pass (clock sampled outside), every refused
+        // target carries its own throttled line, and the outcomes fold as
+        //   every executed target delivered, zero refused -> Sent
+        //   every executed target failed on the transport (>=1 executed)   -> LocalTransportUnavailable
+        //   every target refused, none executed                            -> Throttled
+        //   any delivered together with any refused/failed                 -> PartialFailure
+        // A refused target is never folded into a plain success (不静默丢弃).
+        private NetworkSendResult SendTargets(byte kind, string channelId, byte[] payload, bool reliable, List<BueNetworkSession> targets, long nowMs)
         {
+            var executed = new bool[targets.Count];
+            var results = new NetworkSendResult[targets.Count];
+            var deferred = new List<string>(targets.Count);
+            lock (sync)
+            {
+                for (var i = 0; i < targets.Count; i++)
+                {
+                    if (sendGuard.TryConsume(targets[i].SessionId, nowMs, out var used)) executed[i] = true;
+                    else deferred.Add(ThrottleLine(channelId, targets[i].SessionId, used));
+                }
+            }
             var delivered = 0;
             var failed = 0;
-            foreach (var session in targets)
+            var executedCount = 0;
+            for (var i = 0; i < targets.Count; i++)
             {
-                NetworkSendResult one;
-                try
-                {
-                    one = SendFrame(kind, channelId, payload, reliable, session.PeerSteamId);
-                }
-                catch (Exception)
-                {
-                    one = NetworkSendResult.LocalTransportUnavailable;
-                }
-                if (one == NetworkSendResult.Sent) delivered++;
+                if (!executed[i]) continue;
+                executedCount++;
+                results[i] = ExecuteFrame(kind, channelId, payload, reliable, targets[i].PeerSteamId);
+                if (results[i] == NetworkSendResult.Sent) delivered++;
                 else failed++;
             }
-            if (delivered > 0 && failed == 0) return NetworkSendResult.Sent;
+            lock (sync)
+            {
+                for (var i = 0; i < targets.Count; i++)
+                {
+                    if (!executed[i]) continue;
+                    sendGuard.NoteSendOutcome(targets[i].SessionId, results[i] == NetworkSendResult.Sent, results[i],
+                        out var reportDegraded, out var reportRecovered, out var consecutiveFailures);
+                    if (reportDegraded) deferred.Add(DegradedLine(targets[i].SessionId, results[i], consecutiveFailures));
+                    else if (reportRecovered) deferred.Add(RecoveredLine(targets[i].SessionId, consecutiveFailures));
+                }
+            }
+            for (var i = 0; i < deferred.Count; i++) EmitDiagnostic(deferred[i]);
+            var refused = targets.Count - executedCount;
+            if (executedCount == 0) return NetworkSendResult.Throttled;
+            if (delivered > 0 && failed == 0 && refused == 0) return NetworkSendResult.Sent;
             if (delivered == 0) return NetworkSendResult.LocalTransportUnavailable;
             return NetworkSendResult.PartialFailure;
         }
@@ -367,6 +478,7 @@ namespace BetterUnturnedExperience.Core.Network
                         if (session.Established) supersededByPeer[session.PeerSteamId] = session;
                     }
                     sessions.Clear();
+                    sendGuard.DropAll(); // DEV-V3-04: the kill switch drops the guard's generation state with the sessions
                     if (receiveAttached) { transport.Receive -= OnReceive; receiveAttached = false; }
                 }
                 else if (!receiveAttached)
@@ -565,6 +677,7 @@ namespace BetterUnturnedExperience.Core.Network
         {
             sessions.Remove(session.SessionId);
             if (session.Established) supersededByPeer[session.PeerSteamId] = session;
+            sendGuard.DropGeneration(session.SessionId); // DEV-V3-04: 代际不留残留
             return session;
         }
 
@@ -811,7 +924,10 @@ namespace BetterUnturnedExperience.Core.Network
         {
             if (payload == null || payload.Length > 16 * 1024) return;
             List<SubscriptionRecord> copy;
-            IConnectionSession context;
+            // DEV-V3-04: the session-typed context (the handler diagnostic
+            // needs the internal direction/generation; the handler receives
+            // it as the contract interface unchanged).
+            BueNetworkSession context;
             lock (sync)
             {
                 // DEV-V2-14: dispatch requires the receiving side to have
@@ -836,11 +952,17 @@ namespace BetterUnturnedExperience.Core.Network
             {
                 if (record.Removed) continue; // disposed between snapshot and dispatch
                 try { record.Handler(context, payload); }
-                catch (Exception)
+                catch (Exception error)
                 {
-                    // DEV-V2-14: one handler's exception never reaches its
-                    // peers or the transport pump. The runtime has no logger
-                    // seam; the failure is contained by frozen semantics.
+                    // DEV-V2-14 frozen isolation (never reaches peers or the
+                    // transport pump) + DEV-V3-04: the swallow is gone — the
+                    // fault surfaces as a structured diagnostic (channel /
+                    // direction / generation / error type; no payload bytes,
+                    // no re-throw back into the pump thread).
+                    EmitDiagnostic("event=network-inbound result=handler-error channel=" + channelId
+                        + " direction=" + context.InboundDirection + " generation=" + context.SessionId
+                        + " errorType=" + error.GetType().Name + " message=" + error.Message
+                        + " diagnosticId=BUE-NET-004");
                 }
             }
         }

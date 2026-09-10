@@ -139,7 +139,12 @@ namespace BetterUnturnedExperience.Lit
         private readonly HashSet<ulong> sessionEventsWired = new HashSet<ulong>(); // DEV-V2-25: lifecycle wiring once per generation
         private readonly List<IDisposable> subscriptionHandles = new List<IDisposable>();
         private readonly LitChallengeRearmBook challengeRearm;   // DEV-V2-25: challenge re-arm backoff (attempts)
-        private readonly LitSendFailureRateLimiter sendFailures = new LitSendFailureRateLimiter(); // DEV-V2-25: WARN bound + degradation surface (lines)
+        // DEV-V3-04: the DEV-V2-25 LitSendFailureRateLimiter RETIRED here —
+        // the per-frame WARN cadence and the per-episode degradation/
+        // recovery surface belong to the platform now (BueNetworkRuntime's
+        // session link health: BUE-NET-002 degraded / BUE-NET-003 recovered,
+        // 平台报告链路健康，功能处理业务重试). The challenge re-arm backoff
+        // (LitChallengeRearmBook) stays feature-private business retry.
         private bool quiesced; // stop phase 1: reject new frames/requests, sends still work for drain compensations
         private bool stopped;  // stop phase 3: full teardown
 
@@ -304,7 +309,6 @@ namespace BetterUnturnedExperience.Lit
             clientWait.ClearAll();
             liveSessions.Clear();
             challengeRearm.DropAll();
-            sendFailures.DropAll();
             sessionEventsWired.Clear();
             Started = false;
             LitRuntime.LogInfo("[TidyNet] 服务已停止（频道注销、内存态清空、磁盘持久统计保留）");
@@ -467,7 +471,6 @@ namespace BetterUnturnedExperience.Lit
             ledger.DropGeneration(peer, generation);
             pendingRestores.DropGeneration(peer, generation);
             challengeRearm.DropGeneration(generation);
-            sendFailures.DropGeneration(generation);
             sessionEventsWired.Remove(generation);
             if (!isServerRole())
             {
@@ -489,27 +492,18 @@ namespace BetterUnturnedExperience.Lit
             try
             {
                 var result = network.SendToClient(Channel, session, payload, reliable: true);
-                if (result != NetworkSendResult.Sent)
-                {
-                    // DEV-V2-25: same-generation same-kind failures are
-                    // rate-limited (first + every 50th, cumulative count
-                    // attached) and a sustained series raises ONE structural
-                    // BUE-LIT-003 diagnostic per episode. The DEV-V2-24
-                    // machine storms (1199/1057/8333/1650 unbounded lines)
-                    // must stay bounded without hiding the degraded state.
-                    if (sendFailures.ShouldWarn(session.SessionId, result, out var seriesTotal))
-                    {
-                        LitRuntime.LogWarning("[TidyNet] 定向发送未送达（generation=" + session.SessionId + ", result=" + result + ", 累计=" + seriesTotal + "）");
-                    }
-                    if (sendFailures.ShouldReportDegradation(session.SessionId, result, out var consecutive))
-                    {
-                        LitRuntime.LogError("[TidyNet] BUE-LIT-003 event=link-degraded generation=" + session.SessionId + " lastResult=" + result + " consecutiveFailures=" + consecutive + " —— 定向出向通道持续不可达，重臂已退避；恢复时上抛 link-recovered");
-                    }
-                }
-                else if (sendFailures.NoteSuccess(session.SessionId))
-                {
-                    LitRuntime.LogInfo("[TidyNet] BUE-LIT-003 event=link-recovered generation=" + session.SessionId + " —— 定向出向通道已恢复，失败计数清零");
-                }
+                // DEV-V3-04 (V3-T5 ruling): the per-(generation, result) WARN
+                // limiter and the BUE-LIT-003 degraded/recovered episodes are
+                // RETIRED here — the platform's session link health now
+                // raises exactly ONE BUE-NET-002 degraded line per episode
+                // and ONE BUE-NET-003 recovered on delivery (电平式，不炸帧,
+                // per connection generation), and the send budget answers
+                // over-limit sends with an explicit Throttled result +
+                // BUE-NET-001 line. LIT keeps only the business re-arm
+                // backoff (the caller's LitChallengeRearmBook decides the
+                // retry pace from this explicit result) — 平台报告链路健康、
+                // 功能处理业务重试. No per-failure WARN line, no silent
+                // swallow: the result rides back to the re-arm decision.
                 return result;
             }
             catch (Exception error)

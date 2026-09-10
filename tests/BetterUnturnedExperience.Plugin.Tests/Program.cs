@@ -318,6 +318,11 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     AssertBueV3LifecycleProjection(collectAllFailures: true);
                     return 0;
                 }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--bue-v3-network-red")
+                {
+                    AssertBueV3NetworkTransportRules(collectAllFailures: true);
+                    return 0;
+                }
                 if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--bue-v2-lit-multiplayer-red")
                 {
                     AssertBueV2LitMultiplayerPath(collectAllFailures: true);
@@ -452,6 +457,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 AssertBueV3RegistrationGateAndBootstrapMatrix();
                 AssertBueV3EventOwnershipRouting();
                 AssertBueV3LifecycleProjection();
+                AssertBueV3NetworkTransportRules();
                 // F-E: pure truth tables, no host state — runs before F-D.
                 AssertBueV2FeEnginePeerIdentity();
                 // F-D: runs last — it replaces the bound runtime and clears the
@@ -3395,77 +3401,6 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 "退避真值表：代际丢弃即清该代际记录（更替/断开不留残留）");
         }
 
-        /// <summary>The send-failure rate limiter truth table: per
-        /// (generation, send-result-kind) series — the first failure warns,
-        /// then every 50th warns with the cumulative total attached; ONE
-        /// BUE-LIT-003 link-degraded diagnostic per episode at the 10th
-        /// consecutive same-kind failure; the first success after a
-        /// degraded episode signals link-recovered and resets the series so
-        /// the next failure warns immediately again; kind flips and
-        /// generation drops reset without residue.</summary>
-        private static void LitSendHealthGroupRateLimitAndRecovery(System.Action<bool, string> check)
-        {
-            var limiter = new LitSendFailureRateLimiter();
-
-            // gen 2 — WARN cadence only: 1000 sustained same-kind failures
-            var warnStamps = new List<long>();
-            for (int i = 1; i <= 1000; i++)
-            {
-                if (limiter.ShouldWarn(2UL, NetworkSendResult.LocalTransportUnavailable, out var total))
-                {
-                    warnStamps.Add(total);
-                    check(total == i, "限频真值表：WARN 附带累计计数与真实累计一致（第 " + i + " 条失败）");
-                }
-            }
-            check(warnStamps.Count == 20,
-                "限频真值表：1000 条持续同类失败仅 20 条 WARN（首条+此后每累计 50 条一条，有界）");
-            check(warnStamps[0] == 1 && warnStamps[1] == 51 && warnStamps[warnStamps.Count - 1] == 951,
-                "限频真值表：WARN 落点=首条与此后每累计 50 条（1/51/…/951）");
-
-            // gen 3 — degradation threshold, single shot per episode, recovery, reset
-            for (int i = 1; i <= 9; i++)
-            {
-                limiter.ShouldWarn(3UL, NetworkSendResult.LocalTransportUnavailable, out _);
-                check(!limiter.ShouldReportDegradation(3UL, NetworkSendResult.LocalTransportUnavailable, out _),
-                    "限频真值表：阈值前不上抛（第 " + i + " 条连续失败）");
-            }
-            limiter.ShouldWarn(3UL, NetworkSendResult.LocalTransportUnavailable, out _);
-            check(limiter.ShouldReportDegradation(3UL, NetworkSendResult.LocalTransportUnavailable, out var atThreshold) && atThreshold == 10,
-                "限频真值表：第 10 条连续失败触发结构性降级上抛（BUE-LIT-003）");
-            for (int i = 11; i <= 60; i++)
-            {
-                limiter.ShouldWarn(3UL, NetworkSendResult.LocalTransportUnavailable, out _);
-                check(!limiter.ShouldReportDegradation(3UL, NetworkSendResult.LocalTransportUnavailable, out _),
-                    "限频真值表：episode 内结构性诊断不重抛（不炸帧）");
-            }
-            check(limiter.NoteSuccess(3UL),
-                "限频真值表：劣化 episode 中的首次成功上抛 link-recovered 信号");
-            check(!limiter.NoteSuccess(3UL),
-                "限频真值表：恢复信号仅上抛一次（episode 结束后序列已清）");
-            check(limiter.ShouldWarn(3UL, NetworkSendResult.LocalTransportUnavailable, out var freshTotal) && freshTotal == 1,
-                "限频真值表：恢复后清零——新失败首条立即 WARN");
-            check(!limiter.ShouldReportDegradation(3UL, NetworkSendResult.LocalTransportUnavailable, out _),
-                "限频真值表：恢复后降级阈值重新累计（1 < 10 不上抛）");
-
-            // gen 4 — kind flip opens a fresh series (and re-arms the threshold)
-            for (int i = 1; i <= 12; i++) limiter.ShouldWarn(4UL, NetworkSendResult.LocalTransportUnavailable, out _);
-            check(limiter.ShouldReportDegradation(4UL, NetworkSendResult.LocalTransportUnavailable, out _),
-                "限频真值表：gen4 达阈值（异类切换前的对照组）");
-            check(limiter.ShouldWarn(4UL, NetworkSendResult.NoSession, out var flippedTotal) && flippedTotal == 1,
-                "限频真值表：同类切换即新序列——异类失败首条立即 WARN");
-            check(!limiter.ShouldReportDegradation(4UL, NetworkSendResult.NoSession, out _),
-                "限频真值表：异类新序列降级阈值重新累计（不上抛）");
-
-            // gen 5/6 — cross-generation isolation and drop cleanup
-            for (int i = 1; i <= 10; i++) limiter.ShouldWarn(5UL, NetworkSendResult.NoSession, out _);
-            check(limiter.ShouldReportDegradation(5UL, NetworkSendResult.NoSession, out var gen5Consecutive) && gen5Consecutive == 10,
-                "限频真值表：不同代际序列互不干扰（gen5 独立计数至阈值）");
-            limiter.DropGeneration(5UL);
-            check(!limiter.ShouldReportDegradation(5UL, NetworkSendResult.NoSession, out _) &&
-                limiter.ShouldWarn(5UL, NetworkSendResult.NoSession, out _),
-                "限频真值表：代际丢弃即清序列（重开为全新首条）");
-        }
-
         /// <summary>The sustained-failure harness run: a server whose
         /// targeted sends stay refused while the fake clock crosses
         /// minutes. On machine (DEV-V2-24, v6 P2P) this shape produced 8333
@@ -3512,8 +3447,8 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     "harness 持续失败：两次尝试均未送达（客户端零收到）");
 
                 for (int i = 0; i < 5; i++) { harness.ServerModule.Tick(); harness.Pump(); }
-                check(injector.SendToClientCalls == 2 && warnCount() == 1,
-                    "harness 持续失败：退避窗口内逐拍 Tick 不再自旋（尝试钉在 2，WARN 仅首条）");
+                check(injector.SendToClientCalls == 2 && warnCount() == 0,
+                    "harness 持续失败：退避窗口内逐拍 Tick 不再自旋（尝试钉在 2）；DEV-V3-04 退役锚：不再产逐帧发送失败 WARN（告警限频被平台链路健康接管）");
 
                 clock.AdvanceMs(1000); harness.ServerModule.Tick(); harness.Pump();
                 clock.AdvanceMs(2000); harness.ServerModule.Tick(); harness.Pump();
@@ -3529,16 +3464,16 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     "harness 持续失败：重臂间隔序列（0,0=下一拍 F-A 重试,1000,2000,4000,8000,8000）单调不减");
 
                 for (int i = 0; i < 5; i++) { clock.AdvanceMs(8000); harness.ServerModule.Tick(); harness.Pump(); }
-                check(degradedCount() == 1,
-                    "harness 持续失败：第 10 次连续失败上抛 BUE-LIT-003 link-degraded 且仅一条（不炸帧）");
+                check(degradedCount() == 0,
+                    "harness 持续失败：BUE-LIT-003 link-degraded 已退役——链路事实由平台 BUE-NET-002 电平诊断呈现（「链路健康电平」组锚），LIT 不再自产");
 
                 for (int i = 0; i < 43; i++) { clock.AdvanceMs(8000); harness.ServerModule.Tick(); harness.Pump(); }
                 check(injector.SendToClientCalls == 55,
-                    "harness 持续失败：模拟 ~7 分钟共 55 次尝试（封顶后每 8s 一次）");
-                check(warnCount() == 2,
-                    "harness 持续失败：55 次尝试仅 2 条 WARN（首条+第 51 条，机上是 8333 条）");
-                check(degradedCount() == 1,
-                    "harness 持续失败：长劣化episode内结构性诊断始终恰一条");
+                    "harness 持续失败：模拟 ~7 分钟共 55 次尝试（封顶后每 8s 一次，业务重臂保留）");
+                check(warnCount() == 0,
+                    "harness 持续失败：55 次尝试零逐帧 WARN（告警限频退役——机上 8333 条形态从源头根除）");
+                check(degradedCount() == 0 && recoveredCount() == 0,
+                    "harness 持续失败：episode 两端均由平台链路健康呈现，LIT 侧 BUE-LIT-003 不再上抛");
 
                 injector.Fail = false;
                 clock.AdvanceMs(8000);
@@ -3548,10 +3483,10 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     harness.ClientRawFromServer.Count > 0 &&
                     harness.ClientRawFromServer[0][1] == LitTidyWireCodec.MsgSessionChallenge,
                     "harness 持续失败：传输恢复后下一次到期重臂即送达 challenge");
-                check(recoveredCount() == 1,
-                    "harness 持续失败：恢复拍上抛 BUE-LIT-003 link-recovered 恰一条");
-                check(warnCount() == 2,
-                    "harness 持续失败：成功拍不产生新 WARN（失败序列清零）");
+                check(recoveredCount() == 0,
+                    "harness 持续失败：恢复拍 LIT 侧也不产 recovered 行（退役彻底——平台 BUE-NET-003 呈现恢复）");
+                check(warnCount() == 0,
+                    "harness 持续失败：成功拍与失败拍均无 LIT 逐帧告警（限频器退役）");
 
                 harness.ClientModule.Tick();
                 harness.Pump();
@@ -4149,7 +4084,11 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 }
 
                 Group("重臂退避真值表", () => LitSendHealthGroupRearmBackoff(Check));
-                Group("限频+降级+恢复清零", () => LitSendHealthGroupRateLimitAndRecovery(Check));
+                // DEV-V3-04: the「限频+降级+恢复清零」truth-table group retired
+                // with LitSendFailureRateLimiter — link visibility is platform
+                // property now (BUE-NET-002/003, anchored in the DEV-V3-04
+                // 「链路健康电平」group); the harness group below carries the
+                // retirement absence anchor (零逐帧 WARN、零 BUE-LIT-003).
                 Group("harness 持续失败全链", () => LitSendHealthGroupSustainedFailureHarness(Check));
             }
             catch (Exception error) when (collectAllFailures)
@@ -4157,7 +4096,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 reds.Add("UNEXPECTED: " + error.GetType().FullName + ": " + error.Message);
             }
             if (collectAllFailures && reds.Count == 0)
-                Console.WriteLine("DEV-V2-25 LIT send health collection: ALL GREEN (0 failures) — groups: 重臂退避真值表/限频+降级+恢复清零/harness 持续失败全链");
+                Console.WriteLine("DEV-V2-25 LIT send health collection: ALL GREEN (0 failures) — groups: 重臂退避真值表/harness 持续失败全链（限频真值表组随 DEV-V3-04 退役）");
             if (collectAllFailures && reds.Count > 0)
                 throw new InvalidOperationException("DEV-V2-25 red collection (" + reds.Count + "): " + string.Join(" || ", reds));
         }
@@ -8297,9 +8236,11 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 Assert(captured.Identity.DefinitionSetId == "bue-v3-matrix-probe",
                     "DEV-V3-01: Identity carries the definition set the registration was admitted with");
                 Assert(captured.Settings == null && captured.Logger == null,
-                    "DEV-V3-01/03: the still-unwired members stay null at the DEV-V3-03 baseline (Settings→06, Logger→07; availability matrix)");
+                    "DEV-V3-01/03: the still-unwired members stay null at the DEV-V3-04 baseline (Settings→06, Logger→07; availability matrix)");
                 Assert(captured.Lifetime != null && captured.Dependencies != null,
                     "DEV-V3-03: Lifetime/Dependencies turned non-null on the start composition (availability matrix rows wired by DEV-V3-03)");
+                Assert(captured.MainThread != null,
+                    "DEV-V3-04: MainThread turned non-null on the start composition (availability matrix row wired by DEV-V3-04)");
             }
             finally
             {
@@ -9121,6 +9062,759 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 if (captured[i].IndexOf(token, StringComparison.Ordinal) >= 0) return true;
             }
             return false;
+        }
+
+        // DEV-V3-04: BueNetwork 传输规则与主线程投递。行为面冻结：平台每会话
+        // 发送预算（窗口 2000ms/256 条，本票定值，超出=显式拒绝不静默丢弃）、
+        // 链路健康电平（连续失败 10 恰一条 degraded、恢复恰一条 recovered+清零、
+        // 每会话代际独立）、入站 handler 异常结构化诊断（不扩散不打穿泵）、
+        // DeferredBueNetworkApi 回放失败四态投影（not-ready/detached/
+        // replay-failed/transport-unavailable，禁空 catch 无痕折叠）。
+        // Round-1 子组全部只依赖既有可编译 API（经 NetworkModuleAdapter 的
+        // DiagnosticLogSink 观察诊断行）——观测红；Round-2 子组（矩阵两侧、
+        // dispatcher 最小行为面、LIR 官方先行消费锚、NoOp 对照、未知结果值）
+        // 引用本票新面——编译红。
+        private static void AssertBueV3NetworkTransportRules(bool collectAllFailures = false)
+        {
+            var reds = new List<string>();
+            try
+            {
+                void Check(bool condition, string message)
+                {
+                    if (condition) return;
+                    if (collectAllFailures) reds.Add(message);
+                    else throw new InvalidOperationException(message);
+                }
+
+                void Group(string name, System.Action body)
+                {
+                    try { body(); }
+                    catch (Exception error) when (collectAllFailures)
+                    {
+                        reds.Add("[" + name + "] " + (error is InvalidOperationException ? error.Message : "UNEXPECTED " + error.GetType().Name + ": " + error.Message));
+                    }
+                }
+
+                Group("发送预算超限显式拒绝", () => NetworkV3GroupBudgetFirstReject(Check));
+                Group("预算恢复与跨代际清零", () => NetworkV3GroupBudgetRecoveryAndGenerations(Check));
+                Group("组播聚合预算", () => NetworkV3GroupMulticastAggregation(Check));
+                Group("官方生态同权预算", () => NetworkV3GroupEqualRightsBudget(Check));
+                Group("链路健康电平", () => NetworkV3GroupLinkHealth(Check));
+                Group("入站 handler 异常诊断", () => NetworkV3GroupInboundHandlerError(Check));
+                Group("回放失败投影四态", () => NetworkV3GroupDeferredProjections(Check));
+                Group("未知结果旧模块安全降级", () => NetworkV3GroupUnknownResultSafeDegrade(Check));
+                Group("矩阵 MainThread 接线两侧", () => NetworkV3GroupMatrixMainThread(Check));
+                Group("dispatcher 最小行为面", () => NetworkV3GroupDispatcherSeam(Check));
+                Group("LIR 官方先行消费锚", () => NetworkV3GroupLirDispatcherConsumption(Check));
+                Group("NoOp 生态对照", () => NetworkV3GroupNoOpMainThread(Check));
+            }
+            catch (Exception error) when (collectAllFailures)
+            {
+                reds.Add("UNEXPECTED: " + error.GetType().FullName + ": " + error.Message);
+            }
+            if (collectAllFailures && reds.Count == 0)
+                Console.WriteLine("DEV-V3-04 network transport rules collection: ALL GREEN (0 failures) — groups: 发送预算超限显式拒绝/预算恢复与跨代际清零/组播聚合预算/官方生态同权预算/链路健康电平/入站 handler 异常诊断/回放失败投影四态/未知结果旧模块安全降级/矩阵 MainThread 接线两侧/dispatcher 最小行为面/LIR 官方先行消费锚/NoOp 生态对照");
+            if (collectAllFailures && reds.Count > 0)
+                throw new InvalidOperationException("DEV-V3-04 red collection (" + reds.Count + "): " + string.Join(" || ", reds));
+        }
+
+        // DEV-V3-04 ticket-fixed budget numbers (asserted as behavior; the
+        // internal consts are Core-internal and not visible to this project).
+        private const int V3SendBudget = 256;
+        private const long V3BudgetWindowMs = 2000;
+        private const int V3LinkDegradationThreshold = 10;
+
+        /// <summary>DEV-V3-04 fixture: a server-role NetworkModuleAdapter over
+        /// the injectable FakeBueEngine + fake monotonic clock, with every
+        /// diagnostic line captured through the existing DiagnosticLogSink
+        /// seam (residual-safe restore). Sessions establish through the frozen
+        /// responder path (consumed Hello → TickNetwork → established).</summary>
+        private sealed class NetworkV3Fixture
+        {
+            internal NetworkModuleAdapter Adapter;
+            internal FakeBueEngine Engine;
+            internal List<string> Lines;
+            internal long ClockMs = 1000000L;
+            private Action<string> previousSink;
+
+            internal static NetworkV3Fixture Create(string name, bool arm = true)
+            {
+                var fx = new NetworkV3Fixture();
+                fx.Lines = new List<string>();
+                fx.previousSink = NetworkModuleAdapter.DiagnosticLogSink;
+                NetworkModuleAdapter.DiagnosticLogSink = line => fx.Lines.Add(line);
+                fx.Engine = new FakeBueEngine { IsServer = true, LocalSteamId = 7001UL, Clock = () => fx.ClockMs };
+                fx.Adapter = new NetworkModuleAdapter(
+                    Path.Combine(Path.GetTempPath(), "bue-v3net-" + name + "-" + Guid.NewGuid().ToString("N")),
+                    () => false, () => null, () => null, () => { }, null, null, fx.Engine.ToBinding());
+                fx.Adapter.ActivateCore();
+                if (arm) fx.Adapter.TickNetwork();
+                return fx;
+            }
+
+            internal void AdvanceMs(long ms) { ClockMs += ms; }
+
+            /// <summary>The frozen responder establishment path: consume a peer
+            /// Hello, pump, and return the established session to that peer.</summary>
+            internal IConnectionSession Establish(ulong peer, ulong nonce)
+            {
+                var hello = BuildBue1HelloFrame(peer, 2, 0, nonce);
+                Adapter.ShouldConsumeInbound(true, peer, hello, 0, hello.Length, null);
+                Adapter.TickNetwork();
+                var snapshot = Adapter.NetworkApi.Sessions;
+                for (var i = 0; i < snapshot.Count; i++)
+                {
+                    if (snapshot[i].PeerSteamId == peer) return snapshot[i];
+                }
+                return null;
+            }
+
+            internal int CountLine(string token)
+            {
+                return CountToken(Lines, token);
+            }
+
+            internal void Dispose()
+            {
+                try { Adapter.IsolateAndDetach(); }
+                catch (Exception) { }
+                NetworkModuleAdapter.DiagnosticLogSink = previousSink;
+            }
+        }
+
+        private static void NetworkV3GroupBudgetFirstReject(System.Action<bool, string> check)
+        {
+            var fx = NetworkV3Fixture.Create("v3budget");
+            try
+            {
+                var channel = new FeatureId("io.example.v3budget");
+                var api = fx.Adapter.NetworkApi;
+                check(api != null && api.RegisterChannel(channel, new ContractVersion(2, 0), 1).Accepted,
+                    "setup: 服务端运行时武装且频道注册成功");
+                var session = fx.Establish(1001UL, 9001UL);
+                check(session != null, "setup: 响应方会话经 Hello 建立");
+                var burstOk = true;
+                for (var i = 0; i < V3SendBudget; i++)
+                {
+                    if (api.SendToClient(channel, session, new byte[] { 1 }, true) != NetworkSendResult.Sent) { burstOk = false; break; }
+                }
+                check(burstOk, "预算：窗内前 " + V3SendBudget + " 条全部 Sent（保底不误伤正常流量）");
+                var over = api.SendToClient(channel, session, new byte[] { 2 }, true);
+                check(over != NetworkSendResult.Sent
+                        && over != NetworkSendResult.LocalTransportUnavailable
+                        && over != NetworkSendResult.PayloadTooLarge,
+                    "预算：第 " + (V3SendBudget + 1) + " 条被显式拒绝（平台节流自有结果值——非 Sent、非传输失败、非超限）");
+                var throttled = fx.CountLine("event=network-send result=throttled");
+                check(throttled >= 1, "预算：节流拒绝浮出结构化诊断行（不静默丢弃）");
+                var line = fx.Lines.Find(l => l.IndexOf("event=network-send result=throttled", StringComparison.Ordinal) >= 0);
+                check(line != null && line.Contains("diagnosticId=BUE-NET-001")
+                        && line.Contains("generation=" + session.SessionId) && line.Contains(channel.Value),
+                    "预算：诊断行携带身份码与代际/频道（可定位「谁在哪个会话被限」）");
+            }
+            finally { fx.Dispose(); }
+        }
+
+        private static void NetworkV3GroupBudgetRecoveryAndGenerations(System.Action<bool, string> check)
+        {
+            var fx = NetworkV3Fixture.Create("v3budgetgen");
+            try
+            {
+                var channel = new FeatureId("io.example.v3budgetgen");
+                var api = fx.Adapter.NetworkApi;
+                check(api.RegisterChannel(channel, new ContractVersion(2, 0), 1).Accepted, "setup: 频道注册");
+                var sessionA = fx.Establish(1001UL, 9101UL);
+                check(sessionA != null, "setup: 会话 A 建立");
+                for (var i = 0; i <= V3SendBudget; i++)
+                {
+                    api.SendToClient(channel, sessionA, new byte[] { 1 }, true);
+                }
+                check(api.SendToClient(channel, sessionA, new byte[] { 1 }, true) != NetworkSendResult.Sent,
+                    "setup: A 当前窗口预算已耗尽");
+                // 窗口滑出：新窗口恢复放行
+                fx.AdvanceMs(V3BudgetWindowMs + 1);
+                check(api.SendToClient(channel, sessionA, new byte[] { 1 }, true) == NetworkSendResult.Sent,
+                    "预算：滑出 " + V3BudgetWindowMs + "ms 窗口后恢复发送（保底限流非永久封禁）");
+                // 跨代际清零：A 的代际断开（ServerPeers 摘除→泵差分）后新代际重连
+                for (var i = 0; i <= V3SendBudget; i++)
+                {
+                    api.SendToClient(channel, sessionA, new byte[] { 2 }, true);
+                }
+                fx.Engine.ServerPeers.Add(1001UL);
+                fx.Adapter.TickNetwork(); // peer 进入引擎快照（无操作，仅登记）
+                fx.Engine.ServerPeers.Clear();
+                fx.Adapter.TickNetwork(); // 快照差分 → PeerDisconnected → 运行时清会话
+                check(api.Sessions.Count == 0, "setup: 代际断开后会话快照清空");
+                var sessionB = fx.Establish(1001UL, 9102UL);
+                check(sessionB != null && sessionB.SessionId != sessionA.SessionId, "setup: 同一对等新代际重连");
+                check(api.SendToClient(channel, sessionB, new byte[] { 1 }, true) == NetworkSendResult.Sent,
+                    "预算：预算状态随 ConnectionGeneration 隔离——新代际首条即放行（跨代际清零）");
+                check(api.SendToClient(channel, sessionA, new byte[] { 1 }, true) == NetworkSendResult.NoSession,
+                    "预算：旧代际对象已死，寻址拒绝（既有冻结语义回归）");
+            }
+            finally { fx.Dispose(); }
+        }
+
+        private static void NetworkV3GroupMulticastAggregation(System.Action<bool, string> check)
+        {
+            var fx = NetworkV3Fixture.Create("v3mcast");
+            try
+            {
+                var channel = new FeatureId("io.example.v3mcast");
+                var api = fx.Adapter.NetworkApi;
+                check(api.RegisterChannel(channel, new ContractVersion(2, 0), 1).Accepted, "setup: 频道注册");
+                var sessionA = fx.Establish(1001UL, 9201UL);
+                var sessionB = fx.Establish(1002UL, 9202UL);
+                check(sessionA != null && sessionB != null && api.Sessions.Count == 2, "setup: 双会话建立");
+                // 全目标正常：聚合 Sent（既有冻结语义回归锚）
+                check(api.SendToClients(channel, new byte[] { 1 }, true) == NetworkSendResult.Sent,
+                    "聚合：全目标送达仍 Sent（既有语义回归）");
+                // 只耗尽 A 的预算（逐目标寻址），B 保持余量
+                for (var i = 0; i <= V3SendBudget; i++)
+                {
+                    api.SendToClient(channel, sessionA, new byte[] { 1 }, true);
+                }
+                var mixed = api.SendToClients(channel, new byte[] { 2 }, true);
+                check(mixed != NetworkSendResult.Sent && mixed != NetworkSendResult.LocalTransportUnavailable,
+                    "聚合：一目标被节流未执行、一目标送达——不得静默报全 Sent，也不是传输失败");
+                check(api.SendToClients(channel, new byte[] { 3 }, true) != NetworkSendResult.Sent,
+                    "聚合：持续超限的组播保持显式拒绝（不静默丢弃）");
+                check(fx.CountLine("event=network-send result=throttled") >= 2,
+                    "聚合：被节流的每个目标都有结构化诊断（逐目标可定位）");
+            }
+            finally { fx.Dispose(); }
+        }
+
+        private static void NetworkV3GroupEqualRightsBudget(System.Action<bool, string> check)
+        {
+            var fx = NetworkV3Fixture.Create("v3parity");
+            try
+            {
+                var ecoChannel = new FeatureId("io.example.v3parity");
+                var officialChannel = new FeatureId("io.github.yu80rice.bue.inventory-tidy");
+                var api = fx.Adapter.NetworkApi;
+                check(api.RegisterChannel(ecoChannel, new ContractVersion(2, 0), 1).Accepted, "setup: 生态频道注册");
+                check(api.RegisterChannel(officialChannel, new ContractVersion(2, 0), 1).Accepted, "setup: 官方身份频道注册");
+                var session = fx.Establish(1001UL, 9301UL);
+                check(session != null, "setup: 会话建立");
+                // 生态频道把该会话预算打满
+                for (var i = 0; i <= V3SendBudget; i++)
+                {
+                    api.SendToClient(ecoChannel, session, new byte[] { 1 }, true);
+                }
+                // 官方身份在同一会话同一窗口的首条同样被限（无身份豁免）
+                var official = api.SendToClient(officialChannel, session, new byte[] { 1 }, true);
+                check(official != NetworkSendResult.Sent,
+                    "同权：官方身份频道在预算耗尽的会话上同样被节流（官方无私有捷径）");
+                check(official != NetworkSendResult.LocalTransportUnavailable && official != NetworkSendResult.PayloadTooLarge,
+                    "同权：官方频道的拒绝同样是显式平台节流结果（非伪装传输失败）");
+                check(fx.CountLine("event=network-send result=throttled channel=" + officialChannel.Value) >= 1,
+                    "同权：官方频道的节流拒绝浮出自身诊断行（逐频道可定位）");
+            }
+            finally { fx.Dispose(); }
+        }
+
+        private static int CountGenerationLines(List<string> lines, string eventToken, ulong generation)
+        {
+            var count = 0;
+            for (var i = 0; i < lines.Count; i++)
+            {
+                if (lines[i].IndexOf(eventToken, StringComparison.Ordinal) >= 0
+                    && lines[i].IndexOf("generation=" + generation, StringComparison.Ordinal) >= 0) count++;
+            }
+            return count;
+        }
+
+        private static void NetworkV3GroupLinkHealth(System.Action<bool, string> check)
+        {
+            var fx = NetworkV3Fixture.Create("v3health");
+            try
+            {
+                var channel = new FeatureId("io.example.v3health");
+                var api = fx.Adapter.NetworkApi;
+                check(api.RegisterChannel(channel, new ContractVersion(2, 0), 1).Accepted, "setup: 频道注册");
+                var sessionA = fx.Establish(1001UL, 9401UL);
+                var sessionB = fx.Establish(1002UL, 9402UL);
+                check(sessionA != null && sessionB != null, "setup: 双会话建立");
+                fx.Engine.SendOverride = (frame, reliable, target) => false; // 传输持续失败
+                for (var i = 1; i < V3LinkDegradationThreshold; i++)
+                {
+                    check(api.SendToClient(channel, sessionA, new byte[] { 1 }, true) == NetworkSendResult.LocalTransportUnavailable,
+                        "健康：失败发送如实返回传输不可达（既有结果语义回归）");
+                }
+                check(CountGenerationLines(fx.Lines, "event=network-link result=degraded", sessionA.SessionId) == 0,
+                    "健康：阈值前不上抛 degraded（第 1..9 条零电平诊断，不逐帧刷屏）");
+                api.SendToClient(channel, sessionA, new byte[] { 1 }, true);
+                check(CountGenerationLines(fx.Lines, "event=network-link result=degraded", sessionA.SessionId) == 1,
+                    "健康：第 " + V3LinkDegradationThreshold + " 条连续失败上抛恰一条 degraded（电平）");
+                var degradedLine = fx.Lines.Find(l => l.Contains("event=network-link result=degraded") && l.Contains("generation=" + sessionA.SessionId));
+                check(degradedLine != null && degradedLine.Contains("diagnosticId=BUE-NET-002")
+                        && degradedLine.Contains("consecutiveFailures=" + V3LinkDegradationThreshold),
+                    "健康：degraded 行携带身份码/末次结果/连续失败计数（定位「发送持续失败」是链路问题）");
+                for (var i = 0; i < 20; i++)
+                {
+                    api.SendToClient(channel, sessionA, new byte[] { 1 }, true);
+                }
+                check(CountGenerationLines(fx.Lines, "event=network-link result=degraded", sessionA.SessionId) == 1,
+                    "健康：episode 内 degraded 始终恰一条（电平式不炸帧）");
+                check(CountGenerationLines(fx.Lines, "event=network-link result=degraded", sessionB.SessionId) == 0,
+                    "健康：每会话代际独立——B 的链路不受 A 劣化影响");
+                fx.Engine.SendOverride = null; // 传输恢复
+                check(api.SendToClient(channel, sessionB, new byte[] { 1 }, true) == NetworkSendResult.Sent,
+                    "setup: B 正常送达");
+                check(CountGenerationLines(fx.Lines, "event=network-link result=recovered", sessionB.SessionId) == 0,
+                    "健康：未劣化过的会话成功不产 recovered（电平无跳变）");
+                check(api.SendToClient(channel, sessionA, new byte[] { 1 }, true) == NetworkSendResult.Sent,
+                    "setup: A 恢复送达");
+                check(CountGenerationLines(fx.Lines, "event=network-link result=recovered", sessionA.SessionId) == 1,
+                    "健康：恢复后上抛恰一条 recovered");
+                var recoveredLine = fx.Lines.Find(l => l.Contains("event=network-link result=recovered") && l.Contains("generation=" + sessionA.SessionId));
+                check(recoveredLine != null && recoveredLine.Contains("diagnosticId=BUE-NET-003"),
+                    "健康：recovered 行携带身份码（与 degraded 成对呈现）");
+                fx.Engine.SendOverride = (frame, reliable, target) => false;
+                for (var i = 1; i <= V3LinkDegradationThreshold; i++)
+                {
+                    api.SendToClient(channel, sessionA, new byte[] { 1 }, true);
+                }
+                check(CountGenerationLines(fx.Lines, "event=network-link result=degraded", sessionA.SessionId) == 2,
+                    "健康：recovered 清零后再满阈值重开新 episode（阈值重新累计）");
+                check(fx.CountLine("event=network-link") == 3,
+                    "健康：全程电平诊断恰 3 条（2 degraded + 1 recovered，无逐帧噪音——episode 数=电平跳变数）");
+            }
+            finally { fx.Dispose(); }
+        }
+
+        private static void NetworkV3GroupInboundHandlerError(System.Action<bool, string> check)
+        {
+            var fx = NetworkV3Fixture.Create("v3inbound");
+            try
+            {
+                var channel = new FeatureId("io.example.v3inbound");
+                var api = fx.Adapter.NetworkApi;
+                check(api.RegisterChannel(channel, new ContractVersion(2, 0), 1).Accepted, "setup: 频道注册");
+                var session = fx.Establish(1001UL, 9501UL);
+                check(session != null, "setup: 会话建立");
+                var received = new List<byte[]>();
+                api.Subscribe(channel, ChannelDirection.FromClients, (s, payload) => throw new InvalidOperationException("v3-handler-fault"));
+                api.Subscribe(channel, ChannelDirection.FromClients, (s, payload) => received.Add(payload));
+                var dataFrame = BuildBue1Frame(channel.Value, 1001UL, new byte[] { 0x2A });
+                fx.Adapter.ShouldConsumeInbound(true, 1001UL, dataFrame, 0, dataFrame.Length, null);
+                var pumpThrew = false;
+                try { fx.Adapter.TickNetwork(); }
+                catch (Exception) { pumpThrew = true; }
+                check(!pumpThrew, "入站：handler 异常不打穿传输泵（既有隔离语义回归）");
+                check(received.Count == 1, "入站：异常 handler 不扩散其他订阅者（既有隔离语义回归）");
+                check(fx.CountLine("event=network-inbound result=handler-error") == 1,
+                    "入站：handler 异常从静默吞改为结构化诊断（一异常一行，可查）");
+                var line = fx.Lines.Find(l => l.IndexOf("event=network-inbound result=handler-error", StringComparison.Ordinal) >= 0);
+                check(line != null && line.Contains("diagnosticId=BUE-NET-004")
+                        && line.Contains("channel=" + channel.Value)
+                        && line.Contains("generation=" + session.SessionId)
+                        && line.Contains("errorType=InvalidOperationException"),
+                    "入站：诊断行携带模块/频道/方向/代际/异常类型（T5 冻结字段）");
+                fx.Adapter.ShouldConsumeInbound(true, 1001UL, dataFrame, 0, dataFrame.Length, null);
+                fx.Adapter.TickNetwork();
+                check(received.Count == 2, "入站：异常后订阅表完好，下一帧照常派发（泵线程存活）");
+                check(fx.CountLine("event=network-inbound result=handler-error") == 2,
+                    "入站：诊断逐次如实（每异常一行，不折叠不静默）");
+            }
+            finally { fx.Dispose(); }
+        }
+
+        private static void NetworkV3GroupDeferredProjections(System.Action<bool, string> check)
+        {
+            // (a)(b)(c) 走 NetworkModuleAdapter 既有 DiagnosticLogSink 观察缝。
+            var fx = NetworkV3Fixture.Create("v3defer", arm: false);
+            try
+            {
+                var channel = new FeatureId("io.example.v3defer");
+                var badChannel = new FeatureId("io.example.v3defer-future");
+                var facade = fx.Adapter.FeatureNetworkApi;
+                check(facade != null, "setup: 适配器 feature 门面存在");
+                check(facade.RegisterChannel(channel, new ContractVersion(2, 0), 1).Accepted, "setup: 频道延迟受理");
+                check(facade.RegisterChannel(badChannel, new ContractVersion(3, 0), 1).Accepted,
+                    "setup: 未来合同频道在延迟层同样先受理（未就绪不是拒绝）");
+                for (var i = 0; i < 10; i++)
+                {
+                    check(facade.SendToServer(channel, new byte[] { 1 }, true) == NetworkSendResult.NoSession,
+                        "回放：未就绪发送=显式 NoSession（既有结果语义，不静默）");
+                }
+                check(fx.CountLine("event=network-deferred result=not-ready") == 1,
+                    "回放：未就绪态浮出结构化诊断且每 episode 恰一条（10 次发送不刷屏）");
+                fx.Adapter.TickNetwork(); // 先武装（未武装时 BUE 帧交还不消费，与 DEV-V2-18 语义一致）
+                var session = fx.Establish(1001UL, 9601UL);
+                check(session != null, "setup: 门面接线后（TickNetwork 武装）会话建立");
+                check(fx.CountLine("event=network-deferred result=replay-failed") >= 1,
+                    "回放：坏频道重放被拒不再无痕——replay-failed 投影（Attach 重放失败可查）");
+                var replayLine = fx.Lines.Find(l => l.IndexOf("event=network-deferred result=replay-failed", StringComparison.Ordinal) >= 0);
+                check(replayLine != null && replayLine.Contains("diagnosticId=BUE-NET-005")
+                        && replayLine.Contains(badChannel.Value) && replayLine.Contains("stage=replay-register"),
+                    "回放：投影行携带身份码/频道/阶段（与「未就绪」可区分）");
+                check(facade.SendToServer(channel, new byte[] { 1 }, true) == NetworkSendResult.Sent,
+                    "回放：接线后好频道重放可用（正向回归）");
+                fx.Adapter.IsolateAndDetach();
+                check(facade.SendToServer(channel, new byte[] { 1 }, true) == NetworkSendResult.NoSession,
+                    "回放：detach 后发送=显式 NoSession（既有语义）");
+                check(fx.CountLine("event=network-deferred result=detached") == 1,
+                    "回放：模块停止/撤接线态与「从未就绪」可区分（detached 投影）");
+            }
+            finally { fx.Dispose(); }
+            // (d) 节流不计入链路失败（预算与健康的边界不相串）。
+            var fx2 = NetworkV3Fixture.Create("v3thrtl-no-fail");
+            try
+            {
+                var channel = new FeatureId("io.example.v3thrtl");
+                var api = fx2.Adapter.NetworkApi;
+                check(api.RegisterChannel(channel, new ContractVersion(2, 0), 1).Accepted, "setup: 频道注册");
+                var session = fx2.Establish(1001UL, 9701UL);
+                check(session != null, "setup: 会话建立");
+                var throttles = 0;
+                for (var i = 0; i < V3SendBudget + 30; i++)
+                {
+                    var r = api.SendToClient(channel, session, new byte[] { 1 }, true);
+                    if (r != NetworkSendResult.Sent) throttles++;
+                }
+                check(throttles > 0, "setup: 窗口内已出现节流拒绝");
+                check(CountGenerationLines(fx2.Lines, "event=network-link result=degraded", session.SessionId) == 0,
+                    "健康：Throttled 不计入连续失败（平台节流≠传输失败，链路电平不被误触发）");
+            }
+            finally { fx2.Dispose(); }
+            // (e) 第四态（R1-Spec Gap1 补锚）：接线后的活运行时从门面底下抛=
+            // transport-unavailable——直接以门面+抛错假运行时驱动（生产运行时
+            // 热路径不抛，此分支是门面对「底下真传输会抛」的防御契约），
+            // 且与前三态 token 互不混淆（四态区分完整）。
+            var facadeLines = new List<string>();
+            var directFacade = new BetterUnturnedExperience.Core.Network.DeferredBueNetworkApi(facadeLines.Add);
+            directFacade.Attach(new NetworkV3ThrowingNetwork());
+            var thrown = directFacade.SendToServer(new FeatureId("io.example.v3defer-throw"), new byte[] { 1 }, true);
+            check(thrown == NetworkSendResult.LocalTransportUnavailable,
+                "回放：活运行时抛出被门面收住=显式 LocalTransportUnavailable（异常不逃逸功能边界）");
+            check(CountToken(facadeLines, "event=network-deferred result=transport-unavailable") == 1
+                    && CountToken(facadeLines, "stage=send-to-server") == 1,
+                "回放：transport-unavailable 投影恰一条（stage 定位发送方法）");
+            check(!ContainsDiagnostic(facadeLines, "result=not-ready") && !ContainsDiagnostic(facadeLines, "result=detached"),
+                "回放：transport-unavailable 与未就绪/模块停止两态互斥（可区分）");
+            var sessionsCount = -1;
+            var sessionsThrew = false;
+            try { sessionsCount = directFacade.Sessions.Count; }
+            catch (Exception) { sessionsThrew = true; }
+            check(!sessionsThrew && sessionsCount == 0 && CountToken(facadeLines, "stage=sessions") >= 1,
+                "回放：Sessions 读取抛出同样投影（异常被门面收住=空快照+诊断，不逃逸不静默）");
+        }
+
+        /// <summary>DEV-V3-04 deferred-projection stub: a live IBueNetworkApi
+        /// whose send/sessions calls throw — the 「门面底下会抛」 shape the
+        /// transport-unavailable branch defends (the real runtime's hot paths
+        /// never throw; a future engine-bound transport can).</summary>
+        private sealed class NetworkV3ThrowingNetwork : IBueNetworkApi
+        {
+            public ChannelRegistrationResult RegisterChannel(FeatureId channel, ContractVersion minimumBueContract, ushort featureVersion)
+            { return new ChannelRegistrationResult(true, channel, FeatureRegistrationReason.None, "THROWING"); }
+            public bool UnregisterChannel(FeatureId channel) { return true; }
+            public IDisposable Subscribe(FeatureId channel, ChannelDirection direction, Action<IConnectionSession, byte[]> handler)
+            { return new NullHandle(); }
+            public IReadOnlyList<IConnectionSession> Sessions { get { throw new InvalidOperationException("v3-sessions-fault"); } }
+            public NetworkSendResult SendToServer(FeatureId channel, byte[] payload, bool reliable) { throw new InvalidOperationException("v3-send-fault"); }
+            public NetworkSendResult SendToClients(FeatureId channel, byte[] payload, bool reliable) { throw new InvalidOperationException("v3-send-fault"); }
+            public NetworkSendResult SendToClient(FeatureId channel, IConnectionSession session, byte[] payload, bool reliable) { throw new InvalidOperationException("v3-send-fault"); }
+            private sealed class NullHandle : IDisposable { public void Dispose() { } }
+        }
+
+        // 2.0 旧模块（枚举里还没有 Throttled 值）面对新结果必须安全降级：
+        // 只有显式 Sent 算成功，其余（含未知默认分支）保守处理、不静默当成功。
+        private static bool LegacyModuleTreatsAsSuccess(NetworkSendResult result)
+        {
+            switch (result)
+            {
+                case NetworkSendResult.Sent: return true;
+                case NetworkSendResult.ChannelNotRegistered:
+                case NetworkSendResult.NoSession:
+                case NetworkSendResult.PeerUnreachable:
+                case NetworkSendResult.PayloadTooLarge:
+                case NetworkSendResult.PartialFailure:
+                case NetworkSendResult.LocalTransportUnavailable: return false;
+                default: return false; // 旧模块的未知值保守分支（SDK 纪律：不得把未知枚举当成功）
+            }
+        }
+
+        private static void NetworkV3GroupUnknownResultSafeDegrade(System.Action<bool, string> check)
+        {
+            var fx = NetworkV3Fixture.Create("v3legacy");
+            try
+            {
+                var channel = new FeatureId("io.example.v3legacy");
+                var api = fx.Adapter.NetworkApi;
+                check(api.RegisterChannel(channel, new ContractVersion(2, 0), 1).Accepted, "setup: 频道注册");
+                var session = fx.Establish(1001UL, 9801UL);
+                check(session != null, "setup: 会话建立");
+                for (var i = 0; i < V3SendBudget; i++)
+                {
+                    api.SendToClient(channel, session, new byte[] { 1 }, true);
+                }
+                var over = api.SendToClient(channel, session, new byte[] { 1 }, true);
+                check(over == NetworkSendResult.Throttled,
+                    "降级：平台节流=新加性结果值 Throttled（本票冻结 (ushort)=205，不复用既有值）");
+                check(!LegacyModuleTreatsAsSuccess(over),
+                    "降级：旧模块形状对 Throttled 保守处理（未知/新结果不当成功）");
+                var values = (Array)Enum.GetValues(typeof(NetworkSendResult));
+                var seen205 = 0;
+                for (var i = 0; i < values.Length; i++)
+                {
+                    if ((ushort)values.GetValue(i) == 205) seen205++;
+                }
+                check(seen205 == 1, "降级：Throttled 的数值 205 在结果集中唯一（无值复用）");
+            }
+            finally { fx.Dispose(); }
+        }
+
+        private static void NetworkV3GroupMatrixMainThread(System.Action<bool, string> check)
+        {
+            // 接线后侧：真实 StartCatalog 组合把 MainThread 装配非 null，且投递
+            // 经宿主统一泵执行（禁自建泵的平台侧兑现=泵在宿主 Update 链上）。
+            var probe = new MatrixProbeRegistration("io.example.matrix-mt");
+            var probeRuntime = new FeatureRegistrationRuntime();
+            probeRuntime.OpenRegistration();
+            check(probeRuntime.Register(probe).Accepted, "setup: 矩阵探针受理");
+            check(probeRuntime.CompleteRuntime(), "setup: 探针目录冻结");
+            var previousRuntime = BueRuntimeHost.CurrentRuntime;
+            BueRuntimeHost.Bind(probeRuntime);
+            try
+            {
+                BueFeatureStartRuntime.StartCatalog(probeRuntime, NewLoopbackNetwork(9901));
+                var captured = probe.Module.Bootstrap;
+                check(captured != null && captured.MainThread != null,
+                    "矩阵：真实 StartCatalog 组装 MainThread 视图（DEV-V3-04 后非 null，可用性矩阵行兑现）");
+                var ran = false;
+                var posted = captured.MainThread.Post(() => ran = true);
+                check(posted.Posted && posted.Reason == MainThreadPostReason.None && posted.DiagnosticId == "BUE-MT-ACCEPT",
+                    "矩阵：探针经视图投递=显式成功结果（BUE-MT-ACCEPT）");
+                check(!ran, "矩阵：fire-and-forget——投递返回时任务尚未执行");
+                BueMainThreadRuntime.Dispatcher.Pump(); // 宿主统一泵（BueRuntimeTickChain 同缝）
+                check(ran, "矩阵：宿主泵拍执行投递的任务（生态作者不需要自建泵）");
+                // 宿主停止：投递显式失败（阶段红线：停止/隔离/宿主停止后不再受理）
+                BueFeatureStartRuntime.StopAll(FeatureStopReason.PluginStopping);
+                var afterStop = captured.MainThread.Post(() => ran = false);
+                check(!afterStop.Posted && afterStop.Reason == MainThreadPostReason.GenerationInvalid
+                        && afterStop.DiagnosticId == "BUE-MT-002",
+                    "矩阵：宿主停止后投递=显式失败+诊断（不静默吞）");
+                // 接线前基线侧：既有手工组装（未传主线程视图=旧宿主形态）成员为 null
+                var manual = new FeatureBootstrap(default(FeatureScopeIdentity), 1UL, null, null, null, null, null, null, null,
+                    NewLoopbackNetwork(9902));
+                check(manual.MainThread == null,
+                    "矩阵：未接线组装的 MainThread=null（阶段基线侧——模块须容忍 null，接线前语义保持）");
+            }
+            finally
+            {
+                BueRuntimeHost.Bind(previousRuntime);
+                BueMainThreadRuntime.Clear();
+            }
+        }
+
+        private static void NetworkV3GroupNoOpMainThread(System.Action<bool, string> check)
+        {
+            var probeRuntime = new FeatureRegistrationRuntime();
+            probeRuntime.OpenRegistration();
+            check(probeRuntime.Register(NoOpFeatureRegistration.ProbeRegistration).Accepted, "setup: NoOp 样例受理");
+            check(probeRuntime.CompleteRuntime(), "setup: NoOp 目录冻结");
+            var previousRuntime = BueRuntimeHost.CurrentRuntime;
+            BueRuntimeHost.Bind(probeRuntime);
+            try
+            {
+                BueFeatureStartRuntime.StartCatalog(probeRuntime, NewLoopbackNetwork(9911));
+                var probe = NoOpFeatureRegistration.LastProbe;
+                check(probe != null && probe.Started && probe.MainThreadAvailable,
+                    "生态对照：NoOp probe 在真实宿主组装下观察到 MainThread 非 null（矩阵行生态侧）");
+                check(probe.MainThreadPosted,
+                    "生态对照：probe 经 MainThread 投递获显式受理（投递缝生态侧消费；全链 probe 归 DEV-V3-08）");
+                BueFeatureStartRuntime.StopAll(FeatureStopReason.PluginStopping);
+            }
+            finally
+            {
+                BueRuntimeHost.Bind(previousRuntime);
+                BueMainThreadRuntime.Clear();
+            }
+        }
+
+        private static void NetworkV3GroupDispatcherSeam(System.Action<bool, string> check)
+        {
+            var feature = new FeatureId("io.example.v3dispatcher");
+            var diagnostics = new List<string>();
+            var dispatcher = new BetterUnturnedExperience.Core.Dispatch.MainThreadDispatcherRuntime(diagnostics.Add);
+            dispatcher.OpenGeneration(feature, 1UL);
+            var view = dispatcher.CreateView(feature, 1UL);
+
+            // 恰一个投递方法 + 单向 fire-and-forget（返回显式结果，无等待句柄）
+            var methods = typeof(IFeatureMainThread).GetMethods();
+            check(methods.Length == 1 && methods[0].Name == "Post"
+                    && methods[0].ReturnType == typeof(MainThreadPostResult)
+                    && methods[0].GetParameters()[0].ParameterType == typeof(System.Action),
+                "dispatcher：契约面恰一个投递方法 Post(Action)→MainThreadPostResult（无句柄/无 Task 返回）");
+
+            // FIFO 顺序执行
+            var order = new List<int>();
+            check(view.Post(() => order.Add(1)).Posted && view.Post(() => order.Add(2)).Posted && view.Post(() => order.Add(3)).Posted,
+                "dispatcher：投递受理返回显式成功");
+            dispatcher.Pump();
+            check(order.Count == 3 && order[0] == 1 && order[1] == 2 && order[2] == 3,
+                "dispatcher：FIFO 顺序在主线程泵拍执行");
+
+            // 容量上限：256 受理、第 257 条显式拒绝+诊断（不静默丢弃）
+            var accepted = 0;
+            MainThreadPostResult overflow = default(MainThreadPostResult);
+            for (var i = 0; i < 300; i++)
+            {
+                var r = view.Post(() => { });
+                if (r.Posted) accepted++;
+                else { overflow = r; break; }
+            }
+            check(accepted == 256, "dispatcher：队列容量=256（本票定值，可观察）");
+            check(!overflow.Posted && overflow.Reason == MainThreadPostReason.CapacityExceeded && overflow.DiagnosticId == "BUE-MT-001",
+                "dispatcher：超限=显式容量拒绝（第三态与成功/失效可区分）");
+            check(diagnostics.Exists(l => l.Contains("event=main-thread") && l.Contains("result=post-rejected")
+                    && l.Contains("reason=capacity-exceeded") && l.Contains("diagnosticId=BUE-MT-001")),
+                "dispatcher：容量拒绝浮出结构化诊断（不静默丢）");
+            // 每拍至多执行 32——清空 256 积压需 8 拍（8×32）
+            for (var drainBeat = 0; drainBeat < 7; drainBeat++) dispatcher.Pump();
+            check(dispatcher.PendingCount == 256 - 7 * 32,
+                "dispatcher：积压按每拍 32 递减（7 拍后恰余 " + (256 - 7 * 32) + "）");
+            dispatcher.Pump();
+            check(dispatcher.PendingCount == 0, "dispatcher：第 8 拍清空积压");
+            check(view.Post(() => { }).Posted, "dispatcher：泵后队列腾出容量恢复受理");
+
+            // 每拍执行上限=32（宿主帧预算受控，剩余排后拍）——干净队列上复测
+            dispatcher.Pump(); // 执行上一行投递
+            var executed = 0;
+            for (var i = 0; i < 100; i++) { view.Post(() => executed++); }
+            dispatcher.Pump();
+            check(executed == 32 && dispatcher.PendingCount == 68,
+                "dispatcher：每拍至多执行 32 任务（帧预算受控）");
+            dispatcher.Pump(); dispatcher.Pump(); dispatcher.Pump();
+            check(executed == 100 && dispatcher.PendingCount == 0, "dispatcher：后续泵拍清空积压");
+
+            // 代际绑定：旧代际视图投递=失效；换代即撤旧代未执行任务
+            var oldRan = false;
+            check(view.Post(() => oldRan = true).Posted, "setup: 旧代际任务受理");
+            dispatcher.OpenGeneration(feature, 2UL); // 再启用=新代际，旧代际全失效
+            var stale = view.Post(() => { });
+            check(!stale.Posted && stale.Reason == MainThreadPostReason.GenerationInvalid && stale.DiagnosticId == "BUE-MT-002",
+                "dispatcher：任务绑定提交时 LifecycleGeneration——旧代际视图投递=显式失效");
+            dispatcher.Pump();
+            check(!oldRan, "dispatcher：代际失效后未执行任务不再执行（换代撤账）");
+            var view2 = dispatcher.CreateView(feature, 2UL);
+            var newRan = false;
+            check(view2.Post(() => newRan = true).Posted, "dispatcher：新代际视图正常受理");
+            dispatcher.Pump();
+            check(newRan, "dispatcher：新代际任务在泵拍执行");
+
+            // 停止/隔离边界：pending 撤账不执行、投递显式失败；重新开代恢复
+            var stoppedRan = false;
+            check(view2.Post(() => stoppedRan = true).Posted, "setup: 停止前任务在队");
+            dispatcher.InvalidateOwner(feature, "feature-stopped");
+            var afterInvalidate = view2.Post(() => { });
+            check(!afterInvalidate.Posted && afterInvalidate.Reason == MainThreadPostReason.GenerationInvalid,
+                "dispatcher：模块停止/隔离后投递=显式失败");
+            dispatcher.Pump();
+            check(!stoppedRan, "dispatcher：停止边界未执行任务不再执行（模块停止时所属待处理工作失效）");
+            dispatcher.OpenGeneration(feature, 3UL);
+            check(dispatcher.CreateView(feature, 3UL).Post(() => { }).Posted, "dispatcher：重开代际恢复受理（再启用=新代际）");
+
+            // 宿主停止：全部所有者显式失败
+            dispatcher.ShutdownHost("plugin-stopping");
+            var afterHostStop = dispatcher.CreateView(feature, 4UL).Post(() => { });
+            check(!afterHostStop.Posted && afterHostStop.Reason == MainThreadPostReason.GenerationInvalid,
+                "dispatcher：宿主停止后投递=显式失败+诊断（宿主级失效）");
+
+            // 执行期单任务异常隔离（不扩散、不打穿主线程泵）
+            var reopened = new BetterUnturnedExperience.Core.Dispatch.MainThreadDispatcherRuntime(diagnostics.Add);
+            reopened.OpenGeneration(feature, 1UL);
+            var rv = reopened.CreateView(feature, 1UL);
+            var afterFault = false;
+            var pumpThrew = false;
+            rv.Post(() => throw new InvalidOperationException("v3-task-fault"));
+            rv.Post(() => afterFault = true);
+            try { reopened.Pump(); }
+            catch (Exception) { pumpThrew = true; }
+            check(!pumpThrew && afterFault, "dispatcher：单任务异常隔离进诊断，泵拍继续执行其余任务");
+            check(diagnostics.Exists(l => l.Contains("event=main-thread") && l.Contains("result=task-error")
+                    && l.Contains("errorType=InvalidOperationException") && l.Contains("diagnosticId=BUE-MT-003")),
+                "dispatcher：任务异常浮出结构化诊断（归属 feature/generation 可定位）");
+
+            // null 任务=开发期错误：先诊断后 fail-fast（同 null-handler 纪律）
+            var threw = false;
+            try { rv.Post(null); }
+            catch (ArgumentException) { threw = true; }
+            check(threw && diagnostics.Exists(l => l.Contains("result=invalid-task") && l.Contains("diagnosticId=BUE-MT-004")),
+                "dispatcher：null 任务浮出 BUE-MT-004 诊断后 fail-fast（开发期错误不静默）");
+
+            // 非主线程泵拒绝（线程守卫：执行只发生在组合线程=宿主主线程）
+            var guarded = new BetterUnturnedExperience.Core.Dispatch.MainThreadDispatcherRuntime(diagnostics.Add);
+            guarded.OpenGeneration(feature, 1UL);
+            var gv = guarded.CreateView(feature, 1UL);
+            var foreignRan = false;
+            gv.Post(() => foreignRan = true);
+            System.Threading.Tasks.Task.Run(() => guarded.Pump()).Wait();
+            check(!foreignRan && diagnostics.Exists(l => l.Contains("result=pump-rejected") && l.Contains("diagnosticId=BUE-MT-005")),
+                "dispatcher：非主线程泵拒绝（任务不逃逸到线程池执行，主线程语义构造性保证）");
+            guarded.Pump();
+            check(foreignRan, "dispatcher：主线程泵正常执行（拒绝不留伤）");
+        }
+
+        private static void NetworkV3GroupLirDispatcherConsumption(System.Action<bool, string> check)
+        {
+            // 官方先行消费锚：真实 LIR 模块经真实 bootstrap.MainThread 视图消费
+            // 平台 dispatcher——入站帧（传输泵线程）后的主线程业务执行只发生在
+            // 平台泵拍上（泵线程→BUE dispatcher→LIR 主线程业务），生态用同一接口。
+            var localContract = new ContractVersion(2, 0);
+            var pair = BetterUnturnedExperience.Core.Network.LocalLoopbackTransport.CreatePair();
+            var clientRuntime = new BetterUnturnedExperience.Core.Network.BueNetworkRuntime(pair.First, localContract, 1001UL);
+            var serverRuntime = new BetterUnturnedExperience.Core.Network.BueNetworkRuntime(pair.Second, localContract, 2002UL, handshakeInitiator: false);
+            var feature = new FeatureId(LirRuntime.FeatureIdValue);
+            var diagnostics = new List<string>();
+            var dispatcher = new BetterUnturnedExperience.Core.Dispatch.MainThreadDispatcherRuntime(diagnostics.Add);
+            dispatcher.OpenGeneration(feature, 5UL);
+            var bus = new BetterUnturnedExperience.Core.Events.FeatureEventBus();
+            var authority = new FakeLirAuthority();
+            var toasts = new List<string>();
+            var module = new InPlaceReloadModule(feature, new InMemorySettingsPersistence());
+            module.AuthorityFactoryForTests = () => authority;
+            module.NetServiceFactoryForTests = (m, net) => new LirRepackNetwork(net, m.Authority, () => true);
+            module.RoleProbeForTests = () => true;
+            module.KeyDownProviderForTests = () => false; // no SDG input touch in host tests
+            module.ToastSink = message => toasts.Add(message);
+            var bootstrap = new FeatureBootstrap(default(FeatureScopeIdentity), 5UL, null,
+                bus.Subscriber(feature), bus.Publisher(feature), bus.EventRegistry(feature), null, null, null, serverRuntime,
+                dispatcher.CreateView(feature, 5UL));
+            var start = module.Start(bootstrap);
+            check(start.Started, "setup: 真实 LIR 模块经带 MainThread 视图的宿主 bootstrap 启动");
+            check(module.NetService.EnsureInitializedOnGameThread(), "setup: 服务端网络初始化（首帧游戏线程）");
+            // 建立客机→服务端会话（客机发起握手）
+            clientRuntime.StartSession(2002UL);
+            pair.First.Pump(); pair.Second.Pump(); pair.First.Pump();
+            check(serverRuntime.Sessions.Count == 1, "setup: 服务端建立客机会话");
+            var serverSession = serverRuntime.Sessions[0];
+            check(serverSession.PeerSteamId == 1001UL, "setup: 会话对端=客机");
+            // 真实线路径：客机频道发请求帧 → 服务端传输泵派发进 LIR 入站 handler
+            // （handler 只解析+入队，主线程执行改由平台 dispatcher 承担）
+            check(clientRuntime.RegisterChannel(feature, localContract, 1).Accepted, "setup: 客机频道注册");
+            check(clientRuntime.SendToServer(feature, LirRepackWireCodec.BuildRequest(777UL), true) == NetworkSendResult.Sent,
+                "setup: 压弹请求帧上线");
+            pair.First.Pump(); pair.Second.Pump();
+            check(authority.RepackCount == 0, "官方先行消费锚：入站只入队——主线程业务未经平台泵不执行（LIR 不再自建线程泵）");
+            // 宿主主线程一帧：LIR 的节拍把业务 drain 投递给平台 dispatcher（而非
+            // 自己内联执行），真正的执行发生在平台泵拍上。
+            module.OnHostTick(new HostTick(1UL, 0.016f, TickPhase.Update));
+            check(authority.RepackCount == 0, "官方先行消费锚：投递=fire-and-forget，OnHostTick 内不执行");
+            dispatcher.Pump();
+            check(authority.RepackCount == 1 && authority.LastRepackSteamId == 1001UL && authority.LastRepackRequestId == 777UL,
+                "官方先行消费锚：泵线程→BUE dispatcher→LIR 主线程业务（压弹事务在平台泵拍执行）");
+            // 停止边界：模块停止+代际失效后，旧视图投递显式失败、未执行任务不再执行
+            var postStopRan = false;
+            module.Stop(FeatureStopReason.PluginStopping);
+            dispatcher.InvalidateOwner(feature, "plugin-stopping");
+            var afterStop = bootstrap.MainThread.Post(() => postStopRan = true);
+            check(!afterStop.Posted && afterStop.Reason == MainThreadPostReason.GenerationInvalid,
+                "官方先行消费锚：模块停止后投递=显式失败（与生态同缝同权）");
+            dispatcher.Pump();
+            check(!postStopRan, "官方先行消费锚：停止边界后 pending 不再执行");
         }
 
         private static void AssertNativeUiGateReflectsMemberPresence()
