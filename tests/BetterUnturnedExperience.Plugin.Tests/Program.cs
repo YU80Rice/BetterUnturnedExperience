@@ -323,6 +323,11 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     AssertBueV3NetworkTransportRules(collectAllFailures: true);
                     return 0;
                 }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--bue-v3-clock-red")
+                {
+                    AssertBueV3HostClockSemantics(collectAllFailures: true);
+                    return 0;
+                }
                 if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--bue-v2-lit-multiplayer-red")
                 {
                     AssertBueV2LitMultiplayerPath(collectAllFailures: true);
@@ -458,6 +463,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 AssertBueV3EventOwnershipRouting();
                 AssertBueV3LifecycleProjection();
                 AssertBueV3NetworkTransportRules();
+                AssertBueV3HostClockSemantics();
                 // F-E: pure truth tables, no host state — runs before F-D.
                 AssertBueV2FeEnginePeerIdentity();
                 // F-D: runs last — it replaces the bound runtime and clears the
@@ -10146,6 +10152,204 @@ namespace BetterUnturnedExperience.Plugin.Tests
         // No behavior is pinned through an installed Harmony patch — the guard
         // seam, the tracking module entries and the loopback runtime carry it.
         // ═══════════════════════════════════════════════════════════════════
+        // DEV-V3-05: 宿主时钟语义登记的红测补齐组（fake-clock 钉死组先例
+        // =DEV-V2-19）。八条语义中既有已钉的（序号从 1 严格单调/首拍 0/回拨
+        // 钳零高水位/Phase=Update=0 冻结/EventId 冻结/保留身份 fail-fast/
+        // 每拍恰一同帧去重/订阅者异常不逃逸/停止自动注销）在 01..04 各组
+        // 继续作回归锚；本组补齐 T6 裁决②点名未覆盖面：暂停恢复语义/时钟
+        // 故障拍显式 false+结构化诊断/主线程构造性（同步+同线程）/官方
+        // 先行消费者经真时钟真总线消费。
+        private static void AssertBueV3HostClockSemantics(bool collectAllFailures = false)
+        {
+            var reds = new List<string>();
+            try
+            {
+                void Check(bool condition, string message)
+                {
+                    if (condition) return;
+                    if (collectAllFailures) reds.Add(message);
+                    else throw new InvalidOperationException(message);
+                }
+
+                void Group(string name, System.Action body)
+                {
+                    try { body(); }
+                    catch (Exception error) when (collectAllFailures)
+                    {
+                        reds.Add("[" + name + "] " + (error is InvalidOperationException ? error.Message : "UNEXPECTED " + error.GetType().Name + ": " + error.Message));
+                    }
+                }
+
+                var thirdParty = new FeatureId("io.example.thirdparty");
+
+                Group("暂停恢复语义", () =>
+                {
+                    // 语义⑤登记：暂停期间宿主不拍针（无额外 Tick）；恢复后
+                    // 下一拍 DeltaTime=实际间隔；序号跨暂停严格 +1（无追帧无
+                    // 重置）；是否忽略大间隔由功能自决（SDK 自节流模式条目）。
+                    var bus = new BetterUnturnedExperience.Core.Events.FeatureEventBus();
+                    long nowMs = 1000;
+                    var clock = new BetterUnturnedExperience.Core.Events.HostTickClock(bus, () => nowMs);
+                    var ticks = new List<HostTick>();
+                    bus.Subscriber(thirdParty).Subscribe<HostTick>(ticks.Add);
+                    clock.Tick();
+                    nowMs = 6500; clock.Tick();   // 5.5s 无拍（=宿主 Update 暂停）后恢复
+                    nowMs = 6516; clock.Tick();
+                    Check(ticks.Count == 3, "暂停恢复：暂停期不产生额外 Tick，恢复一拍也不追帧");
+                    Check(ticks.Count == 3 && ticks[0].TickNumber == 1UL && ticks[1].TickNumber == 2UL
+                            && ticks[2].TickNumber == 3UL,
+                        "暂停恢复：序号跨暂停严格 +1 不重置");
+                    Check(ticks.Count == 3 && Math.Abs(ticks[1].DeltaTime - 5.5f) < 0.001f,
+                        "暂停恢复：恢复后下一拍 DeltaTime=实际间隔（暂停时长如实反映，无隐藏感知）");
+                    Check(ticks.Count == 3 && Math.Abs(ticks[2].DeltaTime - 0.016f) < 0.001f,
+                        "暂停恢复：恢复后再下一拍回到正常增量");
+                });
+
+                Group("Tick 失败不扩散与结构化诊断", () =>
+                {
+                    // 语义⑦登记：时钟故障拍=显式 false 返回+结构化诊断行
+                    // （BUE-CLOCK-001 码族，本票定案），不抛回泵调用方、零
+                    // 派发；失败拍不消耗序号（序号只在成功产生时推进）、不
+                    // 推进也不回退时间基线（下一成功拍以最后成功基线计增量）。
+                    var diagnostics = new List<string>();
+                    var bus = new BetterUnturnedExperience.Core.Events.FeatureEventBus(diagnostics.Add);
+                    long nowMs = 100;
+                    var poison = false;
+                    var clock = new BetterUnturnedExperience.Core.Events.HostTickClock(bus, () =>
+                    {
+                        if (poison) throw new InvalidOperationException("clock source fault");
+                        return nowMs;
+                    });
+                    var ticks = new List<HostTick>();
+                    bus.Subscriber(thirdParty).Subscribe<HostTick>(ticks.Add);
+                    Check(clock.Tick() && ticks.Count == 1 && ticks[0].TickNumber == 1UL,
+                        "失败隔离：正常首拍产生 Tick（序号 1）");
+                    poison = true;
+                    Check(!clock.Tick(), "失败隔离：故障拍返回显式 false（bool 只表达宿主已记录处理失败，不要求调用方善后）");
+                    Check(ticks.Count == 1, "失败隔离：故障拍零派发（不半途发出不完整 tick）");
+                    poison = false; nowMs = 300;
+                    Check(clock.Tick(), "失败隔离：故障恢复后照常产针（时钟跨故障存活）");
+                    Check(ticks.Count == 2 && ticks[1].TickNumber == 2UL,
+                        "失败隔离：失败拍不消耗序号——下一成功拍严格 +1 无缝隙");
+                    Check(ticks.Count == 2 && Math.Abs(ticks[1].DeltaTime - 0.2f) < 0.001f,
+                        "失败隔离：故障拍不推进时间基线——恢复拍增量=距最后成功拍的单调差");
+                    Check(diagnostics.Exists(l => l.Contains("event=host-tick") && l.Contains("result=failed")
+                            && l.Contains("errorType=InvalidOperationException") && l.Contains("diagnosticId=BUE-CLOCK-001")),
+                        "失败隔离：故障浮出结构化诊断行（event/result/errorType/diagnosticId 字段齐备，不静默吞）");
+                });
+
+                Group("主线程构造性保证", () =>
+                {
+                    // 语义⑧登记：时钟不内置线程/不隐藏后台派发——handler 在
+                    // Tick() 调用方线程上同步执行、Tick() 返回前派发已完成
+                    // （宿主 Update 链单生产驱动的构造性前提）。
+                    var bus = new BetterUnturnedExperience.Core.Events.FeatureEventBus();
+                    long nowMs = 0;
+                    var clock = new BetterUnturnedExperience.Core.Events.HostTickClock(bus, () => nowMs);
+                    var seen = new List<HostTick>();
+                    var handlerThread = -1;
+                    bus.Subscriber(thirdParty).Subscribe<HostTick>(t =>
+                    {
+                        handlerThread = System.Threading.Thread.CurrentThread.ManagedThreadId;
+                        seen.Add(t);
+                    });
+                    var callerThread = System.Threading.Thread.CurrentThread.ManagedThreadId;
+                    clock.Tick();
+                    Check(seen.Count == 1,
+                        "主线程构造：Tick() 返回前派发已完成（同步链，无隐藏队列/线程切换）");
+                    Check(handlerThread == callerThread,
+                        "主线程构造：handler 在调用方线程上执行——生态可在回调内安全调用主线程限定 API");
+                    nowMs = 10; clock.Tick();
+                    Check(seen.Count == 2 && handlerThread == callerThread,
+                        "主线程构造：持续拍维持同一线程（构造性保证无例外路径）");
+                });
+
+                Group("官方先行消费锚：LHT 经真宿主时钟", () =>
+                {
+                    // LHT=既有官方消费者回归锚（裁决六同权三条）：真实宿主
+                    // 时钟经真总线派发驱动 LHT 的唯一宿主帧入口（Start 里经
+                    // bootstrap.Events 订阅的冻结缝，非手调 OnHostTick）；
+                    // 每拍恰一帧工作、大间隔恢复不追帧（10Hz HUD 自节流=
+                    // 官方推荐模式的功能侧先例）。
+                    var bus = new BetterUnturnedExperience.Core.Events.FeatureEventBus();
+                    var surface = new FakeHudSurface();
+                    var module = NewLhtModule(bus, new LhtSendProbeNetwork(), new FakeHordeAuthority(), surface, isServer: true);
+                    long nowMs = 0;
+                    var clock = new BetterUnturnedExperience.Core.Events.HostTickClock(bus, () => nowMs);
+                    nowMs = 16; clock.Tick();
+                    nowMs = 32; clock.Tick();
+                    nowMs = 48; clock.Tick();
+                    Check(surface.DrainCalls == 3,
+                        "官方锚：三拍真时钟=三次 LHT 帧入口（经订阅缝逐拍恰一派发，不重不漏）");
+                    nowMs = 1148; clock.Tick();
+                    Check(surface.DrainCalls == 4,
+                        "官方锚：1.1s 间隔的恢复拍只驱动一次帧工作（大间隔不追帧，节奏归功能自决）");
+                    module.Stop(FeatureStopReason.PluginStopping);
+                    nowMs = 1164; clock.Tick();
+                    Check(surface.DrainCalls == 4,
+                        "官方锚：停止后的 LHT 实例不再消费时钟（模块停止守卫在帧入口生效）");
+                });
+
+                Group("生态对照 NoOp HostTick 支线", () =>
+                {
+                    // T6 裁决③：probe 补 HostTick 支线——注册→真 StartCatalog
+                    // 组装→经 bootstrap.Events 取订阅入口→收宿主时钟 tick
+                    // （检查载荷三字段）→停止边界自动注销。生产总线+生产泵
+                    // =生态作者的真实路径，与官方 LHT 同缝同权。
+                    var noopRuntime = new FeatureRegistrationRuntime();
+                    noopRuntime.OpenRegistration();
+                    Check(noopRuntime.Register(NoOpFeatureRegistration.ProbeRegistration).Accepted,
+                        "NoOp setup：样例登记入探针运行时");
+                    Check(noopRuntime.CompleteRuntime(), "NoOp setup：目录冻结");
+                    BetterUnturnedExperience.Plugin.BueHostEventRuntime.EnsureCreated();
+                    BueFeatureStartRuntime.StartCatalog(noopRuntime, NewLoopbackNetwork(2003UL));
+                    var probe = NoOpFeatureRegistration.LastProbe;
+                    Check(probe != null && probe.Started, "NoOp setup：probe 经真实 StartCatalog 启动");
+                    Check(probe.HostTickSubscribed,
+                        "支线：probe 经 Events 缝完成 HostTick 订阅（订阅入口生态可得）");
+                    // The production bus is host-shared across the suite (probe
+                    // instances of earlier lifecycle/network groups keep their
+                    // subscriptions on it until their own stop boundaries), so
+                    // per-iteration receipts are observed through THIS group's
+                    // own unique-identity subscription; the probe's own count
+                    // rides along as the production-path smoke (the full-chain
+                    // probe lands with DEV-V3-08).
+                    var seen = new List<HostTick>();
+                    var seenHandle = BetterUnturnedExperience.Plugin.BueHostEventRuntime.Bus
+                        .Subscriber(new FeatureId("io.github.yu80rice.bue.test.v3clockprobe"))
+                        .Subscribe<HostTick>(seen.Add);
+                    var before = probe.HostTicksReceived;
+                    Check(BetterUnturnedExperience.Plugin.BueHostEventRuntime.TickOnce(),
+                        "支线：宿主泵拍 TickOnce 产针");
+                    Check(BetterUnturnedExperience.Plugin.BueHostEventRuntime.TickOnce(),
+                        "支线：下一泵拍再产针");
+                    Check(seen.Count == 2, "支线：每拍恰一 tick 到达独立订阅者（不重不漏）");
+                    Check(seen.Count == 2 && seen[1].TickNumber == seen[0].TickNumber + 1UL,
+                        "支线：序号逐拍推进 +1（生产真时钟跨两拍严格单调）");
+                    Check(probe.HostTicksReceived == before + 2,
+                        "支线：probe 自身同两拍到达（生产泵真实驱动订阅者集合）");
+                    Check(probe.LastHostTickPhase == TickPhase.Update
+                            && probe.LastHostTickDeltaSeconds >= 0f,
+                        "支线：载荷三字段检查=Phase 冻结 Update/DeltaTime 非负（时序面无业务内容）");
+                    var probeAtStop = probe.HostTicksReceived;
+                    BueFeatureStartRuntime.StopAll(FeatureStopReason.PluginStopping);
+                    BetterUnturnedExperience.Plugin.BueHostEventRuntime.TickOnce();
+                    Check(probe.HostTicksReceived == probeAtStop,
+                        "支线：停止边界自动注销——后续泵拍不再到达 probe（停止自动注销生态侧）");
+                    seenHandle.Dispose();
+                    BetterUnturnedExperience.Plugin.BueMainThreadRuntime.Clear();
+                });
+            }
+            catch (Exception error) when (collectAllFailures)
+            {
+                reds.Add("UNEXPECTED: " + error.GetType().FullName + ": " + error.Message);
+            }
+            if (collectAllFailures && reds.Count == 0)
+                Console.WriteLine("DEV-V3-05 host clock collection: ALL GREEN (0 failures) — groups: 暂停恢复语义/Tick 失败不扩散与结构化诊断/主线程构造性保证/官方先行消费锚 LHT 经真宿主时钟/生态对照 NoOp HostTick 支线");
+            if (collectAllFailures && reds.Count > 0)
+                throw new InvalidOperationException("DEV-V3-05 red collection (" + reds.Count + "): " + string.Join(" || ", reds));
+        }
+
         private static void AssertBueV2LhtAdoption(bool collectAllFailures = false)
         {
             var reds = new List<string>();

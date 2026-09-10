@@ -28,6 +28,14 @@ namespace BetterUnturnedExperience.Core.Events
     /// construction, same declaration as the DEV-V2-18 engine binding).
     /// Feature modules must never build their own Unity Update pumps — they
     /// subscribe to this seam instead.
+    /// DEV-V3-05 (V3-T6 registration, zero new contract surface): pause/
+    /// resume semantics are plain absence of beats — while the host pump is
+    /// paused no tick is produced and the first tick after resume carries the
+    /// real accumulated interval (no catch-up, no reset; ignoring large
+    /// intervals is the feature's own choice). The recommended low-frequency
+    /// pattern for features is SELF-THROTTLING on DeltaTime/sequence
+    /// accumulation (the LHT 10Hz presentation cadence is the official
+    /// precedent); derived clocks and per-feature scheduling stay foggy.
     /// </summary>
     public sealed class HostTickClock
     {
@@ -81,7 +89,13 @@ namespace BetterUnturnedExperience.Core.Events
             }
             catch (Exception error)
             {
-                bus.EmitDiagnostic("event=host-tick result=failed errorType=" + error.GetType().Name + " message=" + error.Message);
+                // DEV-V3-05 (T6 semantics ⑦): the failure surfaces as a
+                // structured diagnostic with its registered code family
+                // BUE-CLOCK-001 — explicit false return, zero dispatch, the
+                // sequence is not consumed and the time baseline does not
+                // move on a failed beat (pinned by the fake-clock group).
+                bus.EmitDiagnostic("event=host-tick result=failed errorType=" + error.GetType().Name
+                    + " message=" + error.Message + " diagnosticId=BUE-CLOCK-001");
                 return false;
             }
         }

@@ -393,6 +393,37 @@ namespace BetterUnturnedExperience.Contracts.Tests
                     && !mtRejected.Posted && mtRejected.Reason == MainThreadPostReason.CapacityExceeded && mtRejected.DiagnosticId == "BUE-MT-001",
                 "DEV-V3-04: MainThreadPostResult carries the explicit outcome triple (posted/reason/diagnostic)");
 
+            // DEV-V3-05: the host clock payload-shape registration — this
+            // ticket adds ZERO new contract surface. HostTick carries exactly
+            // the three timing properties (TickNumber/DeltaTime/Phase — no
+            // business payload ever rides the clock) under the frozen reserved
+            // identity string; TickPhase stays the single frozen member
+            // Update=0 (further phases = an explicit additive registry
+            // extension, never implied); the event-seam views stay their
+            // single-method shapes and IFeatureBootstrap stays at its eleven
+            // members (the matrix unchanged by this ticket).
+            var tickProperties = typeof(HostTick).GetProperties();
+            var tickHasSequence = false;
+            var tickHasDelta = false;
+            var tickHasPhase = false;
+            for (var propertyIndex = 0; propertyIndex < tickProperties.Length; propertyIndex++)
+            {
+                if (tickProperties[propertyIndex].Name == "TickNumber") tickHasSequence = true;
+                if (tickProperties[propertyIndex].Name == "DeltaTime") tickHasDelta = true;
+                if (tickProperties[propertyIndex].Name == "Phase") tickHasPhase = true;
+            }
+            Assert(tickProperties.Length == 3 && tickHasSequence && tickHasDelta && tickHasPhase,
+                "DEV-V3-05: HostTick stays the three-field timing payload (TickNumber/DeltaTime/Phase) — no business field rides the clock");
+            Assert(HostTick.EventId == "io.github.yu80rice.bue.host/host-tick" && typeof(HostTick).IsValueType,
+                "DEV-V3-05: the HostTick reserved identity string and value-type payload shape stay frozen");
+            Assert(Enum.GetValues(typeof(TickPhase)).Length == 1 && (byte)TickPhase.Update == 0,
+                "DEV-V3-05: TickPhase stays the single frozen member Update=0 — further phases are an explicit contract-registry addition");
+            Assert(typeof(IOwnedFeatureEventPublisher).GetMethods().Length == 1
+                    && typeof(IFeatureEventSubscriber).GetMethods().Length == 1
+                    && typeof(IFeatureEventRegistry).GetMethods().Length == 1
+                    && typeof(IFeatureBootstrap).GetProperties().Length == 11,
+                "DEV-V3-05: zero new contract surface — the event-seam views stay single-method and IFeatureBootstrap stays at its eleven members");
+
             var presentation = new FeaturePresentationView(new FeatureId("io.example.tracer"), FeaturePresentationState.PresentationDegraded, "BUE-UI-001", 1UL);
             Assert(presentation.State == FeaturePresentationState.PresentationDegraded && presentation.PresentationRevision == 1UL, "presentation state is a separate value projection");
             Console.WriteLine("DEV-10 registration runtime tests: PASS");

@@ -44,6 +44,17 @@ namespace BetterUnturnedExperience.NoOpFixture
             // DEV-V3-08).
             public bool MainThreadAvailable;
             public bool MainThreadPosted;
+            // DEV-V3-05 HostTick branch (V3-T6 裁决③): the probe subscribes
+            // to the host clock through the Events seam and records what the
+            // ticks carried — the host-test side asserts the receipt, the
+            // sequence advance, the frozen phase and the stop-boundary
+            // auto-unsubscription. Sample fixture surface, not SDK contract.
+            public bool HostTickSubscribed;
+            public int HostTicksReceived;
+            public ulong FirstHostTickNumber;
+            public ulong LastHostTickNumber;
+            public TickPhase LastHostTickPhase;
+            public float LastHostTickDeltaSeconds;
         }
 
         public static ProbeState LastProbe { get; private set; }
@@ -82,6 +93,7 @@ namespace BetterUnturnedExperience.NoOpFixture
         private sealed class NoOpModule : IFeatureModule
         {
             private ProbeResource resource;
+            private IDisposable hostTickSubscription;
 
             public FeatureStartResult Start(IFeatureBootstrap bootstrap)
             {
@@ -97,6 +109,22 @@ namespace BetterUnturnedExperience.NoOpFixture
                 {
                     probe.MainThreadAvailable = true;
                     probe.MainThreadPosted = bootstrap.MainThread.Post(() => { }).Posted;
+                }
+                // DEV-V3-05 HostTick branch: subscribe the frozen clock seam
+                // exactly as an ecosystem consumer should (the host drops the
+                // subscription at the stop boundary — no self-teardown here);
+                // record every tick's timing payload for the host-test side.
+                if (bootstrap.Events != null)
+                {
+                    hostTickSubscription = bootstrap.Events.Subscribe<HostTick>(tick =>
+                    {
+                        probe.HostTicksReceived++;
+                        if (probe.HostTicksReceived == 1) probe.FirstHostTickNumber = tick.TickNumber;
+                        probe.LastHostTickNumber = tick.TickNumber;
+                        probe.LastHostTickPhase = tick.Phase;
+                        probe.LastHostTickDeltaSeconds = tick.DeltaTime;
+                    });
+                    probe.HostTickSubscribed = hostTickSubscription != null;
                 }
                 probe.Started = true;
                 return new FeatureStartResult(true, FrameworkErrorCode.None, "BUE-NOOP-START");

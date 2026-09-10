@@ -272,6 +272,18 @@ namespace BetterUnturnedExperience.Plugin
                 var existing = FindEntryLocked(feature.Value);
                 if (existing != null)
                 {
+                    // A re-cataloged start (a fresh runtime composition) re-arms
+                    // the entry with the CURRENT generation's assembly: the
+                    // machine that drove this module's BeginStart/Start owns its
+                    // stop boundary. Keeping a stale machine here made BeginStop
+                    // reject with invalid-state and skip UnsubscribeAll — the new
+                    // generation's bus subscriptions leaked past the stop edge
+                    // (DEV-V3-05 clock-subgroup red: 停止边界自动注销). Identity
+                    // and Network move with the machine for the same reason (the
+                    // module's bootstrap was composed from them).
+                    existing.Machine = machine;
+                    existing.Identity = identity;
+                    existing.Network = network;
                     existing.Module = module;
                     existing.LifetimeView = lifetimeView;
                     existing.Stopped = module == null;
