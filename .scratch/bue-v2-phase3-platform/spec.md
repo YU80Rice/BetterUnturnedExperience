@@ -2,6 +2,7 @@
 
 Status: ready-for-agent
 来源：`.scratch/bue-v2-phase3-platform/map.md`（completed）+ V3-T1..T10 决策票 Answer + V3-R1/R2 研究报告；本规格只把已裁决内容成文，不重开已关闭争议。
+修订：2026-09-10 架构审查澄清修订（不改裁决、只收紧空位）——可用性矩阵（阶段基线≠票后终态）、事件路由内部模型、主线程 dispatcher 与生命周期状态查询的公开 seam 归属、owner-scoped 登记记录、网络回放失败投影、测试缝措辞、版本时序；标注「澄清修订」的条目与票 Answer 冲突时以本规格为准。
 
 ## 事实基线（历史规划与已建成事实的分界）
 
@@ -28,7 +29,7 @@ Status: ready-for-agent
 2. As an 生态功能作者, I want 官方 FeatureId 保留段被确定性拒绝（`ReservedFeatureId`/`BUE-REG-010`）, so that 我不会误以为冒用官方身份可以成功
 3. As an 生态功能作者, I want 注册拒绝码表在 SDK 文档中逐码登记, so that 我能按原因分支处理（等待/禁用自身/提示缺前置/报版本不兼容）
 4. As an 生态功能作者, I want 注入的 `IFeatureBootstrap` 上 Network/Events/OwnedEvents/Identity/LifecycleGeneration 五成员生命周期内永非 null, so that 我不需要对平台服务做空值防御
-5. As an 生态功能作者, I want Settings/Logger/Dependencies/Lifetime 四成员在本阶段恒 null 且文档明示不可用, so that 我不会依赖未承诺的面
+5. As an 生态功能作者, I want 未承诺的 Bootstrap 成员在对应实施票完成前保持 null 且文档明示不可用（对应票完成后按可用性矩阵终态可用）, so that 我不会依赖未承诺的面
 6. As an 生态功能作者, I want 只能以自己的 FeatureId 派生事件身份发布功能事件, so that 事件协作不会出现身份冒用
 7. As an 生态功能作者, I want 发布他人公开事件类型的载荷被归属检查拒绝, so that 我消费到的 TidyCompleted/HostTick 一定来自真实发布者
 8. As an 生态功能作者, I want 订阅句柄幂等注销且停止时自动清理, so that 我不需要手写订阅生命周期管理
@@ -53,7 +54,7 @@ Status: ready-for-agent
 
 ## Implementation Decisions
 
-以下全部来自 V3-T1..T10 已裁决条目（细节以对应票 Answer 为准）。
+以下全部来自 V3-T1..T10 已裁决条目+2026-09-10 架构审查澄清修订（细节以对应票 Answer 为准；标注「澄清修订」处为本规格后收紧，冲突时以本规格为准）。
 
 ### 共享规则（V3-T1）
 
@@ -66,12 +67,16 @@ Status: ready-for-agent
 
 - 官方身份白名单：保留段 FeatureId 须 ∈ 白名单（BII/LIT/LIR/LHT/BUE Network/ClientUi satellite 等），否则 `ReservedFeatureId`/`BUE-REG-010` 拒绝；判定顺序=基础校验→格式校验→保留段→合同版本→重复→结果；不反射 caller、不读路径。
 - Admission 三类型（Result/Phase/Reason）与 `BUE-REG-001..010` 码表整体入冻结面；拒绝=显式结果不抛异常。
-- Bootstrap 分层承诺：Identity/LifecycleGeneration/Events/OwnedEvents/Network 五成员永非 null（入冻结面+红测）；Settings/Logger/Dependencies/Lifetime 恒 null 为冻结语义（其中 Settings 归 06 票、Logger 归 07 票、Lifetime/Dependencies 归 03 票接线）。
+- Bootstrap 分层承诺=**阶段基线 ≠ 票后终态**（2026-09-10 澄清修订，消解「恒 null」与「各票接线」的时态冲突）：
+  - 永非 null（冻结+红测）：Identity/LifecycleGeneration/Events/OwnedEvents/Network。
+  - 阶段基线（DEV-V3-01 后、对应票未接线）：Lifetime/Dependencies/MainThread/Settings/Logger 尚不可用（null），SDK 文档按矩阵明示；这是过渡纪律，不是终态承诺。
+  - 票后终态（可用性矩阵）：Lifetime/Dependencies→DEV-V3-03；Settings→DEV-V3-06；Logger→DEV-V3-07；MainThread→DEV-V3-04（见网络节）。各票红线须同时钉住自己成员的「接线前 null+接线后可用」两侧。
 - 不引入 registration session；`SupportedContractMajor=2`/`Minor=1`，2.0 模块继续可注册。
 
 ### 功能事件（V3-T3 → DEV-V3-02）
 
-- 新路由不变量：**发布者 owner == 载荷类型归属 owner**（TidyCompleted→LIT、HostTick→宿主保留身份、生态事件→其 FeatureId）；未登记类型按明确规则拒绝，不静默放行； eventId 前缀校验保留。
+- 新路由不变量：**发布者 owner == 载荷类型归属 owner**（TidyCompleted→LIT、HostTick→宿主保留身份、生态事件→其 FeatureId）；eventId 前缀校验保留。
+- 内部路由模型（2026-09-10 澄清修订）：路由索引=（EventId, EventType, 载荷类型归属 owner）三元组，**一个载荷类型 ↔ 恰一个归属 EventId**。官方事件类型由宿主在组合期唯一登记；生态自定义事件须先由其 owner 功能登记类型归属（登记 API 落点由 DEV-V3-02 定，属 Minor 加性）。未登记类型：发布=显式拒绝+诊断+不调用任何订阅者；订阅=同样拒绝（开发期错误，同 null handler fail-fast 纪律）。同一载荷类型只有一个归属 EventId，不存在「同类型不同事件互收」；公开订阅 API 形状不变，泛型 `Subscribe<TEvent>` 保留为便利入口，内部按登记的（EventId, Type）路由。
 - 拒绝=显式失败+结构化诊断+不调用任何订阅者；两接口（IFeatureEventSubscriber/IOwnedFeatureEventPublisher）语义入冻结面；FeatureEventBus 类本体保持内部自由。
 - 不引入统一 envelope；事件总线=进程内本地（跨机走 BueNetworkApi）。
 
@@ -79,7 +84,9 @@ Status: ready-for-agent
 
 - `FeatureState`/`FeatureStatusView`/`StateRevision` 接线为唯一状态投影；散装布尔标志收编为内部实现；模块不可改状态。
 - `IFeatureLifetime.TryTrack` 接线：停止后按注册逆序 Dispose、单 Dispose 异常隔离进诊断、容量必须有上限（数值留实施票）、已停止/隔离功能不可再登记。
-- 只读状态查询缝（扩展 IFeatureLifetime 或独立只读 view 由实施票定，本规格冻语义不冻形状）；Dependencies=只读目录能力查询（Has/TryGet），不是求解器。
+- 只读状态查询 seam 冻结归属（2026-09-10 澄清修订）：扩展 `IFeatureLifetime` 增最小只读状态查询（成员命名由 DEV-V3-03 定），返回 `FeatureStatusView`；只读不可写、仅限查询自身 FeatureId（view 组合期已绑定自身身份）、状态变更只能由宿主驱动并经状态投影/事件呈现；`FeatureStatusView` 是面板与生态共用的同一事实投影。
+- Dependencies=只读目录能力查询（Has/TryGet），不是求解器。
+- 宿主内部登记记录（2026-09-10 澄清修订）：不公开 registration session（T2 裁决保留），但宿主内部必须维护 owner-scoped registration record（FeatureId/注册来源/当前状态/LifecycleGeneration/资源所有权/停止与隔离结果），不得退化为 FeatureId 全局查找+散装静态表。
 - 两代际轴分离（LifecycleGeneration vs ConnectionGeneration）；再启用=新代际旧代际全失效；Isolated 不自动重启；面板启停 seam 落地（面板=command adapter）。
 - `CoreSafeMode` 只由组合期不变量损坏触发（catalog 冻结失败/核心 capability 组合失败等）；运行期单功能失败永不升级，只走功能级隔离。
 
@@ -87,9 +94,11 @@ Status: ready-for-agent
 
 - 发送预算：平台按会话保底限流，超出=新 `NetworkSendResult.Throttled`（加性枚举值，旧模块须对未知结果安全降级）；预算随 ConnectionGeneration 隔离；官方生态一视同仁；不静默丢弃。窗口/令牌数/容量留实施票。
 - 业务重试与退避不上收（LIT 挑战重臂保留功能私有）；LIT 告警限频被链路健康接管后退役。
-- 入站回调线程=传输泵线程（SDK 冻结登记）；提供统一主线程 dispatcher 服务（容量上限/超限显式失败/任务绑定模块代际/停止失效/单任务异常隔离/禁自建泵）；LIR 迁移为官方先行消费者。
+- 入站回调线程=传输泵线程（SDK 冻结登记）。
+- 统一主线程 dispatcher 的生态可调用 seam 冻结归属（2026-09-10 澄清修订）：**`IFeatureBootstrap` 新增 `MainThread` 成员**（dispatcher 窄接口的命名与形状由 DEV-V3-04 定；接线前为 null、由 DEV-V3-04 接线，入可用性矩阵）。语义冻结：容量上限/超限显式失败/任务绑定模块代际/停止失效/单任务异常隔离/禁自建泵；LIR 迁移为官方先行消费者。
 - 会话链路健康：连续失败达阈值（默认 10，先例）→一次 degraded 诊断；成功恢复→一次 recovered+清零；每会话代际独立。
 - 入站 handler 异常从静默吞改为结构化诊断（不扩散、不打穿泵线程）；不新增网络状态查询面。
+- 回放失败投影（2026-09-10 澄清修订）：`DeferredBueNetworkApi` 的 Attach/replay/detach 失败必须进统一诊断 sink，并可与「未就绪/重放失败/模块停止/传输不可用」区分；不新增业务协议、不新增网络状态查询 API。
 
 ### 宿主时钟（V3-T6 → DEV-V3-05）
 
@@ -98,14 +107,14 @@ Status: ready-for-agent
 
 ### 设置（V3-T7 → DEV-V3-06）
 
-- `bootstrap.Settings` 接线（恒 null→可用）：view 限当前功能作用域（GetSnapshot/TryGet/Submit）；官方与生态共用 SettingsRuntime 规则（校验/revision 单调/损坏安全默认/原子提交/作用域隔离）；类本体不列契约。
+- `bootstrap.Settings` 接线（阶段基线 null→DEV-V3-06 接线可用）：view 限当前功能作用域（GetSnapshot/TryGet/Submit）；官方与生态共用 SettingsRuntime 规则（校验/revision 单调/损坏安全默认/原子提交/作用域隔离）；类本体不列契约。
 - 面板按注册目录动态路由（官方硬编码清单退役）；面板=编辑 adapter 非第二事实源；未提供设置的功能不伪造设置页。
 - ClientPreference/ServerAuthority 双 scope：U3DS 与 P2P 主机权威端同语义；会话覆盖断线清除不污染持久化 revision；不做跨机同步协议。
 - schemaVersion 通道保留，迁移由功能自理；`ExpectedRevision` 防旧 UI 覆盖新值。
 
 ### 诊断（V3-T8 → DEV-V3-07）
 
-- `IFeatureLogger` 接线（恒 null→可用）：每模块绑定自身 FeatureId 的 view，三方法窄面（Info/Warning/Error）；Logger 异常不得反向破坏模块。
+- `IFeatureLogger` 接线（阶段基线 null→DEV-V3-07 接线可用）：每模块绑定自身 FeatureId 的 view，三方法窄面（Info/Warning/Error）；Logger 异常不得反向破坏模块。
 - 有界诊断摘要：按 DiagnosticId 聚合（FeatureId/级别/计数/首末时间），容量受限/输出限频/重启不持久；结构化行写入 BepInEx LogOutput。
 - **BUE 不建日志复制器/采集器/导出动作**——原始日志导出归 UMM 人工流程（Player.log+LogOutput.log）；摘要≠验收授权。
 - `BUE-*` 平台诊断前缀保留；生态诊断码用 FeatureId 派生前缀，冒用=拒绝写入+诊断。
@@ -115,7 +124,7 @@ Status: ready-for-agent
 
 - 正文八节冻结不动；新增附录 A（平台服务参考：Admission/Events/Lifecycle/Network/HostTick/Settings/Diagnostics 七节）、附录 B（诊断与身份码表：BUE-REG-001..010、BUE-PLATFORM-001/002、前缀纪律、FeatureId 保留段及合法/非法示例）、附录 C（契约版本与迁移：2.0→2.1 条目、安全降级原则、Major 纪律、四条件门禁、RELEASES 注记要求）。
 - Contracts 拆分四条件全部未触发→继续暂缓，逐条登记为门禁条款（定义/事实判定/触发信号/重评义务；先触发预判=①编译脱耦、③发布节奏分化）。
-- NoOpFixture=统一生态契约 probe（注册→Bootstrap→Events→TryTrack/Lifecycle→Network→HostTick→Settings→Logger→停止与隔离全链）+「生态 DLL 上架前自检清单」（11 项人工核对）。
+- NoOpFixture=统一生态契约 probe（注册→Bootstrap→Events→TryTrack/Lifecycle→Network→HostTick→Settings→Logger→停止与隔离全链，按可用性矩阵的票后终态路径覆盖）+「生态 DLL 上架前自检清单」（11 项人工核对）。
 - SDK 文档随主 DLL 契约版本走，不独立发版；文档示例锚定 NoOpFixture 真实代码。
 
 ### 契约版本
@@ -126,7 +135,7 @@ T2..T8 的 Minor 加性变更单一批次合入：**2.1**（若实际分批则�
 
 - **红测先行**：每张实施票先立红测锚点再实现；红绿后跑双轴独立审查（standards-reviewer/Spec-Reviewer 专属智能体）→ CLEAN 才交付（docs/agents/output-review-loop.md）。
 - **只测外显行为**：经公开 seam 断言结果（结果四元组/状态投影/结构化诊断行/摘要计数），不断言内部锁、表结构或私有标志。
-- **测试缝与既有先例**（全部既有缝，零新测试缝）：
+- **测试缝与既有先例**（措辞校准 2026-09-10：不新建测试工程；优先复用既有缝；实现所需的新公开 seam 由对应票一并建立测试并红测钉住）：
   1. 注册桥：显式结果断言（Accepted/FeatureId/Reason/DiagnosticId），逐码锚 001..010；先例=注册运行时既有宿主测试。
   2. 事件总线：归属拒绝/前缀拒绝/句柄幂等/异常隔离/UnsubscribeAll 完整性；先例=DEV-V2-19 总线测试组。
   3. 生命周期：假模块驱动状态机（Start 抛异常→Isolated 不扩散；TryTrack 逆序 Dispose；UserDisabled 停/新代际启）；先例=NoOp+假模块宿主测试。
@@ -151,7 +160,7 @@ T2..T8 的 Minor 加性变更单一批次合入：**2.1**（若实际分批则�
 ## Further Notes
 
 - **DEV-V3 实施票计划（V3-T10 冻结）**：一票一 seam 共 9 张——01 注册桥/Bootstrap、02 FeatureEventBus、03 BueLifecycle、04 BueNetwork、05 HostTick、06 BueSettings、07 BueDiagnostics、08 SDK 附录总装+四条件落档、09 三环境验收+RELEASES+publish 换新。真实依赖：01→02/03；01+03→04；03→05/06；01+03+04→07；01..07→08→09。不按票号强行并行。
-- **候选策略**：01..08 各自红绿+双轴 CLEAN 即提交，**不产正式候选 DLL、不更新 RELEASES、不授 CaseId**（中间诊断构建≠候选≠发布物≠可继承证据）；09 生成唯一 Phase-3 `2.1` 候选，三环境验收+SHA-256/CaseId 绑定+人工批准后加 RELEASES 行+publish 交付包同步换新。
+- **候选策略**：01..08 各自红绿+双轴 CLEAN 即提交，**不产正式候选 DLL、不更新 RELEASES、不授 CaseId**（中间诊断构建≠候选≠发布物≠可继承证据）；01..08 的中间构建=开发态内部基线，不是对外 SDK 版本、不是生态可引用发布物——某票接上某 2.1 成员不等于 2.1 已发布，对外版本以 09 的整体候选为准（2026-09-10 澄清）；09 生成唯一 Phase-3 `2.1` 候选，三环境验收+SHA-256/CaseId 绑定+人工批准后加 RELEASES 行+publish 交付包同步换新。
 - **移交总账防遗漏**：T9 Answer 的 T1..T8→SDK 条目总账是附录 A/B/C 的填充目录，实施期每条必须映射到具体章节；DEV-V3-08 结票前逐条核对。
 - **契约版本注记**：「单一批次 2.1」是当前实施计划而非永久规则；实际分批发布时按 Minor 顺延即可。
 - **下一步**：`/to-tickets` 按 Further Notes 的票计划与依赖边产出 DEV-V3-01..09 实施票（issues/ 目录，ready-for-agent），每票独立会话 `/implement`。
