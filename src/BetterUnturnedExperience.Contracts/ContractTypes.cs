@@ -7,14 +7,21 @@ namespace BetterUnturnedExperience.Contracts
     public readonly struct ContractVersion { public ushort Major { get; } public ushort Minor { get; } public ContractVersion(ushort major, ushort minor) { Major = major; Minor = minor; } }
     public readonly struct FeatureDependency { public FeatureId Feature { get; } public Version MinimumFeatureVersion { get; } public ContractVersion MinimumContract { get; } public bool Required { get; } }
     public readonly struct Digest256 { public ulong Part0 { get; } public ulong Part1 { get; } public ulong Part2 { get; } public ulong Part3 { get; } public Digest256(ulong part0, ulong part1, ulong part2, ulong part3) { Part0 = part0; Part1 = part1; Part2 = part2; Part3 = part3; } }
-    public readonly struct FeatureScopeIdentity { public FeatureId Id { get; } public Version FeatureVersion { get; } public string CurrentSlug { get; } public string DefinitionSetId { get; } public Digest256 DefinitionSetDigest { get; } }
+    // DEV-V3-01: constructible identity — the host start path binds the
+    // feature's own registration identity instead of the default record.
+    // Additive to the frozen surface (a constructor; existing getters
+    // unchanged), registered with the Minor 2.1 change log batch.
+    public readonly struct FeatureScopeIdentity { public FeatureId Id { get; } public Version FeatureVersion { get; } public string CurrentSlug { get; } public string DefinitionSetId { get; } public Digest256 DefinitionSetDigest { get; } public FeatureScopeIdentity(FeatureId id, Version featureVersion, string currentSlug, string definitionSetId, Digest256 definitionSetDigest) { Id = id; FeatureVersion = featureVersion; CurrentSlug = currentSlug; DefinitionSetId = definitionSetId; DefinitionSetDigest = definitionSetDigest; } }
 
     public enum FeatureRegistrationPhase : byte { HostStarting = 0, RegistrationOpen = 1, CatalogFrozen = 2, RuntimeReady = 3, CoreSafeMode = 4 }
+    // DEV-V3-01: ReservedFeatureId (206) joins the frozen reason table — the
+    // additive Minor 2.1 value for a reserved-segment FeatureId outside the
+    // official identity whitelist (diagnostic BUE-REG-010).
     public enum FeatureRegistrationReason : ushort
     {
         None = 0, HostUnavailable = 100, PhaseClosed = 101, DuplicateFeature = 200, InvalidDefinitionArtifact = 201,
         ContractIncompatible = 202, MissingRequiredDependency = 203, InvalidModuleFactory = 204,
-        InvalidClientUiRegistration = 205, PreflightRejected = 300, CoreUnavailable = 900
+        InvalidClientUiRegistration = 205, ReservedFeatureId = 206, PreflightRejected = 300, CoreUnavailable = 900
     }
 
     public sealed class FeatureDefinitionArtifact

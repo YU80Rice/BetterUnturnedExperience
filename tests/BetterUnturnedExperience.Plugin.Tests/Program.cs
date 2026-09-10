@@ -439,6 +439,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 Assert(runtime.Catalog.Entries[0].Definition.Feature.Value == "io.github.yu80rice.bue.better-item-interaction", "catalog order is deterministic by feature identity");
                 var late = NoOpFeatureRegistration.Register();
                 Assert(late.Reason == FeatureRegistrationReason.PhaseClosed, "fixture late registration is rejected");
+                AssertBueV3RegistrationGateAndBootstrapMatrix();
                 // F-E: pure truth tables, no host state — runs before F-D.
                 AssertBueV2FeEnginePeerIdentity();
                 // F-D: runs last — it replaces the bound runtime and clears the
@@ -8229,6 +8230,101 @@ namespace BetterUnturnedExperience.Plugin.Tests
             Assert(ready.TryComplete() && done == 1, "completed barrier is idempotent");
             Assert(!ready.Isolated, "successful completion does not isolate the barrier");
             Assert(ready.LastFailure == null, "successful completion leaves no failure behind");
+        }
+
+        // DEV-V3-01: the official identity whitelist on the REAL public bridge
+        // (every shipped official FeatureId registers, a rogue reserved-segment
+        // identity is rejected), plus the ten-member bootstrap availability
+        // matrix observed on the REAL host start composition (StartCatalog):
+        // the five frozen members are never null — Identity now binds the
+        // feature's own registration identity — and the five un-wired members
+        // stay null at this ticket's baseline (Lifetime/Dependencies wire with
+        // DEV-V3-03, MainThread with DEV-V3-04, Settings with DEV-V3-06, Logger
+        // with DEV-V3-07; the spec's availability matrix is the only truth).
+        private static void AssertBueV3RegistrationGateAndBootstrapMatrix()
+        {
+            var previousRuntime = BueRuntimeHost.CurrentRuntime;
+            try
+            {
+                var hostRuntime = new FeatureRegistrationRuntime();
+                BueRuntimeHost.Bind(hostRuntime);
+                hostRuntime.OpenRegistration();
+                Assert(BetterItemInteractionFeatureRegistration.Register().Accepted,
+                    "DEV-V3-01: official BII registers through the public bridge (whitelist positive)");
+                Assert(BueRuntimeHost.Register(InventoryTidyFeatureRegistration.CreateRegistration()).Accepted,
+                    "DEV-V3-01: official LIT registers through the public bridge (whitelist positive)");
+                Assert(BueRuntimeHost.Register(InPlaceReloadFeatureRegistration.CreateRegistration()).Accepted,
+                    "DEV-V3-01: official LIR registers through the public bridge (whitelist positive)");
+                Assert(BueRuntimeHost.Register(HordeTrackerFeatureRegistration.CreateRegistration()).Accepted,
+                    "DEV-V3-01: official LHT registers through the public bridge (whitelist positive)");
+                var officialNetwork = NetworkModuleFeatureRegistration.CreateOfficialRegistrations();
+                for (var index = 0; index < officialNetwork.Length; index++)
+                {
+                    Assert(BueRuntimeHost.Register(officialNetwork[index]).Accepted,
+                        "DEV-V3-01: the official network pair registers through the public bridge (whitelist positive)");
+                }
+                var rogue = BueRuntimeHost.Register(new MatrixProbeRegistration("io.github.yu80rice.bue.rogue"));
+                Assert(!rogue.Accepted && rogue.DiagnosticId == "BUE-REG-010",
+                    "DEV-V3-01: the public bridge rejects a rogue reserved-segment identity with BUE-REG-010");
+
+                var probe = new MatrixProbeRegistration("io.example.matrix-probe");
+                var probeRuntime = new FeatureRegistrationRuntime();
+                probeRuntime.OpenRegistration();
+                Assert(probeRuntime.Register(probe).Accepted, "setup: the matrix probe registers on a fresh runtime");
+                Assert(probeRuntime.CompleteRuntime(), "setup: the probe catalog completes");
+                var pair = BetterUnturnedExperience.Core.Network.LocalLoopbackTransport.CreatePair();
+                var network = new BetterUnturnedExperience.Core.Network.BueNetworkRuntime(pair.First, new ContractVersion(2, 0), 1001UL);
+                BueFeatureStartRuntime.StartCatalog(probeRuntime, network);
+                Assert(probe.Module.Bootstrap != null, "DEV-V3-01: the probe module started on the real host composition");
+                var captured = probe.Module.Bootstrap;
+                Assert(captured.Events != null && captured.OwnedEvents != null && captured.Network != null,
+                    "DEV-V3-01: Events/OwnedEvents/Network are never null on the start composition");
+                Assert(captured.LifecycleGeneration != 0UL,
+                    "DEV-V3-01: LifecycleGeneration is a real host-allocated generation");
+                Assert(captured.Identity.Id.Value == "io.example.matrix-probe",
+                    "DEV-V3-01: Identity binds the feature's own registration identity (not the default record)");
+                Assert(captured.Identity.DefinitionSetId == "bue-v3-matrix-probe",
+                    "DEV-V3-01: Identity carries the definition set the registration was admitted with");
+                Assert(captured.Settings == null && captured.Logger == null && captured.Dependencies == null && captured.Lifetime == null,
+                    "DEV-V3-01: the un-wired members stay null at the DEV-V3-01 baseline (availability matrix)");
+            }
+            finally
+            {
+                BueRuntimeHost.Bind(previousRuntime);
+            }
+        }
+
+        private sealed class MatrixProbeRegistration : IFeatureRegistration
+        {
+            internal readonly MatrixProbeModule Module = new MatrixProbeModule();
+
+            internal MatrixProbeRegistration(string featureId)
+            {
+                Definition = new FeatureDefinitionArtifact(new FeatureId(featureId), 1, "bue-v3-matrix-probe", new Digest256(1, 2, 3, 4), new Digest256(5317555933983313923UL, 8642148531063968556UL, 2942485310001909708UL, 9366110643396117629UL), new byte[] { 1, 2, 3 });
+            }
+
+            public FeatureDefinitionArtifact Definition { get; }
+            public ContractVersion MinimumBueContract { get { return new ContractVersion(2, 0); } }
+            public IFeatureModuleFactory ModuleFactory { get { return new MatrixProbeFactory(Module); } }
+            public IClientUiSatelliteRegistration ClientUi { get { return null; } }
+        }
+
+        private sealed class MatrixProbeFactory : IFeatureModuleFactory
+        {
+            internal MatrixProbeFactory(MatrixProbeModule module) { Module = module; }
+            internal MatrixProbeModule Module { get; }
+            public IFeatureModule Create() { return Module; }
+        }
+
+        private sealed class MatrixProbeModule : IFeatureModule
+        {
+            internal IFeatureBootstrap Bootstrap { get; private set; }
+            public FeatureStartResult Start(IFeatureBootstrap bootstrap)
+            {
+                Bootstrap = bootstrap;
+                return new FeatureStartResult(true, FrameworkErrorCode.None, "BUE-V3-PROBE-START");
+            }
+            public void Stop(FeatureStopReason reason) { }
         }
 
         private static void AssertNativeUiGateReflectsMemberPresence()

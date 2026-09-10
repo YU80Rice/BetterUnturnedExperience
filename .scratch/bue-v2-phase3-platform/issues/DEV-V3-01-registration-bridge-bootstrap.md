@@ -1,7 +1,7 @@
 # DEV-V3-01：注册桥与 Bootstrap 基线（官方身份白名单+十成员可用性矩阵+内部登记记录）
 
 Type: task
-Status: ready-for-agent
+Status: resolved（2026-09-10，双轴 R2 双 CLEAN 闭环；审计=audit/2026-09-10/DEV-V3-01/结单报告.md）
 Parent: spec.md（V2 第三阶段规格·生态开发者平台能力定界与接线，两轮澄清修订后版本）
 Blocked by: 无（先行票，可立即开始）
 Spec: `../spec.md`（「注册桥与 Bootstrap（V3-T2 → DEV-V3-01）」节+Implementation Decisions 共享规则）

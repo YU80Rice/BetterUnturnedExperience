@@ -189,6 +189,107 @@ namespace BetterUnturnedExperience.Contracts.Tests
             var gateTooNew = gateTooNewRuntime.Register(new HighContractRegistration("io.example.gate-toonew"));
             Assert(!gateTooNew.Accepted && gateTooNew.Reason == FeatureRegistrationReason.ContractIncompatible,
                 "DEV-V2-14: a (3,0) minimum-contract registration is rejected with ContractIncompatible");
+
+            // DEV-V3-01: the registration code table BUE-REG-001..010 is
+            // anchored code by code (Reason AND DiagnosticId), the official
+            // identity whitelist gates the reserved segment behind a fixed
+            // decision order, and the contract gate opens for the Minor 2.1
+            // additive batch while (2,0) stays registrable.
+            Assert((ushort)FeatureRegistrationReason.ReservedFeatureId == 206,
+                "DEV-V3-01: ReservedFeatureId is the additive reason value 206");
+            var codeRuntime = new FeatureRegistrationRuntime();
+            var codeResult = codeRuntime.Register(new StubRegistration("io.example.code-001"));
+            Assert(!codeResult.Accepted && codeResult.Reason == FeatureRegistrationReason.HostUnavailable && codeResult.DiagnosticId == "BUE-REG-001",
+                "DEV-V3-01: BUE-REG-001 anchors HostUnavailable");
+            codeRuntime = new FeatureRegistrationRuntime();
+            codeRuntime.EnterCoreSafeMode();
+            codeResult = codeRuntime.Register(new StubRegistration("io.example.code-002"));
+            Assert(!codeResult.Accepted && codeResult.Reason == FeatureRegistrationReason.CoreUnavailable && codeResult.DiagnosticId == "BUE-REG-002",
+                "DEV-V3-01: BUE-REG-002 anchors CoreUnavailable");
+            codeRuntime = new FeatureRegistrationRuntime();
+            codeRuntime.OpenRegistration();
+            codeRuntime.FreezeCatalog();
+            codeResult = codeRuntime.Register(new StubRegistration("io.example.code-003"));
+            Assert(!codeResult.Accepted && codeResult.Reason == FeatureRegistrationReason.PhaseClosed && codeResult.DiagnosticId == "BUE-REG-003",
+                "DEV-V3-01: BUE-REG-003 anchors PhaseClosed");
+            codeRuntime = new FeatureRegistrationRuntime();
+            codeRuntime.OpenRegistration();
+            codeResult = codeRuntime.Register(new StubRegistration("io.example.code-004", true));
+            Assert(!codeResult.Accepted && codeResult.Reason == FeatureRegistrationReason.InvalidDefinitionArtifact && codeResult.DiagnosticId == "BUE-REG-004",
+                "DEV-V3-01: BUE-REG-004 anchors InvalidDefinitionArtifact");
+            codeResult = codeRuntime.Register(new NoFactoryRegistration("io.example.code-005"));
+            Assert(!codeResult.Accepted && codeResult.Reason == FeatureRegistrationReason.InvalidModuleFactory && codeResult.DiagnosticId == "BUE-REG-005",
+                "DEV-V3-01: BUE-REG-005 anchors InvalidModuleFactory");
+            codeResult = codeRuntime.Register(new HighContractRegistration("io.example.code-006"));
+            Assert(!codeResult.Accepted && codeResult.Reason == FeatureRegistrationReason.ContractIncompatible && codeResult.DiagnosticId == "BUE-REG-006",
+                "DEV-V3-01: BUE-REG-006 anchors ContractIncompatible");
+            var codeDupRuntime = new FeatureRegistrationRuntime();
+            codeDupRuntime.OpenRegistration();
+            Assert(codeDupRuntime.Register(new StubRegistration("io.github.yu80rice.bue.inventory-tidy")).Accepted,
+                "DEV-V3-01: a whitelisted official identity registers (whitelist positive)");
+            codeResult = codeDupRuntime.Register(new StubRegistration("io.github.yu80rice.bue.inventory-tidy"));
+            Assert(!codeResult.Accepted && codeResult.Reason == FeatureRegistrationReason.DuplicateFeature && codeResult.DiagnosticId == "BUE-REG-007",
+                "DEV-V3-01: BUE-REG-007 anchors DuplicateFeature behind the whitelist pass");
+            codeResult = codeDupRuntime.Register(new StubRegistration("io.example.code-008", false, new StubSatellite(string.Empty, string.Empty)));
+            Assert(!codeResult.Accepted && codeResult.Reason == FeatureRegistrationReason.InvalidClientUiRegistration && codeResult.DiagnosticId == "BUE-REG-008",
+                "DEV-V3-01: BUE-REG-008 anchors InvalidClientUiRegistration");
+            codeResult = codeDupRuntime.Register(new ThrowingRegistration());
+            Assert(!codeResult.Accepted && codeResult.Reason == FeatureRegistrationReason.InvalidDefinitionArtifact && codeResult.DiagnosticId == "BUE-REG-009",
+                "DEV-V3-01: BUE-REG-009 anchors the fail-closed registration getter path");
+            codeResult = codeDupRuntime.Register(new StubRegistration("io.github.yu80rice.bue.rogue"));
+            Assert(!codeResult.Accepted && codeResult.Reason == FeatureRegistrationReason.ReservedFeatureId && codeResult.DiagnosticId == "BUE-REG-010",
+                "DEV-V3-01: BUE-REG-010 anchors the reserved-segment rejection");
+            var whitelistRuntime = new FeatureRegistrationRuntime();
+            whitelistRuntime.OpenRegistration();
+            var officialIds = new[]
+            {
+                "io.github.yu80rice.bue.better-item-interaction", "io.github.yu80rice.bue.inventory-tidy",
+                "io.github.yu80rice.bue.in-place-reload", "io.github.yu80rice.bue.horde-tracker",
+                "io.github.yu80rice.bue.network", "io.github.yu80rice.bue.network.v1compat", "io.github.yu80rice.bue.noop"
+            };
+            foreach (var officialId in officialIds)
+            {
+                Assert(whitelistRuntime.Register(new StubRegistration(officialId)).Accepted,
+                    "DEV-V3-01: whitelisted official identity registers: " + officialId);
+            }
+            var rootRuntime = new FeatureRegistrationRuntime();
+            rootRuntime.OpenRegistration();
+            var rootResult = rootRuntime.Register(new StubRegistration("io.github.yu80rice.bue"));
+            Assert(!rootResult.Accepted && rootResult.Reason == FeatureRegistrationReason.ReservedFeatureId && rootResult.DiagnosticId == "BUE-REG-010",
+                "DEV-V3-01: the bare reserved root itself is not registrable");
+            var siblingRuntime = new FeatureRegistrationRuntime();
+            siblingRuntime.OpenRegistration();
+            Assert(siblingRuntime.Register(new StubRegistration("io.github.yu80rice.bue2.rogue")).Accepted,
+                "DEV-V3-01: a sibling reverse-domain outside the reserved segment registers");
+            var orderRuntime = new FeatureRegistrationRuntime();
+            orderRuntime.OpenRegistration();
+            var reservedOverContract = orderRuntime.Register(new HighContractRegistration("io.github.yu80rice.bue.rogue"));
+            Assert(!reservedOverContract.Accepted && reservedOverContract.Reason == FeatureRegistrationReason.ReservedFeatureId,
+                "DEV-V3-01: the reserved-segment gate precedes the contract gate");
+            var formatRuntime = new FeatureRegistrationRuntime();
+            formatRuntime.OpenRegistration();
+            var formatOverReserved = formatRuntime.Register(new NoFactoryRegistration("io.github.yu80rice.bue.rogue"));
+            Assert(!formatOverReserved.Accepted && formatOverReserved.Reason == FeatureRegistrationReason.InvalidModuleFactory,
+                "DEV-V3-01: artifact format checks precede the reserved-segment gate");
+            var minorRuntime = new FeatureRegistrationRuntime();
+            minorRuntime.OpenRegistration();
+            Assert(minorRuntime.Register(new VersionedRegistration("io.example.minor-21", new ContractVersion(2, 1))).Accepted,
+                "DEV-V3-01: a (2,1) minimum-contract registration passes the gate (Minor 2.1)");
+            var minorCompatRuntime = new FeatureRegistrationRuntime();
+            minorCompatRuntime.OpenRegistration();
+            Assert(minorCompatRuntime.Register(new VersionedRegistration("io.example.minor-20", new ContractVersion(2, 0))).Accepted,
+                "DEV-V3-01: a (2,0) registration stays registrable (compatibility)");
+            var minorToonewRuntime = new FeatureRegistrationRuntime();
+            minorToonewRuntime.OpenRegistration();
+            var minorToonew = minorToonewRuntime.Register(new VersionedRegistration("io.example.minor-22", new ContractVersion(2, 2)));
+            Assert(!minorToonew.Accepted && minorToonew.Reason == FeatureRegistrationReason.ContractIncompatible,
+                "DEV-V3-01: a (2,2) minimum-contract registration is rejected");
+            var majorFloorRuntime = new FeatureRegistrationRuntime();
+            majorFloorRuntime.OpenRegistration();
+            var majorFloor = majorFloorRuntime.Register(new VersionedRegistration("io.example.major-1", new ContractVersion(1, 0)));
+            Assert(!majorFloor.Accepted && majorFloor.Reason == FeatureRegistrationReason.ContractIncompatible && majorFloor.DiagnosticId == "BUE-REG-006",
+                "DEV-V3-01: the host gate is Major 2 — a (1,0) minimum-contract registration is rejected");
+
             var presentation = new FeaturePresentationView(new FeatureId("io.example.tracer"), FeaturePresentationState.PresentationDegraded, "BUE-UI-001", 1UL);
             Assert(presentation.State == FeaturePresentationState.PresentationDegraded && presentation.PresentationRevision == 1UL, "presentation state is a separate value projection");
             Console.WriteLine("DEV-10 registration runtime tests: PASS");
@@ -241,6 +342,28 @@ namespace BetterUnturnedExperience.Contracts.Tests
             public HighContractRegistration(string feature) { Definition = new FeatureDefinitionArtifact(new FeatureId(feature), 1, "tracer", new Digest256(1, 2, 3, 4), new Digest256(5317555933983313923UL, 8642148531063968556UL, 2942485310001909708UL, 9366110643396117629UL), new byte[] { 1, 2, 3 }); }
             public FeatureDefinitionArtifact Definition { get; }
             public ContractVersion MinimumBueContract { get { return new ContractVersion(3, 0); } }
+            public IFeatureModuleFactory ModuleFactory { get { return new StubFactory(); } }
+            public IClientUiSatelliteRegistration ClientUi { get { return null; } }
+        }
+
+        private sealed class NoFactoryRegistration : IFeatureRegistration
+        {
+            public NoFactoryRegistration(string feature) { Definition = new FeatureDefinitionArtifact(new FeatureId(feature), 1, "tracer", new Digest256(1, 2, 3, 4), new Digest256(5317555933983313923UL, 8642148531063968556UL, 2942485310001909708UL, 9366110643396117629UL), new byte[] { 1, 2, 3 }); }
+            public FeatureDefinitionArtifact Definition { get; }
+            public ContractVersion MinimumBueContract { get { return new ContractVersion(2, 0); } }
+            public IFeatureModuleFactory ModuleFactory { get { return null; } }
+            public IClientUiSatelliteRegistration ClientUi { get { return null; } }
+        }
+
+        private sealed class VersionedRegistration : IFeatureRegistration
+        {
+            public VersionedRegistration(string feature, ContractVersion minimumContract)
+            {
+                Definition = new FeatureDefinitionArtifact(new FeatureId(feature), 1, "tracer", new Digest256(1, 2, 3, 4), new Digest256(5317555933983313923UL, 8642148531063968556UL, 2942485310001909708UL, 9366110643396117629UL), new byte[] { 1, 2, 3 });
+                MinimumBueContract = minimumContract;
+            }
+            public FeatureDefinitionArtifact Definition { get; }
+            public ContractVersion MinimumBueContract { get; }
             public IFeatureModuleFactory ModuleFactory { get { return new StubFactory(); } }
             public IClientUiSatelliteRegistration ClientUi { get { return null; } }
         }

@@ -37,9 +37,9 @@ namespace BetterUnturnedExperience.Plugin
         /// Starts every catalog module once the host barrier has completed.
         /// A factory that throws or yields null skips that feature (host log,
         /// never a host crash); a module whose Start reports not-started is
-        /// not tracked. The bootstrap identity is the default scope record —
-        /// features read their own definition state from the registration
-        /// path, the bootstrap carries the composed service seams.
+        /// not tracked. The bootstrap identity binds the feature's own
+        /// registration identity (DEV-V3-01 availability matrix); the
+        /// bootstrap carries the composed service seams.
         /// </summary>
         internal static void StartCatalog(FeatureRegistrationRuntime runtime, IBueNetworkApi featureNetwork)
         {
@@ -58,8 +58,17 @@ namespace BetterUnturnedExperience.Plugin
                 }
                 if (module == null) continue;
                 var bus = BueHostEventRuntime.Bus;
+                // DEV-V3-01 ten-member availability matrix: Identity,
+                // LifecycleGeneration, Events, OwnedEvents and Network are the
+                // five frozen never-null members (Identity binds the
+                // registration's own definition set). The un-wired members
+                // stay null at this baseline — Lifetime/Dependencies wire with
+                // DEV-V3-03, MainThread with DEV-V3-04, Settings with
+                // DEV-V3-06, Logger with DEV-V3-07.
+                var definition = entry.Definition;
+                var identity = new FeatureScopeIdentity(definition.Feature, null, null, definition.DefinitionSetId, definition.DefinitionSetDigest);
                 var bootstrap = new FeatureBootstrap(
-                    default(FeatureScopeIdentity),
+                    identity,
                     NextGeneration(),
                     null,
                     bus.Subscriber(feature),
