@@ -1,7 +1,7 @@
 # DEV-V3-04：BueNetwork 传输规则与主线程投递（发送预算+MainThread dispatcher+链路健康+回放投影）
 
 Type: task
-Status: ready-for-agent
+Status: resolved（2026-09-10，双轴 R2 双 CLEAN 闭环，commit a2291eb；审计=audit/2026-09-10/DEV-V3-04/结单报告.md）
 Parent: spec.md（V2 第三阶段规格·生态开发者平台能力定界与接线）
 Blocked by: DEV-V3-01（注册桥与 Bootstrap 基线）、DEV-V3-03（BueLifecycle）
 Spec: `../spec.md`（「网络（V3-T5 → DEV-V3-04）」节）

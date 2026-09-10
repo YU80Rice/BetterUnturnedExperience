@@ -1,7 +1,7 @@
 # DEV-V3-06：BueSettings 接线与面板动态路由（官方生态共用+双 scope）
 
 Type: task
-Status: ready-for-agent
+Status: resolved（2026-09-11，双轴 R2 双 CLEAN 闭环，commit e2ae9ff；审计=audit/2026-09-10/DEV-V3-06/结单报告.md）
 Parent: spec.md（V2 第三阶段规格·生态开发者平台能力定界与接线）
 Blocked by: DEV-V3-03（BueLifecycle）
 Spec: `../spec.md`（「设置（V3-T7 → DEV-V3-06）」节）

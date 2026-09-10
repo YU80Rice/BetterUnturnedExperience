@@ -1,7 +1,7 @@
 # DEV-V3-05：宿主时钟语义登记（零新增契约面+红测补齐+自节流登记）
 
 Type: task
-Status: ready-for-agent
+Status: resolved（2026-09-10，双轴 R2 双 CLEAN 闭环，commit 8e8e3b0；审计=audit/2026-09-10/DEV-V3-05/结单报告.md）
 Parent: spec.md（V2 第三阶段规格·生态开发者平台能力定界与接线）
 Blocked by: DEV-V3-03（BueLifecycle）
 Spec: `../spec.md`（「宿主时钟（V3-T6 → DEV-V3-05）」节）
