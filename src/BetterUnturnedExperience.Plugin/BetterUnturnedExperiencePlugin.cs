@@ -77,6 +77,11 @@ namespace BetterUnturnedExperience.Plugin
                 BueRuntimeTickChain.FrameProvider = () => Time.frameCount;
                 EnsureSceneLoadedSubscribedStatic();
                 BueRuntimeLog.Runtime("[BUE-UI-TRACE] plugin=io.github.yu80rice.betterunturnedexperience diagnosticId=BUE-BOOTSTRAP-002 event=runtime-gate decision=" + decision + " batchMode=" + isBatchMode + " headless=" + isBatchMode);
+                // DEV-V3-06: compose the platform settings service BEFORE any
+                // registration/adapter path — the facet schemas, the start
+                // views and the panel routing all resolve to this ONE default
+                // registry (single source of truth, per-feature runtime).
+                BueSettingsRuntime.EnsureCreated(BueSettingsRuntime.ProductionSettingsRoot);
                 var runtime = new FeatureRegistrationRuntime();
                 BueRuntimeHost.Bind(runtime);
                 runtime.OpenRegistration();

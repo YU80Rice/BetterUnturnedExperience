@@ -27,7 +27,11 @@ namespace BetterUnturnedExperience.Plugin
     /// non-null from here on; DEV-V3-04 additionally wires MainThread (the
     /// platform dispatcher view — generation-opened per start, owner-
     /// invalidated at every stop/isolation boundary, host-shutdown at
-    /// teardown); Settings/Logger stay null (06/07).
+    /// teardown); DEV-V3-06 wires Settings (the scoped settings view — one
+    /// host-owned SettingsRuntime per facet-registered feature, generation-
+    /// opened per start, owner-invalidated at every stop/isolation boundary;
+    /// features WITHOUT a settings facet keep the honest null row: nothing
+    /// provided, nothing faked); Logger stays null (07).
     ///
     /// The panel enable/disable seam (SetFeatureEnabled) rides the SAME
     /// machine: disable = module.Stop(UserDisabled) → subscriptions dropped →
@@ -101,7 +105,7 @@ namespace BetterUnturnedExperience.Plugin
                     machine.Isolate(feature, FrameworkErrorCode.ModuleStartFailed, "factory-null", "factory");
                     continue;
                 }
-                var bootstrap = ComposeBootstrap(machine, feature, generation, identity, featureNetwork);
+                var bootstrap = ComposeBootstrap(machine, feature, generation, identity, featureNetwork, entry.SettingDescriptors);
                 FeatureStartResult result;
                 try { result = module.Start(bootstrap); }
                 catch (Exception error)
@@ -110,6 +114,7 @@ namespace BetterUnturnedExperience.Plugin
                     TrackEntry(feature, machine, null, bootstrap.Lifetime, identity, featureNetwork);
                     machine.Isolate(feature, FrameworkErrorCode.ModuleStartFailed, "errorType=" + error.GetType().Name, "start");
                     InvalidateMainThread(feature, "start-fault"); // DEV-V3-04: 隔离撤投递账（隔离后不可再投递）
+                    BueSettingsRuntime.InvalidateOwner(feature, "start-fault"); // DEV-V3-06: 隔离撤设置代际（写入失效）
                     continue;
                 }
                 if (!result.Started)
@@ -118,6 +123,7 @@ namespace BetterUnturnedExperience.Plugin
                     TrackEntry(feature, machine, null, bootstrap.Lifetime, identity, featureNetwork);
                     machine.Isolate(feature, FrameworkErrorCode.ModuleStartFailed, result.DiagnosticId, "start-result");
                     InvalidateMainThread(feature, "start-result");
+                    BueSettingsRuntime.InvalidateOwner(feature, "start-result"); // DEV-V3-06: 同上
                     continue;
                 }
                 machine.CompleteStart(feature, result.DiagnosticId);
@@ -226,7 +232,12 @@ namespace BetterUnturnedExperience.Plugin
                 entry.Stopped = true;
                 return false;
             }
-            var bootstrap = ComposeBootstrap(machine, feature, generation, entry.Identity, entry.Network);
+            // DEV-V3-06: the settings facet comes from the feature's OWN
+            // registration record — the new generation is composed against
+            // the same schema and the same single source (no restart resets
+            // a revision, no stale table feeds a second one).
+            machine.TryGetSettingsFacet(feature, out var settingsDescriptors, out _);
+            var bootstrap = ComposeBootstrap(machine, feature, generation, entry.Identity, entry.Network, settingsDescriptors);
             FeatureStartResult result;
             try { result = module.Start(bootstrap); }
             catch (Exception error)
@@ -234,6 +245,7 @@ namespace BetterUnturnedExperience.Plugin
                 BueRuntimeLog.Runtime("[BUE-V2HOST] event=feature-panel result=enable-failed stage=start feature=" + feature.Value + " errorType=" + error.GetType().Name + " message=" + error.Message);
                 machine.Isolate(feature, FrameworkErrorCode.ModuleStartFailed, "errorType=" + error.GetType().Name, "start");
                 InvalidateMainThread(feature, "enable-fault");
+                BueSettingsRuntime.InvalidateOwner(feature, "enable-fault"); // DEV-V3-06: 隔离撤设置代际
                 entry.Stopped = true;
                 return false;
             }
@@ -242,6 +254,7 @@ namespace BetterUnturnedExperience.Plugin
                 BueRuntimeLog.Runtime("[BUE-V2HOST] event=feature-panel result=enable-failed stage=start feature=" + feature.Value + " diagnostic=" + result.DiagnosticId);
                 machine.Isolate(feature, FrameworkErrorCode.ModuleStartFailed, result.DiagnosticId, "start-result");
                 InvalidateMainThread(feature, "enable-not-started");
+                BueSettingsRuntime.InvalidateOwner(feature, "enable-not-started"); // DEV-V3-06: 同上
                 entry.Stopped = true;
                 return false;
             }
@@ -263,6 +276,27 @@ namespace BetterUnturnedExperience.Plugin
                 if (string.Equals(started[i].Feature.Value, featureValue, StringComparison.Ordinal)) return started[i];
             }
             return null;
+        }
+
+        /// <summary>
+        /// DEV-V3-06: the live state projection for panel entries (面板状态侧
+        /// 非第二事实源) — entries mirror the host machine's truth, never a
+        /// panel-side copy. false for features the start path never tracked
+        /// (the display keeps its own default then).
+        /// </summary>
+        internal static bool TryGetStatus(FeatureId feature, out FeatureStatusView status)
+        {
+            lock (sync)
+            {
+                var entry = FindEntryLocked(feature.Value);
+                if (entry != null && entry.Machine != null)
+                {
+                    status = entry.Machine.CurrentStatus(feature);
+                    return true;
+                }
+            }
+            status = default(FeatureStatusView);
+            return false;
         }
 
         private static void TrackEntry(FeatureId feature, FeatureLifecycleRuntime machine, IFeatureModule module, IFeatureLifetime lifetimeView, FeatureScopeIdentity identity, IBueNetworkApi network)
@@ -321,6 +355,9 @@ namespace BetterUnturnedExperience.Plugin
             // DEV-V3-04: 停止边界——该功能的待处理主线程任务全部撤账（未执行
             // 任务不再执行），之后的投递=显式失败（矩阵 MainThread 行为面）。
             InvalidateMainThread(entry.Feature, reason.ToString());
+            // DEV-V3-06: 停止边界——设置写入代际失效（捕获 view 之后的写入=
+            // 显式拒 BUE-SET-001；读取仍如实，矩阵 Settings 行为面）。
+            BueSettingsRuntime.InvalidateOwner(entry.Feature, reason.ToString());
             lock (sync)
             {
                 entry.Module = null;
@@ -346,9 +383,13 @@ namespace BetterUnturnedExperience.Plugin
         /// the platform dispatcher view for this generation (DEV-V3-04 matrix
         /// row — opening the generation supersedes any older one, so a
         /// re-enabled feature's stale pending work never executes); Settings
-        /// and Logger stay null until their tickets (06/07).
+        /// is the scoped settings view for this generation (DEV-V3-06 matrix
+        /// row — the feature's OWN facet schema composes the one host-owned
+        /// SettingsRuntime; no facet = the honest null, nothing faked);
+        /// Logger stays null until its ticket (07).
         /// </summary>
-        private static FeatureBootstrap ComposeBootstrap(FeatureLifecycleRuntime machine, FeatureId feature, ulong generation, FeatureScopeIdentity identity, IBueNetworkApi featureNetwork)
+        private static FeatureBootstrap ComposeBootstrap(FeatureLifecycleRuntime machine, FeatureId feature, ulong generation, FeatureScopeIdentity identity, IBueNetworkApi featureNetwork,
+            System.Collections.Generic.IReadOnlyList<Contracts.SettingDescriptor> settingsDescriptors)
         {
             var bus = BueHostEventRuntime.Bus;
             var dispatcher = BueMainThreadRuntime.Dispatcher;
@@ -356,7 +397,7 @@ namespace BetterUnturnedExperience.Plugin
             return new FeatureBootstrap(
                 identity,
                 generation,
-                null,
+                BueSettingsRuntime.ComposeViewForStart(feature, settingsDescriptors, generation),
                 bus.Subscriber(feature),
                 bus.Publisher(feature),
                 bus.EventRegistry(feature),

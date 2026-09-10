@@ -29,6 +29,7 @@
     <Compile Include="..\BetterUnturnedExperience.Core\Placement\PlacementCandidateEvaluator.cs"><Link>EmbeddedCore\Placement\PlacementCandidateEvaluator.cs</Link></Compile>
     <Compile Include="..\BetterUnturnedExperience.Core\Registration\FeatureRegistrationRuntime.cs"><Link>EmbeddedCore\Registration\FeatureRegistrationRuntime.cs</Link></Compile><Compile Include="..\BetterUnturnedExperience.Core\Registration\FeatureLifecycleRuntime.cs"><Link>EmbeddedCore\Registration\FeatureLifecycleRuntime.cs</Link></Compile><Compile Include="..\BetterUnturnedExperience.Core\Registration\FeatureBootstrap.cs"><Link>EmbeddedCore\Registration\FeatureBootstrap.cs</Link></Compile>
     <Compile Include="..\BetterUnturnedExperience.Core\Settings\SettingsRuntime.cs"><Link>EmbeddedCore\Settings\SettingsRuntime.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Core\Settings\FeatureSettingsRegistry.cs"><Link>EmbeddedCore\Settings\FeatureSettingsRegistry.cs</Link></Compile>
     <Compile Include="..\BetterUnturnedExperience.Core\Events\FeatureEventBus.cs"><Link>EmbeddedCore\Events\FeatureEventBus.cs</Link></Compile>
     <Compile Include="..\BetterUnturnedExperience.Core\Events\HostTickClock.cs"><Link>EmbeddedCore\Events\HostTickClock.cs</Link></Compile>
     <Compile Include="Properties\AssemblyInfo.cs" />
@@ -139,6 +140,7 @@
     <Compile Include="HordeTrackerFeatureRegistration.cs" />
     <Compile Include="BueHostEventRuntime.cs" />
     <Compile Include="BueMainThreadRuntime.cs" />
+    <Compile Include="BueSettingsRuntime.cs" />
     <Compile Include="BueFeatureStartRuntime.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />

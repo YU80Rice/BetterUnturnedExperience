@@ -113,6 +113,30 @@ namespace BetterUnturnedExperience.Core.Registration
         }
 
         /// <summary>
+        /// DEV-V3-06: settings-facet access for the host start path and the
+        /// panel re-enable seam — the feature's frozen schema comes from its
+        /// OWN registration record (owner-scoped fact carrier, never a
+        /// scattered FeatureId table), so every generation of the feature is
+        /// composed against the SAME single source. false = no facet (the
+        /// Settings matrix row stays null for this feature).
+        /// </summary>
+        public bool TryGetSettingsFacet(FeatureId feature, out IReadOnlyList<SettingDescriptor> descriptors, out Action onSettingsApplied)
+        {
+            lock (sync)
+            {
+                if (registrations.TryGetRecord(feature.Value, out var record) && record.Registration.SettingDescriptors != null)
+                {
+                    descriptors = record.Registration.SettingDescriptors;
+                    onSettingsApplied = record.Registration.OnSettingsApplied;
+                    return true;
+                }
+            }
+            descriptors = null;
+            onSettingsApplied = null;
+            return false;
+        }
+
+        /// <summary>
         /// BeginStart: the host start path (catalog start or the panel enable
         /// seam) opens a NEW lifecycle generation. Legal from Discovered (the
         /// catalog start), Disabled, Isolated and Stopped (the user-driven

@@ -1,5 +1,5 @@
-using System;
-using System.IO;
+﻿using System;
+using System.Collections.Generic;
 using BetterUnturnedExperience.Contracts;
 using BetterUnturnedExperience.Lit;
 
@@ -50,8 +50,9 @@ namespace BetterUnturnedExperience.Plugin
 
         private static InventoryTidyModule ArmNewModule()
         {
-            var settingsRoot = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "BetterUnturnedExperience");
-            var module = new InventoryTidyModule(settingsRoot);
+            // DEV-V3-06: born inert without a runtime — the settings come
+            // exclusively through the host-injected scoped view at Start.
+            var module = new InventoryTidyModule();
             module.BindProductionLog();
             return module;
         }
@@ -82,7 +83,13 @@ namespace BetterUnturnedExperience.Plugin
                 payload);
         }
 
-        private sealed class Registration : IFeatureRegistration
+        // DEV-V3-06: the settings facet (IFeatureSettingsRegistration) —
+        // the module's ONE toggle schema declared through the registration
+        // (功能拥有 Schema); the host composes the single runtime from it,
+        // routes the panel and injects the scoped view. OnSettingsApplied =
+        // the module's own refresh hook (feature-owned reaction, never a
+        // second source of truth).
+        private sealed class Registration : IFeatureRegistration, IFeatureSettingsRegistration
         {
             private readonly InventoryTidyModule moduleForFactory;
 
@@ -98,6 +105,17 @@ namespace BetterUnturnedExperience.Plugin
             public IFeatureModuleFactory ModuleFactory { get { return new ModuleFactory(moduleForFactory); } }
 
             public IClientUiSatelliteRegistration ClientUi { get { return null; } }
+
+            public IReadOnlyList<SettingDescriptor> SettingDescriptors { get { return InventoryTidyModule.CreateSettingsDescriptors(new FeatureId(FeatureIdValue)); } }
+
+            public Action OnSettingsApplied
+            {
+                get
+                {
+                    var module = WiredModule ?? moduleForFactory;
+                    return module == null ? null : new Action(module.RefreshSwitches);
+                }
+            }
         }
 
         private sealed class ModuleFactory : IFeatureModuleFactory

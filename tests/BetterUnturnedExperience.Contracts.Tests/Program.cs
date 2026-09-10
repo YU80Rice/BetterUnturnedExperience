@@ -424,6 +424,34 @@ namespace BetterUnturnedExperience.Contracts.Tests
                     && typeof(IFeatureBootstrap).GetProperties().Length == 11,
                 "DEV-V3-05: zero new contract surface — the event-seam views stay single-method and IFeatureBootstrap stays at its eleven members");
 
+            // DEV-V3-06: the settings facet + scoped view shapes (Minor 2.1
+            // additive). The optional settings facet a registration may
+            // additionally implement carries EXACTLY two members (schema +
+            // post-apply refresh hook); IFeatureRegistration itself stays its
+            // four frozen properties (adding a member to an implementer-side
+            // interface would break 2.0 ecosystem implementations at runtime —
+            // the facet is discovered by type test, never demanded); the
+            // injected view stays exactly three methods (the session-overlay
+            // mutators and any other-feature query surface are permanently
+            // unreachable from the module side; the runtime class body stays
+            // out of contract).
+            Assert(typeof(IFeatureSettingsRegistration).IsInterface
+                    && typeof(IFeatureSettingsRegistration).GetProperties().Length == 2
+                    && typeof(IFeatureSettingsRegistration).GetProperty("SettingDescriptors") != null
+                    && typeof(IFeatureSettingsRegistration).GetProperty("OnSettingsApplied") != null,
+                "DEV-V3-06: IFeatureSettingsRegistration is the optional settings facet with exactly two members (SettingDescriptors/OnSettingsApplied)");
+            Assert(typeof(IFeatureRegistration).GetProperties().Length == 4
+                    && typeof(IFeatureRegistration).GetProperty("SettingDescriptors") == null,
+                "DEV-V3-06: IFeatureRegistration stays the four frozen properties (facet discovered by type test, never added to the interface)");
+            Assert(typeof(IScopedFeatureSettings).GetMethods().Length == 3
+                    && typeof(IScopedFeatureSettings).GetMethod("ApplyServerPolicy") == null
+                    && typeof(IScopedFeatureSettings).GetMethod("ClearSessionOverlay") == null
+                    && typeof(IScopedFeatureSettings).GetMethod("ActivateConnectionGeneration") == null,
+                "DEV-V3-06: the scoped settings view stays GetSnapshot/TryGet/Submit — runtime-overlay mutators never join the module-facing surface");
+            Assert(typeof(IFeatureBootstrap).GetProperty("Settings") != null
+                    && typeof(IFeatureBootstrap).GetProperty("Settings").PropertyType == typeof(IScopedFeatureSettings),
+                "DEV-V3-06: IFeatureBootstrap.Settings is the matrix member this ticket wires (the scoped view type, never the runtime type)");
+
             var presentation = new FeaturePresentationView(new FeatureId("io.example.tracer"), FeaturePresentationState.PresentationDegraded, "BUE-UI-001", 1UL);
             Assert(presentation.State == FeaturePresentationState.PresentationDegraded && presentation.PresentationRevision == 1UL, "presentation state is a separate value projection");
             Console.WriteLine("DEV-10 registration runtime tests: PASS");

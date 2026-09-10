@@ -1,5 +1,5 @@
-using System;
-using System.IO;
+﻿using System;
+using System.Collections.Generic;
 using BetterUnturnedExperience.Contracts;
 using BetterUnturnedExperience.Lht;
 
@@ -38,8 +38,8 @@ namespace BetterUnturnedExperience.Plugin
 
         private static HordeTrackerModule ArmNewModule()
         {
-            var settingsRoot = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "BetterUnturnedExperience");
-            var module = new HordeTrackerModule(settingsRoot);
+            // DEV-V3-06: born inert without a runtime (see LIT note).
+            var module = new HordeTrackerModule();
             module.BindProductionLog();
             return module;
         }
@@ -64,7 +64,9 @@ namespace BetterUnturnedExperience.Plugin
                 payload);
         }
 
-        private sealed class Registration : IFeatureRegistration
+        // DEV-V3-06: settings facet — same discipline as the sibling
+        // official registrations.
+        private sealed class Registration : IFeatureRegistration, IFeatureSettingsRegistration
         {
             private readonly HordeTrackerModule moduleForFactory;
 
@@ -80,6 +82,17 @@ namespace BetterUnturnedExperience.Plugin
             public IFeatureModuleFactory ModuleFactory { get { return new ModuleFactory(moduleForFactory); } }
 
             public IClientUiSatelliteRegistration ClientUi { get { return null; } }
+
+            public IReadOnlyList<SettingDescriptor> SettingDescriptors { get { return HordeTrackerModule.CreateSettingsDescriptors(new FeatureId(FeatureIdValue)); } }
+
+            public Action OnSettingsApplied
+            {
+                get
+                {
+                    var module = WiredModule ?? moduleForFactory;
+                    return module == null ? null : new Action(module.RefreshSwitches);
+                }
+            }
         }
 
         private sealed class ModuleFactory : IFeatureModuleFactory

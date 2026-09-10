@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
@@ -16,12 +16,21 @@ namespace BetterUnturnedExperience.Core.Registration
             MinimumBueContract = registration.MinimumBueContract;
             ModuleFactory = registration.ModuleFactory;
             ClientUi = registration.ClientUi;
+            // DEV-V3-06: the settings facet projection — the frozen catalog's
+            // ONLY basis for the management panel's dynamic routing and for
+            // the host start path's Settings wiring (官方硬编码清单退役).
+            // Null SettingDescriptors = no facet = no platform-managed
+            // settings (the view stays null; the panel never fakes a page).
+            SettingDescriptors = registration.SettingDescriptors;
+            OnSettingsApplied = registration.OnSettingsApplied;
         }
 
         public FeatureDefinitionArtifact Definition { get; }
         public ContractVersion MinimumBueContract { get; }
         public IFeatureModuleFactory ModuleFactory { get; }
         public IClientUiSatelliteRegistration ClientUi { get; }
+        public IReadOnlyList<SettingDescriptor> SettingDescriptors { get; }
+        public Action OnSettingsApplied { get; }
     }
 
     public sealed class FeatureRegistrationCatalog
@@ -93,7 +102,32 @@ namespace BetterUnturnedExperience.Core.Registration
                 if (OfficialFeatureIdentity.IsReservedSegment(feature.Value) && !OfficialFeatureIdentity.IsWhitelisted(feature.Value)) return Reject(feature, FeatureRegistrationReason.ReservedFeatureId, "BUE-REG-010");
                 if (!IsSupportedContract(minimumContract)) return Reject(feature, FeatureRegistrationReason.ContractIncompatible, "BUE-REG-006");
                 if (clientUi != null && (string.IsNullOrEmpty(clientUi.SatelliteId) || string.IsNullOrEmpty(clientUi.RegistrationToken) || !IsSupportedContract(clientUi.MinimumBueContract))) return Reject(feature, FeatureRegistrationReason.InvalidClientUiRegistration, "BUE-REG-008");
-                snapshot = new FeatureRegistrationSnapshot(definition, minimumContract, factory, clientUi);
+                // DEV-V3-06: the optional settings facet (IFeatureSettingsRegistration,
+                // discovered by type test — never demanded on IFeatureRegistration,
+                // the implementer-side interface rule). A declared schema must be
+                // the feature's OWN, non-empty and within the 64/feature cap
+                // (DEV-V3-06's fixed value); rejection is explicit with the new
+                // code BUE-REG-011 on the frozen InvalidDefinitionArtifact reason
+                // (the enum stays unchanged, Minor 2.1 additive code-table only).
+                var settingsFacet = registration as IFeatureSettingsRegistration;
+                IReadOnlyList<SettingDescriptor> settingsDescriptors = null;
+                Action settingsOnApplied = null;
+                if (settingsFacet != null)
+                {
+                    settingsDescriptors = settingsFacet.SettingDescriptors;
+                    // The refresh hook resolves LIVE on the registration object
+                    // at fire time (the official registrations bind it to the
+                    // module instance wired AFTER admission): the snapshot
+                    // stores a resolver, never a possibly-stale delegate.
+                    settingsOnApplied = new Action(() =>
+                    {
+                        var live = settingsFacet.OnSettingsApplied;
+                        if (live != null) live();
+                    });
+                    if (BetterUnturnedExperience.Core.Settings.FeatureSettingsRegistry.ValidateFacetSchema(feature, settingsDescriptors) != null)
+                        return Reject(feature, FeatureRegistrationReason.InvalidDefinitionArtifact, "BUE-REG-011");
+                }
+                snapshot = new FeatureRegistrationSnapshot(definition, minimumContract, factory, clientUi, settingsDescriptors, settingsOnApplied);
             }
             catch (Exception)
             {
@@ -229,18 +263,28 @@ namespace BetterUnturnedExperience.Core.Registration
 
     internal sealed class FeatureRegistrationSnapshot
     {
-        internal FeatureRegistrationSnapshot(FeatureDefinitionArtifact definition, ContractVersion minimumBueContract, IFeatureModuleFactory moduleFactory, IClientUiSatelliteRegistration clientUi)
+        internal FeatureRegistrationSnapshot(FeatureDefinitionArtifact definition, ContractVersion minimumBueContract, IFeatureModuleFactory moduleFactory, IClientUiSatelliteRegistration clientUi,
+            IReadOnlyList<SettingDescriptor> settingsDescriptors = null, Action settingsOnApplied = null)
         {
             Definition = definition;
             MinimumBueContract = minimumBueContract;
             ModuleFactory = moduleFactory;
             ClientUi = clientUi == null ? null : new ClientUiSatelliteSnapshot(clientUi);
+            // DEV-V3-06: the facet is COPIED at admission (the ClientUi
+            // snapshot precedent) — the registration object stays caller-
+            // mutable, the catalog entry never does.
+            SettingDescriptors = settingsDescriptors == null
+                ? null
+                : new System.Collections.ObjectModel.ReadOnlyCollection<SettingDescriptor>(settingsDescriptors.ToArray());
+            OnSettingsApplied = settingsOnApplied;
         }
 
         internal FeatureDefinitionArtifact Definition { get; }
         internal ContractVersion MinimumBueContract { get; }
         internal IFeatureModuleFactory ModuleFactory { get; }
         internal IClientUiSatelliteRegistration ClientUi { get; }
+        internal IReadOnlyList<SettingDescriptor> SettingDescriptors { get; }
+        internal Action OnSettingsApplied { get; }
     }
 
     internal sealed class ClientUiSatelliteSnapshot : IClientUiSatelliteRegistration

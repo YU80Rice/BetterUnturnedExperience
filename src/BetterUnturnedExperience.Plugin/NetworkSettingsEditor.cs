@@ -60,38 +60,70 @@ namespace BetterUnturnedExperience.Plugin
     }
 
     /// <summary>
-    /// DEV-V2-06: routes the panel's editor seam by feature id — the network
-    /// facets answer through their own SettingsRuntime editors, everything
-    /// else falls back to the composition's default editor (BII first). First
-    /// matching route wins; the fallback never sees a routed feature.
+    /// DEV-V3-06: catalog-based panel routing — the 官方硬编码清单退役. Routes
+    /// resolve PER CALL from the frozen registration catalog's settings-facet
+    /// projection (never a hardcoded feature list, never a stale route table),
+    /// answer through the feature's OWN host-owned runtime (single source of
+    /// truth) and fire the facet's OnSettingsApplied hook after an accepted
+    /// edit. The composition's own BII editor is an explicit route (plugin
+    /// chrome, not a list entry); everything else reaches the honest
+    /// no-settings editor — a feature without a facet gets NO fabricated
+    /// settings page and its rejection leaves a structured line (BUE-SET-004).
     /// </summary>
-    internal sealed class RoutingBueSettingsEditor : IBueSettingsEditor
+    internal sealed class CatalogRoutingBueSettingsEditor : IBueSettingsEditor
     {
-        private readonly IBueSettingsEditor fallback;
-        private readonly (FeatureId feature, IBueSettingsEditor editor)[] routes;
+        private readonly IBueSettingsEditor compositionEditor;
 
-        internal RoutingBueSettingsEditor(IBueSettingsEditor fallback, params (FeatureId feature, IBueSettingsEditor editor)[] routes)
+        internal CatalogRoutingBueSettingsEditor(IBueSettingsEditor compositionEditor)
         {
-            this.fallback = fallback ?? throw new ArgumentNullException(nameof(fallback));
-            this.routes = routes ?? new (FeatureId, IBueSettingsEditor)[0];
+            this.compositionEditor = compositionEditor ?? throw new ArgumentNullException(nameof(compositionEditor));
         }
 
         public FeatureSettingsSnapshot GetSnapshot(FeatureId feature)
         {
-            foreach (var route in routes)
-            {
-                if (string.Equals(route.feature.Value, feature.Value, StringComparison.Ordinal)) return route.editor.GetSnapshot(feature);
-            }
-            return fallback.GetSnapshot(feature);
+            var editor = Resolve(feature);
+            return editor == null ? UnavailableSnapshot(feature) : editor.GetSnapshot(feature);
         }
 
         public SettingChangeResult Apply(FeatureId feature, uint expectedRevision, SettingMutation mutation)
         {
-            foreach (var route in routes)
+            var editor = Resolve(feature);
+            if (editor == null)
             {
-                if (string.Equals(route.feature.Value, feature.Value, StringComparison.Ordinal)) return route.editor.Apply(feature, expectedRevision, mutation);
+                BueRuntimeLog.Runtime("[BUE-SET] event=settings-editor result=rejected feature=" + feature.Value
+                    + " stage=panel reason=no-settings-facet diagnosticId=BUE-SET-004");
+                return new SettingChangeResult(false, FrameworkErrorCode.SettingRejected, 0, UnavailableSnapshot(feature));
             }
-            return fallback.Apply(feature, expectedRevision, mutation);
+            return editor.Apply(feature, expectedRevision, mutation);
+        }
+
+        private IBueSettingsEditor Resolve(FeatureId feature)
+        {
+            if (string.Equals(feature.Value, BetterItemInteractionSettingsState.Feature.Value, StringComparison.Ordinal)) return compositionEditor;
+            var runtime = BueRuntimeHost.CurrentRuntime;
+            if (runtime == null || runtime.Catalog == null) return null;
+            var entries = runtime.Catalog.Entries;
+            for (var index = 0; index < entries.Count; index++)
+            {
+                var entry = entries[index];
+                if (!string.Equals(entry.Definition.Feature.Value, feature.Value, StringComparison.Ordinal)) continue;
+                if (entry.SettingDescriptors == null) return null;
+                var settingsRuntime = BueSettingsRuntime.Registry.GetOrCreateRuntime(entry.Definition.Feature, entry.SettingDescriptors);
+                return settingsRuntime == null ? null : new SettingsRuntimeBueEditor(settingsRuntime, entry.OnSettingsApplied);
+            }
+            return null;
+        }
+
+        private static FeatureSettingsSnapshot UnavailableSnapshot(FeatureId feature)
+        {
+            return new FeatureSettingsSnapshot(feature, 1, SettingRevisionScope.ClientPreference, 0,
+                SettingSyncState.Unavailable, SettingSnapshotSource.SafeDefault, new SettingEntryView[0]);
         }
     }
+
+    // DEV-V3-06: RoutingBueSettingsEditor (the DEV-V2-06 hardcoded-route
+    // list) is DELETED with the retirement of the official feature list —
+    // its one unit test moved to the catalog-driven routing group in
+    // AssertBueV3SettingsWiringAndPanelRouting; the dead type staying
+    // compiled would leave the retired pattern looking supported.
 }

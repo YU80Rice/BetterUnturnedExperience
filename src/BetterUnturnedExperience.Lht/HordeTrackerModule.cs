@@ -1,8 +1,7 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using BetterUnturnedExperience.Contracts;
 using BetterUnturnedExperience.Contracts.BueNetwork;
-using BetterUnturnedExperience.Core.Settings;
 using HarmonyLib;
 using SDG.Unturned;
 using UnityEngine;
@@ -14,7 +13,8 @@ namespace BetterUnturnedExperience.Lht
     /// One FeatureId composing the internal dual pieces (spec「内部双件」：
     /// HordeTrackingModule 服务器权威 + HordePresentationAdapter HUD 表现).
     /// Owns:
-    ///   - the enabled toggle is the ONE persisted setting (SettingsRuntime,
+    ///   - the enabled toggle is the ONE persisted setting (DEV-V3-06: the
+    ///     host-owned SettingsRuntime behind the injected scoped view,
     ///     ClientLocal; off = FULL stop — tracking unsubscribed, /horde
     ///     deregistered, client receiver gated, HUD dark, channel
     ///     unregistered; on = re-arm);
@@ -37,21 +37,32 @@ namespace BetterUnturnedExperience.Lht
         private bool armed;
         private float presentationClock;
 
-        internal HordeTrackerModule(string settingsRoot)
-            : this(new FeatureId(LhtRuntime.FeatureIdValue), new FileSettingsPersistence(settingsRoot))
+        // DEV-V3-06: the module no longer constructs or holds a
+        // SettingsRuntime — the host composes the ONE per-feature runtime
+        // from the registration's settings facet and injects the scoped
+        // view (IFeatureBootstrap.Settings); schema authority stays with
+        // the feature (CreateSettingsDescriptors), file layout unchanged.
+        internal HordeTrackerModule()
+            : this(new FeatureId(LhtRuntime.FeatureIdValue))
         {
         }
 
-        internal HordeTrackerModule(FeatureId feature, ISettingsPersistence persistence)
+        internal HordeTrackerModule(FeatureId feature)
         {
             Feature = feature;
-            if (persistence == null) throw new ArgumentNullException(nameof(persistence));
-            Settings = new SettingsRuntime(feature, new[] { ToggleDescriptor(feature) }, persistence);
             Enabled = ReadToggle();
         }
 
+        internal static IReadOnlyList<SettingDescriptor> CreateSettingsDescriptors(FeatureId feature)
+        {
+            return new[] { ToggleDescriptor(feature) };
+        }
+
         internal FeatureId Feature { get; }
-        internal SettingsRuntime Settings { get; }
+        // DEV-V3-06: the host-injected scoped settings view (null only on
+        // hand-composed stage-baseline bootstraps; then the descriptor
+        // default applies).
+        internal IScopedFeatureSettings SettingsView { get; private set; }
 
         /// <summary>The patch-facing module handle (the LIT ActiveModule pattern): live only while the patches are.</summary>
         internal static HordeTrackerModule ActiveModule { get; private set; }
@@ -118,6 +129,10 @@ namespace BetterUnturnedExperience.Lht
                 throw new ArgumentException("the host bootstrap must compose the event subscriber view and the network API (never null)", nameof(bootstrap));
             Network = bootstrap.Network;
             LifecycleGeneration = bootstrap.LifecycleGeneration;
+            // DEV-V3-06 official first consumption: the FULL stop switch
+            // rides the host-injected scoped view (the tracking closure
+            // reads Enabled from it — the single truth).
+            AttachSettingsView(bootstrap.Settings); // DEV-V3-06: bind + read before composing trackers
             Started = true;
 
             Authority = AuthorityFactoryForTests != null ? AuthorityFactoryForTests() : HordeProductionAuthority.Instance;
@@ -342,11 +357,22 @@ namespace BetterUnturnedExperience.Lht
             module?.Tracking.OnBeaconCounterChanged(beacon);
         }
 
+        /// <summary>DEV-V3-06: bind the host-injected scoped settings view and
+        /// re-read the switch (Start does this from the bootstrap; host-test
+        /// fixtures attach directly).</summary>
+        internal void AttachSettingsView(IScopedFeatureSettings view)
+        {
+            SettingsView = view;
+            Enabled = ReadToggle();
+        }
+
         private bool ReadToggle()
         {
+            var view = SettingsView;
+            if (view == null) return true; // no wired view yet = the descriptor default (on)
             SettingValue value;
             uint revision;
-            return Settings.TryGet(EnabledSettingId, out value, out revision) && value.Boolean;
+            return view.TryGet(EnabledSettingId, out value, out revision) && value.Boolean;
         }
 
         private static SettingDescriptor ToggleDescriptor(FeatureId feature)

@@ -1,8 +1,8 @@
-using System;
+﻿using System;
+using System.Collections.Generic;
 using System.Threading;
 using BetterUnturnedExperience.Contracts;
 using BetterUnturnedExperience.Contracts.BueNetwork;
-using BetterUnturnedExperience.Core.Settings;
 using HarmonyLib;
 
 namespace BetterUnturnedExperience.Lit
@@ -23,7 +23,8 @@ namespace BetterUnturnedExperience.Lit
     /// <summary>
     /// DEV-V2-15: the inventory-tidy official feature module. Owns the
     /// single-player tidy path:
-    ///   - the enabled toggle is the ONE persisted setting (SettingsRuntime,
+    ///   - the enabled toggle is the ONE persisted setting (DEV-V3-06: the
+    ///     host-owned SettingsRuntime behind the injected scoped view;
     ///     ClientLocal; off → the patches come off and requests fall back to
     ///     native, on → re-arm with a fresh fault gate, spec「LIT：设置」);
     ///   - the tidy plan is produced through the module's ITidyStrategy
@@ -42,23 +43,38 @@ namespace BetterUnturnedExperience.Lit
         private const string EnabledSettingId = "inventorytidy.enabled";
         private Harmony harmony;
 
-        internal InventoryTidyModule(string settingsRoot)
-            : this(new FeatureId(LitRuntime.FeatureIdValue), new FileSettingsPersistence(settingsRoot))
+        // DEV-V3-06: the module no longer constructs or holds a
+        // SettingsRuntime — the host composes the ONE per-feature runtime
+        // from the registration's settings facet and injects the scoped view
+        // (IFeatureBootstrap.Settings). The feature still owns its schema
+        // (CreateSettingsDescriptors below), its authority semantics and the
+        // runtime read; the persistence file layout is unchanged.
+        internal InventoryTidyModule()
+            : this(new FeatureId(LitRuntime.FeatureIdValue))
         {
         }
 
-        internal InventoryTidyModule(FeatureId feature, ISettingsPersistence persistence)
+        internal InventoryTidyModule(FeatureId feature)
         {
             Feature = feature;
-            if (persistence == null) throw new ArgumentNullException(nameof(persistence));
-            Settings = new SettingsRuntime(feature, new[] { ToggleDescriptor(feature) }, persistence);
             Strategy = new DefaultGridV1Strategy();
             FaultGate = new LocalTidyFaultGate();
             Enabled = ReadToggle();
         }
 
+        /// <summary>The settings facet schema this feature declares (V3-T7:
+        /// 功能拥有 Schema) — the host composes the runtime from it.</summary>
+        internal static IReadOnlyList<SettingDescriptor> CreateSettingsDescriptors(FeatureId feature)
+        {
+            return new[] { ToggleDescriptor(feature) };
+        }
+
         internal FeatureId Feature { get; }
-        internal SettingsRuntime Settings { get; }
+        // DEV-V3-06: the host-injected scoped settings view (the official
+        // first consumption of the Settings matrix row — every setting read
+        // rides it; null only on hand-composed stage-baseline bootstraps, in
+        // which case the descriptor default applies).
+        internal IScopedFeatureSettings SettingsView { get; private set; }
         internal LocalTidyFaultGate FaultGate { get; }
 
         /// <summary>The strategy the module plans with; replacement is a developer seam, null is a developer error.</summary>
@@ -124,6 +140,10 @@ namespace BetterUnturnedExperience.Lit
             Events = bootstrap.Events;
             Network = bootstrap.Network;
             LifecycleGeneration = bootstrap.LifecycleGeneration;
+            // DEV-V3-06 official first consumption: the enabled toggle rides
+            // the host-injected scoped view (the Settings matrix row) — the
+            // authoritative read happens BEFORE the patches arm.
+            AttachSettingsView(bootstrap.Settings); // DEV-V3-06: bind + read BEFORE arming
             EnsureStarted();
             // DEV-V2-21: the fault scope book binds the feature-private disk
             // persistence (JSON key structure unchanged); the production
@@ -382,11 +402,22 @@ namespace BetterUnturnedExperience.Lit
             }
         }
 
+        /// <summary>DEV-V3-06: bind the host-injected scoped settings view and
+        /// re-read the switch (Start does this from the bootstrap; host-test
+        /// fixtures attach directly).</summary>
+        internal void AttachSettingsView(IScopedFeatureSettings view)
+        {
+            SettingsView = view;
+            Enabled = ReadToggle();
+        }
+
         private bool ReadToggle()
         {
+            var view = SettingsView;
+            if (view == null) return true; // no wired view yet = the descriptor default (on)
             SettingValue value;
             uint revision;
-            return Settings.TryGet(EnabledSettingId, out value, out revision) && value.Boolean;
+            return view.TryGet(EnabledSettingId, out value, out revision) && value.Boolean;
         }
 
         private static SettingDescriptor ToggleDescriptor(FeatureId feature)

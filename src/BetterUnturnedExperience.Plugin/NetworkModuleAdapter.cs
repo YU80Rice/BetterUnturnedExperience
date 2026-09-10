@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Reflection;
 using BetterUnturnedExperience.Contracts;
@@ -126,8 +126,13 @@ namespace BetterUnturnedExperience.Plugin
 
         internal NetworkModuleAdapter(string settingsRootPath, Func<bool> isStandaloneLmnLoaded, Func<Type> resolveModTransportType, Func<Type> resolveModRouterType, Action refreshPanel, Func<bool> isLmnNativeClientDispatchLive = null, Func<bool> isLmnNativeServerDispatchLive = null, BueEngineNetBinding engineBinding = null, Func<long> monotonicMilliseconds = null)
         {
-            networkSettings = new SettingsRuntime(NetworkFeature, CreateNetworkDescriptors(), new FileSettingsPersistence(settingsRootPath));
-            v1CompatSettings = new SettingsRuntime(V1CompatFeature, CreateV1CompatDescriptors(), new FileSettingsPersistence(settingsRootPath));
+            // DEV-V3-06: the runtimes are resolved through the root-keyed
+            // registry — same root, same process, ONE runtime per feature
+            // (the start path and the panel share it; two live runtimes on
+            // one file would be a second source of truth).
+            var settingsRegistry = BueSettingsRuntime.RegistryFor(settingsRootPath);
+            networkSettings = settingsRegistry.GetOrCreateRuntime(NetworkFeature, CreateNetworkDescriptors());
+            v1CompatSettings = settingsRegistry.GetOrCreateRuntime(V1CompatFeature, CreateV1CompatDescriptors());
             compatRegistry = new LmnV1CompatRegistry();
             compatLayer = new LmnV1CompatLayer(compatRegistry);
             coordinator = new LmnTakeoverCoordinator(isStandaloneLmnLoaded ?? throw new ArgumentNullException(nameof(isStandaloneLmnLoaded)));

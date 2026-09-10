@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using BetterUnturnedExperience.Contracts;
 using BetterUnturnedExperience.Contracts.BueNetwork;
@@ -328,6 +328,11 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     AssertBueV3HostClockSemantics(collectAllFailures: true);
                     return 0;
                 }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--bue-v3-settings-red")
+                {
+                    AssertBueV3SettingsWiringAndPanelRouting(collectAllFailures: true);
+                    return 0;
+                }
                 if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--bue-v2-lit-multiplayer-red")
                 {
                     AssertBueV2LitMultiplayerPath(collectAllFailures: true);
@@ -464,6 +469,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 AssertBueV3LifecycleProjection();
                 AssertBueV3NetworkTransportRules();
                 AssertBueV3HostClockSemantics();
+                AssertBueV3SettingsWiringAndPanelRouting();
                 // F-E: pure truth tables, no host state — runs before F-D.
                 AssertBueV2FeEnginePeerIdentity();
                 // F-D: runs last — it replaces the bound runtime and clears the
@@ -2473,25 +2479,10 @@ namespace BetterUnturnedExperience.Plugin.Tests
             transportC.Pump();
             Assert(hubToB == 2 && hubToC == 1, "frame v2: the targeted send reaches only the addressed session's peer");
 
-            // 9. Routing settings editor: the network facet submits through
-            //    its own runtime; every other feature falls back to the BII
-            //    editor.
-            var routingRoot = Path.Combine(Path.GetTempPath(), "bue-v2net-red-" + Guid.NewGuid().ToString("N"));
-            var routedRuntime = new SettingsRuntime(NetworkModuleAdapter.NetworkFeature, NetworkModuleAdapter.CreateNetworkDescriptors(), new FileSettingsPersistence(routingRoot));
-            var routedEditor = new SettingsRuntimeBueEditor(routedRuntime);
-            var fallbackCalls = 0;
-            var routing = new RoutingBueSettingsEditor(new CountingSettingsEditor(() => fallbackCalls++),
-                (NetworkModuleAdapter.NetworkFeature, routedEditor));
-            var routedApply = routing.Apply(NetworkModuleAdapter.NetworkFeature,
-                routing.GetSnapshot(NetworkModuleAdapter.NetworkFeature).Revision,
-                new SettingMutation("network.enabled", SettingValue.Toggle(false)));
-            Assert(routedApply.Accepted && fallbackCalls == 0,
-                "editor routing: the network facet submits through its own SettingsRuntime editor");
-            Assert(routedRuntime.TryGet("network.enabled", out persisted, out persistedRevision) && !persisted.Boolean,
-                "editor routing: the routed edit persisted through the facet runtime");
-            Assert(!routing.Apply(new FeatureId("com.example.unrelated"), 0, new SettingMutation("anything", SettingValue.Toggle(true))).Accepted
-                && fallbackCalls == 1,
-                "editor routing: an unmatched feature falls back to the BII editor");
+            // 9. (DEV-V3-06) The former hardcoded-list routing editor unit is
+            //    retired with RoutingBueSettingsEditor: catalog-driven panel
+            //    routing is anchored in AssertBueV3SettingsWiringAndPanelRouting
+            //    (面板目录路由/不伪造页/官方与生态并列/直连单元下方).
         }
 
         // Host-side stand-in for the Steamworks CSteamID value the LMN V1
@@ -3692,7 +3683,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
             private static InventoryTidyModule CreateModule(BetterUnturnedExperience.Core.Events.FeatureEventBus bus, BetterUnturnedExperience.Core.Network.BueNetworkRuntime runtime, bool isServer, FakeLitAuthority authority, string faultDir, Func<IBueNetworkApi, IBueNetworkApi> networkDecorator = null, Func<DateTime> clock = null)
             {
                 var feature = new FeatureId(LitRuntime.FeatureIdValue);
-                var module = new InventoryTidyModule(feature, new InMemorySettingsPersistence());
+                var module = new InventoryTidyModule(feature);
                 module.ScopeDirectoryForTests = faultDir;
                 module.FaultContextForTests = () => new LitFaultScopeContext("TestMap", 1);
                 module.NetServiceFactoryForTests = (m, net, book) => new LitTidyNetService(m, networkDecorator != null ? networkDecorator(net) : net, authority, () => isServer, book, clock);
@@ -3929,7 +3920,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
             var bus = new BetterUnturnedExperience.Core.Events.FeatureEventBus();
             var events = new List<TidyCompleted>();
             bus.Subscriber(feature).Subscribe<TidyCompleted>(events.Add);
-            var module = new InventoryTidyModule(feature, new InMemorySettingsPersistence());
+            var module = new InventoryTidyModule(feature);
             var pair = BetterUnturnedExperience.Core.Network.LocalLoopbackTransport.CreatePair();
             var runtime = new BetterUnturnedExperience.Core.Network.BueNetworkRuntime(pair.First, new ContractVersion(2, 0), 1001UL);
             var result = module.Start(new FeatureBootstrap(default(FeatureScopeIdentity), 7UL, null,
@@ -4042,7 +4033,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
             var feature = new FeatureId(LitRuntime.FeatureIdValue);
             var stub = new HalfRegistrationNetwork();
             var bus = new BetterUnturnedExperience.Core.Events.FeatureEventBus();
-            var module = new InventoryTidyModule(feature, new InMemorySettingsPersistence());
+            var module = new InventoryTidyModule(feature);
             module.NetServiceFactoryForTests = (m, net, book) => new LitTidyNetService(m, net, new FakeLitAuthority(), () => true, book);
             module.Start(new FeatureBootstrap(default(FeatureScopeIdentity), 1UL, null,
                 bus.Subscriber(feature), bus.Publisher(feature), bus.EventRegistry(feature), null, null, null, stub));
@@ -4261,11 +4252,19 @@ namespace BetterUnturnedExperience.Plugin.Tests
             Assert(nullStrategyThrown, "service: a null strategy throws ArgumentNullException (no hidden default)");
 
             // ── 3. enabled=false native fallback + module lifecycle gates. ──
-            var persistence = new BetterUnturnedExperience.Core.Settings.InMemorySettingsPersistence();
-            var module = new InventoryTidyModule(new FeatureId("io.github.yu80rice.bue.inventory-tidy"), persistence);
+            var settingsFeature = new FeatureId("io.github.yu80rice.bue.inventory-tidy");
+            // DEV-V3-06: the settings authority is the host-owned registry
+            // (single source); the module consumes the very values a panel
+            // write lands on, through the same injected scoped view.
+            var litSettings = new BetterUnturnedExperience.Core.Settings.FeatureSettingsRegistry(new InMemorySettingsPersistence(), () => true, null);
+            litSettings.GetOrCreateRuntime(settingsFeature, InventoryTidyModule.CreateSettingsDescriptors(settingsFeature));
+            litSettings.OpenGeneration(settingsFeature, 1UL);
+            var settingsView = litSettings.CreateView(settingsFeature, 1UL);
+            var module = new InventoryTidyModule(settingsFeature);
+            module.AttachSettingsView(settingsView);
             Assert(module.Feature.Value == "io.github.yu80rice.bue.inventory-tidy",
                 "module: the feature identity is the frozen LIT FeatureId");
-            Assert(module.Enabled, "module: enabled defaults to true (empty persistence)");
+            Assert(module.Enabled, "module: enabled defaults to true (empty store)");
             Assert(module.Strategy.StrategyId == "default-grid-v1",
                 "module: the module default strategy is the built-in adapter");
             Assert(!module.PatchesInstalled,
@@ -4278,11 +4277,11 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 "module: start installs the UI patch or records the environment gate diagnostic (no silent state)");
 
             // Disable through the settings authority — the panel toggle path.
-            var snapshot = module.Settings.GetSnapshot(SettingRevisionScope.ClientPreference);
+            var snapshot = settingsView.GetSnapshot(SettingRevisionScope.ClientPreference);
             Assert(snapshot.Entries.Count == 1 && snapshot.Entries[0].SettingId == "inventorytidy.enabled"
                 && snapshot.Entries[0].EffectiveValue.Boolean,
                 "settings: the module owns exactly one persisted toggle (enabled, default on)");
-            var disable = module.Settings.Submit(new ScopedSettingChangeRequest(51UL, SettingRevisionScope.ClientPreference,
+            var disable = settingsView.Submit(new ScopedSettingChangeRequest(51UL, SettingRevisionScope.ClientPreference,
                 snapshot.Revision, new[] { new SettingMutation("inventorytidy.enabled", SettingValue.Toggle(false)) }));
             Assert(disable.Accepted, "setup: the disable mutation is accepted");
             module.RefreshSwitches();
@@ -4293,8 +4292,8 @@ namespace BetterUnturnedExperience.Plugin.Tests
 
             // Re-enable resets the fault gate (new module generation) and the
             // request path re-arms.
-            var snapshotAfterDisable = module.Settings.GetSnapshot(SettingRevisionScope.ClientPreference);
-            var enable = module.Settings.Submit(new ScopedSettingChangeRequest(52UL, SettingRevisionScope.ClientPreference,
+            var snapshotAfterDisable = settingsView.GetSnapshot(SettingRevisionScope.ClientPreference);
+            var enable = settingsView.Submit(new ScopedSettingChangeRequest(52UL, SettingRevisionScope.ClientPreference,
                 snapshotAfterDisable.Revision, new[] { new SettingMutation("inventorytidy.enabled", SettingValue.Toggle(true)) }));
             Assert(enable.Accepted, "setup: the enable mutation is accepted");
             module.RefreshSwitches();
@@ -5250,10 +5249,16 @@ namespace BetterUnturnedExperience.Plugin.Tests
         private static InPlaceReloadModule NewLirModule(BetterUnturnedExperience.Core.Events.FeatureEventBus bus, IBueNetworkApi network, FakeLirAuthority authority, bool isServer, out FakeLirAuthority wired)
         {
             var feature = new FeatureId(LirRuntime.FeatureIdValue);
-            var module = new InPlaceReloadModule(feature, new InMemorySettingsPersistence());
+            var module = new InPlaceReloadModule(feature);
             module.AuthorityFactoryForTests = () => authority;
             module.NetServiceFactoryForTests = (m, net) => new LirRepackNetwork(net, m.Authority, () => isServer);
-            var bootstrap = new FeatureBootstrap(default(FeatureScopeIdentity), 1UL, null, bus.Subscriber(feature), bus.Publisher(feature), bus.EventRegistry(feature), null, null, null, network);
+            // DEV-V3-06: the persisted toggle reaches the module only through
+            // the injected scoped view — the fixture wires it exactly like the
+            // host does (registry -> generation -> view).
+            var lirSettings = new FeatureSettingsRegistry(new InMemorySettingsPersistence(), () => true, null);
+            lirSettings.GetOrCreateRuntime(feature, InPlaceReloadModule.CreateSettingsDescriptors(feature));
+            lirSettings.OpenGeneration(feature, 1UL);
+            var bootstrap = new FeatureBootstrap(default(FeatureScopeIdentity), 1UL, lirSettings.CreateView(feature, 1UL), bus.Subscriber(feature), bus.Publisher(feature), bus.EventRegistry(feature), null, null, null, network);
             var result = module.Start(bootstrap);
             if (!result.Started) throw new InvalidOperationException("harness: LIR module start failed: " + result.DiagnosticId);
             wired = authority;
@@ -5519,7 +5524,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
             private static InPlaceReloadModule CreateModule(BetterUnturnedExperience.Core.Events.FeatureEventBus bus, BetterUnturnedExperience.Core.Network.BueNetworkRuntime runtime, bool isServer, FakeLirAuthority authority, List<string> toasts)
             {
                 var feature = new FeatureId(LirRuntime.FeatureIdValue);
-                var module = new InPlaceReloadModule(feature, new InMemorySettingsPersistence());
+                var module = new InPlaceReloadModule(feature);
                 module.AuthorityFactoryForTests = () => authority;
                 module.NetServiceFactoryForTests = (m, net) => new LirRepackNetwork(net, m.Authority, () => isServer);
                 module.RoleProbeForTests = () => isServer;
@@ -5686,8 +5691,8 @@ namespace BetterUnturnedExperience.Plugin.Tests
         /// <summary>Submits the LIR enabled toggle through the frozen scoped settings seam (unique request id, current revision); returns acceptance.</summary>
         private static bool SubmitLirToggle(InPlaceReloadModule module, bool enabled)
         {
-            var revision = module.Settings.GetSnapshot(SettingRevisionScope.ClientPreference).Revision;
-            var result = module.Settings.Submit(new ScopedSettingChangeRequest(++lirToggleRequestId, SettingRevisionScope.ClientPreference, revision,
+            var revision = module.SettingsView.GetSnapshot(SettingRevisionScope.ClientPreference).Revision;
+            var result = module.SettingsView.Submit(new ScopedSettingChangeRequest(++lirToggleRequestId, SettingRevisionScope.ClientPreference, revision,
                 new[] { new SettingMutation("inplacereload.enabled", SettingValue.Toggle(enabled)) }));
             return result.Accepted;
         }
@@ -8242,7 +8247,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 Assert(captured.Identity.DefinitionSetId == "bue-v3-matrix-probe",
                     "DEV-V3-01: Identity carries the definition set the registration was admitted with");
                 Assert(captured.Settings == null && captured.Logger == null,
-                    "DEV-V3-01/03: the still-unwired members stay null at the DEV-V3-04 baseline (Settings→06, Logger→07; availability matrix)");
+                    "DEV-V3-01/03/06: this probe registers NO settings facet, so Settings stays the honest null (the 06 row is wired: facet=composed view, no-facet=not provided, nothing faked); Logger stays null pre-07");
                 Assert(captured.Lifetime != null && captured.Dependencies != null,
                     "DEV-V3-03: Lifetime/Dependencies turned non-null on the start composition (availability matrix rows wired by DEV-V3-03)");
                 Assert(captured.MainThread != null,
@@ -8450,7 +8455,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     var consumer = new FeatureId("io.example.tidy-consumer");
                     var received = new List<TidyCompleted>();
                     bus.Subscriber(consumer).Subscribe<TidyCompleted>(received.Add);
-                    var module = new InventoryTidyModule(litFeature, new InMemorySettingsPersistence());
+                    var module = new InventoryTidyModule(litFeature);
                     var pair = BetterUnturnedExperience.Core.Network.LocalLoopbackTransport.CreatePair();
                     var network = new BetterUnturnedExperience.Core.Network.BueNetworkRuntime(pair.First, new ContractVersion(2, 0), 1003UL);
                     var result = module.Start(new FeatureBootstrap(default(FeatureScopeIdentity), 7UL, null,
@@ -8536,6 +8541,62 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 return new FeatureStartResult(true, FrameworkErrorCode.None, "BUE-V3-PROBE-START");
             }
             public void Stop(FeatureStopReason reason) { }
+        }
+
+        // DEV-V3-06 settings facet probes: SettingsFacetProbeRegistration is
+        // the 矩阵「有 facet」侧（一个 ClientLocal 开关），FacetProbeRegistration
+        // 为可配置形状（BUE-REG-011 逐例与目录投影断言用）。
+        private sealed class SettingsFacetProbeRegistration : IFeatureRegistration, IFeatureSettingsRegistration
+        {
+            internal readonly MatrixProbeModule Module = new MatrixProbeModule();
+            private readonly FeatureId feature;
+
+            internal SettingsFacetProbeRegistration(string featureId)
+            {
+                feature = new FeatureId(featureId);
+                Definition = new FeatureDefinitionArtifact(feature, 1, "bue-v3-settings-probe", new Digest256(1, 2, 3, 4), new Digest256(5317555933983313923UL, 8642148531063968556UL, 2942485310001909708UL, 9366110643396117629UL), new byte[] { 1, 2, 3 });
+            }
+
+            public FeatureDefinitionArtifact Definition { get; }
+            public ContractVersion MinimumBueContract { get { return new ContractVersion(2, 0); } }
+            public IFeatureModuleFactory ModuleFactory { get { return new MatrixProbeFactory(Module); } }
+            public IClientUiSatelliteRegistration ClientUi { get { return null; } }
+            public IReadOnlyList<SettingDescriptor> SettingDescriptors { get { return new[] { SettingsProbeToggle(feature, "probe.enabled") }; } }
+            public System.Action OnSettingsApplied { get { return null; } }
+        }
+
+        private sealed class FacetProbeRegistration : IFeatureRegistration, IFeatureSettingsRegistration
+        {
+            private readonly IReadOnlyList<SettingDescriptor> descriptors;
+            private readonly System.Action onApplied;
+
+            internal FacetProbeRegistration(string featureId, IReadOnlyList<SettingDescriptor> descriptors, System.Action onApplied)
+            {
+                this.descriptors = descriptors;
+                this.onApplied = onApplied;
+                Definition = new FeatureDefinitionArtifact(new FeatureId(featureId), 1, "bue-v3-facet-probe", new Digest256(1, 2, 3, 5), new Digest256(5317555933983313923UL, 8642148531063968556UL, 2942485310001909708UL, 9366110643396117629UL), new byte[] { 1, 2, 3 });
+            }
+
+            public FeatureDefinitionArtifact Definition { get; }
+            public ContractVersion MinimumBueContract { get { return new ContractVersion(2, 0); } }
+            public IFeatureModuleFactory ModuleFactory { get { return new MatrixProbeFactory(new MatrixProbeModule()); } }
+            public IClientUiSatelliteRegistration ClientUi { get { return null; } }
+            public IReadOnlyList<SettingDescriptor> SettingDescriptors { get { return descriptors; } }
+            public System.Action OnSettingsApplied { get { return onApplied; } }
+        }
+
+        private static SettingDescriptor SettingsProbeToggle(FeatureId feature, string id)
+        {
+            return new SettingDescriptor(feature, id, id, id, SettingKind.Toggle, SettingAuthority.ClientLocal, SettingValue.Toggle(true),
+                default(SettingValueOption), default(SettingValueOption), default(SettingValueOption),
+                new SettingValue[0], 0, string.Empty, 1, 0, string.Empty, string.Empty);
+        }
+
+        private static SettingDescriptor SettingsProbeDescriptor(FeatureId feature, string id)
+        {
+            return new SettingDescriptor(feature, id, id, id, SettingKind.Integer, SettingAuthority.ClientLocal, SettingValue.IntegerValue(5),
+                new SettingValueOption(true, SettingValue.IntegerValue(0)), new SettingValueOption(true, SettingValue.IntegerValue(10)), default(SettingValueOption),
+                new SettingValue[0], 0, string.Empty, 1, 0, string.Empty, string.Empty);
         }
 
         // DEV-V3-03 lifecycle probes: a fake module family that drives the REAL
@@ -9780,7 +9841,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
             var bus = new BetterUnturnedExperience.Core.Events.FeatureEventBus();
             var authority = new FakeLirAuthority();
             var toasts = new List<string>();
-            var module = new InPlaceReloadModule(feature, new InMemorySettingsPersistence());
+            var module = new InPlaceReloadModule(feature);
             module.AuthorityFactoryForTests = () => authority;
             module.NetServiceFactoryForTests = (m, net) => new LirRepackNetwork(net, m.Authority, () => true);
             module.RoleProbeForTests = () => true;
@@ -10350,6 +10411,437 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 throw new InvalidOperationException("DEV-V3-05 red collection (" + reds.Count + "): " + string.Join(" || ", reds));
         }
 
+        // DEV-V3-06: BueSettings 接线与面板动态路由。面板路由以冻结注册目录
+        // 为唯一来源（官方硬编码清单退役）；面板=编辑 adapter 非第二事实源；
+        // 未提供设置的功能不伪造设置页；注入 view 绑 (feature, 代际)，读永
+        // 可用、写经代际门+权威侧门；官方先行消费=真实 LIT 经注入 view。
+        private static void AssertBueV3SettingsWiringAndPanelRouting(bool collectAllFailures = false)
+        {
+            var reds = new List<string>();
+            var settingsRoots = new List<string>();
+            try
+            {
+                void Check(bool condition, string message)
+                {
+                    if (condition) return;
+                    if (collectAllFailures) reds.Add(message);
+                    else throw new InvalidOperationException(message);
+                }
+
+                void Group(string name, System.Action body)
+                {
+                    try { body(); }
+                    catch (Exception error) when (collectAllFailures)
+                    {
+                        reds.Add("[" + name + "] " + (error is InvalidOperationException ? error.Message : "UNEXPECTED " + error.GetType().Name + ": " + error.Message));
+                    }
+                }
+
+                var litFeature = new FeatureId(LitRuntime.FeatureIdValue);
+                string EnsureSettings(Func<bool> authoritySide = null)
+                {
+                    // 每子组确定性临时持久根（BueMainThreadRuntime.Clear/
+                    // EnsureCreated 先例）：跨组静态注册表不复用旧状态。
+                    var root = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "BUE-V3-06-" + Guid.NewGuid().ToString("N"));
+                    settingsRoots.Add(root);
+                    BetterUnturnedExperience.Plugin.BueSettingsRuntime.Clear();
+                    BetterUnturnedExperience.Plugin.BueSettingsRuntime.EnsureCreated(root, authoritySide ?? (() => true), null);
+                    return root;
+                }
+
+                Group("面板目录路由：官方条目不依赖装配参数", () =>
+                {
+                    // 官方硬编码清单退役的正面锚：组合根只经注册目录+设置
+                    // facet 得到 LIT 的设置页与编辑路由，不再依赖生产构造参
+                    // 数（BII 组合根编辑器保留为显式路由，插件自身 UI 功能
+                    // 非「清单」）。
+                    EnsureSettings();
+                    var previousRuntime = BueRuntimeHost.CurrentRuntime;
+                    var runtime = new FeatureRegistrationRuntime();
+                    BueRuntimeHost.Bind(runtime);
+                    runtime.OpenRegistration();
+                    Check(BetterItemInteractionFeatureRegistration.Register().Accepted,
+                        "目录路由：BII 经公共桥注册（组合根显式路由前提）");
+                    Check(BueRuntimeHost.Register(InventoryTidyFeatureRegistration.CreateRegistration()).Accepted,
+                        "目录路由：LIT 经公共桥注册（facet 目录条目前提）");
+                    Check(runtime.CompleteRuntime(), "目录路由：探测目录完成屏障");
+                    var composition = new BueClientUiCompositionRoot();
+                    try
+                    {
+                        composition.RefreshManagementPanel();
+                        var entries = composition.ManagementPanel.Model.GetEntries();
+                        var litEntry = default(ManagementEntryView);
+                        var hasLitEntry = false;
+                        for (var index = 0; index < entries.Count; index++)
+                        {
+                            if (entries[index].StableId != litFeature.Value) continue;
+                            litEntry = entries[index];
+                            hasLitEntry = true;
+                        }
+                        Check(hasLitEntry && litEntry.BueSettings.Count == 1
+                                && litEntry.BueSettings[0].SettingId == "inventorytidy.enabled",
+                            "目录路由：LIT 设置页来自注册目录（装配参数退役后仍恰见其一枚举开关）");
+                        var edit = composition.ManagementPanel.Model.TryEditBueSetting(litFeature,
+                            "inventorytidy.enabled", PluginConfigValue.BooleanValue(false));
+                        Check(edit.Accepted && edit.Revision == 1u,
+                            "目录路由：面板编辑经目录路由进 LIT 的宿主设置面（今天=BII 回退拒）");
+                        composition.RefreshManagementPanel();
+                        entries = composition.ManagementPanel.Model.GetEntries();
+                        var reflected = false;
+                        for (var index = 0; index < entries.Count; index++)
+                        {
+                            if (entries[index].StableId != litFeature.Value) continue;
+                            for (var s = 0; s < entries[index].BueSettings.Count; s++)
+                                if (entries[index].BueSettings[s].SettingId == "inventorytidy.enabled"
+                                    && !entries[index].BueSettings[s].EffectiveValue.Boolean) reflected = true;
+                        }
+                        Check(reflected, "面板=编辑 adapter：编辑后目录条目快照如实反映新值（单真相，非第二事实源）");
+                    }
+                    finally { composition.Destroy(); }
+                    BueRuntimeHost.Bind(previousRuntime);
+                });
+
+                Group("未提供设置的功能不伪造设置页", () =>
+                {
+                    // 无 facet 的功能=无平台管理设置：条目零设置行、编辑显式
+                    // 拒，且经统一诊断通道留痕（BUE-SET-004，回退编辑器拒编辑
+                    // 未提供设置者），不得静默也不得借他人设置页冒充。
+                    var previousRuntime = BueRuntimeHost.CurrentRuntime;
+                    var runtime = new FeatureRegistrationRuntime();
+                    BueRuntimeHost.Bind(runtime);
+                    runtime.OpenRegistration();
+                    var plain = new MatrixProbeRegistration("io.example.settings-nofacet");
+                    Check(runtime.Register(plain).Accepted, "不伪造页：无 facet 探针注册成功");
+                    Check(runtime.CompleteRuntime(), "不伪造页：探测目录完成屏障");
+                    var composition = new BueClientUiCompositionRoot();
+                    var lines = new List<string>();
+                    var previousRecorder = BueRuntimeLog.Recorder;
+                    BueRuntimeLog.Recorder = lines.Add;
+                    try
+                    {
+                        composition.RefreshManagementPanel();
+                        var entries = composition.ManagementPanel.Model.GetEntries();
+                        var plainEntry = default(ManagementEntryView);
+                        var hasPlain = false;
+                        for (var index = 0; index < entries.Count; index++)
+                        {
+                            if (entries[index].StableId != "io.example.settings-nofacet") continue;
+                            plainEntry = entries[index];
+                            hasPlain = true;
+                        }
+                        Check(hasPlain && plainEntry.BueSettings.Count == 0,
+                            "不伪造页：无 facet 功能条目零设置行");
+                        var edit = composition.ManagementPanel.Model.TryEditBueSetting(
+                            new FeatureId("io.example.settings-nofacet"), "anything", PluginConfigValue.BooleanValue(true));
+                        Check(!edit.Accepted, "不伪造页：对无 facet 功能的编辑显式拒");
+                        var sawRejectionLine = false;
+                        for (var index = 0; index < lines.Count; index++)
+                        {
+                            if (lines[index].Contains("diagnosticId=BUE-SET-004")
+                                && lines[index].Contains("io.example.settings-nofacet")) sawRejectionLine = true;
+                        }
+                        Check(sawRejectionLine,
+                            "不伪造页：拒编辑经统一诊断通道留痕（BUE-SET-004 码族，本票定案）");
+                    }
+                    finally
+                    {
+                        BueRuntimeLog.Recorder = previousRecorder;
+                        composition.Destroy();
+                        BueRuntimeHost.Bind(previousRuntime);
+                    }
+                });
+
+                Group("矩阵接线两侧", () =>
+                {
+                    // 可用性矩阵行 Settings=DEV-V3-06 后可用的两侧红线：有
+                    // facet 的功能在真实 StartCatalog 上得到可注入 view（可用
+                    // 侧=本票接线证据）；无 facet 的功能=null（未提供不伪造+
+                    // 阶段基线纪律，旧「接线前 null」侧语义保留）；Logger 行
+                    // 仍 null（07 红线保留）。
+                    EnsureSettings();
+                    var facetProbe = new SettingsFacetProbeRegistration("io.example.settings-facet-probe");
+                    var plainProbe = new MatrixProbeRegistration("io.example.settings-plain-probe");
+                    var runtime = new FeatureRegistrationRuntime();
+                    runtime.OpenRegistration();
+                    Check(runtime.Register(facetProbe).Accepted, "setup: 有 facet 功能受理（facet 进目录）");
+                    Check(runtime.Register(plainProbe).Accepted, "setup: 无 facet 功能受理");
+                    Check(runtime.CompleteRuntime(), "setup: 目录冻结");
+                    BueFeatureStartRuntime.StartCatalog(runtime, NewLoopbackNetwork(3101UL));
+                    var captured = facetProbe.Module.Bootstrap;
+                    Check(captured != null && captured.Settings != null,
+                        "矩阵可用侧：有 facet 功能在真实 StartCatalog 上得到注入 Settings view");
+                    var snapshot = captured.Settings.GetSnapshot(SettingRevisionScope.ClientPreference);
+                    Check(snapshot.Entries.Count == 1 && snapshot.Entries[0].SettingId == "probe.enabled" && snapshot.Revision == 0u,
+                        "矩阵可用侧：view 快照=自身 facet 作用域（一枚举开关，新库 revision 0）");
+                    var commit = captured.Settings.Submit(new ScopedSettingChangeRequest(1, SettingRevisionScope.ClientPreference, 0,
+                        new[] { new SettingMutation("probe.enabled", SettingValue.Toggle(false)) }));
+                    Check(commit.Accepted && commit.Revision == 1u, "矩阵可用侧：经 view 提交生效（revision 推进 1）");
+                    Check(plainProbe.Module.Bootstrap != null && plainProbe.Module.Bootstrap.Settings == null,
+                        "矩阵 null 侧：无 facet 功能=Settings null（未提供不伪造；阶段基线纪律）");
+                    Check(captured.Logger == null, "矩阵红线：Logger 仍 null（DEV-V3-07 前不可用）");
+                });
+
+                Group("官方与生态并列同面板", () =>
+                {
+                    // 票面红线「官方+生态条目并列、同样可见可编辑」：同一面板
+                    // 目录路由下，官方 LIT 与生态 facet 功能并列可见、经同一
+                    // 编辑 seam 可编辑、各自作用域独立提交互不越染（同权四条
+                    // 之②的面板侧锚）。
+                    EnsureSettings();
+                    var previousRuntime = BueRuntimeHost.CurrentRuntime;
+                    var runtime = new FeatureRegistrationRuntime();
+                    BueRuntimeHost.Bind(runtime);
+                    runtime.OpenRegistration();
+                    BetterItemInteractionFeatureRegistration.Register();
+                    Check(runtime.Register(InventoryTidyFeatureRegistration.CreateRegistration()).Accepted,
+                        "并列 setup:官方 LIT 登记受理");
+                    var ecoFeature = new FeatureId("io.example.ecosystem-panel");
+                    Check(runtime.Register(new SettingsFacetProbeRegistration("io.example.ecosystem-panel")).Accepted,
+                        "并列 setup:生态 facet 登记受理");
+                    Check(runtime.CompleteRuntime(), "并列 setup:目录冻结");
+                    BueFeatureStartRuntime.StartCatalog(runtime, NewLoopbackNetwork(3501UL));
+                    var composition = new BueClientUiCompositionRoot();
+                    try
+                    {
+                        composition.RefreshManagementPanel();
+                        var litSettings = -1;
+                        var ecoSettings = -1;
+                        var entries = composition.ManagementPanel.Model.GetEntries();
+                        for (var index = 0; index < entries.Count; index++)
+                        {
+                            if (entries[index].StableId == litFeature.Value) litSettings = entries[index].BueSettings.Count;
+                            if (entries[index].StableId == ecoFeature.Value) ecoSettings = entries[index].BueSettings.Count;
+                        }
+                        Check(litSettings == 1 && ecoSettings == 1,
+                            "并列可见:官方与生态条目在同一面板各见其 schema(同一目录规则)");
+                        var litEdit = composition.ManagementPanel.Model.TryEditBueSetting(litFeature,
+                            "inventorytidy.enabled", PluginConfigValue.BooleanValue(false));
+                        var ecoEdit = composition.ManagementPanel.Model.TryEditBueSetting(ecoFeature,
+                            "probe.enabled", PluginConfigValue.BooleanValue(false));
+                        Check(litEdit.Accepted && ecoEdit.Accepted && litEdit.Revision == 1u && ecoEdit.Revision == 1u,
+                            "并列可编辑:同一编辑 seam 双方各自受理,revision 独立推进(同权四条之②)");
+                        SettingValue ecoValue;
+                        uint ecoRevision;
+                        var ecoStore = BetterUnturnedExperience.Plugin.BueSettingsRuntime.Registry;
+                        Check(ecoStore.TryGetRuntime(ecoFeature).TryGet("probe.enabled", out ecoValue, out ecoRevision) && !ecoValue.Boolean
+                                && ecoStore.TryGetRuntime(litFeature).TryGet("inventorytidy.enabled", out ecoValue, out ecoRevision) && !ecoValue.Boolean,
+                            "并列可编辑:两功能的宿主 runtime 各自落地,互不越染(作用域隔离经同一面板)");
+                    }
+                    finally
+                    {
+                        BueFeatureStartRuntime.StopAll(FeatureStopReason.PluginStopping);
+                        composition.Destroy();
+                        BueRuntimeHost.Bind(previousRuntime);
+                    }
+                });
+
+                Group("登记 facet 侧逐例", () =>
+                {
+                    // facet 无效=确定性拒绝（reason=InvalidDefinitionArtifact
+                    // 复用冻结枚举，诊断码 BUE-REG-011 本票定案）：空列表、
+                    // 描述符 feature 错配（schema 必须是自己的）、超 64/功能
+                    // 上限（本票定值）逐例；有效 facet 进目录投影（面板动态
+                    // 路由的唯一来源）。
+                    var runtime = new FeatureRegistrationRuntime();
+                    runtime.OpenRegistration();
+                    var emptyResult = runtime.Register(new FacetProbeRegistration(
+                        "io.example.facet-empty", new SettingDescriptor[0], null));
+                    Check(!emptyResult.Accepted && emptyResult.Reason == FeatureRegistrationReason.InvalidDefinitionArtifact
+                            && emptyResult.DiagnosticId == "BUE-REG-011",
+                        "011：空 facet 显式拒（提供空 schema 不=提供设置页，也不静默）");
+                    var mismatched = runtime.Register(new FacetProbeRegistration("io.example.facet-mismatch",
+                        new[] { SettingsProbeDescriptor(new FeatureId("io.example.someone-else"), "probe.enabled") }, null));
+                    Check(!mismatched.Accepted && mismatched.DiagnosticId == "BUE-REG-011",
+                        "011：描述符 Feature 错配=拒（只能声明自己功能的 schema）");
+                    var tooMany = new List<SettingDescriptor>();
+                    var capacityFeature = new FeatureId("io.example.facet-capacity");
+                    for (var i = 0; i < 65; i++) tooMany.Add(SettingsProbeDescriptor(capacityFeature, "cap-" + i.ToString()));
+                    Check(!runtime.Register(new FacetProbeRegistration("io.example.facet-capacity", tooMany, null)).Accepted,
+                        "011：超 64/功能上限（本票定值）=显式拒（可观察可测试）");
+                    var goodFeature = new FeatureId("io.example.facet-good");
+                    var applied = false;
+                    Check(runtime.Register(new FacetProbeRegistration("io.example.facet-good",
+                        new[] { SettingsProbeDescriptor(goodFeature, "probe.enabled") }, () => applied = true)).Accepted,
+                        "setup: 有效 facet 受理");
+                    Check(runtime.CompleteRuntime(), "setup: 目录冻结（只含有效 facet 功能）");
+                    var entry = runtime.Catalog.Entries[0];
+                    Check(entry.Definition.Feature.Value == "io.example.facet-good"
+                            && entry.SettingDescriptors != null && entry.SettingDescriptors.Count == 1
+                            && entry.OnSettingsApplied != null,
+                        "目录 facet 投影：目录条目暴露 schema+刷新钩子（面板路由唯一来源）");
+                    entry.OnSettingsApplied();
+                    Check(applied, "目录 facet 投影：刷新钩子经目录可达（不反射不读路径）");
+                });
+
+                Group("官方先行消费锚真实 LIT 经注入 view", () =>
+                {
+                    // T7 ⑤ 全链：面板编辑→目录路由→宿主唯一 runtime→
+                    // OnSettingsApplied→模块经注入 view 读到新值。模块本体不
+                    // 再构造/持有 SettingsRuntime（内部控制面退役）。
+                    EnsureSettings();
+                    var previousRuntime = BueRuntimeHost.CurrentRuntime;
+                    var runtime = new FeatureRegistrationRuntime();
+                    BueRuntimeHost.Bind(runtime);
+                    runtime.OpenRegistration();
+                    BetterItemInteractionFeatureRegistration.Register();
+                    Check(runtime.Register(InventoryTidyFeatureRegistration.CreateRegistration()).Accepted,
+                        "官方锚 setup：官方 LIT 登记入探针运行时");
+                    Check(runtime.CompleteRuntime(), "官方锚 setup：目录冻结");
+                    BueFeatureStartRuntime.StartCatalog(runtime, NewLoopbackNetwork(3201UL));
+                    var litModule = InventoryTidyFeatureRegistration.WiredModule;
+                    Check(litModule != null && litModule.Enabled,
+                        "官方锚：真实 LIT 经工厂启动，初始 Enabled 经注入 view 读取（默认开）");
+                    Check(litModule.SettingsView != null
+                            && !(litModule.SettingsView is BetterUnturnedExperience.Core.Settings.SettingsRuntime),
+                        "官方锚：模块持有的是注入 scoped view（非自身 SettingsRuntime——内部控制面已退役）");
+                    var composition = new BueClientUiCompositionRoot();
+                    try
+                    {
+                        composition.RefreshManagementPanel();
+                        var edit = composition.ManagementPanel.Model.TryEditBueSetting(litFeature,
+                            "inventorytidy.enabled", PluginConfigValue.BooleanValue(false));
+                        Check(edit.Accepted && edit.Revision == 1u,
+                            "官方锚：面板编辑经注册目录路由进宿主唯一 runtime");
+                        Check(!litModule.Enabled,
+                            "官方锚：编辑生效经 OnSettingsApplied→RefreshSwitches 使模块经注入 view 读到新值（单真相全链）");
+                        SettingValue enabledValue;
+                        uint enabledRevision;
+                        Check(litModule.SettingsView.TryGet("inventorytidy.enabled", out enabledValue, out enabledRevision)
+                                && !enabledValue.Boolean && enabledRevision == 1u,
+                            "官方锚：注入 view 的 TryGet 如实反映提交后的真相");
+                    }
+                    finally { composition.Destroy(); }
+                    var stopLines = new List<string>();
+                    var previousRecorder = BueRuntimeLog.Recorder;
+                    BueRuntimeLog.Recorder = stopLines.Add;
+                    try
+                    {
+                        BueFeatureStartRuntime.StopAll(FeatureStopReason.PluginStopping);
+                        var staleWrite = litModule.SettingsView.Submit(new ScopedSettingChangeRequest(20,
+                            SettingRevisionScope.ClientPreference, 1,
+                            new[] { new SettingMutation("inventorytidy.enabled", SettingValue.Toggle(true)) }));
+                        Check(!staleWrite.Accepted
+                                && stopLines.Exists(l => l.Contains("diagnosticId=BUE-SET-001") && l.Contains("io.github.yu80rice.bue.inventory-tidy")),
+                            "停止边界：停止代际经捕获 view 写入=显式拒+BUE-SET-001 留痕");
+                        Check(litModule.SettingsView.GetSnapshot(SettingRevisionScope.ClientPreference).Revision == 1u,
+                            "停止边界：捕获 view 读仍如实（只读观察无突变面）");
+                    }
+                    finally { BueRuntimeLog.Recorder = previousRecorder; }
+                    InventoryTidyFeatureRegistration.WiredModule = null;
+                    Check(BueFeatureStartRuntime.SetFeatureEnabled(litFeature, true),
+                        "再启用：面板 seam 新代际重臂（官方同一缝）");
+                    var litModule2 = InventoryTidyFeatureRegistration.WiredModule;
+                    Check(litModule2 != null && litModule2.SettingsView != null
+                            && litModule2.SettingsView.GetSnapshot(SettingRevisionScope.ClientPreference).Revision == 1u,
+                        "再启用：新代际 view 延续同一持久真相（revision 不重置）");
+                    var revived = litModule2.SettingsView.Submit(new ScopedSettingChangeRequest(21,
+                        SettingRevisionScope.ClientPreference, 1,
+                        new[] { new SettingMutation("inventorytidy.enabled", SettingValue.Toggle(true)) }));
+                    Check(revived.Accepted && revived.Revision == 2u,
+                        "再启用：新代际写入可用且续用单调计数器（单源跨代际）");
+                    BueFeatureStartRuntime.StopAll(FeatureStopReason.PluginStopping);
+                    BueRuntimeHost.Bind(previousRuntime);
+                });
+
+                Group("生态对照 NoOp 设置支线", () =>
+                {
+                    // 生态作者视角最小对照（全链 probe 归 08）：注册带 facet
+                    // → 注入 view → 读快照 → 合法提交观察 revision 推进 → 非
+                    // 法提交观察显式拒。不伪造 ServerAuthority 写入口（NoOp 只
+                    // 声明已承诺 ClientPreference 作用域）。
+                    EnsureSettings(() => false);
+                    var runtime = new FeatureRegistrationRuntime();
+                    runtime.OpenRegistration();
+                    Check(runtime.Register(NoOpFeatureRegistration.ProbeRegistration).Accepted,
+                        "支线 setup：NoOp probe（含 facet）登记受理");
+                    Check(runtime.CompleteRuntime(), "支线 setup：目录冻结");
+                    BueFeatureStartRuntime.StartCatalog(runtime, NewLoopbackNetwork(3301UL));
+                    var probe = NoOpFeatureRegistration.LastProbe;
+                    Check(probe != null && probe.Started, "支线 setup：probe 经真实 StartCatalog 启动");
+                    Check(probe.SettingsAvailable && probe.SettingsSchemaVisible,
+                        "支线：probe 观察到注入 view 且自身 schema 完整可见");
+                    Check(probe.SettingsCommitAccepted && probe.SettingsRevisionAdvanced,
+                        "支线：合法提交被接受且 revision 推进可观察");
+                    Check(probe.SettingsInvalidRejected,
+                        "支线：非法提交（未知 setting）显式拒可观察");
+                    BueFeatureStartRuntime.StopAll(FeatureStopReason.PluginStopping);
+                });
+
+                Group("面板启停命令适配器 03 移交", () =>
+                {
+                    // 03 具名移交「面板按钮接线随 06 动态路由落地」：面板=
+                    // command adapter——启停命令经模型 seam 转发宿主
+                    // SetFeatureEnabled（状态机归宿主），条目状态投影如实反映
+                    // （面板非第二事实源的状态侧）。原生按钮 UI=具名递延随 09。
+                    EnsureSettings();
+                    var probeFeature = new FeatureId("io.example.settings-toggle-probe");
+                    var previousRuntime = BueRuntimeHost.CurrentRuntime;
+                    var runtime = new FeatureRegistrationRuntime();
+                    BueRuntimeHost.Bind(runtime);
+                    runtime.OpenRegistration();
+                    var probe = new SettingsFacetProbeRegistration("io.example.settings-toggle-probe");
+                    Check(runtime.Register(probe).Accepted, "启停 setup：facet 探针受理");
+                    Check(runtime.CompleteRuntime(), "启停 setup：目录冻结");
+                    BueFeatureStartRuntime.StartCatalog(runtime, NewLoopbackNetwork(3401UL));
+                    var composition = new BueClientUiCompositionRoot();
+                    try
+                    {
+                        composition.RefreshManagementPanel();
+                        Check(composition.ManagementPanel.Model.TryToggleFeature(probeFeature, false),
+                            "命令 adapter：面板停用=显式成功（转发 SetFeatureEnabled/UserDisabled）");
+                        composition.RefreshManagementPanel();
+                        var stoppedState = default(FeatureState);
+                        var seen = false;
+                        var entries = composition.ManagementPanel.Model.GetEntries();
+                        for (var index = 0; index < entries.Count; index++)
+                        {
+                            if (entries[index].StableId != probeFeature.Value) continue;
+                            stoppedState = entries[index].FeatureState;
+                            seen = true;
+                        }
+                        Check(seen && stoppedState == FeatureState.Stopped,
+                            "状态投影：停用后面板条目如实=Stopped（宿主唯一状态机，非面板私账）");
+                        Check(composition.ManagementPanel.Model.TryToggleFeature(probeFeature, true),
+                            "命令 adapter：面板启用=显式成功（新代际重臂）");
+                        composition.RefreshManagementPanel();
+                        entries = composition.ManagementPanel.Model.GetEntries();
+                        for (var index = 0; index < entries.Count; index++)
+                        {
+                            if (entries[index].StableId != probeFeature.Value) continue;
+                            stoppedState = entries[index].FeatureState;
+                        }
+                        Check(stoppedState == FeatureState.Running,
+                            "状态投影：启用后条目如实=Running（同一投影链）");
+                        Check(probe.Module.Bootstrap != null && probe.Module.Bootstrap.Settings != null,
+                            "重启续用：再启用代际仍得到注入 view");
+                    }
+                    finally
+                    {
+                        BueFeatureStartRuntime.StopAll(FeatureStopReason.PluginStopping);
+                        composition.Destroy();
+                        BueRuntimeHost.Bind(previousRuntime);
+                    }
+                });
+            }
+            catch (Exception error) when (collectAllFailures)
+            {
+                reds.Add("UNEXPECTED: " + error.GetType().FullName + ": " + error.Message);
+            }
+            finally
+            {
+                BetterUnturnedExperience.Plugin.BueSettingsRuntime.Clear();
+                for (var index = 0; index < settingsRoots.Count; index++)
+                {
+                    try { if (System.IO.Directory.Exists(settingsRoots[index])) System.IO.Directory.Delete(settingsRoots[index], true); }
+                    catch (Exception) { }
+                }
+            }
+            if (collectAllFailures && reds.Count == 0)
+                Console.WriteLine("DEV-V3-06 settings collection: ALL GREEN (0 failures) — groups: 面板目录路由/不伪造页/矩阵两侧/官方与生态并列/登记 facet 侧/官方先行消费真实 LIT/生态对照 NoOp/面板启停命令适配器");
+            if (collectAllFailures && reds.Count > 0)
+                throw new InvalidOperationException("DEV-V3-06 red collection (" + reds.Count + "): " + string.Join(" || ", reds));
+        }
+
         private static void AssertBueV2LhtAdoption(bool collectAllFailures = false)
         {
             var reds = new List<string>();
@@ -10461,12 +10953,16 @@ namespace BetterUnturnedExperience.Plugin.Tests
         private static HordeTrackerModule NewLhtModule(BetterUnturnedExperience.Core.Events.FeatureEventBus bus, IBueNetworkApi network, FakeHordeAuthority authority, FakeHudSurface surface, bool isServer, bool canUseClientUi = true)
         {
             var feature = new FeatureId(LhtRuntime.FeatureIdValue);
-            var module = new HordeTrackerModule(feature, new InMemorySettingsPersistence());
+            var module = new HordeTrackerModule(feature);
             module.AuthorityFactoryForTests = () => authority;
             module.HudSurfaceFactoryForTests = () => surface;
             module.CanUseClientUiForTests = () => canUseClientUi;
             authority.ServerRole = isServer;
-            var bootstrap = new FeatureBootstrap(default(FeatureScopeIdentity), 1UL, null, bus.Subscriber(feature), bus.Publisher(feature), bus.EventRegistry(feature), null, null, null, network);
+            // DEV-V3-06: same host-shaped settings wiring as the LIR fixture.
+            var lhtSettings = new FeatureSettingsRegistry(new InMemorySettingsPersistence(), () => true, null);
+            lhtSettings.GetOrCreateRuntime(feature, HordeTrackerModule.CreateSettingsDescriptors(feature));
+            lhtSettings.OpenGeneration(feature, 1UL);
+            var bootstrap = new FeatureBootstrap(default(FeatureScopeIdentity), 1UL, lhtSettings.CreateView(feature, 1UL), bus.Subscriber(feature), bus.Publisher(feature), bus.EventRegistry(feature), null, null, null, network);
             var result = module.Start(bootstrap);
             if (!result.Started) throw new InvalidOperationException("harness: LHT module start failed: " + result.DiagnosticId);
             return module;
@@ -10483,8 +10979,8 @@ namespace BetterUnturnedExperience.Plugin.Tests
         /// <summary>Submits the LHT enabled toggle through the frozen scoped settings seam (unique request id, current revision); returns acceptance.</summary>
         private static bool SubmitLhtToggle(HordeTrackerModule module, bool enabled)
         {
-            var revision = module.Settings.GetSnapshot(SettingRevisionScope.ClientPreference).Revision;
-            var result = module.Settings.Submit(new ScopedSettingChangeRequest(++lhtToggleRequestId, SettingRevisionScope.ClientPreference, revision,
+            var revision = module.SettingsView.GetSnapshot(SettingRevisionScope.ClientPreference).Revision;
+            var result = module.SettingsView.Submit(new ScopedSettingChangeRequest(++lhtToggleRequestId, SettingRevisionScope.ClientPreference, revision,
                 new[] { new SettingMutation("hordetracker.enabled", SettingValue.Toggle(enabled)) }));
             return result.Accepted;
         }

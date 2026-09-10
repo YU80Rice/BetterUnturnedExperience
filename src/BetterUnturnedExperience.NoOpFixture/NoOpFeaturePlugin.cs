@@ -1,4 +1,5 @@
-using System;
+﻿using System;
+using System.Collections.Generic;
 using BepInEx;
 using BetterUnturnedExperience.Contracts;
 using BetterUnturnedExperience.Plugin;
@@ -55,6 +56,16 @@ namespace BetterUnturnedExperience.NoOpFixture
             public ulong LastHostTickNumber;
             public TickPhase LastHostTickPhase;
             public float LastHostTickDeltaSeconds;
+            // DEV-V3-06 Settings 支线（T7 裁决③生态侧最小对照，全链 probe→08）：
+            // 探针按生态作者应有姿势消费注入 Settings view——读快照、提交合法
+            // 变更观察 revision 推进、提交非法变更观察显式拒。写落到宿主登记
+            // 的持久根（与官方同一规则同一 runtime，样本功能无特权）。停止后
+            // 视图写入失效=宿主侧锚（不在样本里自证）。
+            public bool SettingsAvailable;
+            public bool SettingsSchemaVisible;
+            public bool SettingsCommitAccepted;
+            public bool SettingsRevisionAdvanced;
+            public bool SettingsInvalidRejected;
         }
 
         public static ProbeState LastProbe { get; private set; }
@@ -69,12 +80,22 @@ namespace BetterUnturnedExperience.NoOpFixture
             return BueRuntimeHost.Register(ProbeRegistration);
         }
 
-        private sealed class NoOpRegistration : IFeatureRegistration
+        private sealed class NoOpRegistration : IFeatureRegistration, IFeatureSettingsRegistration
         {
             public FeatureDefinitionArtifact Definition { get; } = new FeatureDefinitionArtifact(new FeatureId("io.github.yu80rice.bue.noop"), 1, "bue-noop", new Digest256(1, 2, 3, 4), new Digest256(5317555933983313923UL, 8642148531063968556UL, 2942485310001909708UL, 9366110643396117629UL), new byte[] { 1, 2, 3 });
             public ContractVersion MinimumBueContract { get { return new ContractVersion(2, 0); } }
             public IFeatureModuleFactory ModuleFactory { get { return new NoOpFactory(); } }
             public IClientUiSatelliteRegistration ClientUi { get { return null; } }
+            // DEV-V3-06: the settings facet — the sample declares its schema
+            // (one ClientLocal toggle; 已承诺 scope only, no ServerAuthority
+            // write entry offered — nothing is faked, per the ticket rule).
+            public IReadOnlyList<SettingDescriptor> SettingDescriptors { get { return new[] { ProbeToggle }; } }
+            public Action OnSettingsApplied { get { return null; } }
+            private static readonly SettingDescriptor ProbeToggle = new SettingDescriptor(
+                new FeatureId("io.github.yu80rice.bue.noop"), "noop.probe-toggle", "noop.probe-toggle", "noop.probe-toggle",
+                SettingKind.Toggle, SettingAuthority.ClientLocal, SettingValue.Toggle(true),
+                default(SettingValueOption), default(SettingValueOption), default(SettingValueOption),
+                null, 0, null, 1, 0, null, null);
         }
 
         private sealed class NoOpFactory : IFeatureModuleFactory
@@ -125,6 +146,30 @@ namespace BetterUnturnedExperience.NoOpFixture
                         probe.LastHostTickDeltaSeconds = tick.DeltaTime;
                     });
                     probe.HostTickSubscribed = hostTickSubscription != null;
+                }
+                // DEV-V3-06 Settings 支线：读→合法提交观察 revision 推进→非法
+                // 提交观察显式拒（请求号随 revision 前进取新值：同一 runtime
+                // 跨 probe 启动共享，旧号重放会被幂等账本冲突拒——生态姿势
+                // 演示：ExpectedRevision+新号）。
+                var settings = bootstrap.Settings;
+                if (settings != null)
+                {
+                    probe.SettingsAvailable = true;
+                    var snapshot = settings.GetSnapshot(SettingRevisionScope.ClientPreference);
+                    for (var i = 0; i < snapshot.Entries.Count; i++)
+                    {
+                        if (snapshot.Entries[i].SettingId == "noop.probe-toggle") probe.SettingsSchemaVisible = true;
+                    }
+                    var current = snapshot.Entries.Count == 0 ? SettingValue.Toggle(true) : snapshot.Entries[0].EffectiveValue;
+                    var commit = settings.Submit(new ScopedSettingChangeRequest(
+                        1000UL + snapshot.Revision, SettingRevisionScope.ClientPreference, snapshot.Revision,
+                        new[] { new SettingMutation("noop.probe-toggle", SettingValue.Toggle(!current.Boolean)) }));
+                    probe.SettingsCommitAccepted = commit.Accepted;
+                    probe.SettingsRevisionAdvanced = commit.Accepted && commit.Revision > snapshot.Revision;
+                    var invalid = settings.Submit(new ScopedSettingChangeRequest(
+                        2000UL + snapshot.Revision, SettingRevisionScope.ClientPreference, commit.Revision,
+                        new[] { new SettingMutation("noop.not-a-setting", SettingValue.Toggle(true)) }));
+                    probe.SettingsInvalidRejected = !invalid.Accepted;
                 }
                 probe.Started = true;
                 return new FeatureStartResult(true, FrameworkErrorCode.None, "BUE-NOOP-START");

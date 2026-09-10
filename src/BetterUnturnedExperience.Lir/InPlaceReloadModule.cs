@@ -1,8 +1,8 @@
-using System;
+﻿using System;
+using System.Collections.Generic;
 using System.Threading;
 using BetterUnturnedExperience.Contracts;
 using BetterUnturnedExperience.Contracts.BueNetwork;
-using BetterUnturnedExperience.Core.Settings;
 using HarmonyLib;
 using SDG.Unturned;
 using UnityEngine;
@@ -11,7 +11,8 @@ namespace BetterUnturnedExperience.Lir
 {
     /// <summary>
     /// DEV-V2-22: the in-place-reload official feature module. Owns:
-    ///   - the enabled toggle is the ONE persisted setting (SettingsRuntime,
+    ///   - the enabled toggle is the ONE persisted setting (DEV-V3-06: the
+    ///     host-owned SettingsRuntime behind the injected scoped view,
     ///     ClientLocal; off = native fallback — the patches come off, the
     ///     double tap does nothing, no auto reload after tidy; on = re-arm);
     ///   - the three Harmony adapters live under the Harmony id = FeatureId
@@ -34,22 +35,33 @@ namespace BetterUnturnedExperience.Lir
         private const string EnabledSettingId = "inplacereload.enabled";
         private Harmony harmony;
 
-        internal InPlaceReloadModule(string settingsRoot)
-            : this(new FeatureId(LirRuntime.FeatureIdValue), new FileSettingsPersistence(settingsRoot))
+        // DEV-V3-06: the module no longer constructs or holds a
+        // SettingsRuntime — the host composes the ONE per-feature runtime
+        // from the registration's settings facet and injects the scoped
+        // view (IFeatureBootstrap.Settings); schema authority stays with
+        // the feature (CreateSettingsDescriptors), file layout unchanged.
+        internal InPlaceReloadModule()
+            : this(new FeatureId(LirRuntime.FeatureIdValue))
         {
         }
 
-        internal InPlaceReloadModule(FeatureId feature, ISettingsPersistence persistence)
+        internal InPlaceReloadModule(FeatureId feature)
         {
             Feature = feature;
-            if (persistence == null) throw new ArgumentNullException(nameof(persistence));
-            Settings = new SettingsRuntime(feature, new[] { ToggleDescriptor(feature) }, persistence);
             Guard = new ReloadContextGuard();
             Enabled = ReadToggle();
         }
 
+        internal static IReadOnlyList<SettingDescriptor> CreateSettingsDescriptors(FeatureId feature)
+        {
+            return new[] { ToggleDescriptor(feature) };
+        }
+
         internal FeatureId Feature { get; }
-        internal SettingsRuntime Settings { get; }
+        // DEV-V3-06: the host-injected scoped settings view (null only on
+        // hand-composed stage-baseline bootstraps; then the descriptor
+        // default applies).
+        internal IScopedFeatureSettings SettingsView { get; private set; }
         internal ReloadContextGuard Guard { get; }
 
         /// <summary>The patch-facing module handle (the LIT ActiveModule pattern): live only while the patches are.</summary>
@@ -113,6 +125,9 @@ namespace BetterUnturnedExperience.Lir
             Network = bootstrap.Network;
             LifecycleGeneration = bootstrap.LifecycleGeneration;
             MainThread = bootstrap.MainThread; // DEV-V3-04: nullable stage-baseline seam (see the property)
+            // DEV-V3-06 official first consumption: the enabled toggle rides
+            // the host-injected scoped view before the patches arm.
+            AttachSettingsView(bootstrap.Settings); // DEV-V3-06: bind + read BEFORE arming
             EnsureStarted();
 
             Authority = AuthorityFactoryForTests != null ? AuthorityFactoryForTests() : new LirProductionAuthority();
@@ -380,11 +395,22 @@ namespace BetterUnturnedExperience.Lir
             }
         }
 
+        /// <summary>DEV-V3-06: bind the host-injected scoped settings view and
+        /// re-read the switch (Start does this from the bootstrap; host-test
+        /// fixtures attach directly).</summary>
+        internal void AttachSettingsView(IScopedFeatureSettings view)
+        {
+            SettingsView = view;
+            Enabled = ReadToggle();
+        }
+
         private bool ReadToggle()
         {
+            var view = SettingsView;
+            if (view == null) return true; // no wired view yet = the descriptor default (on)
             SettingValue value;
             uint revision;
-            return Settings.TryGet(EnabledSettingId, out value, out revision) && value.Boolean;
+            return view.TryGet(EnabledSettingId, out value, out revision) && value.Boolean;
         }
 
         private static SettingDescriptor ToggleDescriptor(FeatureId feature)

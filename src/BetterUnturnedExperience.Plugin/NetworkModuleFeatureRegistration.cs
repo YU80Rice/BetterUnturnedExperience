@@ -1,4 +1,5 @@
-using System;
+﻿using System;
+using System.Collections.Generic;
 using System.IO;
 using BetterUnturnedExperience.Contracts;
 
@@ -144,22 +145,29 @@ namespace BetterUnturnedExperience.Plugin
             return networkResult;
         }
 
-        private sealed class Registration : IFeatureRegistration
+        // DEV-V3-06: both network facets declare their switch schema through
+        // the registration (same discipline as the sibling official
+        // features); the adapter's RefreshSwitches is the refresh hook.
+        private sealed class Registration : IFeatureRegistration, IFeatureSettingsRegistration
         {
             public FeatureDefinitionArtifact Definition { get { return CreateNetworkDefinition(); } }
 
             public ContractVersion MinimumBueContract { get { return new ContractVersion(2, 0); } }
             public IFeatureModuleFactory ModuleFactory { get { return new ModuleFactory(); } }
             public IClientUiSatelliteRegistration ClientUi { get { return null; } }
+            public IReadOnlyList<SettingDescriptor> SettingDescriptors { get { return NetworkModuleAdapter.CreateNetworkDescriptors(); } }
+            public Action OnSettingsApplied { get { var adapter = WiredAdapter; return adapter == null ? null : new Action(adapter.RefreshSwitches); } }
         }
 
-        private sealed class V1CompatRegistration : IFeatureRegistration
+        private sealed class V1CompatRegistration : IFeatureRegistration, IFeatureSettingsRegistration
         {
             public FeatureDefinitionArtifact Definition { get { return CreateV1CompatDefinition(); } }
 
             public ContractVersion MinimumBueContract { get { return new ContractVersion(2, 0); } }
             public IFeatureModuleFactory ModuleFactory { get { return new ModuleFactory(); } }
             public IClientUiSatelliteRegistration ClientUi { get { return null; } }
+            public IReadOnlyList<SettingDescriptor> SettingDescriptors { get { return NetworkModuleAdapter.CreateV1CompatDescriptors(); } }
+            public Action OnSettingsApplied { get { var adapter = WiredAdapter; return adapter == null ? null : new Action(adapter.RefreshSwitches); } }
         }
 
         private sealed class ModuleFactory : IFeatureModuleFactory

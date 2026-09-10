@@ -58,6 +58,33 @@ namespace BetterUnturnedExperience.Contracts
         IFeatureModuleFactory ModuleFactory { get; }
         IClientUiSatelliteRegistration ClientUi { get; }
     }
+    // DEV-V3-06: the OPTIONAL settings facet (Minor 2.1 additive, V3-T7 裁决②③).
+    // A registration object may ADDITIONALLY implement this interface — the
+    // host discovers it by type test during Register. It is never added to
+    // IFeatureRegistration itself: that interface is implemented on the
+    // module side, so an added member would break every 2.0 ecosystem
+    // registration type at load time (the implementer-side interface rule —
+    // contrast IFeatureBootstrap, which the host implements and may extend).
+    // A feature that implements this facet declares its setting schema: the
+    // host composes ONE SettingsRuntime per feature from it, injects the
+    // scoped view (IFeatureBootstrap.Settings) and routes the management
+    // panel editor by it — the feature keeps owning its schema, validation
+    // semantics, authority and migrations; the panel stays an edit adapter
+    // and never a second source of truth. A registration WITHOUT the facet
+    // has no platform-managed settings (matrix row stays null, no fake page).
+    public interface IFeatureSettingsRegistration
+    {
+        // The feature's setting schema (descriptors must all carry this
+        // feature's own FeatureId; empty/oversized/cross-feature schemas are
+        // rejected at registration: InvalidDefinitionArtifact / BUE-REG-011).
+        System.Collections.Generic.IReadOnlyList<SettingDescriptor> SettingDescriptors { get; }
+        // Optional refresh hook the feature runs after a settings change was
+        // accepted (its own runtime reaction, e.g. re-reading switches). May
+        // be null. NEVER a second source of truth — the accepted values are
+        // already on the single runtime; the hook only propagates them into
+        // the feature's working state.
+        Action OnSettingsApplied { get; }
+    }
     public interface IBueFeatureRegistrationHost
     {
         FeatureRegistrationPhase Phase { get; }

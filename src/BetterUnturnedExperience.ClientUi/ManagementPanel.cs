@@ -397,6 +397,27 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             return result;
         }
 
+        /// <summary>
+        /// DEV-V3-06 (03 具名移交「面板按钮接线随 06 动态路由落地」): the panel
+        /// enable/disable COMMAND adapter. The model forwards the command to
+        /// the host's ONE seam (BueFeatureStartRuntime.SetFeatureEnabled,
+        /// bound by the composition root) — the state machine stays with the
+        /// host, the panel keeps no private enable ledger, and entries
+        /// refresh to the projected truth on the next panel refresh. Unbound
+        /// (no host wired) answers false honestly. The native button UI is
+        /// the named deferral of this ticket (随 09 实机面).
+        /// </summary>
+        internal System.Func<FeatureId, bool, bool> FeatureToggleHandler;
+
+        internal bool TryToggleFeature(FeatureId feature, bool enabled)
+        {
+            EnsurePreferencesLoaded();
+            if (!features.ContainsKey(feature.Value)) return false;
+            var handler = FeatureToggleHandler;
+            if (handler == null) return false;
+            return handler(feature, enabled);
+        }
+
         internal PluginConfigEditResult TryEditPluginConfig(string pluginGuid, string key, string rawValue)
         {
             EnsurePreferencesLoaded();

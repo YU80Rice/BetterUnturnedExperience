@@ -475,7 +475,10 @@ namespace BetterUnturnedExperience.Core.Settings
             }
             return true;
         }
-        private static List<string> ValidateDescriptors(FeatureId feature, IReadOnlyList<SettingDescriptor> list)
+        // DEV-V3-06: internal — the settings facet gate (registration +
+        // registry) shares this one validation, so a schema accepted at the
+        // bridge can never fault the runtime constructor later.
+        internal static List<string> ValidateDescriptors(FeatureId feature, IReadOnlyList<SettingDescriptor> list)
         {
             var errors = new List<string>();
             var ids = new HashSet<string>(StringComparer.Ordinal);

@@ -1,5 +1,5 @@
-using System;
-using System.IO;
+﻿using System;
+using System.Collections.Generic;
 using BetterUnturnedExperience.Contracts;
 using BetterUnturnedExperience.Lir;
 
@@ -38,8 +38,8 @@ namespace BetterUnturnedExperience.Plugin
 
         private static InPlaceReloadModule ArmNewModule()
         {
-            var settingsRoot = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "BetterUnturnedExperience");
-            var module = new InPlaceReloadModule(settingsRoot);
+            // DEV-V3-06: born inert without a runtime (see LIT note).
+            var module = new InPlaceReloadModule();
             module.BindProductionLog();
             return module;
         }
@@ -64,7 +64,10 @@ namespace BetterUnturnedExperience.Plugin
                 payload);
         }
 
-        private sealed class Registration : IFeatureRegistration
+        // DEV-V3-06: settings facet — same discipline as the sibling
+        // official registrations (schema on the registration, panel routed
+        // by the catalog, refresh hook feature-owned).
+        private sealed class Registration : IFeatureRegistration, IFeatureSettingsRegistration
         {
             private readonly InPlaceReloadModule moduleForFactory;
 
@@ -80,6 +83,17 @@ namespace BetterUnturnedExperience.Plugin
             public IFeatureModuleFactory ModuleFactory { get { return new ModuleFactory(moduleForFactory); } }
 
             public IClientUiSatelliteRegistration ClientUi { get { return null; } }
+
+            public IReadOnlyList<SettingDescriptor> SettingDescriptors { get { return InPlaceReloadModule.CreateSettingsDescriptors(new FeatureId(FeatureIdValue)); } }
+
+            public Action OnSettingsApplied
+            {
+                get
+                {
+                    var module = WiredModule ?? moduleForFactory;
+                    return module == null ? null : new Action(module.RefreshSwitches);
+                }
+            }
         }
 
         private sealed class ModuleFactory : IFeatureModuleFactory
