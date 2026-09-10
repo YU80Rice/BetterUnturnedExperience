@@ -67,7 +67,7 @@ Status: ready-for-agent
 
 - 官方身份白名单：保留段 FeatureId 须 ∈ 白名单（BII/LIT/LIR/LHT/BUE Network/ClientUi satellite 等），否则 `ReservedFeatureId`/`BUE-REG-010` 拒绝；判定顺序=基础校验→格式校验→保留段→合同版本→重复→结果；不反射 caller、不读路径。
 - Admission 三类型（Result/Phase/Reason）与 `BUE-REG-001..010` 码表整体入冻结面；拒绝=显式结果不抛异常。
-- Bootstrap 分层承诺=**阶段基线 ≠ 票后终态**（2026-09-10 澄清修订，消解「恒 null」与「各票接线」的时态冲突）；十成员可用性矩阵（二轮复查显式列全，`/to-tickets` 与 SDK 文档均以此表为唯一口径）：
+- Bootstrap 分层承诺=**阶段基线 ≠ 票后终态**（2026-09-10 澄清修订，消解「恒 null」与「各票接线」的时态冲突）；成员可用性矩阵（二轮复查显式列全+实施对账补 EventRegistry 行；`/to-tickets` 与 SDK 文档均以此表为唯一口径）：
 
   | Bootstrap 成员 | DEV-V3-01 后基线 | 票后终态 |
   |---|---|---|
@@ -76,13 +76,14 @@ Status: ready-for-agent
   | Events | 可用 | 可用 |
   | OwnedEvents | 可用 | 可用 |
   | Network | 可用 | 可用 |
+  | EventRegistry | null | DEV-V3-02 后可用 |
   | Lifetime | null | DEV-V3-03 后可用 |
   | Dependencies | null | DEV-V3-03 后可用 |
   | MainThread | null | DEV-V3-04 后可用 |
   | Settings | null | DEV-V3-06 后可用 |
   | Logger | null | DEV-V3-07 后可用 |
 
-  永非 null 五成员（Identity/LifecycleGeneration/Events/OwnedEvents/Network）入冻结面+红测；接线成员各票红线须同时钉住自己成员的「接线前 null+接线后可用」两侧。
+  永非 null 五成员（Identity/LifecycleGeneration/Events/OwnedEvents/Network）入冻结面+红测；EventRegistry 为 DEV-V3-02 起永非 null（实施对账：Contracts 形状锚实测 `IFeatureBootstrap`=恰 11 属性，08 附录按实落档）；接线成员各票红线须同时钉住自己成员的「接线前 null+接线后可用」两侧。
 - 不引入 registration session；`SupportedContractMajor=2`/`Minor=1`，2.0 模块继续可注册。
 
 ### 功能事件（V3-T3 → DEV-V3-02）
