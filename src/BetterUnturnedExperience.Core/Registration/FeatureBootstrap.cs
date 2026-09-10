@@ -18,13 +18,14 @@ namespace BetterUnturnedExperience.Core.Registration
     /// </summary>
     public sealed class FeatureBootstrap : IFeatureBootstrap
     {
-        public FeatureBootstrap(FeatureScopeIdentity identity, ulong lifecycleGeneration, IScopedFeatureSettings settings, IFeatureEventSubscriber events, IOwnedFeatureEventPublisher ownedEvents, IFeatureLogger logger, IDependencyCapabilityView dependencies, IFeatureLifetime lifetime, IBueNetworkApi network)
+        public FeatureBootstrap(FeatureScopeIdentity identity, ulong lifecycleGeneration, IScopedFeatureSettings settings, IFeatureEventSubscriber events, IOwnedFeatureEventPublisher ownedEvents, IFeatureEventRegistry eventRegistry, IFeatureLogger logger, IDependencyCapabilityView dependencies, IFeatureLifetime lifetime, IBueNetworkApi network)
         {
             Identity = identity;
             LifecycleGeneration = lifecycleGeneration;
             Settings = settings;
             Events = events;
             OwnedEvents = ownedEvents;
+            EventRegistry = eventRegistry;
             Logger = logger;
             Dependencies = dependencies;
             Lifetime = lifetime;
@@ -36,6 +37,10 @@ namespace BetterUnturnedExperience.Core.Registration
         public IScopedFeatureSettings Settings { get; }
         public IFeatureEventSubscriber Events { get; }
         public IOwnedFeatureEventPublisher OwnedEvents { get; }
+        // DEV-V3-02: the event-type ownership registration seam — composed by
+        // the host start path from DEV-V3-02 on (availability matrix row:
+        // EventRegistry available from DEV-V3-02).
+        public IFeatureEventRegistry EventRegistry { get; }
         public IFeatureLogger Logger { get; }
         public IDependencyCapabilityView Dependencies { get; }
         public IFeatureLifetime Lifetime { get; }

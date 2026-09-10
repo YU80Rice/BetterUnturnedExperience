@@ -290,6 +290,28 @@ namespace BetterUnturnedExperience.Contracts.Tests
             Assert(!majorFloor.Accepted && majorFloor.Reason == FeatureRegistrationReason.ContractIncompatible && majorFloor.DiagnosticId == "BUE-REG-006",
                 "DEV-V3-01: the host gate is Major 2 — a (1,0) minimum-contract registration is rejected");
 
+            // DEV-V3-02: the event-type ownership registration seam — the
+            // public contract surface (Minor 2.1 additive). The reason table
+            // values are frozen (BUE-EVT-001..004), the result is the explicit
+            // triple (Registered/Reason/DiagnosticId), and the registry hangs
+            // off the bootstrap as its own service seam.
+            Assert((byte)FeatureEventRegistrationReason.None == 0
+                && (byte)FeatureEventRegistrationReason.InvalidEventId == 1
+                && (byte)FeatureEventRegistrationReason.EventIdNotDerivedFromOwner == 2
+                && (byte)FeatureEventRegistrationReason.EventTypeAlreadyRegistered == 3
+                && (byte)FeatureEventRegistrationReason.EventIdAlreadyRegistered == 4,
+                "DEV-V3-02: FeatureEventRegistrationReason values are frozen (BUE-EVT-001..004)");
+            var evtAccepted = new FeatureEventRegistrationResult(true, FeatureEventRegistrationReason.None, "BUE-EVT-ACCEPT");
+            Assert(evtAccepted.Registered && evtAccepted.Reason == FeatureEventRegistrationReason.None && evtAccepted.DiagnosticId == "BUE-EVT-ACCEPT",
+                "DEV-V3-02: FeatureEventRegistrationResult carries the explicit acceptance triple");
+            var evtRejected = new FeatureEventRegistrationResult(false, FeatureEventRegistrationReason.EventTypeAlreadyRegistered, "BUE-EVT-003");
+            Assert(!evtRejected.Registered && evtRejected.Reason == FeatureEventRegistrationReason.EventTypeAlreadyRegistered && evtRejected.DiagnosticId == "BUE-EVT-003",
+                "DEV-V3-02: FeatureEventRegistrationResult carries the explicit rejection triple");
+            Assert(typeof(IFeatureEventRegistry).IsInterface,
+                "DEV-V3-02: IFeatureEventRegistry is the public event-type registration seam");
+            Assert(typeof(IFeatureBootstrap).GetProperty("EventRegistry") != null,
+                "DEV-V3-02: IFeatureBootstrap composes the EventRegistry seam member");
+
             var presentation = new FeaturePresentationView(new FeatureId("io.example.tracer"), FeaturePresentationState.PresentationDegraded, "BUE-UI-001", 1UL);
             Assert(presentation.State == FeaturePresentationState.PresentationDegraded && presentation.PresentationRevision == 1UL, "presentation state is a separate value projection");
             Console.WriteLine("DEV-10 registration runtime tests: PASS");

@@ -107,6 +107,11 @@ namespace BetterUnturnedExperience.Contracts
         IScopedFeatureSettings Settings { get; }
         IFeatureEventSubscriber Events { get; }
         IOwnedFeatureEventPublisher OwnedEvents { get; }
+        // DEV-V3-02: the event-type ownership registration seam — the view
+        // the module uses to register its own payload types after module
+        // registration and before publishing/subscribing (availability
+        // matrix: composed non-null by the host start path from DEV-V3-02 on).
+        IFeatureEventRegistry EventRegistry { get; }
         IFeatureLogger Logger { get; }
         IDependencyCapabilityView Dependencies { get; }
         IFeatureLifetime Lifetime { get; }
@@ -125,6 +130,28 @@ namespace BetterUnturnedExperience.Contracts
     }
     public interface IFeatureEventSubscriber { IDisposable Subscribe<TEvent>(Action<TEvent> handler); }
     public interface IOwnedFeatureEventPublisher { bool TryPublish<TEvent>(string declaredEventId, TEvent value); }
+    // DEV-V3-02: the event-type ownership registration seam — the public
+    // contract surface (Minor 2.1 additive). A feature registers its own
+    // payload types through the IFeatureEventRegistry view bound to its own
+    // identity (IFeatureBootstrap.EventRegistry) after module registration
+    // and before publishing/subscribing; the official types (TidyCompleted,
+    // HostTick) are host-registered at bus composition and cannot be
+    // re-registered or re-purposed. Registration failures are explicit
+    // results with structured diagnostics — never an exception across the
+    // module boundary; a duplicate registration is rejected without
+    // overwriting; one payload type maps to exactly one owning EventId
+    // (<owner>/<event-name>), so same-type cross-event misdelivery cannot
+    // exist and the publisher owner must equal the type's registered owner.
+    public enum FeatureEventRegistrationReason : byte { None = 0, InvalidEventId = 1, EventIdNotDerivedFromOwner = 2, EventTypeAlreadyRegistered = 3, EventIdAlreadyRegistered = 4 }
+    public readonly struct FeatureEventRegistrationResult
+    {
+        public bool Registered { get; }
+        public FeatureEventRegistrationReason Reason { get; }
+        public string DiagnosticId { get; }
+        public FeatureEventRegistrationResult(bool registered, FeatureEventRegistrationReason reason, string diagnosticId)
+        { Registered = registered; Reason = reason; DiagnosticId = diagnosticId ?? string.Empty; }
+    }
+    public interface IFeatureEventRegistry { FeatureEventRegistrationResult Register<TEvent>(string eventId); }
     public interface IFeatureLogger
     {
         void Info(string eventName, string diagnosticId);

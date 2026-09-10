@@ -308,6 +308,11 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     AssertBueV2EventBusAndHostTick(collectAllFailures: true);
                     return 0;
                 }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--bue-v3-event-routing-red")
+                {
+                    AssertBueV3EventOwnershipRouting(collectAllFailures: true);
+                    return 0;
+                }
                 if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--bue-v2-lit-multiplayer-red")
                 {
                     AssertBueV2LitMultiplayerPath(collectAllFailures: true);
@@ -440,6 +445,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 var late = NoOpFeatureRegistration.Register();
                 Assert(late.Reason == FeatureRegistrationReason.PhaseClosed, "fixture late registration is rejected");
                 AssertBueV3RegistrationGateAndBootstrapMatrix();
+                AssertBueV3EventOwnershipRouting();
                 // F-E: pure truth tables, no host state — runs before F-D.
                 AssertBueV2FeEnginePeerIdentity();
                 // F-D: runs last — it replaces the bound runtime and clears the
@@ -3219,11 +3225,11 @@ namespace BetterUnturnedExperience.Plugin.Tests
             var runtime = new BetterUnturnedExperience.Core.Network.BueNetworkRuntime(pair.First, localContract, 1002UL);
             var identity = default(FeatureScopeIdentity);
             var nullNetworkThrown = false;
-            try { new BetterUnturnedExperience.Core.Registration.FeatureBootstrap(identity, 1UL, null, null, null, null, null, null, null); }
+            try { new BetterUnturnedExperience.Core.Registration.FeatureBootstrap(identity, 1UL, null, null, null, null, null, null, null, null); }
             catch (ArgumentNullException) { nullNetworkThrown = true; }
             Assert(nullNetworkThrown, "injection: the bootstrap fails fast on a null network API (Network is never null)");
             var runtimeAsApi = (IBueNetworkApi)runtime;
-            var bootstrap = new BetterUnturnedExperience.Core.Registration.FeatureBootstrap(identity, 1UL, null, null, null, null, null, null, runtimeAsApi);
+            var bootstrap = new BetterUnturnedExperience.Core.Registration.FeatureBootstrap(identity, 1UL, null, null, null, null, null, null, null, runtimeAsApi);
             Assert(bootstrap.Network != null && ReferenceEquals(bootstrap.Network, runtimeAsApi),
                 "injection: Network carries exactly the host-provided IBueNetworkApi instance");
             var channel = new FeatureId("io.example.v2inj");
@@ -3743,7 +3749,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 module.ScopeDirectoryForTests = faultDir;
                 module.FaultContextForTests = () => new LitFaultScopeContext("TestMap", 1);
                 module.NetServiceFactoryForTests = (m, net, book) => new LitTidyNetService(m, networkDecorator != null ? networkDecorator(net) : net, authority, () => isServer, book, clock);
-                var bootstrap = new FeatureBootstrap(default(FeatureScopeIdentity), 1UL, null, bus.Subscriber(feature), bus.Publisher(feature), null, null, null, runtime);
+                var bootstrap = new FeatureBootstrap(default(FeatureScopeIdentity), 1UL, null, bus.Subscriber(feature), bus.Publisher(feature), bus.EventRegistry(feature), null, null, null, runtime);
                 var result = module.Start(bootstrap);
                 if (!result.Started) throw new InvalidOperationException("harness: module start failed: " + result.DiagnosticId);
                 return module;
@@ -3980,7 +3986,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
             var pair = BetterUnturnedExperience.Core.Network.LocalLoopbackTransport.CreatePair();
             var runtime = new BetterUnturnedExperience.Core.Network.BueNetworkRuntime(pair.First, new ContractVersion(2, 0), 1001UL);
             var result = module.Start(new FeatureBootstrap(default(FeatureScopeIdentity), 7UL, null,
-                bus.Subscriber(feature), bus.Publisher(feature), null, null, null, runtime));
+                bus.Subscriber(feature), bus.Publisher(feature), bus.EventRegistry(feature), null, null, null, runtime));
             check(result.Started, "发布：宿主 bootstrap 启动返回 Started=true");
             module.PublishTidyCompleted(3, 3, TidyCommitResult.Committed, 0UL, 42UL);
             check(events.Count == 1 && events[0].Result == TidyCompletionResult.Succeeded
@@ -4092,7 +4098,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
             var module = new InventoryTidyModule(feature, new InMemorySettingsPersistence());
             module.NetServiceFactoryForTests = (m, net, book) => new LitTidyNetService(m, net, new FakeLitAuthority(), () => true, book);
             module.Start(new FeatureBootstrap(default(FeatureScopeIdentity), 1UL, null,
-                bus.Subscriber(feature), bus.Publisher(feature), null, null, null, stub));
+                bus.Subscriber(feature), bus.Publisher(feature), bus.EventRegistry(feature), null, null, null, stub));
             check(stub.SubscribeCalls == 2 && stub.DisposedHandles == 1 && stub.UnregisterCalls == 1,
                 "回滚：第二方向订阅失败 → 已挂句柄释放 + 频道注销（零残留）");
             check(module.NetService != null && !module.NetService.Started,
@@ -5296,7 +5302,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
             var module = new InPlaceReloadModule(feature, new InMemorySettingsPersistence());
             module.AuthorityFactoryForTests = () => authority;
             module.NetServiceFactoryForTests = (m, net) => new LirRepackNetwork(net, m.Authority, () => isServer);
-            var bootstrap = new FeatureBootstrap(default(FeatureScopeIdentity), 1UL, null, bus.Subscriber(feature), bus.Publisher(feature), null, null, null, network);
+            var bootstrap = new FeatureBootstrap(default(FeatureScopeIdentity), 1UL, null, bus.Subscriber(feature), bus.Publisher(feature), bus.EventRegistry(feature), null, null, null, network);
             var result = module.Start(bootstrap);
             if (!result.Started) throw new InvalidOperationException("harness: LIR module start failed: " + result.DiagnosticId);
             wired = authority;
@@ -5567,7 +5573,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 module.NetServiceFactoryForTests = (m, net) => new LirRepackNetwork(net, m.Authority, () => isServer);
                 module.RoleProbeForTests = () => isServer;
                 module.ToastSink = message => toasts.Add(message);
-                var bootstrap = new FeatureBootstrap(default(FeatureScopeIdentity), 1UL, null, bus.Subscriber(feature), bus.Publisher(feature), null, null, null, runtime);
+                var bootstrap = new FeatureBootstrap(default(FeatureScopeIdentity), 1UL, null, bus.Subscriber(feature), bus.Publisher(feature), bus.EventRegistry(feature), null, null, null, runtime);
                 var result = module.Start(bootstrap);
                 if (!result.Started) throw new InvalidOperationException("harness: LIR module start failed: " + result.DiagnosticId);
                 return module;
@@ -8294,6 +8300,257 @@ namespace BetterUnturnedExperience.Plugin.Tests
             }
         }
 
+        // DEV-V3-02: the event-type ownership routing. The bus routes by the
+        // registered (EventId, EventType, owner) triple with ONE owning
+        // EventId per payload type; the official types (TidyCompleted → LIT,
+        // HostTick → the reserved host identity) are host-registered at bus
+        // composition; ecosystem features register their own payload types
+        // through the public IFeatureEventRegistry seam (bootstrap.EventRegistry)
+        // after module registration and before publishing/subscribing.
+        // Rejections are explicit results with structured diagnostics and
+        // zero dispatch; a subscription to an unregistered type is a
+        // developer error and fails fast (the null-handler discipline).
+        private static void AssertBueV3EventOwnershipRouting(bool collectAllFailures = false)
+        {
+            var reds = new List<string>();
+            try
+            {
+                void Check(bool condition, string message)
+                {
+                    if (condition) return;
+                    if (collectAllFailures) reds.Add(message);
+                    else throw new InvalidOperationException(message);
+                }
+
+                void Group(string name, System.Action body)
+                {
+                    try { body(); }
+                    catch (Exception error) when (collectAllFailures)
+                    {
+                        reds.Add("[" + name + "] " + (error is InvalidOperationException ? error.Message : "UNEXPECTED " + error.GetType().Name + ": " + error.Message));
+                    }
+                }
+
+                var litFeature = new FeatureId("io.github.yu80rice.bue.inventory-tidy");
+                var thirdParty = new FeatureId("io.example.thirdparty");
+
+                Group("归属拒绝", () =>
+                {
+                    // The anti-forgery invariant (T3 plan A): the publisher
+                    // owner must equal the payload type's registered owner. A
+                    // perfectly valid own-prefix eventId carrying SOMEONE
+                    // ELSE'S payload type is rejected — the prefix rule alone
+                    // cannot catch this forge.
+                    var diagnostics = new List<string>();
+                    var bus = new BetterUnturnedExperience.Core.Events.FeatureEventBus(diagnostics.Add);
+                    var received = new List<TidyCompleted>();
+                    bus.Subscriber(thirdParty).Subscribe<TidyCompleted>(received.Add);
+                    Check(!bus.Publisher(thirdParty).TryPublish("io.example.thirdparty/tidy-completed",
+                            new TidyCompleted(litFeature, 2, 6, TidyCompletionResult.Succeeded, 0UL, 1UL)),
+                        "归属拒绝：他人载荷类型经自有前缀身份串发布被拒（发布者 owner==类型归属 owner）");
+                    Check(received.Count == 0, "归属拒绝：被拒发布零派发");
+                    Check(diagnostics.Count > 0 && diagnostics[diagnostics.Count - 1].IndexOf("owner-mismatch", StringComparison.Ordinal) >= 0,
+                        "归属拒绝：拒绝浮出结构化诊断（不静默吞）");
+                });
+
+                Group("未登记类型", () =>
+                {
+                    var diagnostics = new List<string>();
+                    var bus = new BetterUnturnedExperience.Core.Events.FeatureEventBus(diagnostics.Add);
+                    var received = new List<RoutingProbePayload>();
+                    bool subscribeRejected = false;
+                    try { bus.Subscriber(thirdParty).Subscribe<RoutingProbePayload>(received.Add); }
+                    catch (ArgumentException) { subscribeRejected = true; }
+                    Check(subscribeRejected, "未登记类型：订阅未登记类型 fail-fast 拒绝（开发期错误，同 null handler 纪律）");
+                    Check(received.Count == 0, "未登记类型：未登记订阅零回调");
+                    Check(!bus.Publisher(thirdParty).TryPublish("io.example.thirdparty/probe-payload", new RoutingProbePayload(1UL)),
+                        "未登记类型：未登记类型发布显式拒绝");
+                    Check(diagnostics.Count > 0 && diagnostics[diagnostics.Count - 1].IndexOf("type-not-registered", StringComparison.Ordinal) >= 0,
+                        "未登记类型：拒绝浮出结构化诊断（不静默吞）");
+                });
+
+                Group("登记成功", () =>
+                {
+                    var bus = new BetterUnturnedExperience.Core.Events.FeatureEventBus();
+                    var result = bus.EventRegistry(thirdParty).Register<EcoPayload>("io.example.thirdparty/eco-thing");
+                    Check(result.Registered && result.Reason == FeatureEventRegistrationReason.None && result.DiagnosticId == "BUE-EVT-ACCEPT",
+                        "登记成功：登记返回显式成功结果（None/BUE-EVT-ACCEPT）");
+                    var received = new List<EcoPayload>();
+                    bus.Subscriber(thirdParty).Subscribe<EcoPayload>(received.Add);
+                    Check(bus.Publisher(thirdParty).TryPublish("io.example.thirdparty/eco-thing", new EcoPayload(7UL)),
+                        "登记成功：登记后发布通过（登记时机=发布前）");
+                    Check(received.Count == 1 && received[0].Marker == 7UL,
+                        "登记成功：订阅者经登记的（EventId, Type）路由收到载荷");
+                });
+
+                Group("登记失败", () =>
+                {
+                    var diagnostics = new List<string>();
+                    var bus = new BetterUnturnedExperience.Core.Events.FeatureEventBus(diagnostics.Add);
+                    var registry = bus.EventRegistry(thirdParty);
+                    var nullId = registry.Register<EcoPayload>(null);
+                    Check(!nullId.Registered && nullId.Reason == FeatureEventRegistrationReason.InvalidEventId && nullId.DiagnosticId == "BUE-EVT-001",
+                        "登记失败：null 身份串=显式 InvalidEventId/BUE-EVT-001");
+                    var emptyId = registry.Register<EcoPayload>(string.Empty);
+                    Check(!emptyId.Registered && emptyId.Reason == FeatureEventRegistrationReason.InvalidEventId && emptyId.DiagnosticId == "BUE-EVT-001",
+                        "登记失败：空身份串=BUE-EVT-001");
+                    var noSlash = registry.Register<EcoPayload>("no-slash");
+                    Check(!noSlash.Registered && noSlash.Reason == FeatureEventRegistrationReason.InvalidEventId && noSlash.DiagnosticId == "BUE-EVT-001",
+                        "登记失败：无分隔符身份串=BUE-EVT-001");
+                    var emptyName = registry.Register<EcoPayload>("io.example.thirdparty/");
+                    Check(!emptyName.Registered && emptyName.Reason == FeatureEventRegistrationReason.InvalidEventId && emptyName.DiagnosticId == "BUE-EVT-001",
+                        "登记失败：空事件名=BUE-EVT-001");
+                    var emptyPrefix = registry.Register<EcoPayload>("/name");
+                    Check(!emptyPrefix.Registered && emptyPrefix.Reason == FeatureEventRegistrationReason.InvalidEventId && emptyPrefix.DiagnosticId == "BUE-EVT-001",
+                        "登记失败：空前缀=BUE-EVT-001");
+                    var foreign = registry.Register<EcoPayload>("io.other.owner/eco-thing");
+                    Check(!foreign.Registered && foreign.Reason == FeatureEventRegistrationReason.EventIdNotDerivedFromOwner && foreign.DiagnosticId == "BUE-EVT-002",
+                        "登记失败：非本功能前缀=显式 EventIdNotDerivedFromOwner/BUE-EVT-002");
+                    var hostPrefix = registry.Register<EcoPayload>("io.github.yu80rice.bue.host/eco-thing");
+                    Check(!hostPrefix.Registered && hostPrefix.Reason == FeatureEventRegistrationReason.EventIdNotDerivedFromOwner && hostPrefix.DiagnosticId == "BUE-EVT-002",
+                        "登记失败：宿主保留前缀不可由功能登记（BUE-EVT-002）");
+                    Check(diagnostics.Count >= 7, "登记失败：每次拒绝浮出结构化诊断（不静默吞）");
+                });
+
+                Group("重复登记", () =>
+                {
+                    var bus = new BetterUnturnedExperience.Core.Events.FeatureEventBus();
+                    var registry = bus.EventRegistry(thirdParty);
+                    Check(registry.Register<EcoPayload>("io.example.thirdparty/eco-thing").Registered, "setup: 首次登记成功");
+                    var sameAgain = registry.Register<EcoPayload>("io.example.thirdparty/eco-thing");
+                    Check(!sameAgain.Registered && sameAgain.Reason == FeatureEventRegistrationReason.EventTypeAlreadyRegistered && sameAgain.DiagnosticId == "BUE-EVT-003",
+                        "重复登记：同类型同身份串再登记=显式拒绝（不覆盖）");
+                    var differentId = registry.Register<EcoPayload>("io.example.thirdparty/eco-thing-2");
+                    Check(!differentId.Registered && differentId.Reason == FeatureEventRegistrationReason.EventTypeAlreadyRegistered && differentId.DiagnosticId == "BUE-EVT-003",
+                        "重复登记：同类型不同身份串=显式拒绝（一个载荷类型恰对应一个归属 EventId）");
+                    var received = new List<EcoPayload>();
+                    bus.Subscriber(thirdParty).Subscribe<EcoPayload>(received.Add);
+                    Check(bus.Publisher(thirdParty).TryPublish("io.example.thirdparty/eco-thing", new EcoPayload(1UL)),
+                        "重复登记：原归属身份串照常路由（拒绝未覆盖原映射）");
+                    Check(!bus.Publisher(thirdParty).TryPublish("io.example.thirdparty/eco-thing-2", new EcoPayload(2UL)),
+                        "重复登记：第二身份串无登记映射路由被拒");
+                    Check(received.Count == 1 && received[0].Marker == 1UL, "重复登记：仅原归属身份串派发一份");
+                    var idCollision = registry.Register<SecondPayload>("io.example.thirdparty/eco-thing");
+                    Check(!idCollision.Registered && idCollision.Reason == FeatureEventRegistrationReason.EventIdAlreadyRegistered && idCollision.DiagnosticId == "BUE-EVT-004",
+                        "重复登记：同身份串不同类型=显式拒绝（身份串唯一绑定类型）");
+                });
+
+                Group("同类型唯一归属", () =>
+                {
+                    var bus = new BetterUnturnedExperience.Core.Events.FeatureEventBus();
+                    var registry = bus.EventRegistry(thirdParty);
+                    Check(registry.Register<SoloPayload>("io.example.thirdparty/solo-event").Registered, "setup: 独占类型登记成功");
+                    var received = new List<SoloPayload>();
+                    bus.Subscriber(thirdParty).Subscribe<SoloPayload>(received.Add);
+                    Check(bus.Publisher(thirdParty).TryPublish("io.example.thirdparty/solo-event", new SoloPayload(5UL)),
+                        "同类型唯一归属：登记身份串发布通过");
+                    Check(!bus.Publisher(thirdParty).TryPublish("io.example.thirdparty/other-event", new SoloPayload(6UL)),
+                        "同类型唯一归属：同类型第二身份串无路由（未登记映射显式拒绝）");
+                    Check(received.Count == 1 && received[0].Marker == 5UL,
+                        "同类型唯一归属：订阅者仅收到登记身份串的派发（不存在同类型不同事件互收）");
+                });
+
+                Group("宿主保留身份", () =>
+                {
+                    var bus = new BetterUnturnedExperience.Core.Events.FeatureEventBus();
+                    bool registryMintBlocked = false;
+                    try { bus.EventRegistry(new FeatureId(BetterUnturnedExperience.Core.Events.HostTickClock.HostPublisherId)); }
+                    catch (ArgumentException) { registryMintBlocked = true; }
+                    Check(registryMintBlocked, "宿主保留身份：宿主标识不可铸入登记视图（与发布者视图同门，fail-fast）");
+                    var eco = bus.EventRegistry(thirdParty);
+                    var reTick = eco.Register<HostTick>(HostTick.EventId);
+                    Check(!reTick.Registered && reTick.Reason == FeatureEventRegistrationReason.EventIdNotDerivedFromOwner && reTick.DiagnosticId == "BUE-EVT-002",
+                        "宿主保留身份：功能登记宿主身份串被前缀门拒绝（宿主归属仅宿主可登记）");
+                    Check(!bus.Publisher(thirdParty).TryPublish(HostTick.EventId, default(HostTick)),
+                        "宿主保留身份：功能发布 HostTick 仍被归属检查拒绝");
+                });
+
+                Group("bootstrap 登记缝", () =>
+                {
+                    // The REAL host start composition hands every module a
+                    // registry view bound to its own identity (availability
+                    // matrix row: EventRegistry available from DEV-V3-02).
+                    var probe = new MatrixProbeRegistration("io.example.routing-probe");
+                    var probeRuntime = new FeatureRegistrationRuntime();
+                    probeRuntime.OpenRegistration();
+                    Check(probeRuntime.Register(probe).Accepted, "setup: 路由探针经登记桥受理");
+                    Check(probeRuntime.CompleteRuntime(), "setup: 探针目录冻结");
+                    var pair = BetterUnturnedExperience.Core.Network.LocalLoopbackTransport.CreatePair();
+                    var network = new BetterUnturnedExperience.Core.Network.BueNetworkRuntime(pair.First, new ContractVersion(2, 0), 1002UL);
+                    BueFeatureStartRuntime.StartCatalog(probeRuntime, network);
+                    Check(probe.Module.Bootstrap != null && probe.Module.Bootstrap.EventRegistry != null,
+                        "bootstrap 登记缝：真实 StartCatalog 组装 EventRegistry（永非 null）");
+                    var registered = probe.Module.Bootstrap.EventRegistry.Register<RoutingProbePayload>("io.example.routing-probe/probe-payload");
+                    Check(registered.Registered && registered.Reason == FeatureEventRegistrationReason.None && registered.DiagnosticId == "BUE-EVT-ACCEPT",
+                        "bootstrap 登记缝：探针经 bootstrap 视图登记自己的载荷类型（视图绑定自身身份）");
+                });
+
+                Group("官方先行消费锚", () =>
+                {
+                    // The REAL LIT module publishes TidyCompleted through the
+                    // host-registered ownership path and a real ecosystem
+                    // consumer receives it; the consumer's own owner cannot
+                    // forge the same payload type (ownership rejection).
+                    var diagnostics = new List<string>();
+                    var bus = new BetterUnturnedExperience.Core.Events.FeatureEventBus(diagnostics.Add);
+                    var consumer = new FeatureId("io.example.tidy-consumer");
+                    var received = new List<TidyCompleted>();
+                    bus.Subscriber(consumer).Subscribe<TidyCompleted>(received.Add);
+                    var module = new InventoryTidyModule(litFeature, new InMemorySettingsPersistence());
+                    var pair = BetterUnturnedExperience.Core.Network.LocalLoopbackTransport.CreatePair();
+                    var network = new BetterUnturnedExperience.Core.Network.BueNetworkRuntime(pair.First, new ContractVersion(2, 0), 1003UL);
+                    var result = module.Start(new FeatureBootstrap(default(FeatureScopeIdentity), 7UL, null,
+                        bus.Subscriber(litFeature), bus.Publisher(litFeature), bus.EventRegistry(litFeature), null, null, null, network));
+                    Check(result.Started, "官方先行消费锚：真实 LIT 模块经宿主 bootstrap 启动");
+                    module.PublishTidyCompleted(3, 3, TidyCommitResult.Committed, 0UL, 42UL);
+                    Check(received.Count == 1 && received[0].Publisher.Value == litFeature.Value
+                            && received[0].Result == TidyCompletionResult.Succeeded && received[0].TransactionId == 42UL,
+                        "官方先行消费锚：LIT 经登记路径发布 TidyCompleted 被真实消费（载荷透传）");
+                    Check(!bus.Publisher(consumer).TryPublish("io.example.tidy-consumer/tidy-completed", new TidyCompleted(consumer, 2, 6, TidyCompletionResult.Succeeded, 0UL, 43UL)),
+                        "官方先行消费锚：消费方 owner 冒发 TidyCompleted 被归属检查拒绝");
+                    Check(received.Count == 1, "官方先行消费锚：伪造发布零派发");
+                    Check(diagnostics.Count > 0 && diagnostics[diagnostics.Count - 1].IndexOf("owner-mismatch", StringComparison.Ordinal) >= 0,
+                        "官方先行消费锚：伪造发布浮出结构化诊断（不静默吞）");
+                });
+            }
+            catch (Exception error) when (collectAllFailures)
+            {
+                reds.Add("UNEXPECTED: " + error.GetType().FullName + ": " + error.Message);
+            }
+            if (collectAllFailures && reds.Count == 0)
+                Console.WriteLine("DEV-V3-02 event ownership routing collection: ALL GREEN (0 failures) — groups: 归属拒绝/未登记类型/登记成功/登记失败/重复登记/同类型唯一归属/宿主保留身份/bootstrap 登记缝/官方先行消费锚");
+            if (collectAllFailures && reds.Count > 0)
+                throw new InvalidOperationException("DEV-V3-02 red collection (" + reds.Count + "): " + string.Join(" || ", reds));
+        }
+
+        // DEV-V3-02 routing probe payloads: RoutingProbePayload stays
+        // unregistered on the 归属拒绝/未登记类型 groups' fresh buses to observe
+        // the unregistered-type rejections; EcoPayload/SecondPayload/SoloPayload
+        // are registered through the seam inside their own groups' buses.
+        private readonly struct RoutingProbePayload
+        {
+            public ulong Marker { get; }
+            public RoutingProbePayload(ulong marker) { Marker = marker; }
+        }
+
+        private readonly struct EcoPayload
+        {
+            public ulong Marker { get; }
+            public EcoPayload(ulong marker) { Marker = marker; }
+        }
+
+        private readonly struct SecondPayload
+        {
+            public ulong Marker { get; }
+            public SecondPayload(ulong marker) { Marker = marker; }
+        }
+
+        private readonly struct SoloPayload
+        {
+            public ulong Marker { get; }
+            public SoloPayload(ulong marker) { Marker = marker; }
+        }
+
         private sealed class MatrixProbeRegistration : IFeatureRegistration
         {
             internal readonly MatrixProbeModule Module = new MatrixProbeModule();
@@ -8772,7 +9029,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
             module.HudSurfaceFactoryForTests = () => surface;
             module.CanUseClientUiForTests = () => canUseClientUi;
             authority.ServerRole = isServer;
-            var bootstrap = new FeatureBootstrap(default(FeatureScopeIdentity), 1UL, null, bus.Subscriber(feature), bus.Publisher(feature), null, null, null, network);
+            var bootstrap = new FeatureBootstrap(default(FeatureScopeIdentity), 1UL, null, bus.Subscriber(feature), bus.Publisher(feature), bus.EventRegistry(feature), null, null, null, network);
             var result = module.Start(bootstrap);
             if (!result.Started) throw new InvalidOperationException("harness: LHT module start failed: " + result.DiagnosticId);
             return module;

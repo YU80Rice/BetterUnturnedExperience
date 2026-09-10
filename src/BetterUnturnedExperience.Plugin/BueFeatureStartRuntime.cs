@@ -61,10 +61,12 @@ namespace BetterUnturnedExperience.Plugin
                 // DEV-V3-01 ten-member availability matrix: Identity,
                 // LifecycleGeneration, Events, OwnedEvents and Network are the
                 // five frozen never-null members (Identity binds the
-                // registration's own definition set). The un-wired members
-                // stay null at this baseline — Lifetime/Dependencies wire with
-                // DEV-V3-03, MainThread with DEV-V3-04, Settings with
-                // DEV-V3-06, Logger with DEV-V3-07.
+                // registration's own definition set). DEV-V3-02 adds the
+                // EventRegistry row: the feature's own event-type ownership
+                // registration view, composed non-null from this ticket on.
+                // The remaining un-wired members stay null — Lifetime/
+                // Dependencies wire with DEV-V3-03, MainThread with DEV-V3-04,
+                // Settings with DEV-V3-06, Logger with DEV-V3-07.
                 var definition = entry.Definition;
                 var identity = new FeatureScopeIdentity(definition.Feature, null, null, definition.DefinitionSetId, definition.DefinitionSetDigest);
                 var bootstrap = new FeatureBootstrap(
@@ -73,6 +75,7 @@ namespace BetterUnturnedExperience.Plugin
                     null,
                     bus.Subscriber(feature),
                     bus.Publisher(feature),
+                    bus.EventRegistry(feature),
                     null,
                     null,
                     null,
