@@ -1,7 +1,7 @@
 # DEV-V3-03：BueLifecycle 统一状态投影与资源接线（TryTrack+只读状态查询+面板启停 seam）
 
 Type: task
-Status: ready-for-agent
+Status: resolved（2026-09-10 双轴 R1 双 CLEAN 闭环）
 Parent: spec.md（V2 第三阶段规格·生态开发者平台能力定界与接线）
 Blocked by: DEV-V3-01（注册桥与 Bootstrap 基线）
 Spec: `../spec.md`（「生命周期（V3-T4 → DEV-V3-03）」节）
@@ -22,8 +22,18 @@ Spec: `../spec.md`（「生命周期（V3-T4 → DEV-V3-03）」节）
 
 ## 验收条件
 
-- [ ] 红测先行：假模块驱动状态机（Start 抛异常→Isolated 不扩散；TryTrack 逆序 Dispose；容量上限拒绝；UserDisabled 停/新代际启；隔离后查询仍可用；Dependencies Has/TryGet），各先红后绿（先例=NoOp+假模块宿主测试）
-- [ ] 矩阵接线两侧红测：Lifetime/Dependencies 接线前 null+接线后可用
-- [ ] 官方先行消费锚：官方功能走真 UserDisabled 面板启停 seam 与 TryTrack（NoOp probe 扩展为生态契约侧对照）
-- [ ] 双轴独立审查（每轮全新实例）CLEAN；全套测试 0 警告 0 错误
-- [ ] **候选纪律**：本票不产正式候选 DLL、不更新 RELEASES、不授 CaseId（中间构建=开发态内部基线）
+- [x] 红测先行：假模块驱动状态机（Start 抛异常→Isolated 不扩散；TryTrack 逆序 Dispose；容量上限拒绝；UserDisabled 停/新代际启；隔离后查询仍可用；Dependencies Has/TryGet），各先红后绿（先例=NoOp+假模块宿主测试）
+- [x] 矩阵接线两侧红测：Lifetime/Dependencies 接线前 null+接线后可用
+- [x] 官方先行消费锚：官方功能走真 UserDisabled 面板启停 seam 与 TryTrack（NoOp probe 扩展为生态契约侧对照）
+- [x] 双轴独立审查（每轮全新实例）CLEAN；全套测试 0 警告 0 错误
+- [x] **候选纪律**：本票不产正式候选 DLL、不更新 RELEASES、不授 CaseId（中间构建=开发态内部基线）
+
+## Comments
+
+### 2026-09-10 结单（双轴 R1 双 CLEAN 闭环）
+
+R1 双轴（每轴全新实例并行、零上下文）：Standards 轴 **CLEAN**（0 硬伤；5 deferrable 见审计报告 §4：StartedModule.LifetimeView 生产零读取/静态表跨组不复位/失败路径锁外写 Stopped/装配阶梯同构/StopDiagnostic 字段名复用等先例兼容判断题）+ Spec 轴 **CLEAN**（0 gap 0 deviation；七条 Scope 逐条对照票面/规格原文+实现行号证据，验收五条全兑现）。审查期间环境插曲：Spec-Reviewer 钉定模型 gpt-5.6-sol 空返回→改 grok-4.6 后 frontmatter thoughtLevel:medium 不被支持→删行重启后闭环（记忆条 `spec-reviewer-model-broken-2026-09-10`）。全套 7/7 PASS+全方案 Rebuild 0 警 0 错（终版二进制）；证据 `audit/2026-09-10/DEV-V3-03/`（log/diff 磁盘归档不入库，结单报告+final-fullsuite txt 入库）。面板命令 seam 的面板侧按钮接线随 DEV-V3-06 动态路由落地（本票=运行时 seam，票面口径）。
+
+### 2026-09-10 实施中期（未结单）
+
+红绿与验证已完成：行为红 11 条+编译红（`audit/2026-09-10/DEV-V3-03/red-*.log`）→ 绿（`final-fullsuite-*.txt` 七工程全 PASS）→ 全方案 Rebuild 0 警 0 错；交付面=Core `FeatureLifecycleRuntime`（统一状态机+TryTrack 管线+停止边界逆序清理+Dependencies 只读目录查询）+Plugin `BueFeatureStartRuntime` 状态机接线与 `SetFeatureEnabled` 面板启停 seam+Contracts `IFeatureLifetime.CurrentStatus` 加性成员（Minor 2.1）+两 readonly struct 加性构造器+LIT 官方真消费（TryTrack 真实网络句柄+真 UserDisabled 循环）+NoOp probe 生态对照扩展。Standards R1=CLEAN（5 deferrable 见中期报告 §4）。**Spec 轴被环境阻塞**：Spec-Reviewer 钉定模型 gpt-5.6-sol 空返回（CLI 日志实证 turn 0 processing_input 失败），改 grok-4.6 后须应用重启加载；重启后重派全新实例闭环，双 CLEAN 前不提交。面板命令 seam 的面板侧按钮接线随 DEV-V3-06 动态路由落地（本票=运行时 seam，票面口径）。冻结面变更清单（Minor 2.1 批次登记，SDK 条目归 DEV-V3-08 附录 A/B）：①`IFeatureLifetime.CurrentStatus` 只读查询成员；②`FeatureStatusView` 六成员构造器；③`NegotiatedFeatureView` 七参构造器；④诊断码 BUE-LIFE-STATE/ACCEPT/RELEASE/ISOLATE/001..006（附录 B 登记）；⑤Dependencies presence-only 能力投影规则（Has 空能力串+0 版=存在性，非空能力 fail-closed）；⑥容量定值 64/功能/代际；⑦`SetFeatureEnabled` 面板 command seam（宿主内部，非 SDK 契约面）。

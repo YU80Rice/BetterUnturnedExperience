@@ -81,6 +81,10 @@ namespace BetterUnturnedExperience.Lit
         internal IFeatureEventSubscriber Events { get; private set; }
         internal IBueNetworkApi Network { get; private set; }
         internal ulong LifecycleGeneration { get; private set; }
+        // DEV-V3-03: the module's own lifetime view from the bootstrap — the
+        // read-only status query seam (IFeatureLifetime.CurrentStatus) and the
+        // resource registry the module tracked its real network handles into.
+        internal IFeatureLifetime Lifetime { get; private set; }
         private long nextTransactionId;
 
         // DEV-V2-21: the multiplayer service is one per module generation —
@@ -142,6 +146,21 @@ namespace BetterUnturnedExperience.Lit
                 StartGateDiagnostics = StartGateDiagnostics.Length == 0
                     ? "multiplayer-start-rolled-back"
                     : StartGateDiagnostics + ";multiplayer-start-rolled-back";
+            }
+            // DEV-V3-03: the official first consumption of the lifecycle
+            // resource seam — the module tracks its real inbound network
+            // subscription handles through the host's IFeatureLifetime so the
+            // stop boundary's reverse disposal covers them (handle Dispose is
+            // idempotent against the module's own teardown), and keeps the
+            // view for read-only status queries. The member is a wired
+            // availability-matrix row on the host start path; hand-composed
+            // module-level test bootstraps may still pass null, in which case
+            // there is simply no registry to deliver to.
+            if (bootstrap.Lifetime != null)
+            {
+                Lifetime = bootstrap.Lifetime;
+                var handles = NetService.SubscriptionHandles;
+                for (var i = 0; i < handles.Count; i++) bootstrap.Lifetime.TryTrack(handles[i]);
             }
             LitRuntime.LogInfo("[Tidy] 模块已启动（宿主 bootstrap：功能代际=" + bootstrap.LifecycleGeneration + "）");
             return new FeatureStartResult(true, FrameworkErrorCode.None, "BUE-LIT-START");

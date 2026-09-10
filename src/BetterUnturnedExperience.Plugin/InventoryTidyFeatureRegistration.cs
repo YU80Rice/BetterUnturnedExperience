@@ -19,7 +19,10 @@ namespace BetterUnturnedExperience.Plugin
     {
         internal const string FeatureIdValue = LitRuntime.FeatureIdValue;
 
-        internal static InventoryTidyModule WiredModule { get; private set; }
+        // DEV-V3-03: the set accessor stays property-scoped (internal) — the
+        // lifecycle anchor test resets it so the re-enable path exercises the
+        // factory's fresh-instance arming.
+        internal static InventoryTidyModule WiredModule { get; set; }
 
         internal static FeatureRegistrationResult Register()
         {

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using BetterUnturnedExperience.Contracts;
 using BetterUnturnedExperience.Contracts.BueNetwork;
 
@@ -160,6 +161,18 @@ namespace BetterUnturnedExperience.Lit
         }
 
         internal bool Started { get; private set; }
+
+        /// <summary>
+        /// DEV-V3-03: the live inbound subscription handles this service owns —
+        /// the module tracks them through the host lifecycle seam
+        /// (IFeatureLifetime.TryTrack) so the stop boundary's reverse disposal
+        /// covers them too (handle Dispose is idempotent: the module's own
+        /// teardown and the host's withdrawal both run safely).
+        /// </summary>
+        internal IReadOnlyList<IDisposable> SubscriptionHandles
+        {
+            get { return new ReadOnlyCollection<IDisposable>(subscriptionHandles); }
+        }
 
         /// <summary>
         /// Registers the channel and subscribes both directions. A failure in

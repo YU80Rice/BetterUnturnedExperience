@@ -312,6 +312,43 @@ namespace BetterUnturnedExperience.Contracts.Tests
             Assert(typeof(IFeatureBootstrap).GetProperty("EventRegistry") != null,
                 "DEV-V3-02: IFeatureBootstrap composes the EventRegistry seam member");
 
+            // DEV-V3-03: the lifecycle projection surface (Minor 2.1 additive).
+            // The read-only status query joins IFeatureLifetime (member named by
+            // DEV-V3-03); the nine-state FeatureState machine, the frozen
+            // FeatureStopReason values and the six-member FeatureStatusView
+            // projection keep their frozen shapes; the two bootstrap members
+            // this ticket wires (Lifetime/Dependencies) are the availability
+            // matrix rows that turn non-null from DEV-V3-03 on.
+            Assert(typeof(IFeatureLifetime).IsInterface
+                && typeof(IFeatureLifetime).GetMethod("TryTrack") != null
+                && typeof(IFeatureLifetime).GetProperty("CurrentStatus") != null,
+                "DEV-V3-03: IFeatureLifetime carries TryTrack plus the read-only status query member (CurrentStatus)");
+            Assert(Enum.GetValues(typeof(FeatureState)).Length == 9,
+                "DEV-V3-03: FeatureState stays the frozen nine-state machine");
+            Assert((byte)FeatureStopReason.PluginStopping == 1
+                && (byte)FeatureStopReason.UserDisabled == 2
+                && (byte)FeatureStopReason.RuntimeIsolated == 4
+                && (byte)FeatureStopReason.CoreSafeMode == 7,
+                "DEV-V3-03: FeatureStopReason values stay frozen (PluginStopping=1/UserDisabled=2/RuntimeIsolated=4/CoreSafeMode=7)");
+            var statusViewProperties = typeof(FeatureStatusView).GetProperties();
+            var statusViewMemberCount = 0;
+            var statusViewHasState = false;
+            var statusViewHasRevision = false;
+            for (var i = 0; i < statusViewProperties.Length; i++)
+            {
+                statusViewMemberCount++;
+                if (statusViewProperties[i].Name == "State") statusViewHasState = true;
+                if (statusViewProperties[i].Name == "StateRevision") statusViewHasRevision = true;
+            }
+            Assert(statusViewMemberCount == 6 && statusViewHasState && statusViewHasRevision,
+                "DEV-V3-03: FeatureStatusView stays the six-member immutable projection (Feature/State/Error/StopReason/DiagnosticId/StateRevision)");
+            Assert(typeof(IFeatureBootstrap).GetProperty("Lifetime") != null
+                && typeof(IFeatureBootstrap).GetProperty("Dependencies") != null,
+                "DEV-V3-03: the two matrix members wired by DEV-V3-03 exist on the bootstrap");
+            Assert(typeof(IDependencyCapabilityView).GetMethod("Has") != null
+                && typeof(IDependencyCapabilityView).GetMethod("TryGet") != null,
+                "DEV-V3-03: Dependencies stays the read-only catalog capability lookup (Has/TryGet, no solver)");
+
             var presentation = new FeaturePresentationView(new FeatureId("io.example.tracer"), FeaturePresentationState.PresentationDegraded, "BUE-UI-001", 1UL);
             Assert(presentation.State == FeaturePresentationState.PresentationDegraded && presentation.PresentationRevision == 1UL, "presentation state is a separate value projection");
             Console.WriteLine("DEV-10 registration runtime tests: PASS");

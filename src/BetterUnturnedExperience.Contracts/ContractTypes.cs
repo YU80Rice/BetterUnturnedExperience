@@ -121,7 +121,21 @@ namespace BetterUnturnedExperience.Contracts
         // the network module is not ready, no Host/LMN/Unity type leakage.
         BueNetwork.IBueNetworkApi Network { get; }
     }
-    public interface IFeatureLifetime { bool TryTrack(IDisposable registration); }
+    // DEV-V3-03: IFeatureLifetime carries the resource-ownership seam
+    // (TryTrack) plus the minimal read-only status query (member named by
+    // DEV-V3-03; Minor 2.1 additive). The view is bound to the feature's own
+    // identity at composition — the module cannot query anyone else's state,
+    // cannot mutate its own (no mutator exists on this surface), and the
+    // query stays usable and truthful after isolation/stop: it returns the
+    // FeatureStatusView the HOST last projected for the feature (an immutable
+    // value snapshot — the struct and its members are read-only), never
+    // null and never throwing. StateRevision advances only on host-driven
+    // legal transitions.
+    public interface IFeatureLifetime
+    {
+        bool TryTrack(IDisposable registration);
+        FeatureStatusView CurrentStatus { get; }
+    }
     public interface IScopedFeatureSettings
     {
         FeatureSettingsSnapshot GetSnapshot(SettingRevisionScope revisionScope);
@@ -165,7 +179,23 @@ namespace BetterUnturnedExperience.Contracts
     }
 
     public enum FeatureState : byte { Discovered, Incompatible, Disabled, Starting, Running, Isolating, Isolated, Stopping, Stopped }
-    public readonly struct FeatureStatusView { public FeatureId Feature { get; } public FeatureState State { get; } public FrameworkErrorCode Error { get; } public FeatureStopReason StopReason { get; } public string DiagnosticId { get; } public ulong StateRevision { get; } }
+    // DEV-V3-03: constructible status projection — the host start path
+    // composes the per-transition view (the V3-T4 projection rule: every
+    // legal host-driven transition produces a new read-only view). Additive
+    // to the frozen surface (a constructor; existing getters unchanged),
+    // registered with the Minor 2.1 change log batch (the DEV-V2-21
+    // constructible-result precedent).
+    public readonly struct FeatureStatusView
+    {
+        public FeatureId Feature { get; }
+        public FeatureState State { get; }
+        public FrameworkErrorCode Error { get; }
+        public FeatureStopReason StopReason { get; }
+        public string DiagnosticId { get; }
+        public ulong StateRevision { get; }
+        public FeatureStatusView(FeatureId feature, FeatureState state, FrameworkErrorCode error, FeatureStopReason stopReason, string diagnosticId, ulong stateRevision)
+        { Feature = feature; State = state; Error = error; StopReason = stopReason; DiagnosticId = diagnosticId ?? string.Empty; StateRevision = stateRevision; }
+    }
     public enum CoreRuntimeState : byte { Initializing, Running, SafeMode, Stopping, Stopped }
     public readonly struct CoreRuntimeStatusView { public CoreRuntimeState State { get; } public FrameworkErrorCode Error { get; } public string DiagnosticId { get; } public ulong StateRevision { get; } }
     public readonly struct CoreRuntimeStatusChangedEvent { public CoreRuntimeStatusView Status { get; } }
@@ -287,7 +317,22 @@ namespace BetterUnturnedExperience.Contracts
     public readonly struct WireSemanticVersion { public ushort Major { get; } public ushort Minor { get; } public ushort Patch { get; } }
     public readonly struct FeatureCapabilityManifest { public FeatureId Feature { get; } public WireSemanticVersion FeatureVersion { get; } public IReadOnlyList<CapabilityDescriptor> Capabilities { get; } }
     public enum NegotiationState : byte { Pending, Available, Degraded, Incompatible, Unavailable }
-    public readonly struct NegotiatedFeatureView { public FeatureId Feature { get; } public WireSemanticVersion LocalVersion { get; } public WireSemanticVersion RemoteVersion { get; } public NegotiationState State { get; } public FrameworkErrorCode Error { get; } public ulong NegotiationRevision { get; } public IReadOnlyList<CapabilityDescriptor> AcceptedCapabilities { get; } }
+    // DEV-V3-03: constructible directory projection — the Dependencies view
+    // (frozen-catalog read-only lookup) composes the feature's entry view.
+    // Additive to the frozen surface (a constructor; existing getters
+    // unchanged), registered with the Minor 2.1 change log batch.
+    public readonly struct NegotiatedFeatureView
+    {
+        public FeatureId Feature { get; }
+        public WireSemanticVersion LocalVersion { get; }
+        public WireSemanticVersion RemoteVersion { get; }
+        public NegotiationState State { get; }
+        public FrameworkErrorCode Error { get; }
+        public ulong NegotiationRevision { get; }
+        public IReadOnlyList<CapabilityDescriptor> AcceptedCapabilities { get; }
+        public NegotiatedFeatureView(FeatureId feature, WireSemanticVersion localVersion, WireSemanticVersion remoteVersion, NegotiationState state, FrameworkErrorCode error, ulong negotiationRevision, IReadOnlyList<CapabilityDescriptor> acceptedCapabilities)
+        { Feature = feature; LocalVersion = localVersion; RemoteVersion = remoteVersion; State = state; Error = error; NegotiationRevision = negotiationRevision; AcceptedCapabilities = acceptedCapabilities; }
+    }
     public readonly struct ConnectionHandshakeId { public ulong ConnectionGeneration { get; } public ulong NonceHigh { get; } public ulong NonceLow { get; } }
     public readonly struct CapabilityHello { public ConnectionHandshakeId ClientHandshake { get; } public WireSemanticVersion FrameworkVersion { get; } public ContractVersion Contract { get; } public IReadOnlyList<FeatureCapabilityManifest> Features { get; } }
     public readonly struct CapabilitySnapshot { public ulong ConnectionGeneration { get; } public ulong ClientNonceHigh { get; } public ulong ClientNonceLow { get; } public ulong ServerNonceHigh { get; } public ulong ServerNonceLow { get; } public ulong SnapshotId { get; } public WireSemanticVersion ServerFrameworkVersion { get; } public ContractVersion ServerContract { get; } public IReadOnlyList<NegotiatedFeatureView> Features { get; } }

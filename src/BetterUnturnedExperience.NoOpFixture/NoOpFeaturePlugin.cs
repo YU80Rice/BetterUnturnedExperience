@@ -1,3 +1,4 @@
+using System;
 using BepInEx;
 using BetterUnturnedExperience.Contracts;
 using BetterUnturnedExperience.Plugin;
@@ -24,9 +25,31 @@ namespace BetterUnturnedExperience.NoOpFixture
 
     public static class NoOpFeatureRegistration
     {
+        /// <summary>
+        /// DEV-V3-03: the ecosystem contract probe's observability seam — the
+        /// state of the last probe module the fixture factory created (host
+        /// tests read it to verify the ECOSYSTEM-side lifecycle consumption;
+        /// the official side is anchored by the real LIT module). Sample
+        /// fixture surface, not SDK contract.
+        /// </summary>
+        public sealed class ProbeState
+        {
+            public bool Started;
+            public bool Tracked;
+            public bool ResourceDisposed;
+            public FeatureState QueriedStateAtStart;
+        }
+
+        public static ProbeState LastProbe { get; private set; }
+
+        // The fixture's own registration (whitelisted official sample
+        // identity) for host tests that drive the probe through a fresh
+        // registration runtime.
+        public static IFeatureRegistration ProbeRegistration { get; } = new NoOpRegistration();
+
         public static FeatureRegistrationResult Register()
         {
-            return BueRuntimeHost.Register(new NoOpRegistration());
+            return BueRuntimeHost.Register(ProbeRegistration);
         }
 
         private sealed class NoOpRegistration : IFeatureRegistration
@@ -42,10 +65,39 @@ namespace BetterUnturnedExperience.NoOpFixture
             public IFeatureModule Create() { return new NoOpModule(); }
         }
 
+        /// <summary>
+        /// DEV-V3-03: the probe is no longer a static empty shell — Start
+        /// consumes the frozen lifecycle seams exactly as an ecosystem feature
+        /// should: one resource through TryTrack, one read-only status query,
+        /// an honest Started=true outcome (the R1 inventory's「NoOp 的 Start
+        /// 返回 Started=false 不练这些缝」gap closes here). DEV-V3-08 extends
+        /// this probe to the full post-wiring chain.
+        /// </summary>
         private sealed class NoOpModule : IFeatureModule
         {
-            public FeatureStartResult Start(IFeatureBootstrap bootstrap) { return default(FeatureStartResult); }
+            private ProbeResource resource;
+
+            public FeatureStartResult Start(IFeatureBootstrap bootstrap)
+            {
+                var probe = new ProbeState();
+                LastProbe = probe;
+                resource = new ProbeResource(probe);
+                probe.Tracked = bootstrap.Lifetime.TryTrack(resource);
+                probe.QueriedStateAtStart = bootstrap.Lifetime.CurrentStatus.State;
+                probe.Started = true;
+                return new FeatureStartResult(true, FrameworkErrorCode.None, "BUE-NOOP-START");
+            }
+
             public void Stop(FeatureStopReason reason) { }
+        }
+
+        private sealed class ProbeResource : IDisposable
+        {
+            private readonly ProbeState owner;
+
+            internal ProbeResource(ProbeState owner) { this.owner = owner; }
+
+            public void Dispose() { owner.ResourceDisposed = true; }
         }
     }
 }

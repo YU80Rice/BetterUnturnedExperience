@@ -153,6 +153,18 @@ namespace BetterUnturnedExperience.Core.Registration
             lock (sync) Phase = FeatureRegistrationPhase.CoreSafeMode;
         }
 
+        /// <summary>
+        /// DEV-V3-03: internal record access for the lifecycle state machine —
+        /// the owner-scoped registration record (established in DEV-V3-01) is
+        /// the fact carrier the machine drives. Assembly-internal by design:
+        /// the public bridge stays the narrow result surface (V3-T2), so the
+        /// record never leaks as a registration session.
+        /// </summary>
+        internal bool TryGetRecord(string featureId, out FeatureRegistrationRecord record)
+        {
+            lock (sync) return registrations.TryGetValue(featureId, out record);
+        }
+
         private void BuildCatalogLocked()
         {
             var ordered = registrations.Values
@@ -316,6 +328,12 @@ namespace BetterUnturnedExperience.Core.Registration
         // 当前状态: Discovered from admission on; DEV-V3-03's state machine
         // drives every transition, the module itself cannot.
         internal FeatureState State { get; set; }
+        // DEV-V3-03: the per-feature monotonic StateRevision — the projection
+        // rule frozen in V3-T4 (every legal host-driven transition produces a
+        // new FeatureStatusView with a strictly increasing revision; queries
+        // between transitions observe a stable value). Never resets across
+        // generations.
+        internal ulong StateRevision { get; set; }
         // Lifecycle generation: 0 until the host allocates one on module
         // start; DEV-V3-03 takes over allocation and invalidation.
         internal ulong LifecycleGeneration { get; set; }
@@ -327,5 +345,9 @@ namespace BetterUnturnedExperience.Core.Registration
         internal FeatureStopReason? StopReason { get; set; }
         internal bool Isolated { get; set; }
         internal string StopDiagnostic { get; set; }
+        // DEV-V3-03: the framework error of the last host-driven outcome —
+        // None while starting/running, the isolation error (e.g.
+        // ModuleStartFailed) once isolated; feeds FeatureStatusView.Error.
+        internal FrameworkErrorCode StateError { get; set; }
     }
 }

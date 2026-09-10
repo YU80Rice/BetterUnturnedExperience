@@ -313,6 +313,11 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     AssertBueV3EventOwnershipRouting(collectAllFailures: true);
                     return 0;
                 }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--bue-v3-lifecycle-red")
+                {
+                    AssertBueV3LifecycleProjection(collectAllFailures: true);
+                    return 0;
+                }
                 if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--bue-v2-lit-multiplayer-red")
                 {
                     AssertBueV2LitMultiplayerPath(collectAllFailures: true);
@@ -446,6 +451,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 Assert(late.Reason == FeatureRegistrationReason.PhaseClosed, "fixture late registration is rejected");
                 AssertBueV3RegistrationGateAndBootstrapMatrix();
                 AssertBueV3EventOwnershipRouting();
+                AssertBueV3LifecycleProjection();
                 // F-E: pure truth tables, no host state — runs before F-D.
                 AssertBueV2FeEnginePeerIdentity();
                 // F-D: runs last — it replaces the bound runtime and clears the
@@ -8240,13 +8246,12 @@ namespace BetterUnturnedExperience.Plugin.Tests
 
         // DEV-V3-01: the official identity whitelist on the REAL public bridge
         // (every shipped official FeatureId registers, a rogue reserved-segment
-        // identity is rejected), plus the ten-member bootstrap availability
-        // matrix observed on the REAL host start composition (StartCatalog):
-        // the five frozen members are never null — Identity now binds the
-        // feature's own registration identity — and the five un-wired members
-        // stay null at this ticket's baseline (Lifetime/Dependencies wire with
-        // DEV-V3-03, MainThread with DEV-V3-04, Settings with DEV-V3-06, Logger
-        // with DEV-V3-07; the spec's availability matrix is the only truth).
+        // identity is rejected), plus the bootstrap availability matrix
+        // observed on the REAL host start composition (StartCatalog). The
+        // matrix is the living truth per ticket: the five frozen members are
+        // never null; DEV-V3-03 wired Lifetime/Dependencies (now non-null);
+        // Settings/Logger stay null until DEV-V3-06/07 (the spec's availability
+        // matrix is the only truth).
         private static void AssertBueV3RegistrationGateAndBootstrapMatrix()
         {
             var previousRuntime = BueRuntimeHost.CurrentRuntime;
@@ -8291,8 +8296,10 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     "DEV-V3-01: Identity binds the feature's own registration identity (not the default record)");
                 Assert(captured.Identity.DefinitionSetId == "bue-v3-matrix-probe",
                     "DEV-V3-01: Identity carries the definition set the registration was admitted with");
-                Assert(captured.Settings == null && captured.Logger == null && captured.Dependencies == null && captured.Lifetime == null,
-                    "DEV-V3-01: the un-wired members stay null at the DEV-V3-01 baseline (availability matrix)");
+                Assert(captured.Settings == null && captured.Logger == null,
+                    "DEV-V3-01/03: the still-unwired members stay null at the DEV-V3-03 baseline (Settings→06, Logger→07; availability matrix)");
+                Assert(captured.Lifetime != null && captured.Dependencies != null,
+                    "DEV-V3-03: Lifetime/Dependencies turned non-null on the start composition (availability matrix rows wired by DEV-V3-03)");
             }
             finally
             {
@@ -8582,6 +8589,538 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 return new FeatureStartResult(true, FrameworkErrorCode.None, "BUE-V3-PROBE-START");
             }
             public void Stop(FeatureStopReason reason) { }
+        }
+
+        // DEV-V3-03 lifecycle probes: a fake module family that drives the REAL
+        // host start composition (StartCatalog) and records every lifecycle
+        // observation on an ordered event log (start/stop/track-result/dispose),
+        // so the state machine tests assert outer-visible behavior only —
+        // never the machine's internal tables.
+        private sealed class ProbeResource : IDisposable
+        {
+            internal readonly string Name;
+            private readonly List<string> eventLog;
+            private readonly string fault;
+            internal int DisposeCalls;
+
+            internal ProbeResource(string name, List<string> eventLog, string fault = null)
+            {
+                Name = name;
+                this.eventLog = eventLog;
+                this.fault = fault;
+            }
+
+            public void Dispose()
+            {
+                DisposeCalls++;
+                eventLog.Add("dispose:" + Name);
+                if (fault != null) throw new InvalidOperationException(fault);
+            }
+        }
+
+        private readonly struct LifecyclePayload
+        {
+            public ulong Marker { get; }
+            public LifecyclePayload(ulong marker) { Marker = marker; }
+        }
+
+        private sealed class LifecycleProbeModule : IFeatureModule
+        {
+            // Every module instance the probe factory hands out (fixed or
+            // provider-created) — the panel enable/disable groups observe the
+            // fresh-instance re-enable through it.
+            internal static readonly List<LifecycleProbeModule> Created = new List<LifecycleProbeModule>();
+            internal IFeatureBootstrap Bootstrap { get; private set; }
+            internal readonly List<string> EventLog = new List<string>();
+            internal readonly List<ProbeResource> Tracked = new List<ProbeResource>();
+            internal Func<LifecycleProbeModule, IFeatureBootstrap, FeatureStartResult> StartBehavior =
+                (module, bootstrap) => new FeatureStartResult(true, FrameworkErrorCode.None, "BUE-V3-LIFECYCLE-START");
+
+            public FeatureStartResult Start(IFeatureBootstrap bootstrap)
+            {
+                Bootstrap = bootstrap;
+                EventLog.Add("start:" + bootstrap.LifecycleGeneration);
+                return StartBehavior(this, bootstrap);
+            }
+
+            public void Stop(FeatureStopReason reason) { EventLog.Add("stop:" + reason); }
+
+            internal bool Track(string name, string fault = null)
+            {
+                var resource = new ProbeResource(name, EventLog, fault);
+                Tracked.Add(resource);
+                var tracked = Bootstrap.Lifetime.TryTrack(resource);
+                EventLog.Add("track:" + name + ":" + tracked);
+                return tracked;
+            }
+        }
+
+        private sealed class LifecycleProbeFactory : IFeatureModuleFactory
+        {
+            private readonly LifecycleProbeRegistration owner;
+            internal LifecycleProbeFactory(LifecycleProbeRegistration owner) { this.owner = owner; }
+            public IFeatureModule Create()
+            {
+                if (owner.FactoryError != null) throw owner.FactoryError;
+                var module = owner.ModuleProvider != null ? owner.ModuleProvider() : owner.Module;
+                LifecycleProbeModule.Created.Add(module);
+                return module;
+            }
+        }
+
+        private sealed class LifecycleProbeRegistration : IFeatureRegistration
+        {
+            internal readonly LifecycleProbeModule Module = new LifecycleProbeModule();
+            internal Func<LifecycleProbeModule> ModuleProvider = null;
+            internal Exception FactoryError = null;
+
+            internal LifecycleProbeRegistration(string featureId)
+            {
+                Definition = new FeatureDefinitionArtifact(new FeatureId(featureId), 1, "bue-v3-lifecycle-probe", new Digest256(1, 2, 3, 4), new Digest256(5317555933983313923UL, 8642148531063968556UL, 2942485310001909708UL, 9366110643396117629UL), new byte[] { 1, 2, 3 });
+            }
+
+            internal string FeatureIdValue { get { return Definition.Feature.Value; } }
+            public FeatureDefinitionArtifact Definition { get; }
+            public ContractVersion MinimumBueContract { get { return new ContractVersion(2, 0); } }
+            public IFeatureModuleFactory ModuleFactory { get { return new LifecycleProbeFactory(this); } }
+            public IClientUiSatelliteRegistration ClientUi { get { return null; } }
+        }
+
+        private static BetterUnturnedExperience.Core.Network.BueNetworkRuntime NewLoopbackNetwork(ulong nonce)
+        {
+            var pair = BetterUnturnedExperience.Core.Network.LocalLoopbackTransport.CreatePair();
+            return new BetterUnturnedExperience.Core.Network.BueNetworkRuntime(pair.First, new ContractVersion(2, 0), nonce);
+        }
+
+        // DEV-V3-03: the unified lifecycle state projection — the host owns the
+        // FeatureState/FeatureStatusView/StateRevision machine, IFeatureLifetime
+        // carries TryTrack (reverse disposal at the stop boundary, capacity
+        // bound, stopped/isolated features cannot re-track) plus the minimal
+        // read-only status query, Dependencies is the frozen-catalog read-only
+        // capability lookup (Has/TryGet, no solver), and the panel enable/disable
+        // seam rides FeatureStopReason.UserDisabled with a NEW lifecycle
+        // generation on re-enable. Official LIT consumes the real seam first;
+        // the NoOp fixture is the ecosystem-side control. Every group drives the
+        // REAL StartCatalog composition with fake probe modules.
+        private static void AssertBueV3LifecycleProjection(bool collectAllFailures = false)
+        {
+            var reds = new List<string>();
+            try
+            {
+                void Check(bool condition, string message)
+                {
+                    if (condition) return;
+                    if (collectAllFailures) reds.Add(message);
+                    else throw new InvalidOperationException(message);
+                }
+
+                void Group(string name, System.Action body)
+                {
+                    try { body(); }
+                    catch (Exception error) when (collectAllFailures)
+                    {
+                        reds.Add("[" + name + "] " + (error is InvalidOperationException ? error.Message : "UNEXPECTED " + error.GetType().Name + ": " + error.Message));
+                    }
+                }
+
+                FeatureRegistrationRuntime StartProbe(params LifecycleProbeRegistration[] probes)
+                {
+                    var probeRuntime = new FeatureRegistrationRuntime();
+                    probeRuntime.OpenRegistration();
+                    foreach (var probe in probes) probeRuntime.Register(probe);
+                    probeRuntime.CompleteRuntime();
+                    BueFeatureStartRuntime.StartCatalog(probeRuntime, NewLoopbackNetwork(probeRuntime.Catalog.CatalogRevision));
+                    return probeRuntime;
+                }
+
+                Group("矩阵接线侧", () =>
+                {
+                    var probe = new LifecycleProbeRegistration("io.example.lifecycle-a");
+                    StartProbe(probe);
+                    Check(probe.Module.Bootstrap != null, "矩阵接线侧：探针经真实 StartCatalog 启动");
+                    Check(probe.Module.Bootstrap.Lifetime != null, "矩阵接线侧：Lifetime 接线后永非 null（可用性矩阵行=DEV-V3-03 起可用）");
+                    Check(probe.Module.Bootstrap.Dependencies != null, "矩阵接线侧：Dependencies 接线后永非 null（可用性矩阵行=DEV-V3-03 起可用）");
+                    Check(probe.Module.Bootstrap.EventRegistry != null, "矩阵接线侧：EventRegistry 行保持非 null（DEV-V3-02 行回归）");
+                    Check(probe.Module.Bootstrap.Settings == null && probe.Module.Bootstrap.Logger == null,
+                        "矩阵接线侧：未接线成员（Settings/Logger）保持 null（矩阵=06/07 票红线）");
+                });
+
+                Group("TryTrack 登记", () =>
+                {
+                    var probe = new LifecycleProbeRegistration("io.example.lifecycle-track");
+                    probe.Module.StartBehavior = (module, bootstrap) =>
+                    {
+                        var first = module.Track("r1");
+                        var second = module.Track("r2");
+                        var third = module.Track("r3");
+                        module.EventLog.Add("track-results:" + first + second + third);
+                        return new FeatureStartResult(true, FrameworkErrorCode.None, "BUE-V3-LIFECYCLE-START");
+                    };
+                    StartProbe(probe);
+                    Check(probe.Module.Bootstrap != null && probe.Module.Bootstrap.Lifetime != null, "TryTrack 登记：Lifetime 缝可用");
+                    Check(probe.Module.EventLog.Contains("track-results:TrueTrueTrue"),
+                        "TryTrack 登记：运行中功能 TryTrack 三次全部成功（DEV-V3-03 红测锚：Lifetime 接线前为 null）");
+                });
+
+                Group("逆序释放", () =>
+                {
+                    var probe = new LifecycleProbeRegistration("io.example.lifecycle-reverse");
+                    probe.Module.StartBehavior = (module, bootstrap) =>
+                    {
+                        module.Track("r1");
+                        module.Track("r2");
+                        module.Track("r3");
+                        return new FeatureStartResult(true, FrameworkErrorCode.None, "BUE-V3-LIFECYCLE-START");
+                    };
+                    var probeRuntime = StartProbe(probe);
+                    Check(probe.Module.Tracked.Count == 3, "逆序释放：三资源登记成功（Lifetime 缝可用）");
+                    BueFeatureStartRuntime.StopAll(FeatureStopReason.PluginStopping);
+                    var stopIndex = probe.Module.EventLog.IndexOf("stop:PluginStopping");
+                    var r3Index = probe.Module.EventLog.IndexOf("dispose:r3");
+                    var r2Index = probe.Module.EventLog.IndexOf("dispose:r2");
+                    var r1Index = probe.Module.EventLog.IndexOf("dispose:r1");
+                    Check(stopIndex >= 0 && r3Index > stopIndex && r2Index > r3Index && r1Index > r2Index,
+                        "逆序释放：Stop 先于 Dispose，随后按注册逆序 r3→r2→r1 释放（DEV-V3-03 红测锚：接线前无资源清理）");
+                    Check(probe.Module.Tracked.Count == 3 && probe.Module.Tracked[0].DisposeCalls == 1 && probe.Module.Tracked[2].DisposeCalls == 1,
+                        "逆序释放：每资源恰释放一次");
+                });
+
+                Group("停止不可再登记", () =>
+                {
+                    var probe = new LifecycleProbeRegistration("io.example.lifecycle-stopped");
+                    var probeRuntime = StartProbe(probe);
+                    BueFeatureStartRuntime.StopAll(FeatureStopReason.PluginStopping);
+                    Check(probe.Module.Bootstrap.Lifetime != null, "停止不可再登记：Lifetime 缝可用（接线前 null=红测锚）");
+                    Check(!probe.Module.Bootstrap.Lifetime.TryTrack(new ProbeResource("late", probe.Module.EventLog)),
+                        "停止不可再登记：已停止功能 TryTrack=显式 false");
+                });
+
+                Group("隔离资源撤销", () =>
+                {
+                    List<LifecyclePayload> isolatedReceived = null;
+                    var probe = new LifecycleProbeRegistration("io.example.lifecycle-isolated");
+                    probe.Module.StartBehavior = (module, bootstrap) =>
+                    {
+                        module.Track("a1");
+                        bootstrap.EventRegistry.Register<LifecyclePayload>("io.example.lifecycle-isolated/payload");
+                        var received = new List<LifecyclePayload>();
+                        isolatedReceived = received;
+                        bootstrap.Events.Subscribe<LifecyclePayload>(payload => received.Add(payload));
+                        throw new InvalidOperationException("probe-start-failure");
+                    };
+                    var probeRuntime = StartProbe(probe);
+                    Check(probe.Module.EventLog.Contains("dispose:a1"),
+                        "隔离资源撤销：Start 抛异常→Isolating 撤资源→已登记资源被释放（DEV-V3-03 红测锚：接线前跳过无清理）");
+                    BueHostEventRuntime.Bus.Publisher(new FeatureId("io.example.lifecycle-isolated"))
+                        .TryPublish("io.example.lifecycle-isolated/payload", new LifecyclePayload(1UL));
+                    Check(isolatedReceived != null && isolatedReceived.Count == 0,
+                        "隔离资源撤销：隔离功能订阅已撤（发布零派发）");
+                    Check(probeRuntime.Phase == FeatureRegistrationPhase.RuntimeReady,
+                        "隔离资源撤销：单功能 Start 失败不升级 CoreSafeMode（回归锚：Phase 保持 RuntimeReady）");
+                });
+
+                Group("CoreSafeMode 不升级", () =>
+                {
+                    var boom = new LifecycleProbeRegistration("io.example.lifecycle-boom");
+                    boom.FactoryError = new InvalidOperationException("probe-factory-failure");
+                    var survivor = new LifecycleProbeRegistration("io.example.lifecycle-survivor");
+                    var probeRuntime = StartProbe(boom, survivor);
+                    Check(survivor.Module.Bootstrap != null, "CoreSafeMode 不升级：工厂抛异常只跳过该功能，后续功能继续启动");
+                    Check(probeRuntime.Phase == FeatureRegistrationPhase.RuntimeReady,
+                        "CoreSafeMode 不升级：组合期后运行期单功能失败永不升级 CoreSafeMode（Phase 保持 RuntimeReady）");
+                });
+
+                Group("容量与拒绝", () =>
+                {
+                    var probe = new LifecycleProbeRegistration("io.example.lifecycle-capacity");
+                    var allAccepted = true;
+                    bool overCapacity = false, nullRejected = false;
+                    ProbeResource duplicated = null;
+                    var duplicateResults = "??";
+                    probe.Module.StartBehavior = (module, bootstrap) =>
+                    {
+                        // 63 fills + the duplicate probe = 64 accepted (the ticket
+                        // picks the bound: 64 per feature per generation).
+                        for (var i = 0; i < 63; i++) allAccepted &= module.Track("c" + i);
+                        duplicated = new ProbeResource("dup", module.EventLog);
+                        var first = bootstrap.Lifetime.TryTrack(duplicated);
+                        var second = bootstrap.Lifetime.TryTrack(duplicated);
+                        duplicateResults = (first ? "T" : "F") + (second ? "T" : "F");
+                        overCapacity = module.Track("c63");
+                        nullRejected = bootstrap.Lifetime.TryTrack(null);
+                        return new FeatureStartResult(true, FrameworkErrorCode.None, "BUE-V3-LIFECYCLE-START");
+                    };
+                    var captured = new List<string>();
+                    BueRuntimeLog.Recorder = captured.Add;
+                    try { StartProbe(probe); }
+                    finally { BueRuntimeLog.Recorder = null; }
+                    Check(allAccepted, "容量与拒绝：容量内 63+1 次登记全部成功（容量=64/功能/代际，本票定值可观察可测试）");
+                    Check(duplicateResults == "TF", "容量与拒绝：同一实例重复登记显式拒绝（不覆盖不重复释放）");
+                    Check(!overCapacity, "容量与拒绝：第 65 次登记显式拒绝（超容量=false 不静默）");
+                    Check(!nullRejected, "容量与拒绝：TryTrack(null)=false");
+                    Check(ContainsDiagnostic(captured, "BUE-LIFE-002"),
+                        "容量与拒绝：超容量拒绝浮出结构化诊断（BUE-LIFE-002）");
+                    Check(ContainsDiagnostic(captured, "BUE-LIFE-001"),
+                        "容量与拒绝：null 登记浮出结构化诊断（BUE-LIFE-001）");
+                    Check(ContainsDiagnostic(captured, "BUE-LIFE-005"),
+                        "容量与拒绝：重复实例登记浮出结构化诊断（BUE-LIFE-005）");
+                });
+
+                Group("面板启停", () =>
+                {
+                    var feature = new FeatureId("io.example.lifecycle-panel");
+                    var probe = new LifecycleProbeRegistration("io.example.lifecycle-panel");
+                    List<LifecyclePayload> panelReceived = null;
+                    probe.ModuleProvider = () =>
+                    {
+                        var module = new LifecycleProbeModule();
+                        module.StartBehavior = (m, bootstrap) =>
+                        {
+                            m.Track("p1");
+                            bootstrap.EventRegistry.Register<LifecyclePayload>("io.example.lifecycle-isolated/payload");
+                            var received = new List<LifecyclePayload>();
+                            panelReceived = received;
+                            bootstrap.Events.Subscribe<LifecyclePayload>(payload => received.Add(payload));
+                            return new FeatureStartResult(true, FrameworkErrorCode.None, "BUE-V3-LIFECYCLE-START");
+                        };
+                        return module;
+                    };
+                    var baseCount = LifecycleProbeModule.Created.Count;
+                    var probeRuntime = StartProbe(probe);
+                    var first = LifecycleProbeModule.Created[baseCount];
+                    Check(first != null && first.Bootstrap.Lifetime.CurrentStatus.State == FeatureState.Running,
+                        "面板启停：面板停用前 Running");
+                    Check(BueFeatureStartRuntime.SetFeatureEnabled(feature, false), "面板启停：UserDisabled 停止 seam 显式成功");
+                    var stoppedView = first.Bootstrap.Lifetime.CurrentStatus;
+                    Check(stoppedView.State == FeatureState.Stopped && stoppedView.StopReason == FeatureStopReason.UserDisabled,
+                        "面板启停：停止投影=Stopped/UserDisabled（面板=command adapter，同一状态机）");
+                    Check(first.EventLog.Contains("stop:UserDisabled"), "面板启停：模块收到 UserDisabled 停止回调");
+                    Check(first.Tracked.TrueForAll(resource => resource.DisposeCalls == 1), "面板启停：停止边界释放已登记资源");
+                    BueHostEventRuntime.Bus.Publisher(new FeatureId("io.example.lifecycle-isolated"))
+                        .TryPublish("io.example.lifecycle-isolated/payload", new LifecyclePayload(2UL));
+                    Check(panelReceived != null && panelReceived.Count == 0, "面板启停：停止后不再收事件（订阅已撤）");
+                    Check(probeRuntime.Phase == FeatureRegistrationPhase.RuntimeReady, "面板启停：用户停用不触碰 CoreSafeMode");
+                    Check(BueFeatureStartRuntime.SetFeatureEnabled(feature, true), "面板启停：再启用 seam 显式成功");
+                    var second = LifecycleProbeModule.Created[baseCount + 1];
+                    Check(second != null && !ReferenceEquals(second, first), "面板启停：再启用经工厂获得新模块实例");
+                    Check(second.Bootstrap.LifecycleGeneration > first.Bootstrap.LifecycleGeneration,
+                        "面板启停：再启用=新生命周期代际（旧代际全失效）");
+                    Check(second.Bootstrap.Lifetime.CurrentStatus.State == FeatureState.Running, "面板启停：再启用后 Running");
+                    Check(!first.Bootstrap.Lifetime.TryTrack(new ProbeResource("stale", first.EventLog)),
+                        "面板启停：旧代际视图 TryTrack=false（旧代际资源句柄失效）");
+                    Check(first.Bootstrap.Lifetime.CurrentStatus.State == FeatureState.Running,
+                        "面板启停：旧代际视图查询仍可用并如实返回当前状态");
+                    Check(second.Bootstrap.Lifetime.CurrentStatus.StateRevision > stoppedView.StateRevision,
+                        "面板启停：StateRevision 跨停用/再启用单调推进");
+                    Check(!BueFeatureStartRuntime.SetFeatureEnabled(new FeatureId("io.example.never-registered"), false),
+                        "面板启停：未注册功能 disable=显式 false");
+                    // Isolated 不自动重启：手动再启用才从 Isolated 进入新代际 Starting。
+                    var isolated = new LifecycleProbeRegistration("io.example.lifecycle-panel-iso");
+                    var isoCreates = 0;
+                    isolated.ModuleProvider = () =>
+                    {
+                        var module = new LifecycleProbeModule();
+                        if (isoCreates++ == 0)
+                            module.StartBehavior = (m, bootstrap) => throw new InvalidOperationException("probe-start-failure");
+                        return module;
+                    };
+                    var isolatedBase = LifecycleProbeModule.Created.Count;
+                    var isoRuntime = new FeatureRegistrationRuntime();
+                    isoRuntime.OpenRegistration();
+                    isoRuntime.Register(isolated);
+                    isoRuntime.CompleteRuntime();
+                    BueFeatureStartRuntime.StartCatalog(isoRuntime, NewLoopbackNetwork(isoRuntime.Catalog.CatalogRevision));
+                    var isolatedFirst = LifecycleProbeModule.Created[isolatedBase];
+                    Check(isolatedFirst != null && isolatedFirst.Bootstrap.Lifetime.CurrentStatus.State == FeatureState.Isolated,
+                        "面板启停：Isolated 保持（不自动重启）");
+                    Check(BueFeatureStartRuntime.SetFeatureEnabled(new FeatureId("io.example.lifecycle-panel-iso"), true),
+                        "面板启停：用户明确再启用 Isolated=显式成功");
+                    var isolatedSecond = LifecycleProbeModule.Created[isolatedBase + 1];
+                    Check(isolatedSecond != null
+                        && isolatedSecond.Bootstrap.Lifetime.CurrentStatus.State == FeatureState.Running
+                        && isolatedSecond.Bootstrap.LifecycleGeneration > isolatedFirst.Bootstrap.LifecycleGeneration,
+                        "面板启停：Isolated→手动再启用=新代际 Running");
+                });
+
+                Group("隔离不扩散", () =>
+                {
+                    var boom = new LifecycleProbeRegistration("io.example.lifecycle-iso-view");
+                    boom.Module.StartBehavior = (module, bootstrap) =>
+                    {
+                        module.Track("b1");
+                        throw new InvalidOperationException("probe-start-failure");
+                    };
+                    var okA = new LifecycleProbeRegistration("io.example.lifecycle-iso-ok-a");
+                    var okB = new LifecycleProbeRegistration("io.example.lifecycle-iso-ok-b");
+                    StartProbe(boom, okA, okB);
+                    var view = boom.Module.Bootstrap.Lifetime.CurrentStatus;
+                    Check(view.State == FeatureState.Isolated, "隔离不扩散：Start 抛异常→Isolated（状态机记录，不扩散）");
+                    Check(view.StopReason == FeatureStopReason.RuntimeIsolated && view.Error == FrameworkErrorCode.ModuleStartFailed,
+                        "隔离不扩散：隔离投影携带 RuntimeIsolated/ModuleStartFailed");
+                    Check(!string.IsNullOrEmpty(view.DiagnosticId), "隔离不扩散：隔离投影携带诊断");
+                    Check(okA.Module.Bootstrap.Lifetime.CurrentStatus.State == FeatureState.Running
+                        && okB.Module.Bootstrap.Lifetime.CurrentStatus.State == FeatureState.Running,
+                        "隔离不扩散：其他功能不受影响继续 Running（单模块状态变化不改变其他模块状态）");
+                    Check(boom.Module.EventLog.Contains("dispose:b1"), "隔离不扩散：Isolating 撤资源（已登记资源释放）");
+                    var again = boom.Module.Bootstrap.Lifetime.CurrentStatus;
+                    Check(again.State == FeatureState.Isolated && again.StateRevision == view.StateRevision,
+                        "隔离不扩散：隔离后查询仍可用、状态如实且无自动重启（修订稳定）");
+                    Check(!boom.Module.Bootstrap.Lifetime.TryTrack(new ProbeResource("late", boom.Module.EventLog)),
+                        "隔离不扩散：隔离后 TryTrack=显式 false（已隔离功能不可再登记）");
+                });
+
+                Group("状态投影", () =>
+                {
+                    var probe = new LifecycleProbeRegistration("io.example.lifecycle-view");
+                    FeatureState atStartState = FeatureState.Discovered;
+                    ulong atStartRevision = 0;
+                    probe.Module.StartBehavior = (module, bootstrap) =>
+                    {
+                        var view = bootstrap.Lifetime.CurrentStatus;
+                        atStartState = view.State;
+                        atStartRevision = view.StateRevision;
+                        return new FeatureStartResult(true, FrameworkErrorCode.None, "BUE-V3-LIFECYCLE-START");
+                    };
+                    StartProbe(probe);
+                    var status = probe.Module.Bootstrap.Lifetime.CurrentStatus;
+                    Check(atStartState == FeatureState.Starting, "状态投影：模块内 Start 期查询可用且如实报 Starting（接线后任何阶段可用）");
+                    Check(status.State == FeatureState.Running && status.Feature.Value == "io.example.lifecycle-view",
+                        "状态投影：启动后查询=Running 且视图绑定自身 FeatureId");
+                    Check(status.Error == FrameworkErrorCode.None && status.StopReason == FeatureStopReason.None,
+                        "状态投影：Running 投影 Error/StopReason 为 None");
+                    Check(status.StateRevision > atStartRevision && status.StateRevision > 0,
+                        "状态投影：StateRevision 随合法变化单调推进");
+                    var stable = status.StateRevision;
+                    Check(probe.Module.Bootstrap.Lifetime.CurrentStatus.StateRevision == stable,
+                        "状态投影：无状态变化时修订稳定（不为查询生成新视图）");
+                });
+
+                Group("目录能力查询", () =>
+                {
+                    var probe = new LifecycleProbeRegistration("io.example.lifecycle-deps");
+                    var sibling = new LifecycleProbeRegistration("io.example.lifecycle-dep-sibling");
+                    StartProbe(probe, sibling);
+                    var deps = probe.Module.Bootstrap.Dependencies;
+                    NegotiatedFeatureView found;
+                    Check(deps.Has("io.example.lifecycle-dep-sibling", null, 0),
+                        "目录能力查询：Has=冻结目录内依赖（纯存在性查询）");
+                    Check(deps.Has("io.example.lifecycle-dep-sibling", string.Empty, 0),
+                        "目录能力查询：空能力串=存在性查询");
+                    Check(!deps.Has("io.example.never-registered", null, 0), "目录能力查询：目录外依赖 Has=false");
+                    Check(!deps.Has("io.example.lifecycle-dep-sibling", "some-capability", 1),
+                        "目录能力查询：无能力登记源→非空能力显式不可证（fail-closed，不求解器）");
+                    Check(!deps.Has(null, null, 0) && !deps.Has(string.Empty, null, 0),
+                        "目录能力查询：空依赖 id fail-closed");
+                    Check(deps.TryGet("io.example.lifecycle-dep-sibling", out found)
+                        && found.Feature.Value == "io.example.lifecycle-dep-sibling"
+                        && found.State == NegotiationState.Available && found.Error == FrameworkErrorCode.None,
+                        "目录能力查询：TryGet 命中=Available 投影");
+                    Check(found.AcceptedCapabilities != null && found.AcceptedCapabilities.Count == 0,
+                        "目录能力查询：能力投影为空集（非 null）");
+                    Check(!deps.TryGet("io.example.never-registered", out _),
+                        "目录能力查询：TryGet 目录外=显式 false");
+                });
+
+                Group("代际轴分离", () =>
+                {
+                    var probe = new LifecycleProbeRegistration("io.example.lifecycle-generations");
+                    probe.ModuleProvider = () => new LifecycleProbeModule();
+                    var baseCount = LifecycleProbeModule.Created.Count;
+                    StartProbe(probe);
+                    var first = LifecycleProbeModule.Created[baseCount];
+                    var networkFirst = first.Bootstrap.Network;
+                    Check(BueFeatureStartRuntime.SetFeatureEnabled(new FeatureId("io.example.lifecycle-generations"), false),
+                        "代际轴分离 setup：面板停止");
+                    Check(BueFeatureStartRuntime.SetFeatureEnabled(new FeatureId("io.example.lifecycle-generations"), true),
+                        "代际轴分离 setup：面板再启用");
+                    var second = LifecycleProbeModule.Created[baseCount + 1];
+                    Check(second != null && second.Bootstrap.Network == networkFirst,
+                        "代际轴分离：生命周期代际推进不动网络域（同一 IBueNetworkApi 实例）");
+                    Check(second.Bootstrap.LifecycleGeneration != first.Bootstrap.LifecycleGeneration,
+                        "代际轴分离：LifecycleGeneration 推进而不触碰 ConnectionGeneration 轴（两代际轴完全分离）");
+                    Check(second.Bootstrap.Network.Sessions.Count == 0,
+                        "代际轴分离：启停循环不产生/不销毁网络会话（断线不误判为模块停止）");
+                });
+
+                Group("官方先行消费锚", () =>
+                {
+                    var litFeature = new FeatureId(InventoryTidyFeatureRegistration.FeatureIdValue);
+                    InventoryTidyFeatureRegistration.WiredModule = null;
+                    var litRuntime = new FeatureRegistrationRuntime();
+                    litRuntime.OpenRegistration();
+                    Check(litRuntime.Register(InventoryTidyFeatureRegistration.CreateRegistration()).Accepted,
+                        "官方锚 setup：官方 LIT 登记入探针运行时");
+                    Check(litRuntime.CompleteRuntime(), "官方锚 setup：目录冻结");
+                    var captured = new List<string>();
+                    BueRuntimeLog.Recorder = captured.Add;
+                    BueFeatureStartRuntime.StartCatalog(litRuntime, NewLoopbackNetwork(2001UL));
+                    BueRuntimeLog.Recorder = null;
+                    var litModule = InventoryTidyFeatureRegistration.WiredModule;
+                    Check(litModule != null, "官方锚：官方 LIT 经真实 StartCatalog 启动（工厂装配实例）");
+                    Check(ContainsDiagnostic(captured, "event=feature-resource") && ContainsDiagnostic(captured, "io.github.yu80rice.bue.inventory-tidy"),
+                        "官方锚：官方模块 TryTrack 真实资源浮出结构化登记行");
+                    Check(litModule.Lifetime != null
+                        && litModule.Lifetime.CurrentStatus.State == FeatureState.Running,
+                        "官方锚：官方模块经 bootstrap.Lifetime 只读查询自身状态=Running（状态查询缝真实消费）");
+                    Check(BueFeatureStartRuntime.SetFeatureEnabled(litFeature, false),
+                        "官方锚：官方功能走真 UserDisabled 面板停止 seam");
+                    Check(litModule.Lifetime.CurrentStatus.State == FeatureState.Stopped
+                        && litModule.Lifetime.CurrentStatus.StopReason == FeatureStopReason.UserDisabled,
+                        "官方锚：官方功能停止投影=Stopped/UserDisabled（与生态同一状态机）");
+                    InventoryTidyFeatureRegistration.WiredModule = null;
+                    Check(BueFeatureStartRuntime.SetFeatureEnabled(litFeature, true), "官方锚：官方功能经面板 seam 再启用");
+                    var litModule2 = InventoryTidyFeatureRegistration.WiredModule;
+                    Check(litModule2 != null && !ReferenceEquals(litModule2, litModule), "官方锚：再启用经工厂获得新 LIT 实例");
+                    Check(litModule2.LifecycleGeneration > litModule.LifecycleGeneration, "官方锚：再启用=新生命周期代际");
+                    Check(litModule2.Lifetime != null
+                        && litModule2.Lifetime.CurrentStatus.State == FeatureState.Running,
+                        "官方锚：新实例查询=Running（重新运行成功）");
+                    var received = new List<TidyCompleted>();
+                    BueHostEventRuntime.Bus.Subscriber(litFeature).Subscribe<TidyCompleted>(received.Add);
+                    litModule2.PublishTidyCompleted(3, 3, TidyCommitResult.Committed, 0UL, 900UL);
+                    Check(received.Count == 1 && received[0].TransactionId == 900UL,
+                        "官方锚：再启用后官方发布路径真实恢复（TidyCompleted 经登记路径透传）");
+                });
+
+                Group("生态对照 NoOp", () =>
+                {
+                    var noopRuntime = new FeatureRegistrationRuntime();
+                    noopRuntime.OpenRegistration();
+                    Check(noopRuntime.Register(NoOpFeatureRegistration.ProbeRegistration).Accepted,
+                        "生态对照 setup：NoOp probe 登记入探针运行时（生态样例同桥同规）");
+                    Check(noopRuntime.CompleteRuntime(), "生态对照 setup：目录冻结");
+                    BueFeatureStartRuntime.StartCatalog(noopRuntime, NewLoopbackNetwork(2002UL));
+                    Check(NoOpFeatureRegistration.LastProbe != null && NoOpFeatureRegistration.LastProbe.Started,
+                        "生态对照：NoOp probe 经真实 StartCatalog 启动（Started=true，练缝不再是空壳）");
+                    Check(NoOpFeatureRegistration.LastProbe.Tracked && !NoOpFeatureRegistration.LastProbe.ResourceDisposed,
+                        "生态对照：probe 经 TryTrack 登记资源且运行中未释放");
+                    Check(NoOpFeatureRegistration.LastProbe.QueriedStateAtStart == FeatureState.Starting,
+                        "生态对照：probe 经只读查询在 Start 期观察到 Starting（状态查询缝生态侧消费）");
+                    BueFeatureStartRuntime.StopAll(FeatureStopReason.PluginStopping);
+                    Check(NoOpFeatureRegistration.LastProbe.ResourceDisposed,
+                        "生态对照：停止边界 probe 资源被宿主释放（逆序清理对生态样例同权）");
+                });
+            }
+            catch (Exception error) when (collectAllFailures)
+            {
+                reds.Add("UNEXPECTED: " + error.GetType().FullName + ": " + error.Message);
+            }
+            if (collectAllFailures && reds.Count == 0)
+                Console.WriteLine("DEV-V3-03 lifecycle projection collection: ALL GREEN (0 failures)");
+            if (collectAllFailures && reds.Count > 0)
+                throw new InvalidOperationException("DEV-V3-03 red collection (" + reds.Count + "): " + string.Join(" || ", reds));
+        }
+
+        // DEV-V3-03: structured-diagnostic probe over the captured runtime log
+        // lines (the Recorder output carries a level prefix, so the match is a
+        // substring probe).
+        private static bool ContainsDiagnostic(List<string> captured, string token)
+        {
+            for (var i = 0; i < captured.Count; i++)
+            {
+                if (captured[i].IndexOf(token, StringComparison.Ordinal) >= 0) return true;
+            }
+            return false;
         }
 
         private static void AssertNativeUiGateReflectsMemberPresence()
