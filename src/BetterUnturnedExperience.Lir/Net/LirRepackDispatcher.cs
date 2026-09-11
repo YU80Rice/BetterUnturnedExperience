@@ -132,6 +132,23 @@ namespace BetterUnturnedExperience.Lir
         }
 
         /// <summary>
+        /// DEV-V3-09 (log-flood fix): whether the queue holds anything the
+        /// host-frame drain would act on — a pending request or an
+        /// undelivered success reply. The wired <c>LirRepackNetwork.Drain()</c>
+        /// consults this and skips posting to the platform dispatcher when the
+        /// queue is empty: an empty <c>DrainOnce</c> does no work, and posting
+        /// it every frame made the dispatcher emit one <c>result=posted</c>
+        /// diagnostic per beat (~60/s, the U3DS log storm). Read under the same
+        /// lock that guards the queues. Accepted tradeoff: the trailing
+        /// throttled summary of a final burst is deferred to the next active
+        /// beat rather than emitted while idle — idle must be silent.
+        /// </summary>
+        internal bool HasPendingWork
+        {
+            get { lock (sync) { return requests.Count > 0 || successes.Count > 0; } }
+        }
+
+        /// <summary>
         /// The host-frame drain: at most MaxPerFrame items per beat, replies
         /// first, TTL-expired work dropped un-executed. The execution
         /// callbacks belong to the service (engine-facing decisions stay out

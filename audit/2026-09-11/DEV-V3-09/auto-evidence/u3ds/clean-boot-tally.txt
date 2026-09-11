@@ -1,0 +1,10 @@
+== FIXED candidate (ce0d2191…) U3DS idle-boot anchor tally ==
+total_lines=109
+assembly-identity sha256=sha256=CE0D219179E036C3CACF6924E77DF2CE0A93A0A08B4BB73526AB46565A17E413
+features accepted=True=5
+result=posted (flood metric)=0  [PRE-FIX was 2009+/growing ~63/s]
+diagnostic-summary=11
+feature-isolated(Steam-down expected)=3
+LIR to=Running=1
+host pump heartbeat=2
+[Error lines=0

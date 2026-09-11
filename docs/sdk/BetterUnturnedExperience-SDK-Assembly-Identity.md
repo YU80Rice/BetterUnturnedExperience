@@ -149,7 +149,7 @@ conflictLocation=<冲突副本路径> selfPath=<当前 BUE 路径> suggestion=�
 
 公开契约按契约版本（`ContractVersion`）演化：冻结面的**破坏性变更升 Major**，随每次升级在本节登记变更条目；功能注册的 `MinimumBueContract` 与宿主注册门槛（当前支持契约 Major = 2）对齐新版本。第三方开发者按本节对照升级（编译期指引见 §4 第 5 步）。
 
-**当前契约版本：2.0**（宿主注册门槛 `SupportedContractMajor = 2`）。
+**当前宿主支持契约版本：2.1**（注册门槛 `SupportedContractMajor = 2`、`SupportedContractMinor = 1`——机器事实，自 DEV-V3-01 起成立）。**对外发布态**（`audit/RELEASES.md` 当前发布物 + publish 交付包）的 2.1 = DEV-V3-09 唯一候选，须三环境实机验收 + SHA-256/CaseId + 人工批准后随本票闭环方生效；批准前 `RELEASES.md` 当前发布物仍为 2.0 基线 v8（§C.1/C.5）。
 
 ### 2.0（2026-09-06，DEV-V2-14，破坏性升 Major）
 
@@ -189,6 +189,14 @@ conflictLocation=<冲突副本路径> selfPath=<当前 BUE 路径> suggestion=�
   - 加性理由：仅新增构造器，既有 getter 与 `default(FeatureStartResult)` 语义不变，旧引用无需重编译对齐，无破坏面——按本节规则（破坏性变更才升 Major）维持 2.0。
   - 冻结语义：宿主模块启动路径（`IFeatureModule.Start(IFeatureBootstrap)`，DEV-V2-21 落地）以显式结果回报启动结局——`Started=false`/`Error`/`DiagnosticId` 为显式失败回报，不再是隐式默认值；启动失败的模块不进入宿主已启动集合（宿主停止交接 `UnsubscribeAll` 只作用于已启动功能）。
 
+### 2.1（2026-09-11，DEV-V3-01..08 单一批次，加性变更不升 Major）
+
+第三阶段八个平台缝的加性契约以**单一 Minor 批次**合入 2.1：宿主注册门槛 `SupportedContractMinor` 开至 1，**破坏性变更为零**——既有 2.0 模块**零重编译继续注册、继续运行**（`ContractIncompatible`/`BUE-REG-006` 仅当 `Major ≠ 2` 或 `Minor > 1` 时拒）。逐票加性条目、服务参考、码表与迁移指引**不在本节重复**，统一见**附录 C.1（总账）、附录 A（平台服务参考七节）、附录 B（诊断与身份码表）、附录 C.2（安全降级原则）**。本节只登记版本事实与批次构成：
+
+- **加性面构成（按票）**：01 官方身份白名单拒绝 `ReservedFeatureId`/`BUE-REG-010` + Bootstrap 五成员永非 null 承诺；02 事件类型归属登记 `IFeatureEventRegistry`（`bootstrap.EventRegistry`）+ 路由归属不变量；03 生命周期状态投影 `IFeatureLifetime.CurrentStatus` + `TryTrack` 接线（容量 64/代际）；04 网络预算 `NetworkSendResult.Throttled=205` + 主线程投递 `IFeatureMainThread`（`bootstrap.MainThread`）；05 宿主时钟八条语义登记（**零新增契约面**）；06 设置 facet `IFeatureSettingsRegistration`（类型发现式可选面，`IFeatureRegistration` 成员一个未加）+ 双 scope 权威门；07 诊断 `IFeatureLogger` 接线 + 有界摘要 + `BUE-*` 前缀纪律（**零新增契约面**，兑现矩阵行）；08 SDK 附录 A/B/C 总装 + NoOp 统一生态契约 probe + 上架前自检清单。
+- **加性理由（§C.3 登记纪律）**：本批次破坏性变更为零，全部落在 §C.3 加性四类之内——**新枚举值**（`ReservedFeatureId=206`、`Throttled=205`、各 `BUE-*` 观察/拒绝码）；**新矩阵成员**（`IFeatureBootstrap`/`IFeatureLifetime` 由宿主实现、模块只读，其成员自 01 阶段基线即以 null 预列于可用性矩阵，后续票只「接线」把 null 兑现为可用——读取方向 + 矩阵 null 容忍纪律，2.0 模块零破坏）；**新可选面**（设置 facet `IFeatureSettingsRegistration` 经**类型发现**，不加载既有 interface）；**新构造器**（`FeatureStatusView`/`NegotiatedFeatureView` 可构造）；05/07 为**零新增契约面**（仅语义登记 + 既有形状兑现）。**关键非破坏约束在实现者侧**：第三方 DLL 自己实现的 `IFeatureRegistration` 成员**一个未加**（恰 4 属性不变——加载成员会打断全部 2.0 外部实现者，06 论证）；宿主侧接口加成员不受此约束（模块只读不实现）。按 §C.3 规则维持 Major=2、仅升 Minor。
+- **发布绑定**：对外 2.1 = DEV-V3-09 唯一候选 DLL，经单机/P2P/U3DS 三环境实机验收 + assembly-identity SHA-256/CaseId + 人工批准 + `audit/RELEASES.md` 行 + publish 交付包同步换新（§C.5 实施发布链顺序）；01..08 的中间构建不授 2.1 对外身份（候选纪律）。
+
 > 后续票逐条追加。
 
 ## 8. 实机验证清单（DEV-V2-24 执行）
@@ -222,7 +230,7 @@ conflictLocation=<冲突副本路径> selfPath=<当前 BUE 路径> suggestion=�
 
 # 附录（DEV-V3-08：平台服务参考 · 诊断与身份码表 · 契约版本与迁移）
 
-> **定位与纪律**：正文八节冻结不动（2.0 基线原文保留）；第三阶段（DEV-V3-01..07，契约 Minor 批次 **2.1**）的全部开发者承诺在此成文。附录条目=对应实施票已裁决内容的落档（每节标注出处票），**不新增任何运行时成员、不改变任何既有 interface**——文档不独立创造契约（V3-T9 裁决⑥）。
+> **定位与纪律**：正文八节冻结不动（2.0 基线原文保留——冻结的是 §7 的 ①–⑦ 基线条目原文，而「当前契约版本」活账与 §7 各版本小节随发布票追加/更新，见 C.1 翻转执行记录）；第三阶段（DEV-V3-01..07，契约 Minor 批次 **2.1**）的全部开发者承诺在此成文。附录条目=对应实施票已裁决内容的落档（每节标注出处票），**不新增任何运行时成员、不改变任何既有 interface**——文档不独立创造契约（V3-T9 裁决⑥）。
 >
 > **统一活样板**：本附录所有生态路径示例逐字取自 `src/BetterUnturnedExperience.NoOpFixture/NoOpFeaturePlugin.cs`——该样板已被 Plugin.Tests 的「DEV-V3-08 统一探针」组在真实宿主组合（公开注册桥+真实 StartCatalog+生产总线/时钟/设置/诊断）下全链验证。文档示例与样板**双向锚定**由机器执行：示例代码行=样板源码逐字、样板身份串=文档引用一致（红测锚「SDK 附录与活样板双向锚定」子组）。编译期验证工具不在本阶段建设（T9 裁决①），「示例可编译」的落实形态=示例即被测试在跑的活样板本体。
 >
@@ -583,7 +591,7 @@ logger.Error("noop-probe-error", FrameworkErrorCode.None, "BUE-NOOP-ERROR", null
 | 06（V3-T7） | `IFeatureSettingsRegistration`（恰两成员，类型发现式可选面；`IFeatureRegistration` 恰 4 属性不变）；`FeatureRegistrationEntry` 目录投影加性两属性；`BUE-REG-011`；`BUE-SET-*` 码族；facet 上限 64/功能 |
 | 07（V3-T8） | **零新增契约面**——`IFeatureLogger` 既有形状兑现矩阵行（每功能一律非 null）；消毒截断定值（64/128/256）、摘要容量 128、限频 30000ms；`BUE-LOG-*` 码族 |
 
-**版本时序纪律**：「接上某 2.1 成员」≠「2.1 已发布」——01..08 期间一切构建=开发态内部基线（不产正式候选、不进 RELEASES、不授 CaseId）；对外 2.1 版本以 DEV-V3-09 整体候选经三环境验收+人工批准后为准（§C.5）。本附录成文时正文 §7 登记保持 2.0（发布事实未翻转）。
+**版本时序纪律**：「接上某 2.1 成员」≠「2.1 已发布」——01..08 期间一切构建=开发态内部基线（不产正式候选、不进 RELEASES、不授 CaseId）；对外 2.1 版本以 DEV-V3-09 整体候选经三环境验收+人工批准后为准（§C.5）。**翻转执行记录**：本附录成文时（DEV-V3-08）正文 §7 保持 2.0；**DEV-V3-09（2026-09-11）** 将 §7 宿主支持契约版本登记为 2.1（版本活账，与代码门槛 `SupportedContractMinor = 1` 一致）。**对外发布态**（`RELEASES.md` 当前发布物 + publish 交付包）仍以三环境实机验收 + SHA-256/CaseId + 人工批准为准，随本票闭环在**同一次提交**内翻转——人工批准落地前 `RELEASES.md` 当前发布物仍为 2.0 基线 v8，本文档 §7 的 2.1 登记即与本票候选一并对读者生效于该提交。
 
 ### C.2 安全降级原则（旧模块在 2.1 宿主上）
 

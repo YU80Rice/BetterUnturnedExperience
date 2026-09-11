@@ -9186,6 +9186,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 Group("矩阵 MainThread 接线两侧", () => NetworkV3GroupMatrixMainThread(Check));
                 Group("dispatcher 最小行为面", () => NetworkV3GroupDispatcherSeam(Check));
                 Group("LIR 官方先行消费锚", () => NetworkV3GroupLirDispatcherConsumption(Check));
+                Group("LIR 空闲不投递（DEV-V3-09 日志风暴修复）", () => NetworkV3GroupLirIdleDrainNoPost(Check));
                 Group("NoOp 生态对照", () => NetworkV3GroupNoOpMainThread(Check));
             }
             catch (Exception error) when (collectAllFailures)
@@ -9895,6 +9896,74 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 "官方先行消费锚：模块停止后投递=显式失败（与生态同缝同权）");
             dispatcher.Pump();
             check(!postStopRan, "官方先行消费锚：停止边界后 pending 不再执行");
+        }
+
+        private static void NetworkV3GroupLirIdleDrainNoPost(System.Action<bool, string> check)
+        {
+            // DEV-V3-09 日志风暴修复锚：三环境 U3DS 实机发现 LIR→平台 dispatcher
+            // 每帧空投（每投递一行 Debug result=posted，~63 行/秒）。根因=OnHostTick
+            // 每帧无条件 Drain()→空队列仍 seam.Post(DrainOnce)。修复（F1）=有实际
+            // 待办才投递，空闲帧不投；既有非破坏语义（有工作照常投递+泵拍执行）不动。
+            var localContract = new ContractVersion(2, 0);
+            var pair = BetterUnturnedExperience.Core.Network.LocalLoopbackTransport.CreatePair();
+            var clientRuntime = new BetterUnturnedExperience.Core.Network.BueNetworkRuntime(pair.First, localContract, 1001UL);
+            var serverRuntime = new BetterUnturnedExperience.Core.Network.BueNetworkRuntime(pair.Second, localContract, 2002UL, handshakeInitiator: false);
+            var feature = new FeatureId(LirRuntime.FeatureIdValue);
+            var diagnostics = new List<string>();
+            var dispatcher = new BetterUnturnedExperience.Core.Dispatch.MainThreadDispatcherRuntime(diagnostics.Add);
+            dispatcher.OpenGeneration(feature, 5UL);
+            var bus = new BetterUnturnedExperience.Core.Events.FeatureEventBus();
+            var authority = new FakeLirAuthority();
+            var toasts = new List<string>();
+            var module = new InPlaceReloadModule(feature);
+            module.AuthorityFactoryForTests = () => authority;
+            module.NetServiceFactoryForTests = (m, net) => new LirRepackNetwork(net, m.Authority, () => true);
+            module.RoleProbeForTests = () => true;
+            module.KeyDownProviderForTests = () => false;
+            module.ToastSink = message => toasts.Add(message);
+            var bootstrap = new FeatureBootstrap(default(FeatureScopeIdentity), 5UL, null,
+                bus.Subscriber(feature), bus.Publisher(feature), bus.EventRegistry(feature), null, null, null, serverRuntime,
+                dispatcher.CreateView(feature, 5UL));
+            check(module.Start(bootstrap).Started, "setup: 真实 LIR 模块经带 MainThread 视图的宿主 bootstrap 启动");
+            check(module.NetService.EnsureInitializedOnGameThread(), "setup: 服务端网络初始化（首帧游戏线程）");
+
+            System.Func<int> postedCount = () =>
+            {
+                var n = 0;
+                foreach (var d in diagnostics)
+                    if (d != null && d.Contains("result=posted") && d.Contains("BUE-MT-ACCEPT")) n++;
+                return n;
+            };
+
+            // 空闲态：队列为空（尚无任何压弹请求），连续多拍宿主帧驱动。
+            for (var beat = 1UL; beat <= 5UL; beat++)
+                module.OnHostTick(new HostTick(beat, 0.016f, TickPhase.Update));
+            check(postedCount() == 0,
+                "日志风暴修复：空闲多拍→0 次 dispatcher 投递（每帧空投即被拒；pre-fix 每拍一行 result=posted=红）");
+
+            // 有工作态：客机上线并送一个真实压弹请求帧（入站 handler 只入队）。
+            clientRuntime.StartSession(2002UL);
+            pair.First.Pump(); pair.Second.Pump(); pair.First.Pump();
+            check(clientRuntime.RegisterChannel(feature, localContract, 1).Accepted, "setup: 客机频道注册");
+            check(clientRuntime.SendToServer(feature, LirRepackWireCodec.BuildRequest(777UL), true) == NetworkSendResult.Sent,
+                "setup: 压弹请求帧上线入队");
+            pair.First.Pump(); pair.Second.Pump();
+            var beforeActive = postedCount();
+            module.OnHostTick(new HostTick(6UL, 0.016f, TickPhase.Update));
+            check(postedCount() == beforeActive + 1,
+                "非破坏：有排队工作时 Drain() 恰投递一次（守卫不误伤正常路径）");
+            dispatcher.Pump();
+            check(authority.RepackCount == 1 && authority.LastRepackSteamId == 1001UL && authority.LastRepackRequestId == 777UL,
+                "投递后泵拍执行压弹事务（修复不破坏 drain 语义）");
+
+            // 排空后再空闲：队列已空，继续多拍不得再投递。
+            var afterDrain = postedCount();
+            for (var beat = 7UL; beat <= 10UL; beat++)
+                module.OnHostTick(new HostTick(beat, 0.016f, TickPhase.Update));
+            check(postedCount() == afterDrain,
+                "排空即转静默：队列空后空闲帧不再产生投递（风暴不复现）");
+
+            module.Stop(FeatureStopReason.PluginStopping);
         }
 
         private static void AssertNativeUiGateReflectsMemberPresence()

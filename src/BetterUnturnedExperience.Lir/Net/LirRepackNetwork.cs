@@ -173,6 +173,11 @@ namespace BetterUnturnedExperience.Lir
                 DrainOnce();
                 return;
             }
+            // DEV-V3-09 日志风暴修复：空闲帧（队列无待办）不再向平台 dispatcher
+            // 投递空 drain——空 DrainOnce 无工作，投递只会让 dispatcher 每拍 emit
+            // 一行 result=posted 诊断（U3DS 实机 ~60 行/秒）。有实际待办才投递，
+            // 投递被拒仍下一拍重投（队未清=HasPendingWork 仍真）。
+            if (!dispatcher.HasPendingWork) return;
             var posted = seam.Post(DrainOnce);
             if (!posted.Posted)
             {
