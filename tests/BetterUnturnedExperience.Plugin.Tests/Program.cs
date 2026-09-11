@@ -6606,6 +6606,11 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 onApply();
                 return new SettingChangeResult(false, FrameworkErrorCode.SettingRejected, 0, GetSnapshot(feature));
             }
+            public SettingChangeResult ApplyBatch(FeatureId feature, uint expectedRevision, System.Collections.Generic.IReadOnlyList<SettingMutation> mutations)
+            {
+                onApply();
+                return new SettingChangeResult(false, FrameworkErrorCode.SettingRejected, 0, GetSnapshot(feature));
+            }
         }
 
         private static TestSurfaceContext CreateTestSurface(ContainerKind kind, byte page, uint generation)
@@ -10713,6 +10718,66 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     finally
                     {
                         BueFeatureStartRuntime.StopAll(FeatureStopReason.PluginStopping);
+                        composition.Destroy();
+                        BueRuntimeHost.Bind(previousRuntime);
+                    }
+                });
+
+                Group("官方先行消费锚：面板自身草稿→保存经真实宿主设置面", () =>
+                {
+                    // DEV-V4-01 验收③：至少一条官方 ClientPreference 走「未保存
+                    // 草稿→保存配置」——编辑只进内存、点保存才经一次原子 Submit
+                    // 落宿主 runtime、revision 单次推进、保存后快照如实反映新值。
+                    EnsureSettings();
+                    var previousRuntime = BueRuntimeHost.CurrentRuntime;
+                    var runtime = new FeatureRegistrationRuntime();
+                    BueRuntimeHost.Bind(runtime);
+                    runtime.OpenRegistration();
+                    BetterItemInteractionFeatureRegistration.Register();
+                    Check(runtime.Register(InventoryTidyFeatureRegistration.CreateRegistration()).Accepted,
+                        "草稿锚 setup：LIT facet 登记受理");
+                    Check(runtime.CompleteRuntime(), "草稿锚 setup：目录冻结");
+                    var composition = new BueClientUiCompositionRoot();
+                    try
+                    {
+                        composition.RefreshManagementPanel();
+                        var store = BetterUnturnedExperience.Plugin.BueSettingsRuntime.Registry;
+                        SettingValue before; uint beforeRevision;
+                        Check(store.TryGetRuntime(litFeature).TryGet("inventorytidy.enabled", out before, out beforeRevision),
+                            "草稿锚 setup：官方 ClientPreference（inventorytidy.enabled）经宿主 runtime 可读");
+                        var desired = !before.Boolean;
+
+                        var model = composition.ManagementPanel.Model;
+                        model.OpenDetail(litFeature.Value);
+                        Check(model.DraftEditBueSetting("inventorytidy.enabled", PluginConfigValue.BooleanValue(desired)),
+                            "草稿锚：官方 ClientPreference 进草稿");
+                        SettingValue during; uint duringRevision;
+                        store.TryGetRuntime(litFeature).TryGet("inventorytidy.enabled", out during, out duringRevision);
+                        Check(during.Boolean == before.Boolean && duringRevision == beforeRevision,
+                            "草稿锚：改设置不立刻写权威源（宿主 runtime 值/revision 不动）");
+                        Check(model.IsDirty, "草稿锚：改值即脏");
+
+                        var report = model.SaveDraft();
+                        Check(report.Outcome == DraftSaveOutcome.Success && report.PrimaryMessage == "配置已保存。",
+                            "草稿锚：保存成功文案");
+                        SettingValue after; uint afterRevision;
+                        store.TryGetRuntime(litFeature).TryGet("inventorytidy.enabled", out after, out afterRevision);
+                        Check(after.Boolean == desired && afterRevision == beforeRevision + 1,
+                            "草稿锚：保存才经一次原子 Submit 落宿主 runtime（revision 单次推进）");
+                        Check(!model.IsDirty, "草稿锚：全成功后草稿清空");
+
+                        composition.RefreshManagementPanel();
+                        var reflected = false;
+                        foreach (var row in model.GetEntries())
+                        {
+                            if (row.StableId != litFeature.Value) continue;
+                            foreach (var setting in row.BueSettings)
+                                if (setting.SettingId == "inventorytidy.enabled" && setting.EffectiveValue.Boolean == desired) reflected = true;
+                        }
+                        Check(reflected, "草稿锚：保存后面板快照如实反映新值（面板=编辑 adapter，非第二事实源）");
+                    }
+                    finally
+                    {
                         composition.Destroy();
                         BueRuntimeHost.Bind(previousRuntime);
                     }

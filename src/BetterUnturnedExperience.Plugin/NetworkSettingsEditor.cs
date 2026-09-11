@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using BetterUnturnedExperience.ClientUi.Internal;
 using BetterUnturnedExperience.Contracts;
@@ -37,12 +38,20 @@ namespace BetterUnturnedExperience.Plugin
 
         public SettingChangeResult Apply(FeatureId feature, uint expectedRevision, SettingMutation mutation)
         {
+            return ApplyBatch(feature, expectedRevision, new[] { mutation });
+        }
+
+        // DEV-V4-01: the draft's "保存配置" routes a feature's whole settings
+        // draft through ONE ScopedSettingChangeRequest, so the SettingsRuntime
+        // is all-or-nothing and its revision advances exactly once.
+        public SettingChangeResult ApplyBatch(FeatureId feature, uint expectedRevision, IReadOnlyList<SettingMutation> mutations)
+        {
             if (!string.Equals(feature.Value, runtime.Feature.Value, StringComparison.Ordinal)) return Rejected(feature);
             var result = runtime.Submit(new ScopedSettingChangeRequest(
                 unchecked((ulong)Interlocked.Increment(ref nextRequestId)),
                 SettingRevisionScope.ClientPreference,
                 expectedRevision,
-                new[] { mutation }));
+                mutations ?? new SettingMutation[0]));
             if (result.Accepted && onApplied != null) onApplied();
             return result;
         }
@@ -87,6 +96,11 @@ namespace BetterUnturnedExperience.Plugin
 
         public SettingChangeResult Apply(FeatureId feature, uint expectedRevision, SettingMutation mutation)
         {
+            return ApplyBatch(feature, expectedRevision, new[] { mutation });
+        }
+
+        public SettingChangeResult ApplyBatch(FeatureId feature, uint expectedRevision, IReadOnlyList<SettingMutation> mutations)
+        {
             var editor = Resolve(feature);
             if (editor == null)
             {
@@ -94,7 +108,7 @@ namespace BetterUnturnedExperience.Plugin
                     + " stage=panel reason=no-settings-facet diagnosticId=BUE-SET-004");
                 return new SettingChangeResult(false, FrameworkErrorCode.SettingRejected, 0, UnavailableSnapshot(feature));
             }
-            return editor.Apply(feature, expectedRevision, mutation);
+            return editor.ApplyBatch(feature, expectedRevision, mutations);
         }
 
         private IBueSettingsEditor Resolve(FeatureId feature)

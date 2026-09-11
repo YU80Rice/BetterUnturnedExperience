@@ -210,12 +210,19 @@ namespace BetterUnturnedExperience.ClientUi.Tests
             public FeatureSettingsSnapshot GetSnapshot(FeatureId feature) { return snapshot; }
             public SettingChangeResult Apply(FeatureId feature, uint expectedRevision, SettingMutation mutation)
             {
+                return ApplyBatch(feature, expectedRevision, new[] { mutation });
+            }
+            public SettingChangeResult ApplyBatch(FeatureId feature, uint expectedRevision, System.Collections.Generic.IReadOnlyList<SettingMutation> mutations)
+            {
                 LastExpectedRevision = expectedRevision;
-                LastMutation = mutation;
-                var entry = new SettingEntryView(mutation.SettingId, SettingAuthority.ClientLocal,
-                    new SettingValueOption(true, mutation.Value), false, default(SettingPolicyView), mutation.Value, true, true);
+                var list = mutations ?? new SettingMutation[0];
+                LastMutation = list.Count > 0 ? list[0] : default(SettingMutation);
+                var entries = new System.Collections.Generic.List<SettingEntryView>();
+                foreach (var mutation in list)
+                    entries.Add(new SettingEntryView(mutation.SettingId, SettingAuthority.ClientLocal,
+                        new SettingValueOption(true, mutation.Value), false, default(SettingPolicyView), mutation.Value, true, true));
                 snapshot = new FeatureSettingsSnapshot(feature, 1, SettingRevisionScope.ClientPreference, expectedRevision + 1,
-                    SettingSyncState.Ready, SettingSnapshotSource.LocalPersistent, new[] { entry });
+                    SettingSyncState.Ready, SettingSnapshotSource.LocalPersistent, entries);
                 return new SettingChangeResult(true, FrameworkErrorCode.None, expectedRevision + 1, snapshot);
             }
         }

@@ -184,6 +184,7 @@ namespace BetterUnturnedExperience.Settings.Tests
             Assert(!unknownScope.Accepted && unknownScope.Error == FrameworkErrorCode.SettingRejected, "unknown revision scope fails closed");
 
             RunV3ScopedSettingsView();
+            RunV4DraftSubmitAtomicity();
         }
 
         // DEV-V3-06: the host-owned settings registry + the scoped view
@@ -363,6 +364,45 @@ namespace BetterUnturnedExperience.Settings.Tests
             Assert(ReferenceEquals(kept, runtimeA)
                 && lines.Exists(l => l.Contains("diagnosticId=BUE-SET-003") && l.Contains("io.example.v3settings")),
                 "v3: a second schema for one feature never replaces the live runtime (no second source of truth) and is surfaced");
+        }
+
+        // DEV-V4-01 依赖属性锚：草稿「保存配置」把整条 BUE 设置打成一次
+        // SettingsRuntime.Submit，该源必须整单成败（不源内半提交）、过期
+        // ExpectedRevision 显式拒——面板据此出「未保存：设置已在别处变更。」。
+        // 原子性/乐观并发是 Core 既有能力，这里按草稿用法锚定（先例=V3 提交链组）。
+        private static void RunV4DraftSubmitAtomicity()
+        {
+            var feature = new FeatureId("io.example.v4draft");
+            var descriptors = new[]
+            {
+                Descriptor(feature, "enabled", SettingKind.Toggle, SettingAuthority.ClientLocal, SettingValue.Toggle(false)),
+                Descriptor(feature, "volume", SettingKind.Integer, SettingAuthority.ClientLocal, SettingValue.IntegerValue(5), 0, 10),
+            };
+            var runtime = new SettingsRuntime(feature, descriptors, new InMemorySettingsPersistence());
+
+            // 合法整批：两条草稿字段一次提交，revision 单次推进、两值同落。
+            var batch = runtime.Submit(new ScopedSettingChangeRequest(1, SettingRevisionScope.ClientPreference, 0,
+                new[] { new SettingMutation("enabled", SettingValue.Toggle(true)), new SettingMutation("volume", SettingValue.IntegerValue(7)) }));
+            Assert(batch.Accepted && batch.Revision == 1, "v4: a draft batch advances the revision exactly once");
+            SettingValue enabled; SettingValue volume; uint rev;
+            Assert(runtime.TryGet("enabled", out enabled, out rev) && enabled.Boolean
+                && runtime.TryGet("volume", out volume, out rev) && volume.Integer == 7,
+                "v4: every field in the atomic batch lands together");
+
+            // 源内非法：一合法一越界 = 整单拒，revision 不推进，合法项也不写（无半提交）。
+            var mixed = runtime.Submit(new ScopedSettingChangeRequest(2, SettingRevisionScope.ClientPreference, 1,
+                new[] { new SettingMutation("enabled", SettingValue.Toggle(false)), new SettingMutation("volume", SettingValue.IntegerValue(99)) }));
+            Assert(!mixed.Accepted && mixed.Error == FrameworkErrorCode.SettingValidationFailed && mixed.Revision == 1,
+                "v4: an invalid field rejects the whole batch without advancing the revision");
+            Assert(runtime.TryGet("enabled", out enabled, out rev) && enabled.Boolean,
+                "v4: no half-commit — the valid field in a rejected batch is NOT written");
+
+            // 过期基准：ExpectedRevision 低于活动 revision = 冲突（草稿据此提示别处已变更）。
+            var stale = runtime.Submit(new ScopedSettingChangeRequest(3, SettingRevisionScope.ClientPreference, 0,
+                new[] { new SettingMutation("volume", SettingValue.IntegerValue(2)) }));
+            Assert(!stale.Accepted && stale.Error == FrameworkErrorCode.SettingRevisionConflict
+                && stale.Snapshot.Revision == 1,
+                "v4: a stale ExpectedRevision is refused with the current snapshot");
         }
 
         private static void RewriteSchema(string path, uint schema)

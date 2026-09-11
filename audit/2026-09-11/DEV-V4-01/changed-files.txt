@@ -1,0 +1,10 @@
+src/BetterUnturnedExperience.ClientUi/ManagementPanel.cs
+src/BetterUnturnedExperience.ClientUi/BetterItemInteractionLifecycle.cs
+src/BetterUnturnedExperience.Plugin/NetworkSettingsEditor.cs
+src/BetterUnturnedExperience.Plugin/BueNativeManagementPanel.cs
+tests/BetterUnturnedExperience.ClientUi.Tests/BetterUnturnedExperience.ClientUi.Tests.csproj
+tests/BetterUnturnedExperience.ClientUi.Tests/Program.cs
+tests/BetterUnturnedExperience.ClientUi.Tests/Dev16BTests.cs
+tests/BetterUnturnedExperience.Plugin.Tests/Program.cs
+tests/BetterUnturnedExperience.Settings.Tests/Program.cs
+tests/BetterUnturnedExperience.ClientUi.Tests/DevV4DraftTests.cs (NEW)

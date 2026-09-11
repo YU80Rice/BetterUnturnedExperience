@@ -115,6 +115,14 @@ namespace BetterUnturnedExperience.Plugin
         private int updateTickCount;
         private bool hostUiTickLogged;
         private string selectedStableId;
+        // DEV-V4-01: unsaved-draft navigation. The immediate-write path is
+        // retired — a settings/config edit lands in the model draft and only
+        // "保存配置" reaches the authoritative source. When a dirty draft is
+        // open, switching entries / refreshing / closing arms the "修改尚未
+        // 保存，要保存吗？" confirm (model command TryLeaveDetail), never
+        // silently dropping the draft.
+        private string pendingNavigation;   // null = none; "" = pending close; else target stableId
+        private bool pendingRefresh;         // reload the model after leaving the current draft
         private static BueNativeManagementPanel activeInstance;
 
         internal static bool RequiresParentRebind(object boundParent, object currentParent)
@@ -391,7 +399,7 @@ namespace BetterUnturnedExperience.Plugin
         {
             var instance = activeInstance;
             if (instance == null || !instance.opened) return true;
-            instance.Close();
+            instance.RequestClose();
             return false;
         }
 
@@ -399,7 +407,7 @@ namespace BetterUnturnedExperience.Plugin
         {
             var instance = activeInstance;
             if (instance == null || !instance.opened) return true;
-            instance.Close();
+            instance.RequestClose();
             return false;
         }
 
@@ -890,8 +898,7 @@ namespace BetterUnturnedExperience.Plugin
                 button.TooltipText = row.StableId + "\n版本: " + row.Version;
                 button.OnClicked += delegate(ISleekElement ignored)
                 {
-                    selectedStableId = capturedId;
-                    RenderDetails();
+                    SelectEntry(capturedId);
                 };
                 listScroll.AddChild(button);
                 y += 42;
@@ -941,6 +948,9 @@ namespace BetterUnturnedExperience.Plugin
                 if (!string.IsNullOrEmpty(runtime.Model.DoubleInstallNotice)) SetStatus(runtime.Model.DoubleInstallNotice, true);
                 return;
             }
+            // Align the model's logical panel session with what is displayed.
+            // Re-opening the current entry keeps the in-memory draft (重挂不丢).
+            runtime.Model.OpenDetail(selected.StableId);
             AddDetailLabel(ref y, selected.DisplayName, ESleekFontSize.Large);
             AddDetailLabel(ref y, "身份：" + selected.StableId, ESleekFontSize.Small);
             AddDetailLabel(ref y, "版本：" + selected.Version, ESleekFontSize.Small);
@@ -980,6 +990,21 @@ namespace BetterUnturnedExperience.Plugin
                     AddPluginConfigControl(ref y, selected, selected.PluginConfig[index]);
                 }
             }
+            // DEV-V4-01: draft actions. When a navigation-away is armed show the
+            // confirm bar; otherwise show 保存配置 (always visible per Q31 — a
+            // clean click is a no-op, not a hidden button) plus 放弃修改 when
+            // the open draft is dirty. The buttons never navigate on their own —
+            // 保存配置 keeps the panel open and re-renders from the fresh
+            // authoritative snapshot.
+            if (pendingNavigation != null)
+            {
+                AddConfirmBar(ref y);
+            }
+            else
+            {
+                AddDraftActionButtons(ref y);
+            }
+
             detailScroll.ContentSizeOffset = new Vector2(0f, y + 10);
             // DEV-V2-23: the double-install diagnosis outranks the compatibility
             // notice — the player must remove an unofficial copy before anything
@@ -990,35 +1015,38 @@ namespace BetterUnturnedExperience.Plugin
 
         private void AddBueSettingControl(ref int y, ManagementEntryView row, SettingEntryView setting)
         {
-            AddDetailLabel(ref y, setting.SettingId + " = " + FormatSetting(setting.EffectiveValue), ESleekFontSize.Small);
-            if (!setting.CanEdit) return;
-            var feature = row.StableId;
-            if (setting.EffectiveValue.Kind == SettingKind.Toggle)
+            // DEV-V4-01: the setting edit lands in the draft (no authoritative
+            // write); the row shows the draft's effective value and is tagged
+            // 未保存 when it differs from the authoritative snapshot. Read-only
+            // and ServerAuthority rows are never editable and never enter the draft.
+            var dirty = runtime.Model.IsBueSettingDirty(setting.SettingId);
+            var effective = runtime.Model.EffectiveBueSettingValue(setting.SettingId);
+            AddDetailLabel(ref y, setting.SettingId + " = " + FormatSetting(effective) + (dirty ? "（未保存）" : string.Empty), ESleekFontSize.Small);
+            if (!setting.CanEdit || setting.Authority == SettingAuthority.ServerAuthoritative) return;
+            if (effective.Kind == SettingKind.Toggle)
             {
                 var toggle = Glazier.Get().CreateToggle();
                 toggle.PositionOffset_Y = y;
                 toggle.SizeOffset_X = 40f;
                 toggle.SizeOffset_Y = 30f;
-                toggle.Value = setting.EffectiveValue.Boolean;
+                toggle.Value = effective.Boolean;
                 toggle.OnValueChanged += delegate(ISleekToggle ignored, bool value)
                 {
-                    var result = runtime.Model.TryEditBueSetting(new FeatureId(feature), setting.SettingId, PluginConfigValue.BooleanValue(value));
-                    SetStatus(result.Accepted ? "BUE 设置已保存。" : "BUE 设置被拒绝。", !result.Accepted);
-                    if (result.Accepted) Render();
+                    runtime.Model.DraftEditBueSetting(setting.SettingId, PluginConfigValue.BooleanValue(value));
+                    RenderDetails();
                 };
                 detailScroll.AddChild(toggle);
                 y += 36;
             }
             else
             {
-                AddTextEditor(ref y, setting.SettingId, FormatSetting(setting.EffectiveValue), raw =>
+                AddTextEditor(ref y, setting.SettingId, FormatSetting(effective), raw =>
                 {
                     PluginConfigValue value;
-                    if (!TryConvertSetting(setting.EffectiveValue.Kind, raw, out value)) return false;
-                    var result = runtime.Model.TryEditBueSetting(new FeatureId(feature), setting.SettingId, value);
-                    SetStatus(result.Accepted ? "BUE 设置已保存。" : "BUE 设置被拒绝。", !result.Accepted);
-                    if (result.Accepted) Render();
-                    return result.Accepted;
+                    if (!TryConvertSetting(effective.Kind, raw, out value)) return false;
+                    if (!runtime.Model.DraftEditBueSetting(setting.SettingId, value)) return false;
+                    RenderDetails();
+                    return true;
                 });
             }
         }
@@ -1052,7 +1080,11 @@ namespace BetterUnturnedExperience.Plugin
 
         private void AddPluginConfigControl(ref int y, ManagementEntryView row, PluginConfigEntryView entry)
         {
-            AddDetailLabel(ref y, entry.DisplayName + " = " + FormatPluginValue(entry.Value) + (entry.RequiresRestart ? "（需要重启）" : string.Empty), ESleekFontSize.Small);
+            // DEV-V4-01: external ConfigEntry edits enter the same draft model.
+            var dirty = runtime.Model.IsPluginConfigDirty(entry.Key);
+            var draft = runtime.Model.EffectivePluginConfigValue(entry.Key);
+            var display = draft.Kind == PluginConfigValueKind.Unsupported ? entry.Value : draft;
+            AddDetailLabel(ref y, entry.DisplayName + " = " + FormatPluginValue(display) + (entry.RequiresRestart ? "（需要重启）" : string.Empty) + (dirty ? "（未保存）" : string.Empty), ESleekFontSize.Small);
             if (!entry.CanEdit) return;
             var pluginGuid = row.StableId;
             if (entry.Kind == PluginConfigValueKind.Boolean)
@@ -1061,26 +1093,149 @@ namespace BetterUnturnedExperience.Plugin
                 toggle.PositionOffset_Y = y;
                 toggle.SizeOffset_X = 40f;
                 toggle.SizeOffset_Y = 30f;
-                toggle.Value = entry.Value.Boolean;
+                toggle.Value = display.Boolean;
                 toggle.OnValueChanged += delegate(ISleekToggle ignored, bool value)
                 {
-                    var result = runtime.Model.TryEditPluginConfig(pluginGuid, entry.Key, value ? "true" : "false");
-                    SetStatus(result.Accepted ? "插件配置已保存。" : "插件配置保存失败。", !result.Accepted);
-                    if (result.Accepted) Render();
+                    runtime.Model.DraftEditPluginConfig(pluginGuid, entry.Key, value ? "true" : "false");
+                    RenderDetails();
                 };
                 detailScroll.AddChild(toggle);
                 y += 36;
             }
             else
             {
-                AddTextEditor(ref y, entry.Key, FormatPluginValue(entry.Value), raw =>
+                AddTextEditor(ref y, entry.Key, FormatPluginValue(display), raw =>
                 {
-                    var result = runtime.Model.TryEditPluginConfig(pluginGuid, entry.Key, raw);
-                    SetStatus(result.Accepted ? "插件配置已保存。" : "插件配置保存失败。", !result.Accepted);
-                    if (result.Accepted) Render();
-                    return result.Accepted;
+                    if (!runtime.Model.DraftEditPluginConfig(pluginGuid, entry.Key, raw)) return false;
+                    RenderDetails();
+                    return true;
                 });
             }
+        }
+
+        // ── DEV-V4-01 draft navigation (保存 / 放弃 / 确认 command surface) ──
+
+        // Switching the selected entry while a dirty draft is open arms the
+        // confirm instead of silently dropping the edits (V4-T2 Q22).
+        private void SelectEntry(string stableId)
+        {
+            if (runtime.Model.IsDirty && !string.Equals(stableId, selectedStableId, StringComparison.Ordinal))
+            {
+                pendingRefresh = false;
+                pendingNavigation = stableId;
+                RenderDetails();
+                return;
+            }
+            pendingNavigation = null;
+            selectedStableId = stableId;
+            runtime.Model.OpenDetail(stableId);
+            RenderDetails();
+        }
+
+        private void RequestRefresh()
+        {
+            if (runtime.Model.IsDirty)
+            {
+                pendingNavigation = selectedStableId ?? string.Empty;
+                pendingRefresh = true;
+                RenderDetails();
+                return;
+            }
+            pendingNavigation = null;
+            pendingRefresh = false;
+            if (refreshModel != null) refreshModel();
+            Render();
+        }
+
+        private void RequestClose()
+        {
+            if (runtime.Model.IsDirty)
+            {
+                pendingNavigation = string.Empty;   // "" = the navigation-away is a close
+                pendingRefresh = false;
+                RenderDetails();
+                return;
+            }
+            pendingNavigation = null;
+            pendingRefresh = false;
+            Close();
+        }
+
+        private void ResolveConfirm(PanelConfirmChoice choice)
+        {
+            var target = pendingNavigation == string.Empty ? null : pendingNavigation;
+            var wasRefresh = pendingRefresh;
+            DraftSaveReport report;
+            var leaving = runtime.Model.TryLeaveDetail(target, choice, out report);
+            pendingNavigation = null;
+            pendingRefresh = false;
+            // The confirm's 保存 reuses 保存配置's report verbatim (Q22 = 等同保存
+            // 配置); 取消/不保存 carry no report (no write attempted).
+            if (!leaving)
+            {
+                // 取消, or 保存 where a source failed — stay on the current entry,
+                // the failed draft is preserved by the model.
+                RenderDetails();
+                RenderDraftReport(report);   // after re-render, so a platform notice can't wipe the banner (Q23/Q24)
+                return;
+            }
+            if (wasRefresh && refreshModel != null) refreshModel();
+            if (target == null) { Close(); return; }   // the navigation-away was a close
+            selectedStableId = target;
+            Render();
+            RenderDraftReport(report);   // frozen save banner wins over any notice (Q30)
+        }
+
+        private void AddDraftActionButtons(ref int y)
+        {
+            // 保存配置 is always visible on an open detail (Q31 — a clean click is
+            // a no-op, not a hidden button); 放弃修改 only when the draft is dirty.
+            if (runtime.Model.IsDirty)
+            {
+                AddDetailLabel(ref y, "有未保存的修改。", ESleekFontSize.Small);
+                AddDraftButton(ref y, "放弃修改", delegate { runtime.Model.DiscardDraft(); Render(); });
+            }
+            AddDraftButton(ref y, "保存配置", CommitDraftAndStatus);
+        }
+
+        private void CommitDraftAndStatus()
+        {
+            var report = runtime.Model.SaveDraft();
+            Render();                    // re-render first — RenderDetails may restore a platform notice…
+            RenderDraftReport(report);   // …then publish the frozen save banner so it wins (Q30/Q23).
+        }
+
+        // The one place the draft-save outcome becomes the top banner, so the
+        // 保存配置 button and the confirm's 保存 render identical frozen text
+        // (Q23/Q24/Q30). Success and NoChanges use the verbatim PrimaryMessage
+        // (「配置已保存。」 / 「没有需要保存的修改。」); a partial shows 「部分
+        // 保存失败」 + the per-source reasons. The RequiresRestart badge is the
+        // external-config surface (DEV-V4-08), never text appended to 配置已保存。
+        private void RenderDraftReport(DraftSaveReport report)
+        {
+            if (report == null) return;
+            if (report.Outcome == DraftSaveOutcome.NoChanges || report.Outcome == DraftSaveOutcome.Success) SetStatus(report.PrimaryMessage, false);
+            else SetStatus("部分保存失败：" + string.Join(" ", report.Messages), true);
+        }
+
+        private void AddConfirmBar(ref int y)
+        {
+            AddDetailLabel(ref y, "修改尚未保存，要保存吗？", ESleekFontSize.Medium);
+            AddDraftButton(ref y, "保存", delegate { ResolveConfirm(PanelConfirmChoice.Save); });
+            AddDraftButton(ref y, "不保存", delegate { ResolveConfirm(PanelConfirmChoice.Discard); });
+            AddDraftButton(ref y, "取消", delegate { ResolveConfirm(PanelConfirmChoice.Cancel); });
+        }
+
+        private void AddDraftButton(ref int y, string text, System.Action onClick)
+        {
+            var button = Glazier.Get().CreateButton();
+            button.PositionOffset_Y = y;
+            button.SizeOffset_X = 220f;
+            button.SizeOffset_Y = 32f;
+            button.Text = text;
+            button.OnClicked += delegate(ISleekElement ignored) { onClick(); };
+            detailScroll.AddChild(button);
+            y += 38;
         }
 
         private void AddTextEditor(ref int y, string key, string value, Func<string, bool> submit)
@@ -1157,7 +1312,7 @@ namespace BetterUnturnedExperience.Plugin
             parent.RemoveAllChildren();
         }
 
-        private void OnRefreshClicked(ISleekElement button) { if (refreshModel != null) refreshModel(); Render(); }
+        private void OnRefreshClicked(ISleekElement button) { RequestRefresh(); }
         private void OnSortAscendingClicked(ISleekElement button) { runtime.Model.SetSortOrder(ManagementSortOrder.NameAscending); Render(); }
         private void OnSortDescendingClicked(ISleekElement button) { runtime.Model.SetSortOrder(ManagementSortOrder.NameDescending); Render(); }
         private void SetStatus(string text, bool error)
@@ -1165,12 +1320,21 @@ namespace BetterUnturnedExperience.Plugin
             if (status != null) status.Text = (error ? "错误：" : string.Empty) + (text ?? string.Empty);
         }
 
-        private void OnCloseClicked(ISleekElement button) { Close(); }
+        private void OnCloseClicked(ISleekElement button) { RequestClose(); }
 
         private void Close()
         {
             if (!opened) return;
             opened = false;
+            // A real close ends the logical panel session (V4-T1：关面板即结束，
+            // 丢未保存草稿). The dirty draft is normally confirmed-away before
+            // this runs (RequestClose arms the dialog); this is the safety net
+            // for the game-driven closes (CloseAll / dead-panel) where no dialog
+            // is shown. The re-mount path (OnUiTreeRebuilt) never reaches here,
+            // so an attached-during-play session keeps its draft.
+            runtime.Model.DiscardDraft();
+            pendingNavigation = null;
+            pendingRefresh = false;
             try { if (panel != null && IsAlive(panel)) panel.AnimateOutOfView(0f, -1f); } catch (Exception error) { Log("close management panel failed: " + error.Message); }
             try { if (hiddenOrigin != null && IsAlive(hiddenOrigin)) hiddenOrigin.AnimateIntoView(); } catch (Exception error) { Log("restore management origin failed: " + error.Message); }
             hiddenOrigin = null;

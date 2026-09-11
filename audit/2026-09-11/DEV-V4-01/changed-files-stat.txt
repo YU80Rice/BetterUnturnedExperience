@@ -1,0 +1,10 @@
+ .../BetterItemInteractionLifecycle.cs              |  35 +-
+ .../ManagementPanel.cs                             | 378 +++++++++++++++++++++
+ .../BueNativeManagementPanel.cs                    | 189 +++++++++--
+ .../NetworkSettingsEditor.cs                       |  18 +-
+ .../BetterUnturnedExperience.ClientUi.Tests.csproj |   1 +
+ .../Dev16BTests.cs                                 |  15 +-
+ .../Program.cs                                     |   5 +-
+ .../Program.cs                                     |  65 ++++
+ .../Program.cs                                     |  40 +++
+ 9 files changed, 701 insertions(+), 45 deletions(-)
