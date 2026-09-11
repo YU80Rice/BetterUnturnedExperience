@@ -65,7 +65,7 @@ publish/    正式交付包（按阶段归档）
 
 ### 第三方项目致谢
 
-- **[UnturnedPluginManager](https://github.com/35117/UnturnedPluginManager)**（作者 35117）：BUE 管理面板的插件列表、设置展示与 UI 重建检测经验来源。BUE 运行时不依赖其 DLL、不复用其插件身份；来源、采用提交与授权记录详见 [`docs/third-party/UnturnedPluginManager-attribution.md`](docs/third-party/UnturnedPluginManager-attribution.md)。
+- **[@35117](https://github.com/35117)** 与 **[UnturnedPluginManager](https://github.com/35117/UnturnedPluginManager)**（UPM）：BUE 管理面板的插件列表、设置展示、UI 重建检测与面板交互的**实现思路与代码成果来源**，作者已明确许可本次借用。35117 以第三方代码贡献者身份在 [CONTRIBUTORS.md](CONTRIBUTORS.md) 中正式认定（其贡献经吸收内化、未以本仓库 commit 形式存在，故不出现在 GitHub 自动生成的 Contributors 图表中）。BUE 运行时不依赖其 DLL、不复用其插件身份；来源、采用提交与授权记录详见 [`docs/third-party/UnturnedPluginManager-attribution.md`](docs/third-party/UnturnedPluginManager-attribution.md)。
 
 ### 作者的工具链
 

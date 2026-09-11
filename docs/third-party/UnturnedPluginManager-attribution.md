@@ -3,6 +3,7 @@
 ## 来源
 
 - 项目：`UnturnedPluginManager`
+- 作者 GitHub 档案：[@35117](https://github.com/35117)
 - 仓库：<https://github.com/35117/UnturnedPluginManager>
 - 本地来源快照：`D:\Agent-工作目录\DevelopMyUNMultiplayerModAndModloader\UnturnedPluginManager`
 - 采用时记录的提交：`9b75730`（`v26.8.11.3: 修复游戏内无法打开插件管理界面的问题`）
@@ -20,4 +21,4 @@ BUE 将吸收其插件列表、设置展示、UI 重建检测与面板交互经�
 
 ## 致谢
 
-感谢 `35117` 开源并许可 BUE 借用该插件管理面板的实现思路与代码成果。
+感谢 `35117`（[@35117](https://github.com/35117)）开源并许可 BUE 借用该插件管理面板的实现思路与代码成果。本贡献同步在仓库根 [CONTRIBUTORS.md](../../CONTRIBUTORS.md) 的「第三方代码贡献者」一节与 README「第三方项目致谢」中认定。
