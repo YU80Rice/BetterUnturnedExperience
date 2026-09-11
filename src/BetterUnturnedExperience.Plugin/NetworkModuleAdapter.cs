@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Reflection;
 using BetterUnturnedExperience.Contracts;
 using BetterUnturnedExperience.Contracts.BueNetwork;
+using BetterUnturnedExperience.Core.Diagnostics;
 using BetterUnturnedExperience.Core.Network;
 using BetterUnturnedExperience.Core.Settings;
 using HarmonyLib;
@@ -251,7 +252,14 @@ namespace BetterUnturnedExperience.Plugin
             // throttling, session link health, inbound handler faults) ride
             // the same adapter sink — official and ecosystem sends report
             // through one seam (T5: 诊断走内部 seam，不新增公开 Logger 成员).
-            networkRuntime = new BueNetworkRuntime(bueTransport, new ContractVersion(2, 0), localSteamId, handshakeInitiator: !serverRole, injectedMonotonicMilliseconds ?? engineBinding.MonotonicMilliseconds, line => Emit("[BUE-NET] " + line));
+            // DEV-V3-07 收编双绑：原 adapter 路径逐字不变（04 既有锚语义），
+            // 带码行（预算/链路健康）另路进统一摘要，以网络功能身份归属
+            // （行内无 feature= 走 fallback 归属；T5 链路健康收编，不互相遮蔽）。
+            networkRuntime = new BueNetworkRuntime(bueTransport, new ContractVersion(2, 0), localSteamId, handshakeInitiator: !serverRole, injectedMonotonicMilliseconds ?? engineBinding.MonotonicMilliseconds, line =>
+            {
+                Emit("[BUE-NET] " + line);
+                BueDiagnosticsRuntime.AggregateHostLine(NetworkFeature.Value, DiagnosticLevel.Info, line);
+            });
             // DEV-V2-21: the feature network identity arms — deferred channel
             // registrations and directional subscriptions replay onto the
             // live runtime here (the attach is one-shot with the runtime).

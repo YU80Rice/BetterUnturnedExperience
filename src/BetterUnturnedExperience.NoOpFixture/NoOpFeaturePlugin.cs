@@ -66,6 +66,16 @@ namespace BetterUnturnedExperience.NoOpFixture
             public bool SettingsCommitAccepted;
             public bool SettingsRevisionAdvanced;
             public bool SettingsInvalidRejected;
+            // DEV-V3-07 Logger 支线（T8 裁决③ probe 链生态侧最小对照，全链
+            // probe→08）：探针经注入 view 走三方法窄面——void 面=调用不炸即
+            // Written（异常隔离的生态侧观察），行与摘要计数断言归宿主缝
+            // （聚合器不随样本走）。NoOp=白名单官方样例身份→BUE-NOOP-* 码
+            // 合法（平台侧通过性）；生态前缀拒绝锚以 io.example 身份在宿主
+            // 测试「BUE-* 前缀纪律」组另证，两者互不遮蔽。
+            public bool LoggerAvailable;
+            public bool LoggerInfoWritten;
+            public bool LoggerWarningWritten;
+            public bool LoggerErrorWritten;
         }
 
         public static ProbeState LastProbe { get; private set; }
@@ -170,6 +180,20 @@ namespace BetterUnturnedExperience.NoOpFixture
                         2000UL + snapshot.Revision, SettingRevisionScope.ClientPreference, commit.Revision,
                         new[] { new SettingMutation("noop.not-a-setting", SettingValue.Toggle(true)) }));
                     probe.SettingsInvalidRejected = !invalid.Accepted;
+                }
+                // DEV-V3-07 Logger 支线：三方法窄面按生态姿势各调一次（BUE-*
+                // 码对样例身份合法，见 ProbeState 注释）；void 面=调用返回即
+                // Written，结构化行/摘要计数由宿主测试断言。
+                var logger = bootstrap.Logger;
+                if (logger != null)
+                {
+                    probe.LoggerAvailable = true;
+                    logger.Info("noop-probe-info", "BUE-NOOP-INFO");
+                    probe.LoggerInfoWritten = true;
+                    logger.Warning("noop-probe-warning", FrameworkErrorCode.SettingRejected, "BUE-NOOP-WARN");
+                    probe.LoggerWarningWritten = true;
+                    logger.Error("noop-probe-error", FrameworkErrorCode.None, "BUE-NOOP-ERROR", null);
+                    probe.LoggerErrorWritten = true;
                 }
                 probe.Started = true;
                 return new FeatureStartResult(true, FrameworkErrorCode.None, "BUE-NOOP-START");

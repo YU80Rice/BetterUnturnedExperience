@@ -17,6 +17,7 @@
     <Compile Include="..\BetterUnturnedExperience.Core\Network\DeferredBueNetworkApi.cs"><Link>EmbeddedCore\Network\DeferredBueNetworkApi.cs</Link></Compile>
     <Compile Include="..\BetterUnturnedExperience.Core\Network\NetworkSendGuard.cs"><Link>EmbeddedCore\Network\NetworkSendGuard.cs</Link></Compile>
     <Compile Include="..\BetterUnturnedExperience.Core\Dispatch\MainThreadDispatcherRuntime.cs"><Link>EmbeddedCore\Dispatch\MainThreadDispatcherRuntime.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Core\Diagnostics\DiagnosticRuntime.cs"><Link>EmbeddedCore\Diagnostics\DiagnosticRuntime.cs</Link></Compile>
     <Compile Include="..\BetterUnturnedExperience.Core\Network\BueNetworkRuntime.cs"><Link>EmbeddedCore\Network\BueNetworkRuntime.cs</Link></Compile>
     <Compile Include="..\BetterUnturnedExperience.Core\Network\BueFrameClassifier.cs"><Link>EmbeddedCore\Network\BueFrameClassifier.cs</Link></Compile>
     <Compile Include="..\BetterUnturnedExperience.Core\Network\LmnFrameClassifier.cs"><Link>EmbeddedCore\Network\LmnFrameClassifier.cs</Link></Compile>
@@ -141,6 +142,7 @@
     <Compile Include="BueHostEventRuntime.cs" />
     <Compile Include="BueMainThreadRuntime.cs" />
     <Compile Include="BueSettingsRuntime.cs" />
+    <Compile Include="BueDiagnosticsRuntime.cs" />
     <Compile Include="BueFeatureStartRuntime.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />

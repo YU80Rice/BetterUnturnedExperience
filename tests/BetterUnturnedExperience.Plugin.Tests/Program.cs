@@ -333,6 +333,11 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     AssertBueV3SettingsWiringAndPanelRouting(collectAllFailures: true);
                     return 0;
                 }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--bue-v3-diagnostics-red")
+                {
+                    AssertBueV3DiagnosticsWiringAndSummary(collectAllFailures: true);
+                    return 0;
+                }
                 if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--bue-v2-lit-multiplayer-red")
                 {
                     AssertBueV2LitMultiplayerPath(collectAllFailures: true);
@@ -470,6 +475,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 AssertBueV3NetworkTransportRules();
                 AssertBueV3HostClockSemantics();
                 AssertBueV3SettingsWiringAndPanelRouting();
+                AssertBueV3DiagnosticsWiringAndSummary();
                 // F-E: pure truth tables, no host state — runs before F-D.
                 AssertBueV2FeEnginePeerIdentity();
                 // F-D: runs last — it replaces the bound runtime and clears the
@@ -8200,8 +8206,9 @@ namespace BetterUnturnedExperience.Plugin.Tests
         // observed on the REAL host start composition (StartCatalog). The
         // matrix is the living truth per ticket: the five frozen members are
         // never null; DEV-V3-03 wired Lifetime/Dependencies (now non-null);
-        // Settings/Logger stay null until DEV-V3-06/07 (the spec's availability
-        // matrix is the only truth).
+        // DEV-V3-06 wired Settings (facet=non-null, no-facet=honest null);
+        // DEV-V3-07 wired Logger (non-null for every started feature) — the
+        // spec's availability matrix is the only truth.
         private static void AssertBueV3RegistrationGateAndBootstrapMatrix()
         {
             var previousRuntime = BueRuntimeHost.CurrentRuntime;
@@ -8246,8 +8253,8 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     "DEV-V3-01: Identity binds the feature's own registration identity (not the default record)");
                 Assert(captured.Identity.DefinitionSetId == "bue-v3-matrix-probe",
                     "DEV-V3-01: Identity carries the definition set the registration was admitted with");
-                Assert(captured.Settings == null && captured.Logger == null,
-                    "DEV-V3-01/03/06: this probe registers NO settings facet, so Settings stays the honest null (the 06 row is wired: facet=composed view, no-facet=not provided, nothing faked); Logger stays null pre-07");
+                Assert(captured.Settings == null && captured.Logger != null,
+                    "DEV-V3-01/03/06/07: this probe registers NO settings facet, so Settings stays the honest null (the 06 row is wired: facet=composed view, no-facet=not provided, nothing faked); Logger turned non-null — the 07 row is wired for every started feature (availability matrix: 接线后永非 null on the start composition)");
                 Assert(captured.Lifetime != null && captured.Dependencies != null,
                     "DEV-V3-03: Lifetime/Dependencies turned non-null on the start composition (availability matrix rows wired by DEV-V3-03)");
                 Assert(captured.MainThread != null,
@@ -8749,8 +8756,8 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     Check(probe.Module.Bootstrap.Lifetime != null, "矩阵接线侧：Lifetime 接线后永非 null（可用性矩阵行=DEV-V3-03 起可用）");
                     Check(probe.Module.Bootstrap.Dependencies != null, "矩阵接线侧：Dependencies 接线后永非 null（可用性矩阵行=DEV-V3-03 起可用）");
                     Check(probe.Module.Bootstrap.EventRegistry != null, "矩阵接线侧：EventRegistry 行保持非 null（DEV-V3-02 行回归）");
-                    Check(probe.Module.Bootstrap.Settings == null && probe.Module.Bootstrap.Logger == null,
-                        "矩阵接线侧：未接线成员（Settings/Logger）保持 null（矩阵=06/07 票红线）");
+                    Check(probe.Module.Bootstrap.Settings == null && probe.Module.Bootstrap.Logger != null,
+                        "矩阵接线侧：Settings 行=有 facet 才接线（探针无 facet=null，06 红线保留）；Logger 行=DEV-V3-07 接线后永非 null（07 红线兑现）");
                 });
 
                 Group("TryTrack 登记", () =>
@@ -10557,7 +10564,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     // facet 的功能在真实 StartCatalog 上得到可注入 view（可用
                     // 侧=本票接线证据）；无 facet 的功能=null（未提供不伪造+
                     // 阶段基线纪律，旧「接线前 null」侧语义保留）；Logger 行
-                    // 仍 null（07 红线保留）。
+                    // =DEV-V3-07 接线后可用（07 红线在本票新组断言）。
                     EnsureSettings();
                     var facetProbe = new SettingsFacetProbeRegistration("io.example.settings-facet-probe");
                     var plainProbe = new MatrixProbeRegistration("io.example.settings-plain-probe");
@@ -10578,7 +10585,8 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     Check(commit.Accepted && commit.Revision == 1u, "矩阵可用侧：经 view 提交生效（revision 推进 1）");
                     Check(plainProbe.Module.Bootstrap != null && plainProbe.Module.Bootstrap.Settings == null,
                         "矩阵 null 侧：无 facet 功能=Settings null（未提供不伪造；阶段基线纪律）");
-                    Check(captured.Logger == null, "矩阵红线：Logger 仍 null（DEV-V3-07 前不可用）");
+                    Check(captured.Logger != null,
+                        "矩阵可用侧：Logger=DEV-V3-07 接线后非 null（每功能一律注入 view，阶段基线 null 侧由手工组装锚另断）");
                 });
 
                 Group("官方与生态并列同面板", () =>
@@ -10840,6 +10848,650 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 Console.WriteLine("DEV-V3-06 settings collection: ALL GREEN (0 failures) — groups: 面板目录路由/不伪造页/矩阵两侧/官方与生态并列/登记 facet 侧/官方先行消费真实 LIT/生态对照 NoOp/面板启停命令适配器");
             if (collectAllFailures && reds.Count > 0)
                 throw new InvalidOperationException("DEV-V3-06 red collection (" + reds.Count + "): " + string.Join(" || ", reds));
+        }
+
+        // DEV-V3-07: BueDiagnostics 统一诊断。可用性矩阵行 Logger=DEV-V3-07 后可用
+        // 的两侧红线（真实 StartCatalog 组合永非 null；手工未接线组装=null 阶段
+        // 基线，模块须容忍）；三方法窄面→统一结构化行（Info/Warning/Error 级别
+        // 映射进 LogOutput 正常可见级别，不被静默过滤）→按 (FeatureId,
+        // DiagnosticId) 聚合的有界摘要（容量 128 本票定值、摘要行限频 30000ms
+        // 本票定值、字符串消毒截断、重启不持久）；BUE-* 保留前缀纪律（保留段外
+        // 身份冒用=拒绝写入+诊断，治理哲学=T2 保留段）；停止/隔离/宿主 shutdown
+        // 边界后写入=拒（BUE-LOG-004 留痕，再启用新代际恢复）；Logger 内部故障
+        // 不反噬模块（BUE-LOG-005 隔离+fallback 留痕）；T4 隔离/T5 链路健康/状态
+        // 投影经生产 sink 双绑收编进统一摘要（原行路径逐字不变，分 seam 判据可
+        // 定位互不遮蔽）；官方先行消费锚=真实 LIT 启停诊断行经注入 view；NoOp
+        // 生态对照支线。零新增契约面（IFeatureLogger 三方法形状入 Contracts 锚）。
+        private static void AssertBueV3DiagnosticsWiringAndSummary(bool collectAllFailures = false)
+        {
+            var reds = new List<string>();
+            var settingsRoots = new List<string>();
+            try
+            {
+                void Check(bool condition, string message)
+                {
+                    if (condition) return;
+                    if (collectAllFailures) reds.Add(message);
+                    else throw new InvalidOperationException(message);
+                }
+
+                void Group(string name, System.Action body)
+                {
+                    try { body(); }
+                    catch (Exception error) when (collectAllFailures)
+                    {
+                        reds.Add("[" + name + "] " + (error is InvalidOperationException ? error.Message : "UNEXPECTED " + error.GetType().Name + ": " + error.Message));
+                    }
+                }
+
+                string EnsureSettings()
+                {
+                    // 每子组确定性临时持久根（06 组先例）：StartCatalog 的
+                    // Settings 组合不落到生产根。
+                    var root = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "BUE-V3-07-" + Guid.NewGuid().ToString("N"));
+                    settingsRoots.Add(root);
+                    BetterUnturnedExperience.Plugin.BueSettingsRuntime.Clear();
+                    BetterUnturnedExperience.Plugin.BueSettingsRuntime.EnsureCreated(root, () => true, null);
+                    return root;
+                }
+
+                Group("矩阵 Logger 接线两侧", () =>
+                {
+                    // 接线后可用侧：真实 StartCatalog 组装 Logger 永非 null，经
+                    // view 写入=同 LogOutput 缝的结构化行+摘要计数；阶段基线侧：
+                    // 手工未接线组装 Logger=null（04/06 先例，模块容忍 null 的
+                    // 纪律继续有锚）。
+                    var probe = new MatrixProbeRegistration("io.example.diagnostics-matrix");
+                    var probeRuntime = new FeatureRegistrationRuntime();
+                    probeRuntime.OpenRegistration();
+                    Check(probeRuntime.Register(probe).Accepted, "setup: 矩阵探针受理");
+                    Check(probeRuntime.CompleteRuntime(), "setup: 探针目录冻结");
+                    var previousRuntime = BueRuntimeHost.CurrentRuntime;
+                    var previousRecorder = BueRuntimeLog.Recorder;
+                    var lines = new List<string>();
+                    BueRuntimeHost.Bind(probeRuntime);
+                    BueRuntimeLog.Recorder = lines.Add;
+                    try
+                    {
+                        // 组间卫生：前序票组的 StopAll(PluginStopping) 会给已组合
+                        // 聚合器落下宿主停止账——本票组从干净代际账起跑（04/06
+                        // Clear 先例）。
+                        BetterUnturnedExperience.Plugin.BueDiagnosticsRuntime.Clear();
+                        BueFeatureStartRuntime.StartCatalog(probeRuntime, NewLoopbackNetwork(3301UL));
+                        var captured = probe.Module.Bootstrap;
+                        Check(captured != null && captured.Logger != null,
+                            "矩阵接线侧：真实 StartCatalog 组装 Logger view（可用性矩阵行=DEV-V3-07 后可用兑现）");
+                        captured.Logger.Info("matrix-probe-info", "io.example.diagnostics-matrix-001");
+                        Check(lines.Exists(l => l.StartsWith("Info ") && l.Contains("[BUE-DIAG]")
+                                && l.Contains("feature=io.example.diagnostics-matrix")
+                                && l.Contains("event=matrix-probe-info") && l.Contains("level=info")
+                                && l.Contains("diagnosticId=io.example.diagnostics-matrix-001")),
+                            "矩阵接线侧：经 view 写入=进同一 LogOutput 的结构化行（Info 级别正常播放可见，不被静默过滤）");
+                        BetterUnturnedExperience.Core.Diagnostics.DiagnosticSummaryEntry entry;
+                        Check(BetterUnturnedExperience.Plugin.BueDiagnosticsRuntime.Runtime.TryGetSummaryEntry(
+                                "io.example.diagnostics-matrix", "io.example.diagnostics-matrix-001", out entry)
+                                && entry.Count == 1L && entry.Level == BetterUnturnedExperience.Core.Diagnostics.DiagnosticLevel.Info,
+                            "矩阵接线侧：摘要按 (FeatureId,DiagnosticId) 计数（count=1 level=Info）");
+                        var manual = new FeatureBootstrap(default(FeatureScopeIdentity), 1UL, null, null, null, null, null, null, null,
+                            NewLoopbackNetwork(3302UL));
+                        Check(manual.Logger == null,
+                            "矩阵 null 侧：未接线手工组装 Logger=null（阶段基线——模块须容忍 null，接线前语义保持）");
+                        BueFeatureStartRuntime.StopAll(FeatureStopReason.PluginStopping);
+                    }
+                    finally
+                    {
+                        BueRuntimeLog.Recorder = previousRecorder;
+                        BueRuntimeHost.Bind(previousRuntime);
+                        BetterUnturnedExperience.Plugin.BueDiagnosticsRuntime.Clear();
+                        BetterUnturnedExperience.Plugin.BueMainThreadRuntime.Clear();
+                    }
+                });
+
+                Group("三方法窄面与级别映射", () =>
+                {
+                    // 契约冻结的 Info/Warning/Error 三方法逐个核：级别 token、
+                    // error= 仅 Warning/Error 携带、Error 的 fault= 含异常类型+
+                    // 消息不含堆栈（不保存敏感 payload）、条目级别=max(所见)、
+                    // 摘要行首见即一条（限频规则=下一组）。null exception 的
+                    // Error=合法写入无 fault 段。
+                    var lines = new List<string>();
+                    long utcMs = 1700000000000L;
+                    long monoMs = 1000L;
+                    var diagnostics = new BetterUnturnedExperience.Core.Diagnostics.DiagnosticRuntime(
+                        (line, level) => lines.Add(level + " " + line), () => utcMs, () => monoMs, null);
+                    var feature = "io.example.diagnostics-narrow";
+                    diagnostics.OpenGeneration(feature, 1UL);
+                    var view = diagnostics.CreateLoggerView(feature, 1UL);
+                    view.Info("narrow-info", feature + "-001");
+                    Check(lines.Exists(l => l == "Info [BUE-DIAG] feature=" + feature + " event=narrow-info level=info diagnosticId=" + feature + "-001"),
+                        "窄面：Info 行=结构化四字段（feature/event/level/diagnosticId），级别映射 Info");
+                    view.Warning("narrow-warn", FrameworkErrorCode.SettingRejected, feature + "-002");
+                    Check(lines.Exists(l => l.StartsWith("Warning [BUE-DIAG] ") && l.Contains("event=narrow-warn")
+                            && l.Contains("error=SettingRejected") && l.Contains("diagnosticId=" + feature + "-002")),
+                        "窄面：Warning 行带 error= 枚举（级别映射 Warning）");
+                    view.Error("narrow-error", FrameworkErrorCode.ModuleRuntimeIsolated, feature + "-003",
+                        new InvalidOperationException("bad payload"));
+                    var errorLine = lines.Find(l => l.Contains("event=narrow-error"));
+                    Check(errorLine != null && errorLine.StartsWith("Error ") && errorLine.Contains("error=ModuleRuntimeIsolated")
+                            && errorLine.Contains("fault=InvalidOperationException:bad payload")
+                            && !errorLine.Contains("at Better"),
+                        "窄面：Error 行带 error= 与 fault=类型:消息，不含堆栈文本（不保存敏感 payload）");
+                    view.Error("narrow-error-null", FrameworkErrorCode.None, feature + "-004", null);
+                    Check(lines.Exists(l => l.Contains("event=narrow-error-null") && !l.Contains("fault=")),
+                        "窄面：null exception=合法写入，无 fault 段（不炸不吞）");
+                    BetterUnturnedExperience.Core.Diagnostics.DiagnosticSummaryEntry entry;
+                    Check(diagnostics.TryGetSummaryEntry(feature, feature + "-001", out entry) && entry.Count == 1L
+                            && entry.Level == BetterUnturnedExperience.Core.Diagnostics.DiagnosticLevel.Info
+                            && entry.FirstSeenUtcMs == 1700000000000L && entry.LastSeenUtcMs == 1700000000000L,
+                        "摘要：首见条目 count/level/firstSeen/lastSeen 齐备");
+                    Check(diagnostics.TryGetSummaryEntry(feature, feature + "-003", out entry)
+                            && entry.Level == BetterUnturnedExperience.Core.Diagnostics.DiagnosticLevel.Error,
+                        "摘要：条目级别=所见最高（Error 行记 Error）");
+                    var summaryLines = lines.FindAll(l => l.Contains("BUE diagnostic-summary"));
+                    Check(summaryLines.Count == 4, "摘要：四条目首见各一条摘要行（BUE diagnostic-summary 前缀冻结格式）");
+                    Check(summaryLines.Exists(l => l.Contains("featureId=" + feature) && l.Contains("diagnosticId=" + feature + "-001")
+                            && l.Contains("level=info") && l.Contains("count=1") && l.Contains("firstSeen=") && l.Contains("lastSeen=")),
+                        "摘要行字段=T8 冻结形状 featureId/diagnosticId/count/firstSeen/lastSeen(+level)");
+                });
+
+                Group("BUE-* 前缀纪律", () =>
+                {
+                    // 票面红线「冒用=拒绝写入+诊断」：保留段外身份（生态）经
+                    // view 写 BUE-* → 模块行一条不写+拒绝诊断恰一条（后续再冒用
+                    // 静默计数=不炸帧）+条目零聚合；写自身 FeatureId 派生前缀=
+                    // 放行。保留段内身份（官方/样例=平台侧，治理哲学=T2：段内
+                    // 身份经白名单准入才存在）用 BUE-*=合法（官方先行消费锚即
+                    // BUE-LIT-*，本组在 view 层直接证同权）。
+                    var probe = new MatrixProbeRegistration("io.example.diagnostics-prefix");
+                    var probeRuntime = new FeatureRegistrationRuntime();
+                    probeRuntime.OpenRegistration();
+                    Check(probeRuntime.Register(probe).Accepted, "setup: 前缀探针受理");
+                    Check(probeRuntime.CompleteRuntime(), "setup: 前缀目录冻结");
+                    var previousRuntime = BueRuntimeHost.CurrentRuntime;
+                    var previousRecorder = BueRuntimeLog.Recorder;
+                    var lines = new List<string>();
+                    BueRuntimeHost.Bind(probeRuntime);
+                    BueRuntimeLog.Recorder = lines.Add;
+                    try
+                    {
+                        BetterUnturnedExperience.Plugin.BueDiagnosticsRuntime.Clear();
+                        BueFeatureStartRuntime.StartCatalog(probeRuntime, NewLoopbackNetwork(3311UL));
+                        var logger = probe.Module.Bootstrap.Logger;
+                        Check(logger != null, "setup: 生态探针 Logger 已接线");
+                        logger.Warning("stolen-write", FrameworkErrorCode.ModuleStartFailed, "BUE-STOLEN-001");
+                        Check(lines.Exists(l => l.StartsWith("Warning ") && l.Contains("[BUE-DIAG]")
+                                && l.Contains("event=diagnostic-write") && l.Contains("result=rejected")
+                                && l.Contains("reason=reserved-prefix") && l.Contains("attemptedDiagnosticId=BUE-STOLEN-001")
+                                && l.Contains("diagnosticId=BUE-LOG-001")),
+                            "前缀纪律：生态冒用 BUE-*=拒绝写入+结构化拒绝诊断（BUE-LOG-001 本票定案码）");
+                        Check(!lines.Exists(l => l.Contains("event=stolen-write")),
+                            "前缀纪律：冒用=模块行一条不写（不是「写了再标记」）");
+                        BetterUnturnedExperience.Core.Diagnostics.DiagnosticSummaryEntry entry;
+                        Check(!BetterUnturnedExperience.Plugin.BueDiagnosticsRuntime.Runtime.TryGetSummaryEntry(
+                                "io.example.diagnostics-prefix", "BUE-STOLEN-001", out entry),
+                            "前缀纪律：被拒的码零聚合（摘要=运行时诊断可见性，非第二真相也不收冒用者）");
+                        logger.Error("stolen-again", FrameworkErrorCode.CoreRuntimeFailure, "BUE-STOLEN-001", null);
+                        Check(BetterUnturnedExperience.Plugin.BueDiagnosticsRuntime.Runtime.TryGetSummaryEntry(
+                                "io.example.diagnostics-prefix", "BUE-LOG-001", out entry) && entry.Count == 2L,
+                            "前缀纪律：再冒用静默计数（拒绝行不重复=不炸帧，episode 计数在摘要）");
+                        Check(lines.FindAll(l => l.Contains("reason=reserved-prefix")).Count == 1,
+                            "前缀纪律：拒绝诊断行恰一条/冒用码（latch，第二例起只进计数）");
+                        logger.Info("own-prefix", "io.example.diagnostics-prefix-001");
+                        Check(lines.Exists(l => l.Contains("event=own-prefix") && l.Contains("diagnosticId=io.example.diagnostics-prefix-001")),
+                            "前缀纪律：生态自身 FeatureId 派生前缀=放行（FeatureId 派生命名规则的通过侧）");
+                    }
+                    finally
+                    {
+                        BueFeatureStartRuntime.StopAll(FeatureStopReason.PluginStopping);
+                        BueRuntimeLog.Recorder = previousRecorder;
+                        BueRuntimeHost.Bind(previousRuntime);
+                        BetterUnturnedExperience.Plugin.BueDiagnosticsRuntime.Clear();
+                        BetterUnturnedExperience.Plugin.BueMainThreadRuntime.Clear();
+                    }
+                    var seamLines = new List<string>();
+                    var diagnostics = new BetterUnturnedExperience.Core.Diagnostics.DiagnosticRuntime(
+                        (line, level) => seamLines.Add(level + " " + line), () => 1700000000000L, () => 1000L, null);
+                    var official = "io.github.yu80rice.bue.seam-official";
+                    diagnostics.OpenGeneration(official, 1UL);
+                    var officialView = diagnostics.CreateLoggerView(official, 1UL);
+                    officialView.Error("official-write", FrameworkErrorCode.None, "BUE-SEAM-001", null);
+                    Check(seamLines.Exists(l => l.Contains("event=official-write") && l.Contains("diagnosticId=BUE-SEAM-001"))
+                            && !seamLines.Exists(l => l.Contains("result=rejected")),
+                        "前缀纪律：保留段内（官方/平台侧）身份写 BUE-*=合法（官方先行消费锚 BUE-LIT-* 的通过性前提）");
+                    var rogue = "io.github.yu80rice.bue.rogue.seam";
+                    diagnostics.OpenGeneration(rogue, 1UL);
+                    var rogueView = diagnostics.CreateLoggerView(rogue, 1UL);
+                    rogueView.Info("rogue-write", "BUE-SEAM-002");
+                    Check(rogueView != null && seamLines.Exists(l => l.Contains("event=rogue-write")),
+                        "前缀纪律：段内未列白名单者不存在于真实宿主（登记桥 BUE-REG-010 已拒）——view 层按段判定不重复造门禁");
+                });
+
+                Group("停止与宿主 shutdown 边界", () =>
+                {
+                    // 矩阵行行为面（Settings/MainThread 停止边界同构）：功能停用
+                    // 后捕获 view 写入=不再产生模块行+边界拒绝诊断恰一条
+                    // （BUE-LOG-004 latch）+静默计数；面板重启用新代际 view 恢复
+                    // 可写；宿主 PluginStopping 后一切经 view 写入=拒（不静默吞，
+                    // 留痕一次）。
+                    var probe = new MatrixProbeRegistration("io.example.diagnostics-stop");
+                    var probeRuntime = new FeatureRegistrationRuntime();
+                    probeRuntime.OpenRegistration();
+                    Check(probeRuntime.Register(probe).Accepted, "setup: 停止探针受理");
+                    Check(probeRuntime.CompleteRuntime(), "setup: 停止目录冻结");
+                    var previousRuntime = BueRuntimeHost.CurrentRuntime;
+                    var previousRecorder = BueRuntimeLog.Recorder;
+                    var lines = new List<string>();
+                    BueRuntimeHost.Bind(probeRuntime);
+                    BueRuntimeLog.Recorder = lines.Add;
+                    var probeFeature = new FeatureId("io.example.diagnostics-stop");
+                    BetterUnturnedExperience.Core.Diagnostics.DiagnosticSummaryEntry entry;
+                    try
+                    {
+                        BetterUnturnedExperience.Plugin.BueDiagnosticsRuntime.Clear();
+                        BueFeatureStartRuntime.StartCatalog(probeRuntime, NewLoopbackNetwork(3321UL));
+                        var capturedLogger = probe.Module.Bootstrap.Logger;
+                        capturedLogger.Info("before-stop", "io.example.diagnostics-stop-001");
+                        var moduleLinesBefore = lines.FindAll(l => l.Contains("event=before-stop") || l.Contains("event=after-stop")).Count;
+                        Check(moduleLinesBefore == 1, "setup: 停止前经 view 写入一行");
+                        Check(BueFeatureStartRuntime.SetFeatureEnabled(probeFeature, false),
+                            "setup: 面板停用 seam 成功");
+                        lines.Clear();
+                        capturedLogger.Warning("after-stop", FrameworkErrorCode.ModuleStartFailed, "io.example.diagnostics-stop-002");
+                        Check(!lines.Exists(l => l.Contains("event=after-stop") && l.Contains("level=warning")),
+                            "停止边界：停用代际捕获 view 写入=模块行不再产生（矩阵行为面）");
+                        Check(lines.Exists(l => l.StartsWith("Warning ") && l.Contains("result=rejected")
+                                && l.Contains("reason=write-boundary") && l.Contains("diagnosticId=BUE-LOG-004")
+                                && l.Contains("feature=io.example.diagnostics-stop")),
+                            "停止边界：边界拒写显式留痕（BUE-LOG-004，不静默吞）");
+                        capturedLogger.Info("after-stop-2", "io.example.diagnostics-stop-003");
+                        Check(BetterUnturnedExperience.Plugin.BueDiagnosticsRuntime.Runtime.TryGetSummaryEntry(
+                                "io.example.diagnostics-stop", "BUE-LOG-004", out entry) && entry.Count == 2L,
+                            "停止边界：持续写入静默计数（拒绝行 latch 恰一条=不炸帧）");
+                        Check(lines.FindAll(l => l.Contains("diagnosticId=BUE-LOG-004") && l.Contains("result=rejected")).Count == 1,
+                            "停止边界：拒绝诊断行每 latch 期恰一条");
+                        Check(BueFeatureStartRuntime.SetFeatureEnabled(probeFeature, true),
+                            "setup: 面板重启用（新代际）");
+                        var revivedLogger = probe.Module.Bootstrap.Logger;
+                        Check(!ReferenceEquals(revivedLogger, capturedLogger),
+                            "再启用：新代际=新 view（旧捕获 view 不代表当代际）");
+                        lines.Clear();
+                        revivedLogger.Info("rearmed", "io.example.diagnostics-stop-004");
+                        Check(lines.Exists(l => l.Contains("event=rearmed")),
+                            "再启用：新代际 view 恢复正常写入（停止不是永久封禁，重臂=新代际）");
+                        capturedLogger.Info("stale-revival", "io.example.diagnostics-stop-005");
+                        Check(!lines.Exists(l => l.Contains("event=stale-revival")),
+                            "再启用：旧代际捕获 view 永不再写（代际账=dispatcher/settings 同构）");
+                        // 宿主停止边界：PluginStopping 走 StopAll（逐 feature 撤账
+                        // +ShutdownHost）；捕获 view 再写=拒+留痕，且必须发生在
+                        // Recorder 复位前（行可观察）。
+                        BueFeatureStartRuntime.StopAll(FeatureStopReason.PluginStopping);
+                        var postHostLogger = probe.Module.Bootstrap.Logger;
+                        lines.Clear();
+                        postHostLogger.Info("post-host-shutdown", "io.example.diagnostics-stop-006");
+                        Check(!lines.Exists(l => l.Contains("event=post-host-shutdown") && l.Contains("level=info")),
+                            "宿主 shutdown：PluginStopping 后捕获 view 写入=拒（原行不产）");
+                        Check(lines.Exists(l => l.Contains("diagnosticId=BUE-LOG-004") && l.Contains("result=rejected")),
+                            "宿主 shutdown：边界留痕（与停用同码族，reason token 区分代际失效/宿主停止）");
+                        // R1-P1 修复钉：同进程 reload——宿主 shutdown 后新一次
+                        // StartCatalog 经 ComposeBootstrap.OpenGeneration 重臂账
+                        // （04 同构先例），当代 view 恢复可写、旧捕获 view 仍拒。
+                        BueFeatureStartRuntime.StartCatalog(probeRuntime, NewLoopbackNetwork(3322UL));
+                        var reloadLogger = probe.Module.Bootstrap.Logger;
+                        Check(reloadLogger != null && !ReferenceEquals(reloadLogger, postHostLogger),
+                            "reload setup: 新代际新 view（宿主 shutdown 不冻结后续目录启动）");
+                        lines.Clear();
+                        reloadLogger.Info("reload-revival", "io.example.diagnostics-stop-007");
+                        Check(lines.Exists(l => l.Contains("event=reload-revival") && l.Contains("level=info")),
+                            "R1-P1：reload 后代际账重臂，新代际 view 恢复正常写入（宿主停止=边界非死刑）");
+                        postHostLogger.Info("reload-stale", "io.example.diagnostics-stop-008");
+                        Check(!lines.Exists(l => l.Contains("event=reload-stale")),
+                            "R1-P1：reload 不救旧捕获 view（代际账继续拒=新臂只归当代际）");
+                    }
+                    finally
+                    {
+                        BueRuntimeLog.Recorder = previousRecorder;
+                        BueRuntimeHost.Bind(previousRuntime);
+                        BetterUnturnedExperience.Plugin.BueDiagnosticsRuntime.Clear();
+                        BetterUnturnedExperience.Plugin.BueMainThreadRuntime.Clear();
+                    }
+                });
+
+                Group("容量受限与消毒截断", () =>
+                {
+                    // 摘要内存有界（128 条=本票定值，先例=dispatcher 256/LIFE 64
+                    // 可观察定值）：第 129 个不同 diagnosticId 起不再开条目，
+                    // BUE-LOG-003 溢出观察行恰一条（再溢出静默=不炸帧），但模块
+                    // 原行照写——容量只限聚合，永不掐证据。消毒=标识符 token 空
+                    // 白→下划线+按上限截断（64/128 本票定值）：一次写入至多一行
+                    // （伪造换行不产第二行）；null/空标识符=BUE-LOG-002 拒写。
+                    var lines = new List<string>();
+                    var diagnostics = new BetterUnturnedExperience.Core.Diagnostics.DiagnosticRuntime(
+                        (line, level) => lines.Add(level + " " + line), () => 1700000000000L, () => 5000L, null);
+                    var feature = "io.example.diagnostics-cap";
+                    diagnostics.OpenGeneration(feature, 1UL);
+                    var view = diagnostics.CreateLoggerView(feature, 1UL);
+                    BetterUnturnedExperience.Core.Diagnostics.DiagnosticSummaryEntry entry;
+                    Check(diagnostics.SummaryEntryCount == 0, "容量：新聚合器空条目（重启不持久=内存账，无跨实例残留）");
+                    // 消毒先行（不占容量断言的前置）：脏标识符清洗为单行+截断入
+                    // 条目；null/空白=显式拒写。
+                    var hugeId = new string('x', 200);
+                    var dirtyKey = (feature + "-" + hugeId).Substring(0, 128);
+                    view.Info("dirty-event one\nsecond", feature + "-" + hugeId);
+                    Check(lines.FindAll(l => l.Contains("event=dirty-event")).Count == 1
+                            && lines.Exists(l => l.Contains("event=dirty-event_one_second")
+                                    && l.Contains("diagnosticId=" + dirtyKey) && !l.Contains("\n")),
+                        "消毒：空白→下划线+128 截断，一次写入恰一行（伪造换行不产第二行/不裂解条目键）");
+                    Check(diagnostics.TryGetSummaryEntry(feature, dirtyKey, out entry)
+                            && entry.DiagnosticId.Length == 128 && entry.Count == 1L,
+                        "消毒：diagnosticId 按 128 上限截断入条目（本票定值，截断后即键）");
+                    lines.Clear();
+                    view.Info(null, feature + "-null-event");
+                    view.Warning("null-id", FrameworkErrorCode.None, "   ");
+                    Check(lines.FindAll(l => l.Contains("event=diagnostic-write") && l.Contains("result=rejected")
+                            && l.Contains("reason=invalid-identifier") && l.Contains("diagnosticId=BUE-LOG-002")).Count == 2,
+                        "消毒：null/空白标识符=显式拒写+留痕（BUE-LOG-002=本票定案码，逐例各一条）");
+                    Check(!lines.Exists(l => l.Contains("event=null-id") && l.Contains("level=warning")),
+                        "消毒：被拒写零模块行（拒=不写，不是写了再标）");
+                    // 容量主体用独立 runtime（上面 dirty 条目已占一格）。
+                    var capLines = new List<string>();
+                    var capRuntime = new BetterUnturnedExperience.Core.Diagnostics.DiagnosticRuntime(
+                        (line, level) => capLines.Add(level + " " + line), () => 1700000000000L, () => 5000L, null);
+                    capRuntime.OpenGeneration(feature, 1UL);
+                    var capView = capRuntime.CreateLoggerView(feature, 1UL);
+                    for (var i = 0; i < 128; i++)
+                    {
+                        capView.Info("cap-fill-" + i, feature + "-cap-" + i);
+                    }
+                    Check(capRuntime.SummaryEntryCount == 128, "容量：128 条聚合条目=本票定值上限");
+                    capLines.Clear();
+                    capView.Info("cap-overflow", feature + "-cap-128");
+                    Check(capLines.Exists(l => l.Contains("event=cap-overflow") && l.Contains("diagnosticId=" + feature + "-cap-128")),
+                        "容量：溢出只限聚合——模块原行照写（证据链不被容量掐断）");
+                    Check(capLines.Exists(l => l.Contains("event=diagnostic-summary") && l.Contains("result=capacity-overflow")
+                            && l.Contains("diagnosticId=BUE-LOG-003") && l.Contains("entryCap=128")),
+                        "容量：溢出显式观察行（BUE-LOG-003=本票定案码，不静默丢弃）");
+                    capLines.Clear();
+                    capView.Info("cap-overflow-2", feature + "-cap-129");
+                    Check(capLines.FindAll(l => l.Contains("BUE-LOG-003")).Count == 0
+                            && capLines.Exists(l => l.Contains("event=cap-overflow-2")),
+                        "容量：溢出观察行恰一条 latch（后续溢出静默，不炸帧）");
+                    Check(!capRuntime.TryGetSummaryEntry(feature, feature + "-cap-128", out entry),
+                        "容量：溢出码零条目（内存账不无限增长）");
+                    Check(capRuntime.SummaryEntryCount == 128, "容量：溢出后条目数恒=上限");
+                });
+
+                Group("摘要输出限频", () =>
+                {
+                    // 票面红线「输出限频」：同一条目的摘要行=首见一条+此后每
+                    // 30000ms（本票定值）至多一条，限频只作用于摘要行，模块原
+                    // 行逐条如常（限频≠过滤）。fake clock 先例=DEV-V3-04 预算窗。
+                    var lines = new List<string>();
+                    long monoMs = 1000L;
+                    var diagnostics = new BetterUnturnedExperience.Core.Diagnostics.DiagnosticRuntime(
+                        (line, level) => lines.Add(level + " " + line), () => 1700000000000L, () => monoMs, null);
+                    var feature = "io.example.diagnostics-rate";
+                    diagnostics.OpenGeneration(feature, 1UL);
+                    var view = diagnostics.CreateLoggerView(feature, 1UL);
+                    var id = feature + "-001";
+                    view.Info("rate-probe", id);
+                    Check(lines.FindAll(l => l.Contains("diagnostic-summary") && l.Contains("diagnosticId=" + id)).Count == 1,
+                        "限频：条目首见即一条摘要行");
+                    monoMs += 10000L;
+                    view.Info("rate-probe", id);
+                    monoMs += 10000L;
+                    view.Info("rate-probe", id);
+                    Check(lines.FindAll(l => l.Contains("diagnostic-summary") && l.Contains("diagnosticId=" + id)).Count == 1,
+                        "限频：窗口内（20s<30s）再写入不出第二摘要行（不逐条重复、摘要不制造刷屏）");
+                    Check(lines.FindAll(l => l.Contains("event=rate-probe")).Count == 3,
+                        "限频：模块原行逐条如常（限频只限摘要行，不静默过滤诊断）");
+                    monoMs += 10001L;
+                    view.Info("rate-probe", id);
+                    var rateLines = lines.FindAll(l => l.Contains("diagnostic-summary") && l.Contains("diagnosticId=" + id));
+                    Check(rateLines.Count == 2 && rateLines[1].Contains("count=4"),
+                        "限频：越过窗口出下条摘要行且 count 如实累计（=4）");
+                    BetterUnturnedExperience.Core.Diagnostics.DiagnosticSummaryEntry entry;
+                    Check(diagnostics.TryGetSummaryEntry(feature, id, out entry) && entry.Count == 4L,
+                        "限频：聚合计数独立于输出限频（计数=真相，输出=可见性节奏）");
+                });
+
+                Group("故障隔离不反噬模块", () =>
+                {
+                    // 三方法面返回 void——契约不给报错面，隔离义务全在 view/聚合
+                    // 器侧：sink 抛异常绝不反噬调用方（否则生态功能因平台诊断
+                    // 故障崩掉=「Logger 异常不得反向破坏模块」的倒置）；故障经
+                    // 独立 fallback 通道留恰一条（BUE-LOG-005，不炸帧）；聚合账
+                    // 在行发射之前——写失败计数仍如实（证据先于可见性）；
+                    // fallback 同时抛=仍不反噬（全隔离）。
+                    var writes = 0;
+                    var fallback = new List<string>();
+                    var diagnostics = new BetterUnturnedExperience.Core.Diagnostics.DiagnosticRuntime(
+                        (line, level) => { writes++; throw new System.NotSupportedException("v3-diag-sink-fault"); },
+                        () => 1700000000000L, () => 9000L, fallback.Add);
+                    var feature = "io.example.diagnostics-fault";
+                    diagnostics.OpenGeneration(feature, 1UL);
+                    var view = diagnostics.CreateLoggerView(feature, 1UL);
+                    var threw = false;
+                    try
+                    {
+                        for (var i = 0; i < 5; i++) view.Info("fault-probe", feature + "-001");
+                        view.Error("fault-probe-error", FrameworkErrorCode.CoreRuntimeFailure, feature + "-002",
+                            new System.Exception("v3-fault"));
+                    }
+                    catch (System.Exception) { threw = true; }
+                    Check(!threw, "故障隔离：sink 恒抛，6 次写入全部不反噬模块（void 窄面=无异常面承诺）");
+                    Check(writes >= 6, "故障隔离：每次写入都到 sink 后才被隔离（无提前吞）");
+                    BetterUnturnedExperience.Core.Diagnostics.DiagnosticSummaryEntry entry;
+                    Check(diagnostics.TryGetSummaryEntry(feature, feature + "-001", out entry) && entry.Count == 5L,
+                        "故障隔离：聚合计数不依赖行写成功（计数=证据链真相）");
+                    Check(fallback.FindAll(l => l.Contains("diagnosticId=BUE-LOG-005") && l.Contains("NotSupportedException")).Count == 1,
+                        "故障隔离：故障观察走 fallback 通道恰一条（BUE-LOG-005=本票定案码，episode latch）");
+                    var hardRuntime = new BetterUnturnedExperience.Core.Diagnostics.DiagnosticRuntime(
+                        (line, level) => throw new System.InvalidOperationException("primary dead"),
+                        () => 1700000000000L, () => 9000L, line => throw new System.InvalidOperationException("fallback dead"));
+                    hardRuntime.OpenGeneration("io.example.fault-hard", 1UL);
+                    var hardView = hardRuntime.CreateLoggerView("io.example.fault-hard", 1UL);
+                    var hardThrew = false;
+                    try { hardView.Warning("dead-everywhere", FrameworkErrorCode.None, "io.example.fault-hard-001"); }
+                    catch (System.Exception) { hardThrew = true; }
+                    Check(!hardThrew, "故障隔离：主+fallback 双故障仍不反噬（全隔离）");
+                });
+
+                Group("统一 sink 收编：T4/T5/状态投影进摘要", () =>
+                {
+                    // 票面红线「进统一诊断 sink（分 seam 判据可定位，不互相遮蔽）」
+                    // 的生产路径证法：生命周期状态投影/停用过渡行经 StartCatalog
+                    // 真实组装的双绑 sink——原行逐字不变（03/04 既有锚零回归），
+                    // 另路进同一聚合器；T5 degraded 电平经 NetworkModuleAdapter
+                    // 生产运行时 sink 双绑同证（假传输驱动，04 fixture 先例）。
+                    // 无 diagnosticId 的行只照写不聚合（不造静默条目）。
+                    var previousRecorder = BueRuntimeLog.Recorder;
+                    var previousRuntime = BueRuntimeHost.CurrentRuntime;
+                    var lines = new List<string>();
+                    BetterUnturnedExperience.Core.Diagnostics.DiagnosticSummaryEntry entry;
+                    try
+                    {
+                        BueRuntimeLog.Recorder = lines.Add;
+                        BetterUnturnedExperience.Plugin.BueDiagnosticsRuntime.Clear();
+                        var probe = new MatrixProbeRegistration("io.example.diagnostics-absorb");
+                        var probeRuntime = new FeatureRegistrationRuntime();
+                        BueRuntimeHost.Bind(probeRuntime);
+                        probeRuntime.OpenRegistration();
+                        Check(probeRuntime.Register(probe).Accepted, "收编 setup: 探针受理");
+                        Check(probeRuntime.CompleteRuntime(), "收编 setup: 目录冻结");
+                        BueFeatureStartRuntime.StartCatalog(probeRuntime, NewLoopbackNetwork(3331UL));
+                        Check(BueFeatureStartRuntime.SetFeatureEnabled(new FeatureId("io.example.diagnostics-absorb"), false),
+                            "收编 setup: 面板停用驱动生命周期过渡");
+                        Check(lines.Exists(l => l.Contains("event=feature-state") && l.Contains("feature=io.example.diagnostics-absorb")),
+                            "收编：原行路径逐字不变（双绑=照写不误，03 既有锚语义零变更）");
+                        Check(BetterUnturnedExperience.Plugin.BueDiagnosticsRuntime.Runtime.TryGetSummaryEntry(
+                                "io.example.diagnostics-absorb", "BUE-LIFE-STATE", out entry) && entry.Count >= 4L,
+                            "状态投影收编：feature-state 过渡进摘要（T4 ③：Starting/Running/Stopping/Stopped ≥4 计数）");
+                        Check(lines.Exists(l => l.StartsWith("Info ") && l.Contains("BUE diagnostic-summary")
+                                && l.Contains("diagnosticId=BUE-LIFE-STATE")),
+                            "状态投影收编：摘要行对玩家可见级进 LogOutput（导出即带走）");
+                        var absorbed = BetterUnturnedExperience.Plugin.BueDiagnosticsRuntime.Runtime;
+                        var beforeCount = absorbed.SummaryEntryCount;
+                        absorbed.AggregateHostLine("bue.host", BetterUnturnedExperience.Core.Diagnostics.DiagnosticLevel.Info,
+                            "event=no-code line=whatever");
+                        Check(absorbed.SummaryEntryCount == beforeCount,
+                            "收编：无 diagnosticId 的行不聚合（不造静默条目，聚合=按码）");
+                        absorbed.AggregateHostLine("bue.host", BetterUnturnedExperience.Core.Diagnostics.DiagnosticLevel.Warning,
+                            "event=lit-fault feature=io.github.yu80rice.bue.inventory-tidy diagnosticId=BUE-LIT-900");
+                        Check(absorbed.TryGetSummaryEntry("io.github.yu80rice.bue.inventory-tidy", "BUE-LIT-900", out entry)
+                                && entry.Count == 1L,
+                            "收编：行内 feature= 优先于回落归属（分 seam 判据可定位，不互相遮蔽）");
+                        BueFeatureStartRuntime.StopAll(FeatureStopReason.PluginStopping);
+                    }
+                    finally
+                    {
+                        BueRuntimeLog.Recorder = previousRecorder;
+                        BueRuntimeHost.Bind(previousRuntime);
+                    }
+                    var fx = NetworkV3Fixture.Create("v3absorb");
+                    try
+                    {
+                        var channel = new FeatureId("io.example.v3absorb");
+                        var api = fx.Adapter.NetworkApi;
+                        Check(api.RegisterChannel(channel, new ContractVersion(2, 0), 1).Accepted, "收编 setup：网络频道注册");
+                        var session = fx.Establish(1001UL, 9601UL);
+                        Check(session != null, "收编 setup：会话建立");
+                        fx.Engine.SendOverride = (frame, reliable, target) => false;
+                        for (var i = 0; i < V3LinkDegradationThreshold; i++)
+                        {
+                            api.SendToClient(channel, session, new byte[] { 1 }, true);
+                        }
+                        Check(fx.CountLine("event=network-link result=degraded") == 1,
+                            "收编 setup：degraded 电平产生（04 语义回归）");
+                        Check(fx.Lines.Exists(l => l.Contains("diagnosticId=BUE-NET-002")),
+                            "T5 收编：链路健康行仍在 adapter sink（原路径逐字不变）");
+                        Check(BetterUnturnedExperience.Plugin.BueDiagnosticsRuntime.Runtime.TryGetSummaryEntry(
+                                "io.github.yu80rice.bue.network", "BUE-NET-002", out entry) && entry.Count == 1L,
+                            "T5 收编：degraded 以网络功能身份进统一摘要（与生态诊断同聚合器同权）");
+                    }
+                    finally
+                    {
+                        fx.Dispose();
+                        BetterUnturnedExperience.Plugin.BueDiagnosticsRuntime.Clear();
+                        BetterUnturnedExperience.Plugin.BueMainThreadRuntime.Clear();
+                    }
+                });
+
+                Group("官方先行消费锚真实 LIT 启停经注入 view", () =>
+                {
+                    // T8 ⑧②红线「不能只保留私有 Logger.LogWarning 路径而宣称已
+                    // 消费」：真实 LIT 模块的启停诊断行经 IFeatureBootstrap.Logger
+                    // 注入 view 落进统一缝（官方=保留段身份→BUE-LIT-* 合法，与
+                    // 生态同一行格式同一聚合器同权）。中文人读行保持原通道（玩家
+                    // 可读性不回归），结构化行=证据链同权面。
+                    EnsureSettings();
+                    var previousRecorder = BueRuntimeLog.Recorder;
+                    var previousRuntime = BueRuntimeHost.CurrentRuntime;
+                    var lines = new List<string>();
+                    try
+                    {
+                        BueRuntimeLog.Recorder = lines.Add;
+                        BetterUnturnedExperience.Plugin.BueDiagnosticsRuntime.Clear();
+                        var runtime = new FeatureRegistrationRuntime();
+                        BueRuntimeHost.Bind(runtime);
+                        runtime.OpenRegistration();
+                        Check(BetterItemInteractionFeatureRegistration.Register().Accepted, "官方锚 setup: BII 注册");
+                        Check(runtime.Register(InventoryTidyFeatureRegistration.CreateRegistration()).Accepted,
+                            "官方锚 setup: LIT 注册");
+                        Check(runtime.CompleteRuntime(), "官方锚 setup: 目录冻结");
+                        // LIT 工厂复用静态 WiredModule，而模块的 ShuttingDown 是
+                        // 单向旗标（既有冻结语义）——清掉前序组实例，本组经
+                        // ArmNewModule 得到真·全新模块，Start/Stop 语义如实演练
+                        // （06 官方锚组的同一清零先例）。
+                        InventoryTidyFeatureRegistration.WiredModule = null;
+                        BueFeatureStartRuntime.StartCatalog(runtime, NewLoopbackNetwork(3341UL));
+                        var litFeature = "io.github.yu80rice.bue.inventory-tidy";
+                        Check(lines.Exists(l => l.StartsWith("Info ") && l.Contains("[BUE-DIAG]")
+                                && l.Contains("feature=" + litFeature) && l.Contains("event=tidy-module-started")
+                                && l.Contains("level=info") && l.Contains("diagnosticId=BUE-LIT-START")),
+                            "官方先行消费：LIT 启动诊断行走注入 IFeatureLogger view（结构化行=经 view 才存在，私有 LitRuntime 通道产不出这行）");
+                        BetterUnturnedExperience.Core.Diagnostics.DiagnosticSummaryEntry entry;
+                        Check(BetterUnturnedExperience.Plugin.BueDiagnosticsRuntime.Runtime.TryGetSummaryEntry(
+                                litFeature, "BUE-LIT-START", out entry) && entry.Count == 1L,
+                            "官方先行消费：官方行与生态行进同一聚合器同权计数");
+                        BueFeatureStartRuntime.StopAll(FeatureStopReason.PluginStopping);
+                        Check(lines.Exists(l => l.Contains("event=tidy-module-stopped") && l.Contains("feature=" + litFeature)
+                                && l.Contains("diagnosticId=BUE-LIT-STOP")),
+                            "官方先行消费：LIT 停止行同经 view（停止边界在 Stop 返回后撤账=Stop 内可写，settings 同构）");
+                    }
+                    finally
+                    {
+                        BueRuntimeLog.Recorder = previousRecorder;
+                        BueRuntimeHost.Bind(previousRuntime);
+                        InventoryTidyFeatureRegistration.WiredModule = null;
+                        BetterUnturnedExperience.Plugin.BueDiagnosticsRuntime.Clear();
+                        BetterUnturnedExperience.Plugin.BueSettingsRuntime.Clear();
+                        BetterUnturnedExperience.Plugin.BueMainThreadRuntime.Clear();
+                    }
+                });
+
+                Group("生态对照 NoOp Logger 支线", () =>
+                {
+                    // T8 ⑧③ probe 链生态侧最小对照（全链 probe→08 递延具名）：
+                    // 样例功能经注入 view 走三方法（NoOp=白名单官方样例身份，
+                    // 用 BUE-NOOP-* 码=平台侧通过性；生态前缀拒绝锚在「BUE-* 前
+                    // 缀纪律」组以 io.example 身份证，两者互不遮蔽）；宿主侧断言
+                    // 行与摘要计数（probe 自证=只观察调用不炸，聚合归宿主缝）。
+                    var probeRuntime = new FeatureRegistrationRuntime();
+                    probeRuntime.OpenRegistration();
+                    Check(probeRuntime.Register(NoOpFeatureRegistration.ProbeRegistration).Accepted,
+                        "生态对照 setup: NoOp 样例受理");
+                    Check(probeRuntime.CompleteRuntime(), "生态对照 setup: NoOp 目录冻结");
+                    var previousRecorder = BueRuntimeLog.Recorder;
+                    var previousRuntime = BueRuntimeHost.CurrentRuntime;
+                    var lines = new List<string>();
+                    BueRuntimeHost.Bind(probeRuntime);
+                    BueRuntimeLog.Recorder = lines.Add;
+                    try
+                    {
+                        BetterUnturnedExperience.Plugin.BueDiagnosticsRuntime.Clear();
+                        BueFeatureStartRuntime.StartCatalog(probeRuntime, NewLoopbackNetwork(3351UL));
+                        var probe = NoOpFeatureRegistration.LastProbe;
+                        Check(probe != null && probe.Started && probe.LoggerAvailable,
+                            "生态对照：NoOp probe 在真实宿主组装下观察到 Logger 非 null（矩阵行生态侧=每功能接线）");
+                        Check(probe.LoggerInfoWritten && probe.LoggerWarningWritten && probe.LoggerErrorWritten,
+                            "生态对照：三方法面可调不炸（void 窄面=无异常面承诺，样例如实演示生态姿势）");
+                        var noopFeature = "io.github.yu80rice.bue.noop";
+                        Check(lines.Exists(l => l.Contains("feature=" + noopFeature) && l.Contains("event=noop-probe-warning")
+                                && l.Contains("error=SettingRejected") && l.Contains("diagnosticId=BUE-NOOP-WARN")),
+                            "生态对照：样例写入落进同一 LogOutput 结构化解（与官方同一行格式=同权①）");
+                        BetterUnturnedExperience.Core.Diagnostics.DiagnosticSummaryEntry entry;
+                        Check(BetterUnturnedExperience.Plugin.BueDiagnosticsRuntime.Runtime.TryGetSummaryEntry(
+                                noopFeature, "BUE-NOOP-ERROR", out entry) && entry.Count == 1L
+                                && entry.Level == BetterUnturnedExperience.Core.Diagnostics.DiagnosticLevel.Error,
+                            "生态对照：样例行进同一摘要聚合器（同字段同限频规则=不因来源过滤）");
+                        BueFeatureStartRuntime.StopAll(FeatureStopReason.PluginStopping);
+                    }
+                    finally
+                    {
+                        BueRuntimeLog.Recorder = previousRecorder;
+                        BueRuntimeHost.Bind(previousRuntime);
+                        BetterUnturnedExperience.Plugin.BueDiagnosticsRuntime.Clear();
+                        BetterUnturnedExperience.Plugin.BueMainThreadRuntime.Clear();
+                    }
+                });
+            }
+            catch (Exception error) when (collectAllFailures)
+            {
+                reds.Add("UNEXPECTED: " + error.GetType().FullName + ": " + error.Message);
+            }
+            finally
+            {
+                BetterUnturnedExperience.Plugin.BueDiagnosticsRuntime.Clear();
+                for (var index = 0; index < settingsRoots.Count; index++)
+                {
+                    try { if (System.IO.Directory.Exists(settingsRoots[index])) System.IO.Directory.Delete(settingsRoots[index], true); }
+                    catch (Exception) { }
+                }
+            }
+            if (collectAllFailures && reds.Count == 0)
+                Console.WriteLine("DEV-V3-07 diagnostics collection: ALL GREEN (0 failures) — groups: 矩阵 Logger 接线两侧/三方法窄面与级别映射/BUE-* 前缀纪律/停止与宿主 shutdown 边界/容量受限与消毒截断/摘要输出限频/故障隔离不反噬模块/统一 sink 收编/官方先行消费锚 LIT/生态对照 NoOp");
+            if (collectAllFailures && reds.Count > 0)
+                throw new InvalidOperationException("DEV-V3-07 red collection (" + reds.Count + "): " + string.Join(" || ", reds));
         }
 
         private static void AssertBueV2LhtAdoption(bool collectAllFailures = false)

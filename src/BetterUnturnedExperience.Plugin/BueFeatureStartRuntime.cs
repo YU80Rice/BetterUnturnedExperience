@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using BetterUnturnedExperience.Contracts;
 using BetterUnturnedExperience.Contracts.BueNetwork;
+using BetterUnturnedExperience.Core.Diagnostics;
 using BetterUnturnedExperience.Core.Registration;
 
 namespace BetterUnturnedExperience.Plugin
@@ -31,7 +32,10 @@ namespace BetterUnturnedExperience.Plugin
     /// host-owned SettingsRuntime per facet-registered feature, generation-
     /// opened per start, owner-invalidated at every stop/isolation boundary;
     /// features WITHOUT a settings facet keep the honest null row: nothing
-    /// provided, nothing faked); Logger stays null (07).
+    /// provided, nothing faked); DEV-V3-07 wires Logger (the feature-bound
+    /// diagnostic view — every started feature is wired, the matrix row has
+    /// no facet gate; the generation ledger withdraws at the same stop/
+    /// isolation boundaries the other written seams use).
     ///
     /// The panel enable/disable seam (SetFeatureEnabled) rides the SAME
     /// machine: disable = module.Stop(UserDisabled) → subscriptions dropped →
@@ -74,7 +78,14 @@ namespace BetterUnturnedExperience.Plugin
         internal static void StartCatalog(FeatureRegistrationRuntime runtime, IBueNetworkApi featureNetwork)
         {
             if (runtime == null || runtime.Catalog == null || featureNetwork == null) return;
-            var machine = new FeatureLifecycleRuntime(runtime, BueHostEventRuntime.Bus, BueRuntimeLog.Runtime);
+            // DEV-V3-07 收编双绑：原行路径逐字不变（BueRuntimeLog.Runtime=03
+            // 既有锚语义），附加 AggregateHostLine 把带码行进统一摘要——T4 隔离/
+            // 状态投影进统一诊断 sink（分 seam 判据可定位，不互相遮蔽）。
+            var machine = new FeatureLifecycleRuntime(runtime, BueHostEventRuntime.Bus, line =>
+            {
+                BueRuntimeLog.Runtime(line);
+                BueDiagnosticsRuntime.AggregateHostLine("bue.host", DiagnosticLevel.Info, line);
+            });
             var entries = runtime.Catalog.Entries;
             for (var i = 0; i < entries.Count; i++)
             {
@@ -115,6 +126,7 @@ namespace BetterUnturnedExperience.Plugin
                     machine.Isolate(feature, FrameworkErrorCode.ModuleStartFailed, "errorType=" + error.GetType().Name, "start");
                     InvalidateMainThread(feature, "start-fault"); // DEV-V3-04: 隔离撤投递账（隔离后不可再投递）
                     BueSettingsRuntime.InvalidateOwner(feature, "start-fault"); // DEV-V3-06: 隔离撤设置代际（写入失效）
+                    BueDiagnosticsRuntime.InvalidateOwner(feature, "start-fault"); // DEV-V3-07: 隔离撤诊断代际（捕获 view 再写=边界拒+留痕）
                     continue;
                 }
                 if (!result.Started)
@@ -124,6 +136,7 @@ namespace BetterUnturnedExperience.Plugin
                     machine.Isolate(feature, FrameworkErrorCode.ModuleStartFailed, result.DiagnosticId, "start-result");
                     InvalidateMainThread(feature, "start-result");
                     BueSettingsRuntime.InvalidateOwner(feature, "start-result"); // DEV-V3-06: 同上
+                    BueDiagnosticsRuntime.InvalidateOwner(feature, "start-result"); // DEV-V3-07: 同上
                     continue;
                 }
                 machine.CompleteStart(feature, result.DiagnosticId);
@@ -162,6 +175,7 @@ namespace BetterUnturnedExperience.Plugin
             if (reason == FeatureStopReason.PluginStopping)
             {
                 BueMainThreadRuntime.Shutdown("plugin-stopping");
+                BueDiagnosticsRuntime.ShutdownHost("plugin-stopping"); // DEV-V3-07: 宿主停止后捕获 view 写入=拒+留痕（不静默吞）
             }
         }
 
@@ -246,6 +260,7 @@ namespace BetterUnturnedExperience.Plugin
                 machine.Isolate(feature, FrameworkErrorCode.ModuleStartFailed, "errorType=" + error.GetType().Name, "start");
                 InvalidateMainThread(feature, "enable-fault");
                 BueSettingsRuntime.InvalidateOwner(feature, "enable-fault"); // DEV-V3-06: 隔离撤设置代际
+                BueDiagnosticsRuntime.InvalidateOwner(feature, "enable-fault"); // DEV-V3-07: 隔离撤诊断代际
                 entry.Stopped = true;
                 return false;
             }
@@ -255,6 +270,7 @@ namespace BetterUnturnedExperience.Plugin
                 machine.Isolate(feature, FrameworkErrorCode.ModuleStartFailed, result.DiagnosticId, "start-result");
                 InvalidateMainThread(feature, "enable-not-started");
                 BueSettingsRuntime.InvalidateOwner(feature, "enable-not-started"); // DEV-V3-06: 同上
+                BueDiagnosticsRuntime.InvalidateOwner(feature, "enable-not-started"); // DEV-V3-07: 同上
                 entry.Stopped = true;
                 return false;
             }
@@ -358,6 +374,10 @@ namespace BetterUnturnedExperience.Plugin
             // DEV-V3-06: 停止边界——设置写入代际失效（捕获 view 之后的写入=
             // 显式拒 BUE-SET-001；读取仍如实，矩阵 Settings 行为面）。
             BueSettingsRuntime.InvalidateOwner(entry.Feature, reason.ToString());
+            // DEV-V3-07: 停止边界——诊断写入代际失效（捕获 view 之后的写入=
+            // 不产模块行+BUE-LOG-004 留痕一条；再启用新代际恢复，矩阵 Logger
+            // 行为面）。Stop 返回前不撤账=LIT 停止行仍经 view（Settings 同构）。
+            BueDiagnosticsRuntime.InvalidateOwner(entry.Feature, reason.ToString());
             lock (sync)
             {
                 entry.Module = null;
@@ -385,8 +405,11 @@ namespace BetterUnturnedExperience.Plugin
         /// re-enabled feature's stale pending work never executes); Settings
         /// is the scoped settings view for this generation (DEV-V3-06 matrix
         /// row — the feature's OWN facet schema composes the one host-owned
-        /// SettingsRuntime; no facet = the honest null, nothing faked);
-        /// Logger stays null until its ticket (07).
+        /// SettingsRuntime; no facet = the honest null, nothing faked); Logger
+        /// is the feature-bound diagnostic view for this generation
+        /// (DEV-V3-07 matrix row — wired for every started feature, the
+        /// generation ledger opens here and withdraws at every stop/
+        /// isolation boundary).
         /// </summary>
         private static FeatureBootstrap ComposeBootstrap(FeatureLifecycleRuntime machine, FeatureId feature, ulong generation, FeatureScopeIdentity identity, IBueNetworkApi featureNetwork,
             System.Collections.Generic.IReadOnlyList<Contracts.SettingDescriptor> settingsDescriptors)
@@ -401,7 +424,7 @@ namespace BetterUnturnedExperience.Plugin
                 bus.Subscriber(feature),
                 bus.Publisher(feature),
                 bus.EventRegistry(feature),
-                null,
+                BueDiagnosticsRuntime.ComposeViewForStart(feature, generation), // DEV-V3-07: Logger matrix row — every started feature is wired (no facet gate; unlike Settings there is nothing to withhold)
                 machine.CreateDependenciesView(),
                 machine.CreateLifetimeView(feature, generation),
                 featureNetwork,

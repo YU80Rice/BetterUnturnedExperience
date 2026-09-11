@@ -452,6 +452,27 @@ namespace BetterUnturnedExperience.Contracts.Tests
                     && typeof(IFeatureBootstrap).GetProperty("Settings").PropertyType == typeof(IScopedFeatureSettings),
                 "DEV-V3-06: IFeatureBootstrap.Settings is the matrix member this ticket wires (the scoped view type, never the runtime type)");
 
+            // DEV-V3-07 shape anchor: the wiring ticket adds ZERO contract
+            // surface — IFeatureLogger stays the frozen three-method narrow
+            // surface (void returns: no result type may creep in, the fault
+            // isolation is a view-side obligation), and the bootstrap keeps
+            // its eleven members (any implicit expansion must redden the 05
+            // anchor — machine-enforced registration discipline).
+            Assert(typeof(IFeatureBootstrap).GetProperty("Logger") != null
+                    && typeof(IFeatureBootstrap).GetProperty("Logger").PropertyType == typeof(IFeatureLogger),
+                "DEV-V3-07: IFeatureBootstrap.Logger is the matrix member this ticket wires (the feature-bound view, never a runtime type)");
+            var loggerMethods = typeof(IFeatureLogger).GetMethods();
+            Assert(loggerMethods.Length == 3
+                    && typeof(IFeatureLogger).GetMethod("Info").GetParameters().Length == 2
+                    && typeof(IFeatureLogger).GetMethod("Warning").GetParameters().Length == 3
+                    && typeof(IFeatureLogger).GetMethod("Error").GetParameters().Length == 4
+                    && typeof(IFeatureLogger).GetMethod("Info").ReturnType == typeof(void)
+                    && typeof(IFeatureLogger).GetMethod("Warning").ReturnType == typeof(void)
+                    && typeof(IFeatureLogger).GetMethod("Error").ReturnType == typeof(void),
+                "DEV-V3-07: IFeatureLogger stays the three-method void narrow surface (Info/Warning/Error, no result type — the frozen shape the wiring must not widen)");
+            Assert(typeof(IFeatureBootstrap).GetProperties().Length == 11,
+                "DEV-V3-07: the wiring ticket adds zero new bootstrap members (still eleven — zero-new-surface machine anchor)");
+
             var presentation = new FeaturePresentationView(new FeatureId("io.example.tracer"), FeaturePresentationState.PresentationDegraded, "BUE-UI-001", 1UL);
             Assert(presentation.State == FeaturePresentationState.PresentationDegraded && presentation.PresentationRevision == 1UL, "presentation state is a separate value projection");
             Console.WriteLine("DEV-10 registration runtime tests: PASS");

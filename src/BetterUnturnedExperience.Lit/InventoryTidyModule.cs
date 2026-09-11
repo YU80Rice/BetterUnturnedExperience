@@ -101,6 +101,13 @@ namespace BetterUnturnedExperience.Lit
         // read-only status query seam (IFeatureLifetime.CurrentStatus) and the
         // resource registry the module tracked its real network handles into.
         internal IFeatureLifetime Lifetime { get; private set; }
+        // DEV-V3-07: the platform logger view captured at Start (nullable
+        // stage-baseline seam, the LIR MainThread precedent) — the module's
+        // start/stop diagnostics ride this seam into the unified structured
+        // line + bounded summary (official-first consumption of the matrix
+        // row; hand-composed test bootstraps may pass null, then the module
+        // keeps its private LitRuntime channels unchanged).
+        internal IFeatureLogger Logger { get; private set; }
         private long nextTransactionId;
 
         // DEV-V2-21: the multiplayer service is one per module generation —
@@ -140,6 +147,7 @@ namespace BetterUnturnedExperience.Lit
             Events = bootstrap.Events;
             Network = bootstrap.Network;
             LifecycleGeneration = bootstrap.LifecycleGeneration;
+            Logger = bootstrap.Logger; // DEV-V3-07: nullable stage-baseline seam (see the property)
             // DEV-V3-06 official first consumption: the enabled toggle rides
             // the host-injected scoped view (the Settings matrix row) — the
             // authoritative read happens BEFORE the patches arm.
@@ -182,6 +190,12 @@ namespace BetterUnturnedExperience.Lit
                 var handles = NetService.SubscriptionHandles;
                 for (var i = 0; i < handles.Count; i++) bootstrap.Lifetime.TryTrack(handles[i]);
             }
+            // DEV-V3-07 official-first consumption of the Logger matrix row:
+            // the structured start diagnostic rides the INJECTED view (the
+            // ticket red line「不能只保留私有路径而宣称已消费」— the player-
+            // facing Chinese line above stays on the human channel, the
+            // machine-readable line only exists because the view is wired).
+            if (Logger != null) Logger.Info("tidy-module-started", "BUE-LIT-START");
             LitRuntime.LogInfo("[Tidy] 模块已启动（宿主 bootstrap：功能代际=" + bootstrap.LifecycleGeneration + "）");
             return new FeatureStartResult(true, FrameworkErrorCode.None, "BUE-LIT-START");
         }
@@ -239,6 +253,11 @@ namespace BetterUnturnedExperience.Lit
             if (ShuttingDown) return;
             ShuttingDown = true;
             Started = false;
+            // DEV-V3-07: the stop diagnostic rides the injected view too —
+            // the host withdraws the generation AFTER Stop returns (same
+            // ordering as the settings boundary), so the line is writable
+            // here and refused for the captured view afterwards.
+            if (Logger != null) Logger.Info("tidy-module-stopped", "BUE-LIT-STOP");
             // DEV-V2-21: stop phase 1 also quiesces the network service —
             // frames are refused, but the dispatcher drain below can still
             // compensate queued requests with a terminal Rejected send.
