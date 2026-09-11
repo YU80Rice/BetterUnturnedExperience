@@ -338,6 +338,11 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     AssertBueV3DiagnosticsWiringAndSummary(collectAllFailures: true);
                     return 0;
                 }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--bue-v3-probe-red")
+                {
+                    AssertBueV3EcosystemUnifiedProbe(collectAllFailures: true);
+                    return 0;
+                }
                 if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--bue-v2-lit-multiplayer-red")
                 {
                     AssertBueV2LitMultiplayerPath(collectAllFailures: true);
@@ -476,6 +481,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 AssertBueV3HostClockSemantics();
                 AssertBueV3SettingsWiringAndPanelRouting();
                 AssertBueV3DiagnosticsWiringAndSummary();
+                AssertBueV3EcosystemUnifiedProbe();
                 // F-E: pure truth tables, no host state — runs before F-D.
                 AssertBueV2FeEnginePeerIdentity();
                 // F-D: runs last — it replaces the bound runtime and clears the
@@ -11492,6 +11498,520 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 Console.WriteLine("DEV-V3-07 diagnostics collection: ALL GREEN (0 failures) — groups: 矩阵 Logger 接线两侧/三方法窄面与级别映射/BUE-* 前缀纪律/停止与宿主 shutdown 边界/容量受限与消毒截断/摘要输出限频/故障隔离不反噬模块/统一 sink 收编/官方先行消费锚 LIT/生态对照 NoOp");
             if (collectAllFailures && reds.Count > 0)
                 throw new InvalidOperationException("DEV-V3-07 red collection (" + reds.Count + "): " + string.Join(" || ", reds));
+        }
+
+        // DEV-V3-08: the unified ecosystem contract probe (V3-T9 裁决④ / spec
+        // 「SDK 契约文档」节)。NoOpFixture 升格为 注册→Bootstrap→Events→
+        // TryTrack/Lifecycle→Network→HostTick→Settings→Logger→停止与隔离 的
+        // 全链可运行样本，七枚缝步各自独立判据（ProbeStepOutcome+自己的诊断
+        // 行），失败分 seam 可定位：一步 Mismatch 不遮蔽其余步（一步一段
+        // StepMismatches 详情），NotRun≠Passed（链未跑到≠通过）。可定位性由
+        // 「一次红一缝」旋钮红测证明——旋钮只错置该步的期望，真实拒绝来自
+        // 真实缝（总线归属路由/网络通道门/设置乐观并发/生命周期账/诊断消毒）。
+        // 文档锚定子组把 SDK 附录的结构与代码表、四条件、自检清单和「示例=
+        // NoOpFixture 源码逐字」的双向锚全部钉成机器判据（验收条件①②③）。
+        private static void AssertBueV3EcosystemUnifiedProbe(bool collectAllFailures = false)
+        {
+            var reds = new List<string>();
+            var settingsRoots = new List<string>();
+            try
+            {
+                void Check(bool condition, string message)
+                {
+                    if (condition) return;
+                    if (collectAllFailures) reds.Add(message);
+                    else throw new InvalidOperationException(message);
+                }
+
+                void Group(string name, System.Action body)
+                {
+                    try { body(); }
+                    catch (Exception error) when (collectAllFailures)
+                    {
+                        reds.Add("[" + name + "] " + (error is InvalidOperationException ? error.Message : "UNEXPECTED " + error.GetType().Name + ": " + error.Message));
+                    }
+                }
+
+                // 一次完整探针运行：独立注册运行时+临时持久根+干净诊断/投递
+                // 账+唯一 nonce 的环回网络（生产组合根全程，与 03..07 各组同
+                // 卫生模式）。返回捕获行与链末探针状态；运行完即 StopAll。
+                void RunProbe(NoOpProbeFault fault, ulong nonce,
+                    out NoOpFeatureRegistration.ProbeState probe, out List<string> lines)
+                {
+                    var runtime = new FeatureRegistrationRuntime();
+                    var previousRuntime = BueRuntimeHost.CurrentRuntime;
+                    var previousRecorder = BueRuntimeLog.Recorder;
+                    lines = new List<string>();
+                    probe = null;
+                    var root = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "BUE-V3-08-" + Guid.NewGuid().ToString("N"));
+                    settingsRoots.Add(root);
+                    BueRuntimeHost.Bind(runtime);
+                    BueRuntimeLog.Recorder = lines.Add;
+                    try
+                    {
+                        BetterUnturnedExperience.Plugin.BueSettingsRuntime.Clear();
+                        BetterUnturnedExperience.Plugin.BueSettingsRuntime.EnsureCreated(root, () => true, null);
+                        BetterUnturnedExperience.Plugin.BueDiagnosticsRuntime.Clear();
+                        BetterUnturnedExperience.Plugin.BueMainThreadRuntime.Clear();
+                        BetterUnturnedExperience.Plugin.BueHostEventRuntime.EnsureCreated();
+                        NoOpFeatureRegistration.NextProbeFault = fault;
+                        NoOpFeatureRegistration.ResetLastProbe();
+                        runtime.OpenRegistration();
+                        Check(runtime.Register(NoOpFeatureRegistration.ProbeRegistration).Accepted,
+                            "RunProbe setup：样例登记受理（nonce=" + nonce + "）");
+                        Check(runtime.CompleteRuntime(), "RunProbe setup：目录冻结");
+                        BueFeatureStartRuntime.StartCatalog(runtime, NewLoopbackNetwork(nonce));
+                        BetterUnturnedExperience.Plugin.BueHostEventRuntime.TickOnce();
+                        probe = NoOpFeatureRegistration.LastProbe;
+                        BueFeatureStartRuntime.StopAll(FeatureStopReason.PluginStopping);
+                    }
+                    finally
+                    {
+                        NoOpFeatureRegistration.NextProbeFault = NoOpProbeFault.None;
+                        BueRuntimeLog.Recorder = previousRecorder;
+                        BueRuntimeHost.Bind(previousRuntime);
+                        BetterUnturnedExperience.Plugin.BueDiagnosticsRuntime.Clear();
+                        BetterUnturnedExperience.Plugin.BueMainThreadRuntime.Clear();
+                    }
+                }
+
+                Group("统一探针：全链绿（票后终态矩阵+七缝独立判据）", () =>
+                {
+                    var runtime = new FeatureRegistrationRuntime();
+                    var previousRuntime = BueRuntimeHost.CurrentRuntime;
+                    var previousRecorder = BueRuntimeLog.Recorder;
+                    var lines = new List<string>();
+                    var root = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "BUE-V3-08-" + Guid.NewGuid().ToString("N"));
+                    settingsRoots.Add(root);
+                    BueRuntimeHost.Bind(runtime);
+                    BueRuntimeLog.Recorder = lines.Add;
+                    try
+                    {
+                        BetterUnturnedExperience.Plugin.BueSettingsRuntime.Clear();
+                        BetterUnturnedExperience.Plugin.BueSettingsRuntime.EnsureCreated(root, () => true, null);
+                        BetterUnturnedExperience.Plugin.BueDiagnosticsRuntime.Clear();
+                        BetterUnturnedExperience.Plugin.BueMainThreadRuntime.Clear();
+                        BetterUnturnedExperience.Plugin.BueHostEventRuntime.EnsureCreated();
+                        NoOpFeatureRegistration.NextProbeFault = NoOpProbeFault.None;
+                        NoOpFeatureRegistration.ResetLastProbe();
+                        runtime.OpenRegistration();
+                        var registration = runtime.Register(NoOpFeatureRegistration.ProbeRegistration);
+                        Check(registration.Accepted && registration.DiagnosticId == "BUE-REG-ACCEPT"
+                                && registration.Feature.Value == "io.github.yu80rice.bue.noop",
+                            "链·注册缝：公开桥受理=显式结果四元组（BUE-REG-ACCEPT+FeatureId 绑定）");
+                        Check(runtime.CompleteRuntime(), "链·注册缝：目录冻结");
+                        BueFeatureStartRuntime.StartCatalog(runtime, NewLoopbackNetwork(4101UL));
+                        var probe = NoOpFeatureRegistration.LastProbe;
+                        Check(probe != null && probe.Started, "链·启动：probe 经真实 StartCatalog 全链跑完");
+                        Check(probe.BootstrapStep == ProbeStepOutcome.Passed,
+                            "Bootstrap 缝：票后终态可用性矩阵全体非 null（11 成员快照判据）");
+                        Check(probe.BootstrapGenerationAtStart != 0UL,
+                            "Bootstrap 缝：LifecycleGeneration=宿主实发代际（≠0）");
+                        Check(probe.EventsStep == ProbeStepOutcome.Passed && probe.EventsSelfReceived == 1,
+                            "Events 缝：登记→订阅→自有 EventId 发布被收并自回一帧（四判据齐）");
+                        // 常跑序列里同型探针已在先前票组注册过该类型（受理行
+                        // 属于首跑的组）——本组判据=登记尝试必有结构化答复行：
+                        // 首跑=BUE-EVT-ACCEPT，跨组/跨代幂等=BUE-EVT-003。
+                        Check(ContainsDiagnostic(lines, "diagnosticId=BUE-EVT-ACCEPT")
+                                || (ContainsDiagnostic(lines, "result=register-rejected")
+                                    && ContainsDiagnostic(lines, "diagnosticId=BUE-EVT-003")),
+                            "Events 缝诊断行：类型归属登记答复行进同一 sink（首跑受理或跨代幂等拒，均结构化）");
+                        Check(ContainsDiagnostic(lines, "event=feature-event result=publish-rejected")
+                                && ContainsDiagnostic(lines, "reason=event-id-mismatch"),
+                            "Events 缝反判据行：错挂声明 EventId 发布=显式拒+零派发");
+                        Check(probe.LifecycleStep == ProbeStepOutcome.Passed && probe.Tracked && probe.TrackedSecond,
+                            "Lifecycle 缝：两资源 TryTrack 受理（逆序释放账归停止子组）");
+                        Check(probe.QueriedStateAtStart == FeatureState.Starting,
+                            "Lifecycle 缝：Start 期只读状态查询观察到 Starting（最小行为面）");
+                        Check(probe.NetworkStep == ProbeStepOutcome.Passed,
+                            "Network 缝：通道登记/established 空快照/降级发送/负通道/投递 五判据");
+                        Check(probe.NetworkSendObserved == NetworkSendResult.NoSession
+                                && probe.NetworkWrongChannelObserved == NetworkSendResult.ChannelNotRegistered,
+                            "Network 缝：无会话=NoSession、未注册通道=ChannelNotRegistered（显式结果，禁静默丢）");
+                        Check(probe.MainThreadPosted,
+                            "Network 缝：主线程投递经接线 dispatcher 受理（04 支线入链）");
+                        Check(probe.HostTickStep == ProbeStepOutcome.Passed && probe.HostTickSubscribed,
+                            "HostTick 缝：宿主时钟订阅经 Events 缝取得句柄");
+                        var beforeTicks = probe.HostTicksReceived;
+                        Check(BetterUnturnedExperience.Plugin.BueHostEventRuntime.TickOnce()
+                                && BetterUnturnedExperience.Plugin.BueHostEventRuntime.TickOnce(),
+                            "HostTick 缝：宿主泵拍产针");
+                        Check(probe.HostTicksReceived == beforeTicks + 2,
+                            "HostTick 缝：每拍恰一到达（生产真时钟驱动样本订阅）");
+                        Check(probe.LastHostTickPhase == TickPhase.Update && probe.LastHostTickDeltaSeconds >= 0f,
+                            "HostTick 缝：载荷时序三字段（Phase 冻结 Update/DeltaTime 非负）");
+                        Check(probe.SettingsStep == ProbeStepOutcome.Passed && probe.SettingsCommitAccepted
+                                && probe.SettingsRevisionAdvanced && probe.SettingsInvalidRejected && probe.SettingsStaleRejected,
+                            "Settings 缝：读快照/合法提交推进/未知 id 拒/过期 ExpectedRevision 拒（五判据）");
+                        Check(probe.LoggerStep == ProbeStepOutcome.Passed && probe.LoggerInfoWritten
+                                && probe.LoggerWarningWritten && probe.LoggerErrorWritten,
+                            "Logger 缝：三方法窄面各调一次");
+                        Check(ContainsDiagnostic(lines, "feature=io.github.yu80rice.bue.noop")
+                                && ContainsDiagnostic(lines, "event=noop-probe-info")
+                                && ContainsDiagnostic(lines, "event=noop-probe-warning")
+                                && ContainsDiagnostic(lines, "event=noop-probe-error"),
+                            "Logger 缝诊断行：三结构化行进同一 LogOutput 缝（不被静默过滤）");
+                        BetterUnturnedExperience.Core.Diagnostics.DiagnosticSummaryEntry summaryEntry;
+                        Check(BetterUnturnedExperience.Plugin.BueDiagnosticsRuntime.Runtime.TryGetSummaryEntry(
+                                "io.github.yu80rice.bue.noop", "BUE-NOOP-INFO", out summaryEntry)
+                                && summaryEntry.Count == 1L,
+                            "Logger 缝摘要判据：按 (FeatureId,DiagnosticId) 聚合计数");
+                        Check(probe.StepMismatches.Count == 0,
+                            "全链绿：七缝零 Mismatch（详情=" + string.Join("|", probe.StepMismatches) + "）");
+                        BueFeatureStartRuntime.StopAll(FeatureStopReason.PluginStopping);
+                    }
+                    finally
+                    {
+                        BueRuntimeLog.Recorder = previousRecorder;
+                        BueRuntimeHost.Bind(previousRuntime);
+                        BetterUnturnedExperience.Plugin.BueDiagnosticsRuntime.Clear();
+                        BetterUnturnedExperience.Plugin.BueMainThreadRuntime.Clear();
+                    }
+                });
+
+                Group("统一探针：停止边界与再启用（逆序释放/边界写拒/新代际续账）", () =>
+                {
+                    var runtime = new FeatureRegistrationRuntime();
+                    var previousRuntime = BueRuntimeHost.CurrentRuntime;
+                    var previousRecorder = BueRuntimeLog.Recorder;
+                    var lines = new List<string>();
+                    var root = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "BUE-V3-08-" + Guid.NewGuid().ToString("N"));
+                    settingsRoots.Add(root);
+                    BueRuntimeHost.Bind(runtime);
+                    BueRuntimeLog.Recorder = lines.Add;
+                    var noopFeature = new FeatureId("io.github.yu80rice.bue.noop");
+                    try
+                    {
+                        BetterUnturnedExperience.Plugin.BueSettingsRuntime.Clear();
+                        BetterUnturnedExperience.Plugin.BueSettingsRuntime.EnsureCreated(root, () => true, null);
+                        BetterUnturnedExperience.Plugin.BueDiagnosticsRuntime.Clear();
+                        BetterUnturnedExperience.Plugin.BueMainThreadRuntime.Clear();
+                        BetterUnturnedExperience.Plugin.BueHostEventRuntime.EnsureCreated();
+                        NoOpFeatureRegistration.NextProbeFault = NoOpProbeFault.None;
+                        NoOpFeatureRegistration.ResetLastProbe();
+                        runtime.OpenRegistration();
+                        Check(runtime.Register(NoOpFeatureRegistration.ProbeRegistration).Accepted, "停止子组 setup：样例受理");
+                        Check(runtime.CompleteRuntime(), "停止子组 setup：目录冻结");
+                        BueFeatureStartRuntime.StartCatalog(runtime, NewLoopbackNetwork(4111UL));
+                        var probe1 = NoOpFeatureRegistration.LastProbe;
+                        Check(probe1 != null && probe1.Started, "停止子组 setup：全链启动完成");
+                        BetterUnturnedExperience.Plugin.BueHostEventRuntime.TickOnce();
+                        // ── 链尾「停止与隔离」：面板停用走 command seam（用户
+                        // 驱动），停止边界由宿主兑现——逆序释放、总线自动注销、
+                        // 三视图写显式拒+各自诊断行、状态投影如实。──
+                        Check(BueFeatureStartRuntime.SetFeatureEnabled(noopFeature, false),
+                            "停止缝：面板停用命令受理（UserDisabled）");
+                        Check(string.Join(",", probe1.DisposalOrder) == "second,first",
+                            "停止缝：TryTrack 资源按注册逆序自动释放（first 后行=先登后放）");
+                        var frozenTicks = probe1.HostTicksReceived;
+                        BetterUnturnedExperience.Plugin.BueHostEventRuntime.TickOnce();
+                        Check(probe1.HostTicksReceived == frozenTicks,
+                            "停止缝：总线订阅经宿主自动注销（后续泵拍不再到达样本）");
+                        var lateWrite = probe1.SettingsView.Submit(new ScopedSettingChangeRequest(
+                            9001UL, SettingRevisionScope.ClientPreference, 0u,
+                            new[] { new SettingMutation("noop.probe-toggle", SettingValue.Toggle(true)) }));
+                        Check(!lateWrite.Accepted && ContainsDiagnostic(lines, "BUE-SET-001"),
+                            "停止缝：停止后设置写入=显式拒+BUE-SET-001 留痕（捕获 view 不伪造）");
+                        probe1.LoggerView.Info("noop-post-stop-write", "BUE-NOOP-POSTSTOP");
+                        Check(!ContainsDiagnostic(lines, "event=noop-post-stop-write") && ContainsDiagnostic(lines, "BUE-LOG-004"),
+                            "停止缝：停止后 Logger 写=不产模块行+BUE-LOG-004 留痕");
+                        var latePost = probe1.MainThreadView.Post(() => { });
+                        Check(!latePost.Posted && latePost.Reason == MainThreadPostReason.GenerationInvalid
+                                && ContainsDiagnostic(lines, "BUE-MT-002"),
+                            "停止缝：停止后投递=GenerationInvalid 显式拒+BUE-MT-002");
+                        FeatureStatusView stoppedStatus;
+                        Check(BueFeatureStartRuntime.TryGetStatus(noopFeature, out stoppedStatus)
+                                && stoppedStatus.State == FeatureState.Stopped
+                                && stoppedStatus.StopReason == FeatureStopReason.UserDisabled,
+                            "停止缝：状态投影如实停用（宿主唯一事实源，面板侧可见）");
+                        var capturedQuery = probe1.LifetimeView.CurrentStatus;
+                        Check(capturedQuery.State == FeatureState.Stopped
+                                && capturedQuery.Feature.Value == "io.github.yu80rice.bue.noop",
+                            "停止缝：捕获视图只读查询停止后仍可用且如实（A.3 最小行为面第五条的生态消费）");
+                        // ── 再启用=新代际全链重跑；跨代持久账正确续接：事件
+                        // 类型登记幂等（显式重复拒、归属不变仍可发布），设置
+                        // revision 不清零，通道所有权幂等。──
+                        Check(BueFeatureStartRuntime.SetFeatureEnabled(noopFeature, true),
+                            "再启用缝：显式启用重臂（Stopped→新代际）");
+                        var probe2 = NoOpFeatureRegistration.LastProbe;
+                        Check(!ReferenceEquals(probe2, probe1) && probe2.Started,
+                            "再启用缝：新模块实例重跑全链");
+                        Check(probe2.BootstrapStep == ProbeStepOutcome.Passed && probe2.EventsStep == ProbeStepOutcome.Passed
+                                && probe2.LifecycleStep == ProbeStepOutcome.Passed && probe2.NetworkStep == ProbeStepOutcome.Passed
+                                && probe2.HostTickStep == ProbeStepOutcome.Passed && probe2.SettingsStep == ProbeStepOutcome.Passed
+                                && probe2.LoggerStep == ProbeStepOutcome.Passed && probe2.StepMismatches.Count == 0,
+                            "再启用缝：新代际七缝全绿（分 seam 判据逐个复核）");
+                        Check(probe2.BootstrapGenerationAtStart != probe1.BootstrapGenerationAtStart,
+                            "再启用缝：新 LifecycleGeneration（旧代际全失效）");
+                        Check(ContainsDiagnostic(lines, "BUE-EVT-003"),
+                            "再启用缝：事件类型重登记=显式重复拒（跨代幂等，归属不变仍可发布收帧）");
+                        Check(probe2.SettingsRevisionAfterCommit > probe1.SettingsRevisionAfterCommit,
+                            "再启用缝：设置 revision 跨代续账（不清零、无第二事实源）");
+                        BueFeatureStartRuntime.StopAll(FeatureStopReason.PluginStopping);
+                    }
+                    finally
+                    {
+                        NoOpFeatureRegistration.NextProbeFault = NoOpProbeFault.None;
+                        BueRuntimeLog.Recorder = previousRecorder;
+                        BueRuntimeHost.Bind(previousRuntime);
+                        BetterUnturnedExperience.Plugin.BueDiagnosticsRuntime.Clear();
+                        BetterUnturnedExperience.Plugin.BueMainThreadRuntime.Clear();
+                    }
+                });
+
+                Group("统一探针：Start 故障隔离与显式再启用（Isolated 不自动重启/NotRun≠Passed）", () =>
+                {
+                    NoOpFeatureRegistration.ProbeState crashedProbe;
+                    List<string> crashLines;
+                    // 一次带 StartFault 旋钮的完整运行：模块 Start 真抛，宿主
+                    // 按功能级隔离（不升级 CoreSafeMode）；探针链未跑完=各步
+                    // NotRun——报告把「未跑到」与「通过」严格区分。
+                    RunProbe(NoOpProbeFault.StartFault, 4121, out crashedProbe, out crashLines);
+                    Check(crashedProbe != null && !crashedProbe.Started,
+                        "隔离缝：Start 崩溃=链未完成（Started 显式 false，样本不伪装成功）");
+                    Check(crashedProbe.BootstrapStep == ProbeStepOutcome.NotRun
+                            && crashedProbe.EventsStep == ProbeStepOutcome.NotRun
+                            && crashedProbe.LifecycleStep == ProbeStepOutcome.NotRun
+                            && crashedProbe.NetworkStep == ProbeStepOutcome.NotRun
+                            && crashedProbe.HostTickStep == ProbeStepOutcome.NotRun
+                            && crashedProbe.SettingsStep == ProbeStepOutcome.NotRun
+                            && crashedProbe.LoggerStep == ProbeStepOutcome.NotRun,
+                        "隔离缝：未跑到的缝=NotRun（≠Passed，全链 PASS/FAIL 不得遮蔽链位置）");
+                    Check(ContainsDiagnostic(crashLines, "stage=start error=")
+                            && ContainsDiagnostic(crashLines, "BUE-LIFE-ISOLATE"),
+                        "隔离缝：Start 故障→功能级隔离诊断行（单功能故障只隔离该功能）");
+                    var noopFeature = new FeatureId("io.github.yu80rice.bue.noop");
+                    FeatureStatusView isolated;
+                    Check(BueFeatureStartRuntime.TryGetStatus(noopFeature, out isolated)
+                            && isolated.State == FeatureState.Isolated,
+                        "隔离缝：状态投影如实 Isolated");
+                    // Isolated 不自动重启：没有任何东西把它重新臂起——停用命令
+                    // 也被拒（不制造假迁移）；只有显式启用才走新代际。
+                    Check(!BueFeatureStartRuntime.SetFeatureEnabled(noopFeature, false),
+                        "隔离缝：对 Isolated 发停用=not-running 拒（Isolated 不自动重启的镜像判据）");
+                    // 显式再启用（旋钮已随 RunProbe 复位 None）→ 同一登记记录
+                    // 新代际全链重跑（宿主停止/隔离是边界不是死刑，04/07 同构）。
+                    Check(BueFeatureStartRuntime.SetFeatureEnabled(noopFeature, true),
+                        "隔离缝：用户显式启用把 Isolated 重新臂起（唯一入口）");
+                    var revivedProbe = NoOpFeatureRegistration.LastProbe;
+                    Check(revivedProbe != null && revivedProbe.Started
+                            && revivedProbe.StepMismatches.Count == 0
+                            && revivedProbe != crashedProbe,
+                        "隔离缝：显式启用→新代际全链绿（从干净状态重试）");
+                    Check(revivedProbe.BootstrapGenerationAtStart != crashedProbe.BootstrapGenerationAtStart,
+                        "隔离缝：再启用代际=新值（隔离代际不再臂任务）");
+                    BueFeatureStartRuntime.StopAll(FeatureStopReason.PluginStopping);
+                });
+
+                // ── 失败分 seam 可定位：一次只红一缝——旋钮让该步真实观察到
+                // 它不期望的合同行为（真实拒绝来自真实缝），报告必须恰指向
+                // 该缝：状态位 Mismatch+StepMismatches 唯一条目+其余六步照常
+                // Passed+链照常跑完（不异常遮蔽）。Logger 缝判据=诊断行。──
+                Group("分 seam 定位：Events 一红", () =>
+                {
+                    NoOpFeatureRegistration.ProbeState probe;
+                    List<string> lines;
+                    RunProbe(NoOpProbeFault.EventsPublishExpectation, 4131, out probe, out lines);
+                    Check(probe != null && probe.Started,
+                        "非遮蔽：Events 一红链仍跑完（一步失败不异常遮蔽全链）");
+                    Check(probe.EventsStep == ProbeStepOutcome.Mismatch
+                            && ContainsDiagnostic(lines, "reason=event-id-mismatch"),
+                        "定位：错挂声明被真实路由拒=仅 Events 步 Mismatch+负判据行");
+                    Check(probe.StepMismatches.Count == 1 && probe.StepMismatches[0].StartsWith("events:"),
+                        "定位：失败详情恰一条且指向 Events 缝（详情=" + string.Join("|", probe.StepMismatches) + "）");
+                    Check(probe.BootstrapStep == ProbeStepOutcome.Passed && probe.LifecycleStep == ProbeStepOutcome.Passed
+                            && probe.NetworkStep == ProbeStepOutcome.Passed && probe.HostTickStep == ProbeStepOutcome.Passed
+                            && probe.SettingsStep == ProbeStepOutcome.Passed && probe.LoggerStep == ProbeStepOutcome.Passed,
+                        "非遮蔽：其余六步照常 Passed");
+                });
+
+                Group("分 seam 定位：Network 一红", () =>
+                {
+                    NoOpFeatureRegistration.ProbeState probe;
+                    List<string> lines;
+                    RunProbe(NoOpProbeFault.NetworkSendExpectation, 4132, out probe, out lines);
+                    Check(probe != null && probe.Started && probe.NetworkStep == ProbeStepOutcome.Mismatch
+                            && probe.NetworkSendObserved == NetworkSendResult.ChannelNotRegistered,
+                        "定位：未注册通道真实被通道门禁拒=仅 Network 步 Mismatch（观察值入详情）");
+                    Check(probe.StepMismatches.Count == 1 && probe.StepMismatches[0].StartsWith("network:"),
+                        "定位：失败详情恰一条且指向 Network 缝");
+                    Check(probe.EventsStep == ProbeStepOutcome.Passed && probe.SettingsStep == ProbeStepOutcome.Passed
+                            && probe.LoggerStep == ProbeStepOutcome.Passed && probe.HostTickStep == ProbeStepOutcome.Passed
+                            && probe.LifecycleStep == ProbeStepOutcome.Passed && probe.BootstrapStep == ProbeStepOutcome.Passed,
+                        "非遮蔽：其余六步照常 Passed");
+                });
+
+                Group("分 seam 定位：Settings 一红", () =>
+                {
+                    NoOpFeatureRegistration.ProbeState probe;
+                    List<string> lines;
+                    RunProbe(NoOpProbeFault.SettingsCommitExpectation, 4133, out probe, out lines);
+                    Check(probe != null && probe.Started && probe.SettingsStep == ProbeStepOutcome.Mismatch
+                            && !probe.SettingsCommitAccepted,
+                        "定位：过期 ExpectedRevision 被乐观并发真实拒=仅 Settings 步 Mismatch");
+                    Check(probe.StepMismatches.Count == 1 && probe.StepMismatches[0].StartsWith("settings:"),
+                        "定位：失败详情恰一条且指向 Settings 缝");
+                    Check(probe.EventsStep == ProbeStepOutcome.Passed && probe.NetworkStep == ProbeStepOutcome.Passed
+                            && probe.LoggerStep == ProbeStepOutcome.Passed && probe.HostTickStep == ProbeStepOutcome.Passed
+                            && probe.LifecycleStep == ProbeStepOutcome.Passed && probe.BootstrapStep == ProbeStepOutcome.Passed,
+                        "非遮蔽：其余六步照常 Passed");
+                });
+
+                Group("分 seam 定位：Lifecycle 一红", () =>
+                {
+                    NoOpFeatureRegistration.ProbeState probe;
+                    List<string> lines;
+                    RunProbe(NoOpProbeFault.LifecycleTrackExpectation, 4134, out probe, out lines);
+                    Check(probe != null && probe.Started && probe.LifecycleStep == ProbeStepOutcome.Mismatch
+                            && probe.Tracked,
+                        "定位：TryTrack 真实受理被错置期望=仅 Lifecycle 步 Mismatch（真实行为未动）");
+                    Check(probe.StepMismatches.Count == 1 && probe.StepMismatches[0].StartsWith("lifecycle:"),
+                        "定位：失败详情恰一条且指向 Lifecycle 缝");
+                    Check(probe.EventsStep == ProbeStepOutcome.Passed && probe.NetworkStep == ProbeStepOutcome.Passed
+                            && probe.LoggerStep == ProbeStepOutcome.Passed && probe.HostTickStep == ProbeStepOutcome.Passed
+                            && probe.SettingsStep == ProbeStepOutcome.Passed && probe.BootstrapStep == ProbeStepOutcome.Passed,
+                        "非遮蔽：其余六步照常 Passed");
+                });
+
+                Group("分 seam 定位：Logger 一红（判据=独立诊断行）", () =>
+                {
+                    NoOpFeatureRegistration.ProbeState probe;
+                    List<string> lines;
+                    RunProbe(NoOpProbeFault.LoggerInvalidEventWrite, 4135, out probe, out lines);
+                    Check(probe != null && probe.Started && probe.LoggerInvalidAttempt,
+                        "setup：无效标识符负写已发生（07 冻结=拒写面）");
+                    Check(!ContainsDiagnostic(lines, "diagnosticId=BUE-NOOP-INVALID")
+                            && ContainsDiagnostic(lines, "BUE-LOG-002")
+                            && ContainsDiagnostic(lines, "event=noop-probe-info"),
+                        "定位：无效写被消毒纪律真实拒=BUE-LOG-002 留痕且无模块行，同时三正行照常（互不遮蔽）");
+                    Check(probe.BootstrapStep == ProbeStepOutcome.Passed && probe.EventsStep == ProbeStepOutcome.Passed
+                            && probe.NetworkStep == ProbeStepOutcome.Passed && probe.HostTickStep == ProbeStepOutcome.Passed
+                            && probe.LifecycleStep == ProbeStepOutcome.Passed && probe.SettingsStep == ProbeStepOutcome.Passed
+                            && probe.LoggerStep == ProbeStepOutcome.Passed && probe.StepMismatches.Count == 0,
+                        "非遮蔽：void 窄面不受单行拒影响，七步状态全绿（判据全在行级）");
+                });
+
+                Group("注册缝：受理失败=链不运行（无伪装启动）", () =>
+                {
+                    NoOpFeatureRegistration.ResetLastProbe();
+                    var runtime = new FeatureRegistrationRuntime();
+                    runtime.OpenRegistration();
+                    Check(runtime.CompleteRuntime(), "setup：目录先冻结（注册窗口关）");
+                    var late = runtime.Register(NoOpFeatureRegistration.ProbeRegistration);
+                    Check(!late.Accepted && late.Reason == FeatureRegistrationReason.PhaseClosed
+                            && late.DiagnosticId == "BUE-REG-003",
+                        "注册缝：窗口外注册=显式拒（PhaseClosed/BUE-REG-003，作者按 reason 分支降级）");
+                    BueFeatureStartRuntime.StartCatalog(runtime, NewLoopbackNetwork(4136UL));
+                    Check(NoOpFeatureRegistration.LastProbe == null,
+                        "注册缝：被拒登记不产启动——链无探针可报（LastProbe=null 显式可区分于「跑过」）");
+                    BueFeatureStartRuntime.StopAll(FeatureStopReason.PluginStopping);
+                });
+
+                Group("SDK 附录与活样板双向锚定（结构/码表/清单/示例=源码逐字）", () =>
+                {
+                    var solutionRoot = new DirectoryInfo(AppContext.BaseDirectory);
+                    while (solutionRoot != null && !System.IO.File.Exists(System.IO.Path.Combine(solutionRoot.FullName, "BetterUnturnedExperience.sln")))
+                        solutionRoot = solutionRoot.Parent;
+                    Check(solutionRoot != null, "文档锚：从测试基目录定位到仓库根");
+                    var docPath = System.IO.Path.Combine(solutionRoot.FullName, "docs", "sdk", "BetterUnturnedExperience-SDK-Assembly-Identity.md");
+                    var fixturePath = System.IO.Path.Combine(solutionRoot.FullName, "src", "BetterUnturnedExperience.NoOpFixture", "NoOpFeaturePlugin.cs");
+                    Check(System.IO.File.Exists(docPath), "文档锚：SDK 契约文档在唯一事实源位置");
+                    var doc = System.IO.File.ReadAllText(docPath);
+                    var fixtureSource = System.IO.File.ReadAllText(fixturePath);
+                    // 结构：三附录成文、A 恰七节、B/C 标题、清单在 C 内。
+                    var sliceAStart = doc.IndexOf("## 附录 A", StringComparison.Ordinal);
+                    var sliceBStart = doc.IndexOf("## 附录 B", StringComparison.Ordinal);
+                    var sliceCStart = doc.IndexOf("## 附录 C", StringComparison.Ordinal);
+                    Check(sliceAStart >= 0 && sliceBStart > sliceAStart && sliceCStart > sliceBStart,
+                        "结构锚：附录 A/B/C 依序成文");
+                    // 收集模式下结构缺失时干净收束（红测自身卫生：后续切片
+                    // 断言以结构存在为前提，不得以 Substring 异常冒充红因）。
+                    if (sliceAStart < 0 || sliceBStart <= sliceAStart || sliceCStart <= sliceBStart) return;
+                    var sliceA = doc.Substring(sliceAStart, sliceBStart - sliceAStart);
+                    var sliceB = doc.Substring(sliceBStart, sliceCStart - sliceBStart);
+                    var sliceC = doc.Substring(sliceCStart);
+                    for (var i = 1; i <= 7; i++)
+                        Check(sliceA.Contains("### A." + i + " "), "结构锚：A." + i + " 节成文");
+                    Check(sliceA.Contains("NoOpFeaturePlugin.cs"), "结构锚：附录 A 指回活样板出处");
+                    // 附录 B：逐码登记（拒绝码表+观察行+前缀纪律+保留段示例）。
+                    var codes = new[]
+                    {
+                        "BUE-REG-ACCEPT", "BUE-REG-001", "BUE-REG-002", "BUE-REG-003", "BUE-REG-004", "BUE-REG-005",
+                        "BUE-REG-006", "BUE-REG-007", "BUE-REG-008", "BUE-REG-009", "BUE-REG-010", "BUE-REG-011",
+                        "BUE-PLATFORM-001", "BUE-PLATFORM-002",
+                        "BUE-EVT-ACCEPT", "BUE-EVT-001", "BUE-EVT-002", "BUE-EVT-003", "BUE-EVT-004",
+                        "BUE-LIFE-STATE", "BUE-LIFE-ACCEPT", "BUE-LIFE-RELEASE", "BUE-LIFE-ISOLATE",
+                        "BUE-LIFE-001", "BUE-LIFE-002", "BUE-LIFE-003", "BUE-LIFE-004", "BUE-LIFE-005", "BUE-LIFE-006",
+                        "BUE-NET-001", "BUE-NET-002", "BUE-NET-003", "BUE-NET-004", "BUE-NET-005",
+                        "BUE-MT-ACCEPT", "BUE-MT-001", "BUE-MT-002", "BUE-MT-003", "BUE-MT-004", "BUE-MT-005", "BUE-MT-006",
+                        "BUE-MT-GEN", "BUE-MT-CREATED",
+                        "BUE-CLOCK-001",
+                        "BUE-SET-001", "BUE-SET-002", "BUE-SET-003", "BUE-SET-004", "BUE-SET-005",
+                        "BUE-SET-CREATED", "BUE-SET-GEN",
+                        "BUE-LOG-001", "BUE-LOG-002", "BUE-LOG-003", "BUE-LOG-004", "BUE-LOG-005",
+                        "BUE-LOG-CREATED", "BUE-LOG-GEN",
+                    };
+                    foreach (var code in codes)
+                        Check(sliceB.Contains("`" + code + "`"), "码表锚：" + code + " 入附录 B");
+                    Check(sliceB.Contains("宿主观察行") && sliceB.Contains("拒绝码表"),
+                        "码表锚：观察行 vs 拒绝码两分类口径成文（04/05/06 先例总装）");
+                    Check(sliceB.Contains("com.acme.medical-overlay") && sliceB.Contains("io.github.yu80rice.bue.medical-overlay"),
+                        "身份锚：FeatureId 合法/非法示例对照成文");
+                    Check(sliceB.Contains("diagnostic-summary"),
+                        "行形锚：T8 冻结摘要行形入 B（featureId/diagnosticId/level/count/firstSeen/lastSeen）");
+                    // 附录 C：2.1 条目、安全降级、Major 纪律、四条件门禁、RELEASES。
+                    Check(sliceC.Contains("2.0→2.1") && sliceC.Contains("安全降级") && sliceC.Contains("RELEASES"),
+                        "版本锚：2.0→2.1 加性条目+安全降级+RELEASES 注记成文");
+                    Check(sliceC.Contains("四条件") && sliceC.Contains("重评义务") && sliceC.Contains("继续暂缓")
+                            && sliceC.Contains("触发信号") && sliceC.Contains("编译脱耦"),
+                        "门禁锚：Contracts 拆分四条件逐条含定义/事实判定/触发信号/重评义务，当前=继续暂缓");
+                    for (var item = 1; item <= 11; item++)
+                        Check(sliceC.Contains("- [ ] " + item + "."), "自检清单锚：第 " + item + " 项可打勾");
+                    // 双向锚定：文档示例=NoOpFixture 源码逐字（示例可编译的机器
+                    // 化替身——编译期验证工具属 T9 裁决①不建项，示例即活样板
+                    // 本体，活样板已被本套件在跑）；样板在文档有出处。
+                    var sharedSnippets = new[]
+                    {
+                        "[BepInDependency(\"io.github.yu80rice.betterunturnedexperience\", BepInDependency.DependencyFlags.HardDependency)]",
+                        "BueRuntimeHost.Register(ProbeRegistration)",
+                        "bootstrap.EventRegistry.Register<NoOpProbeEvent>(ProbeEventId)",
+                        "bootstrap.OwnedEvents.TryPublish(publishId, new NoOpProbeEvent(1UL))",
+                        "bootstrap.Lifetime.TryTrack(first)",
+                        "bootstrap.Network.RegisterChannel(channel, new ContractVersion(2, 0), 1)",
+                        "bootstrap.MainThread.Post(() => { })",
+                        "settings.GetSnapshot(SettingRevisionScope.ClientPreference)",
+                        "logger.Info(\"noop-probe-info\", \"BUE-NOOP-INFO\")",
+                    };
+                    foreach (var snippet in sharedSnippets)
+                    {
+                        Check(fixtureSource.Contains(snippet), "双向锚：示例代码行真实存在于活样板源码 " + snippet);
+                        Check(doc.Contains(snippet), "双向锚：示例代码行逐字进文档 " + snippet);
+                    }
+                    Check(doc.Contains("io.github.yu80rice.bue.noop/probe-completed"),
+                        "双向锚：样例事件身份串（文档示例↔ProbeEventId）两处一致");
+                    Check(fixtureSource.Contains("ProbeEventId = \"io.github.yu80rice.bue.noop/probe-completed\""),
+                        "双向锚：ProbeEventId 常量=文档所引事件身份串");
+                });
+            }
+            catch (Exception error) when (collectAllFailures)
+            {
+                reds.Add("UNEXPECTED: " + error.GetType().FullName + ": " + error.Message);
+            }
+            finally
+            {
+                // 06/07 先例卫生：设置运行时清账+临时持久根删除（收集不删除
+                // =泄漏，R1-Standards P2 修复）。
+                BetterUnturnedExperience.Plugin.BueSettingsRuntime.Clear();
+                for (var index = 0; index < settingsRoots.Count; index++)
+                {
+                    try { if (System.IO.Directory.Exists(settingsRoots[index])) System.IO.Directory.Delete(settingsRoots[index], true); }
+                    catch (Exception) { }
+                }
+            }
+            if (collectAllFailures && reds.Count == 0)
+                Console.WriteLine("DEV-V3-08 unified probe collection: ALL GREEN (0 failures) — groups: 全链绿/停止边界与再启用/Start 故障隔离/分 seam 定位 Events·Network·Settings·Lifecycle·Logger/注册缝拒/文档双向锚定");
+            if (collectAllFailures && reds.Count > 0)
+                throw new InvalidOperationException("DEV-V3-08 red collection (" + reds.Count + "): " + string.Join(" || ", reds));
         }
 
         private static void AssertBueV2LhtAdoption(bool collectAllFailures = false)

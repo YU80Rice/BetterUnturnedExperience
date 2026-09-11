@@ -1,0 +1,1 @@
+DEV-V3-08 unified probe collection: ALL GREEN (0 failures) — groups: 全链绿/停止边界与再启用/Start 故障隔离/分 seam 定位 Events·Network·Settings·Lifecycle·Logger/注册缝拒/文档双向锚定

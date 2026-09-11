@@ -217,3 +217,417 @@ conflictLocation=<冲突副本路径> selfPath=<当前 BUE 路径> suggestion=�
 
 
 
+
+---
+
+# 附录（DEV-V3-08：平台服务参考 · 诊断与身份码表 · 契约版本与迁移）
+
+> **定位与纪律**：正文八节冻结不动（2.0 基线原文保留）；第三阶段（DEV-V3-01..07，契约 Minor 批次 **2.1**）的全部开发者承诺在此成文。附录条目=对应实施票已裁决内容的落档（每节标注出处票），**不新增任何运行时成员、不改变任何既有 interface**——文档不独立创造契约（V3-T9 裁决⑥）。
+>
+> **统一活样板**：本附录所有生态路径示例逐字取自 `src/BetterUnturnedExperience.NoOpFixture/NoOpFeaturePlugin.cs`——该样板已被 Plugin.Tests 的「DEV-V3-08 统一探针」组在真实宿主组合（公开注册桥+真实 StartCatalog+生产总线/时钟/设置/诊断）下全链验证。文档示例与样板**双向锚定**由机器执行：示例代码行=样板源码逐字、样板身份串=文档引用一致（红测锚「SDK 附录与活样板双向锚定」子组）。编译期验证工具不在本阶段建设（T9 裁决①），「示例可编译」的落实形态=示例即被测试在跑的活样板本体。
+>
+> **统一生态契约 probe（分 seam 判据）**：NoOpFixture 是全链接入的生态侧总探针，链序冻结为 **注册→Bootstrap→Events→TryTrack/Lifecycle→Network→HostTick→Settings→Logger→停止与隔离**。每枚缝步有独立判据（`ProbeStepOutcome` NotRun/Passed/Mismatch + 各自的显式结果与结构化诊断行）：一步 Mismatch **不遮蔽**其余步，未跑到的步=**NotRun≠Passed**；注册被拒=链不运行（`LastProbe=null` 与「跑过」显式可区分）。失败分 seam 可定位由「一次红一缝」旋钮红测证明：旋钮只错置该步的期望，真实拒绝来自真实缝（总线归属路由/通道门禁/乐观并发/资源账/标识符消毒）。运行该探针组：`BetterUnturnedExperience.Plugin.Tests.exe --bue-v3-probe-red`。
+
+## 附录 A：平台服务参考
+
+### A.1 Admission 与 Bootstrap（出处：DEV-V3-01 / V3-T2）
+
+**公开面清单（冻结）**：注册桥 `BueRuntimeHost.Register(IFeatureRegistration)` → `FeatureRegistrationResult`（Accepted/FeatureId/Reason/DiagnosticId 四元组）；`FeatureRegistrationPhase`（HostStarting/RegistrationOpen/CatalogFrozen/RuntimeReady/CoreSafeMode）；`FeatureRegistrationReason`（冻结枚举，含 2.1 加性值 `ReservedFeatureId=206`）；`IFeatureBootstrap` 恰 11 成员。拒绝=**显式结果，不抛越界异常**；受理携带 FeatureId 绑定与诊断标识。
+
+**判定顺序（冻结）**：阶段门（001/002/003）→ 基础/格式校验（004：definition null / FeatureId 空 / FormatVersion=0 / DefinitionSetId 空 / canonical payload 空或摘要不符；005：工厂 null）→ 保留段（010）→ 合同版本（006：Major 恰=2 且 Minor≤宿主支持批次）→ ClientUi 卫星（008）→ 设置 facet（011）→ 登记期属性读取异常折叠（009，拒因归 InvalidDefinitionArtifact）→ 锁内二次阶段校验+重复（007）→ 受理（ACCEPT）。逐码语义与作者处置建议见附录 B.1。
+
+**官方身份白名单**：保留段=根串 `io.github.yu80rice.bue` 或其 `.` 前缀段；段内 FeatureId 须**恰等于**白名单枚举之一（BII、LIT、LIR、LHT、network、network.v1compat、noop 样例七项，逐值见 B.10），否则确定性拒 `ReservedFeatureId`/`BUE-REG-010`。白名单只裁决身份资格，**不授予任何契约面以外的特权**；不反射 caller、不读路径——身份=声明的 FeatureId 本身（部署事实由程序集身份与加载链承担）。
+
+**Bootstrap 成员可用性矩阵**（spec 唯一口径；「阶段基线」=DEV-V3-01 组装承诺，「票后终态」=接线票完成后的组装事实；当前 01..07 已全闭环）：
+
+| 成员 | 阶段基线（01 后） | 票后终态（当前） | 终态规则 |
+|---|---|---|---|
+| Identity | 可用 | 可用 | 冻结永非 null（绑定自身身份） |
+| LifecycleGeneration | 可用 | 可用 | 冻结永非 null（宿主实发代际） |
+| Events | 可用 | 可用 | 冻结永非 null |
+| OwnedEvents | 可用 | 可用 | 冻结永非 null |
+| Network | 可用 | 可用 | 冻结永非 null |
+| EventRegistry | null | 02 后可用 | 宿主组装期永非 null |
+| Lifetime | null | 03 后可用 | 同上 |
+| Dependencies | null | 03 后可用 | 同上 |
+| MainThread | null | 04 后可用 | 同上 |
+| Settings | null | 06 后可用 | **facet 规则**：注册声明设置 facet=组装非 null；未声明=诚实 null（不伪造设置） |
+| Logger | null | 07 后可用 | 每功能一律非 null（无 facet 门） |
+
+**FeatureScopeIdentity 字段可用性（01 票具名延期兑现，如实记载）**：`Id`/`DefinitionSetId`/`DefinitionSetDigest`=登记工件实发值（受理时绑定）；`FeatureVersion`/`CurrentSlug`=**公开注册桥路径下恒 null**——注册接口无此数据源，身份承诺只覆盖前三字段，作者不得依赖后两者；未来定义工件层引入数据源=契约登记事件再改本节。
+
+**阶段基线容忍纪律**：面向未发布契约版本编码的模块仍须对「未接线成员=null」做容忍（矩阵行=按宿主契约版本的事实，不是编译期保证）；对 2.1 宿主，上表终态列即承诺。
+
+**线程语义**：注册发生在插件发现/Awake 期；BUE GUID 硬依赖保证 BUE 先行——生态 Awake 时注册窗口已开。目录冻结后注册=PhaseClosed（显式拒，可观察）。
+
+**内部登记记录**：受理即建 owner-scoped registration record（FeatureId/注册来源/状态/代际/资源所有权/停止与隔离结果）——宿主唯一事实载体，不退化为全局查找+散装静态表；**不公开 registration session**（公开面保持窄结果面，T2 裁决）。
+
+**同权检验**：官方七身份与生态走同一桥同一规则（白名单正例锚=DEV-V3-01 常跑组）；NoOp 样例身份=白名单第七项，全链在 Plugin.Tests 真实组合下被验（本附录统一探针）。
+
+**不承诺**：白名单增删属仓库治理（官方新模块随注册面演进）；`SupportedContractMinor` 数值随批次；不存在官方私有通道，也不存在生态专用旁路。
+
+活样板登记姿势（`NoOpFeaturePlugin.cs`，逐字）：
+
+```csharp
+[BepInDependency("io.github.yu80rice.betterunturnedexperience", BepInDependency.DependencyFlags.HardDependency)]
+// ...
+public static FeatureRegistrationResult Register()
+{
+    return BueRuntimeHost.Register(ProbeRegistration);
+}
+```
+
+### A.2 功能事件 FeatureEventBus（出处：DEV-V3-02 / V3-T3）
+
+**路由不变量（冻结）**：内部路由索引=（EventId, EventType, 载荷类型归属 owner）三元组；**发布者 owner == 载荷类型归属 owner**；**一个载荷类型恰对应一个归属 EventId**（不存在「同类型不同事件互收」）；eventId 前缀校验保留（`<owner>/<event-name>`）。拒绝=显式结果+结构化诊断+**零派发**（任何订阅者都不被调用）。
+
+**公开面（2.1 加性，形状冻结）**：`IFeatureEventRegistry.Register<TEvent>(string eventId)` → `FeatureEventRegistrationResult`（Registered/Reason/DiagnosticId）；`FeatureEventRegistrationReason : byte { None=0, InvalidEventId=1, EventIdNotDerivedFromOwner=2, EventTypeAlreadyRegistered=3, EventIdAlreadyRegistered=4 }`（值冻结，Contracts.Tests 锚定）。视图经 `IFeatureBootstrap.EventRegistry` 注入、绑定自身身份——不能替别人登记；宿主保留身份不可 mint 成登记视图（`EventRegistry(宿主标识)` 参数异常 fail-fast，与发布者视图同门）。既有两接口（`IFeatureEventSubscriber.Subscribe<TEvent>` / `IOwnedFeatureEventPublisher.TryPublish<TEvent>`）形状与语义**不变**；泛型 `Subscribe<TEvent>` 是便利入口，内部按登记的（EventId, Type）路由。
+
+**顺序约束（冻结）**：生态自定义事件**必须**先经自己的 EventRegistry 登记类型归属，然后才能发布/订阅；登记时机=模块注册之后、首次发布/订阅之前。未登记类型：发布=显式拒绝+诊断；订阅=同样拒绝且按**开发期错误** fail-fast（同 null-handler 纪律；诊断行先于异常浮出）。官方事件类型（TidyCompleted→`io.github.yu80rice.bue.inventory-tidy`、HostTick→`io.github.yu80rice.bue.host`）由宿主在组合期唯一登记——不可重登记、不可改挂。
+
+**重复与跨代幂等**：重复登记同一类型=**显式拒绝不覆盖**（BUE-EVT-003）；功能停止/隔离**不撤销**类型归属登记——再启用新代际重登记得到同样的显式拒，路由仍归首登 owner，其功能照常发布收帧（统一探针跨代路径即验证此姿势：把 `Registered || EventTypeAlreadyRegistered` 都视为路由在手）。
+
+**线程与故障语义**：总线=进程内本地（跨机协作走 BueNetworkApi，不在此面）；派发在锁外快照执行；单 handler 异常隔离进诊断、不扩散到其它订阅者；订阅句柄独立幂等释放；功能停止边界由宿主统一 `UnsubscribeAll`——**模块无需也不应自拆订阅**。
+
+**同权检验**：官方 LIT 经登记路径发布 TidyCompleted 的真实消费锚（DEV-V3-02）；宿主保留身份发布 HostTick；生态侧=统一探针 Events 缝（登记→订阅→自有 EventId 发布被收并自回帧→错挂声明被拒零派发）。
+
+**不承诺**：不引入统一 envelope；`FeatureEventBus` 类本体保持内部自由（非契约面）；不提供持久事件队列/重放；不承诺多订阅者间的回调先后顺序。
+
+活样板 Events 缝姿势（`NoOpFeaturePlugin.cs`，逐字）：
+
+```csharp
+public const string ProbeEventId = "io.github.yu80rice.bue.noop/probe-completed";
+// ...
+var registration = bootstrap.EventRegistry.Register<NoOpProbeEvent>(ProbeEventId);
+probe.EventsRouteOwned = registration.Registered
+    || registration.Reason == FeatureEventRegistrationReason.EventTypeAlreadyRegistered;
+var subscription = bootstrap.Events.Subscribe<NoOpProbeEvent>(e => probe.EventsSelfReceived++);
+probe.EventsPublishAccepted = bootstrap.OwnedEvents.TryPublish(publishId, new NoOpProbeEvent(1UL));
+```
+
+### A.3 生命周期与资源（出处：DEV-V3-03 / V3-T4）
+
+**唯一状态投影（冻结）**：`FeatureState`/`FeatureStatusView`/`StateRevision` 是功能状态的**唯一**事实投影——散装布尔标志收编为宿主内部实现；**模块不能修改自己的状态**，一切状态变更由宿主驱动、经状态投影与 `FeatureStatusChangedEvent` 呈现。`FeatureStatusView` 为不可变快照（六成员：Feature/State/Error/StopReason/DiagnosticId/StateRevision），面板与生态共用同一投影。
+
+**只读状态查询最小行为面（冻结五条）**：`IFeatureLifetime.CurrentStatus` 接线后——任何阶段查询可用、不抛异常、不返回 null；返回不可变投影快照（不暴露内部可变引用）；隔离/停止后仍可用并**如实**返回当时状态；查询范围仅限自身 FeatureId（视图组合期已绑定身份）；模块无 mutator 面。
+
+**TryTrack 资源账（冻结）**：`bool IFeatureLifetime.TryTrack(IDisposable)` 登记功能拥有的资源；停止时按注册**逆序**自动 Dispose；单资源 Dispose 异常隔离进诊断（BUE-LIFE-006）并继续清理其余；容量上限 **64/功能/代际**（V3-T4 冻结数值，超限显式拒 BUE-LIFE-002）；已停止/隔离功能不可再登记（拒绝序与逐码见 B.4）。统一探针以两资源对（first→second 登记、second→first 释放）把逆序事实做成可观察记录。
+
+**代际与隔离**：两代际轴分离——LifecycleGeneration（功能启停代际）与 ConnectionGeneration（网络会话代际）互不映射；再启用=**新代际，旧代际一切失效**（旧视图/旧句柄/旧跟踪资源账全部作废并留显式诊断）；**Isolated 不自动重启**——只有用户经面板（command seam）显式启用才重新臂起，且从干净代际开始。`CoreSafeMode` 只由组合期不变量损坏触发（目录冻结失败/核心 capability 组合失败等）；运行期单功能失败**永不升级**，只走功能级隔离。
+
+**Dependencies（冻结语义）**：只读目录能力查询（`Has`/`TryGet`），**不是求解器**、不做拓扑排序、不代拉依赖；presence-only 投影规则=空能力串+0 版只答「在不在」，非空能力声明 fail-closed（见 03 票）。
+
+**顺序约束**：`IFeatureModule.Start(IFeatureBootstrap)` 返回显式 `FeatureStartResult`；返回 false 或抛异常=该功能隔离（不炸宿主、不波及其他）；`Stop(reason)` 由宿主在停止边界调用，宿主随后完成资源逆序释放与订阅注销——模块的 Stop 内发布仍会被派发（停止故障不跳过清理）。
+
+**同权检验**：面板启停 seam（`SetFeatureEnabled`）官方与生态同一条命令路径；官方 LIT 走真 TryTrack（网络句柄）+真 UserDisabled 循环（DEV-V3-03 官方锚）；生态侧=统一探针 Lifecycle 缝+停止/隔离边界子组。
+
+活样板 Lifecycle 缝姿势（`NoOpFeaturePlugin.cs`，逐字）：
+
+```csharp
+first = new ProbeResource(probe, "first");
+probe.Tracked = bootstrap.Lifetime.TryTrack(first);
+second = new ProbeResource(probe, "second");
+probe.TrackedSecond = bootstrap.Lifetime.TryTrack(second);
+probe.QueriedStateAtStart = bootstrap.Lifetime.CurrentStatus.State;
+```
+
+**不承诺**：registration session 不公开（内部记录非契约面）；面板按钮 UI（Unity 控件）与宿主内部 command seam 是两回事（后者非 SDK 面）；StateRevision 只承诺单调，不承诺连续。
+
+### A.4 网络与主线程投递（出处：DEV-V3-04 / V3-T5）
+
+**发送预算（本票定值，冻结）**：平台按会话保底限流——每会话（ConnectionGeneration）固定窗 **2000ms 内 256 条**作者数据发送；超窗即重置；预算随代际隔离（跨代清零）；官方与生态一视同仁；**不静默丢弃**——超限返回新枚举值 `NetworkSendResult.Throttled = 205`（2.1 加性），控制帧/握手帧属平台内部流量不过预算。旧模块安全降级纪律：**未知/新结果值不得当成功**（只有显式 `Sent` 是成功）。
+
+**聚合结果语义（既有冻结+本票扩展）**：全送达→`Sent`；全传输失败→`LocalTransportUnavailable`；混合（含被节流未执行）→`PartialFailure`；纯节流（无执行无失败）→`Throttled`；通道未注册仍优先 `ChannelNotRegistered`；空快照→`NoSession`。发送不持状态锁。
+
+**主线程 dispatcher（2.1 加性面）**：`IFeatureBootstrap.MainThread`（`IFeatureMainThread`）**恰一个投递方法** `MainThreadPostResult Post(Action task)`，单向 fire-and-forget（任务无返回、无等待句柄；需要结果走事件回发或网络响应）。最小行为面冻结：投递返回显式结果（成功/容量拒绝 `CapacityExceeded`/已失效 `GenerationInvalid` 可区分），调用本身不抛越界异常（null task=开发期错误 fail-fast，先浮出 BUE-MT-004 行再抛）；模块停止/隔离/宿主停止后投递=显式失败+诊断；超限=显式失败+诊断不静默丢；任务绑定提交时模块的 LifecycleGeneration，代际失效后未执行任务不再执行；执行期单任务异常隔离进诊断（不扩散、不打穿主线程泵）。数值（本票定）：全局队列容量 **256** 待处理任务、每拍至多执行 **32**。**禁自建泵**——平台唯一主线程泵链，宿主停止后重开代际可再臂（同进程 reload 语义，边界≠死刑）。
+
+**入站线程语义（SDK 冻结登记）**：入站网络回调运行在**传输泵线程**，不是 Unity 主线程——其中不得触碰 Unity 对象；需要主线程处理时经 `MainThread.Post` 转抛（这是平台认可的唯一线程交接）。不做「入站回调改主线程」（阶段决定）。
+
+**会话链路健康（电平式诊断）**：连续传输失败达阈值 **10**（DEV-V2-25 先例冻结）→**一次** degraded 诊断（BUE-NET-002）；此后成功→**一次** recovered+计数清零（BUE-NET-003）；每会话代际独立。`Throttled`/参数门拒绝**不计入失败**（未执行≠传输失败）；`PartialFailure` 的失败目标计该会话失败、送达目标计恢复。作者据此定位「发送持续失败」是链路问题而非自身协议问题。官方 LIT 的告警限频被链路健康接管后退役（04 票）；业务重试与退避**不上收**（LIT 挑战重臂保留功能私有）。
+
+**回放失败投影（冻结实现要求）**：`DeferredBueNetworkApi` 的 Attach/replay/detach 失败必须进统一诊断 sink（BUE-NET-005），并可区分四态=not-ready / detached / replay-failed / transport-unavailable；实现**不得以空 catch 无痕折叠**；每 episode 至多一条（防逐帧刷屏）。
+
+**错误模式总表**：预算拒绝=BUE-NET-001 行+`Throttled` 结果；入站 handler 异常=BUE-NET-004 结构化诊断（不扩散不打穿泵）；投递三态=显式 `MainThreadPostResult`+BUE-MT-* 行。逐码见 B.5。
+
+**同权检验**：LIR 迁移为 dispatcher 官方先行消费者（入站泵线程帧→执行只发生在 dispatcher 泵拍，DEV-V3-04 锚）；预算对官方生态一视同仁；生态侧=统一探针 Network 缝五判据（通道登记/established 空快照/`NoSession` 降级/负通道 `ChannelNotRegistered`/投递受理——宿主无会话环境下的**显式结果**即降级契约的活演示）。
+
+**不承诺**：不新增网络状态查询 API（链路健康以诊断呈现）；不做可靠通道分档/加密/跨服中继（Out of Scope）；预算数值属平台治理（调整=契约登记事件）；`Sessions` 只含 established（2.0 ④ 冻结）。
+
+活样板 Network 缝姿势（`NoOpFeaturePlugin.cs`，逐字）：
+
+```csharp
+var channel = new FeatureId(ProbeChannelId);
+var registration = bootstrap.Network.RegisterChannel(channel, new ContractVersion(2, 0), 1);
+probe.NetworkSessionsAtStart = bootstrap.Network.Sessions == null ? -1 : bootstrap.Network.Sessions.Count;
+probe.NetworkSendObserved = bootstrap.Network.SendToClients(sendChannel, new byte[] { 1 }, false);
+probe.MainThreadPosted = bootstrap.MainThread.Post(() => { }).Posted;
+```
+
+### A.5 宿主时钟 HostTick（出处：DEV-V3-05 / V3-T6；零新增契约面）
+
+**八条语义（登记为契约，锚=DEV-V3-05 红测组）**：
+
+1. **宿主产生与身份（防伪造）**：Tick 只能由宿主经保留身份 `io.github.yu80rice.bue.host` 产生；`Publisher(宿主标识)`/`EventRegistry(宿主标识)` fail-fast——任何功能都无法伪造宿主时钟。
+2. **每拍恰一 tick（去重归宿主）**：每泵拍至多一个；同帧多驱动源的去重是宿主实现责任，订阅者无需自行去重。
+3. **Phase 冻结**：`Phase=Update`、数值=0；新增阶段=契约登记显式加性扩展，不得隐式增加（Contracts.Tests 锚=枚举恰一成员，隐式扩展必红）。
+4. **序号**：`TickNumber` 从 1 起严格单调 +1、时钟生命周期内不重置；功能不可修改；失败拍不消耗序号；模块代际变化不改变序号语义。
+5. **DeltaTime**：相邻 tick 单调时差；首拍=0；时钟回拨/负差**钳零**且基线停留高水位；**暂停期间无 Tick**（无拍即无产生），恢复后下一拍 DeltaTime=实际间隔、**无追帧**——是否忽略大间隔由功能自决。
+6. **载荷范围**：只含时序三字段（Sequence/DeltaTime/Phase）——不得携带业务字段、网络消息、设置值、玩家状态、功能命令、诊断载荷（Contracts.Tests 形状锚=恰三属性，隐式加字段必红）。
+7. **异常语义**：派发不把订阅者异常抛回泵调用方；时钟自身故障=显式 false 返回+结构化诊断（`BUE-CLOCK-001` 宿主观察行）+零派发+失败拍不消耗序号/不移动时间基线。
+8. **主线程构造性保证**：时钟无内部线程、无隐藏队列——handler 在 `Tick()` 调用方线程（宿主 Update 链=主线程）上同步执行；生态可在回调内安全调用主线程限定 API。
+
+**自节流=官方推荐模式（登记）**：宿主时钟**无独立 Hz 承诺、无调度协商**——需要低频逻辑的功能订阅 HostTick 后在功能内部自节流（累计 DeltaTime 阈值或序号差值两式；官方先例=LHT 10Hz HUD：`UpdateIntervalSeconds=0.1f` 实现常量、节奏时钟=宿主累计秒）。配套纪律：首拍 DeltaTime=0 按「可能不干活」写码；回拨已钳零无需功能侧防御；模块停止时清理自身节流状态；**禁止自建第二个 Unity Update 泵**（平台唯一泵）。派生低频时钟、per-feature 调度参数=需求信号雾区（Out of Scope，不预建）。
+
+**同权三条（T6 裁决六）**：官方与生态同一 HostTick 订阅 seam（LHT 真订阅锚+统一探针 HostTick 缝）；官方功能不得获得特殊 Tick 频率；生态功能不得被宿主静默过滤。
+
+**版本规则**：本票零新增契约面、不触发版本变化——语义升格为登记契约（实现事实→文档承诺）。
+
+### A.6 设置 Settings（出处：DEV-V3-06 / V3-T7）
+
+**注入面（冻结形状）**：`IScopedFeatureSettings` **恰三方法**（`GetSnapshot(scope)` / `TryGet(id, out value, out revision)` / `Submit(ScopedSettingChangeRequest)`）——查询面不得扩（形状锚钉死：视图注入面永不含 ApplyServerPolicy/ClearSessionOverlay/ActivateConnectionGeneration 类运行时方法）。视图 `bootstrap.Settings` 绑定（功能, LifecycleGeneration）：**读永可用**（功能自身持久真相的只读观察，无突变=无跨代污染面）；**写经两道门**——代际失效/停止边界后显式拒（BUE-SET-001）；ServerAuthority scope 在非权威端显式拒（BUE-SET-002 + UnauthorizedSender）。
+
+**facet 声明（2.1 加性可选面）**：注册对象可**额外实现** `IFeatureSettingsRegistration`（宿主经类型发现，**不**加在 `IFeatureRegistration` 上——2.0 外部实现者零破坏）：恰两成员 `SettingDescriptors`（功能拥有 Schema，宿主据此构造唯一 per-feature SettingsRuntime；descriptor 必须全携本功能 FeatureId、非空、≤**64/功能**，违规=注册拒 `InvalidDefinitionArtifact`/`BUE-REG-011`）与 `OnSettingsApplied`（面板编辑生效后的功能私有刷新钩子，可 null；刷新钩子在触发时刻对登记对象**活解析**，快照只存 resolver 不存可能过期的委托）。未声明 facet 的功能：`Settings` 诚实 null、面板**不伪造设置页**（回退编辑器拒编辑留痕 BUE-SET-004）。
+
+**宿主规则（官方生态共用，同一 runtime 单源）**：校验/revision 单调/损坏安全默认/原子提交/作用域隔离；per-feature **恰一** SettingsRuntime（同 root 键控；schema 冲突 KeepExisting 显式拒 BUE-SET-003——防第二事实源）；再启用新代际**续用同一持久真相**（revision 不清零）。持久化文件布局不变（`<FeatureId>.<Scope>.bue-settings`，玩家既有设置无缝续用）；契约侧不硬编码路径。
+
+**双 scope 语义（冻结）**：`ClientPreference`（本地偏好）与 `ServerAuthority`（服务器权威）；U3DS 与 P2P listen host 的主机权威端=**同一 provider 同一代码路径同语义**（红锚双侧钉）；客户端会话覆盖（SessionProjection）**断线清除**、永不污染持久化 revision；`ExpectedRevision` 防旧 UI 覆盖新值（乐观并发，过期=显式拒）；`schemaVersion` 通道保留、迁移由功能自理；**不做跨机同步协议**（服务器→客户端 policy 投递与断线清除的生产驱动=Network 域另立票）。
+
+**生态五不得（裁决文）**：不另造配置格式、不绕过作用域、不直写持久化、不假设他人作用域可读、不做跨机同步。
+
+**面板=编辑 adapter（非第二事实源）**：面板按注册目录动态路由（官方硬编码清单已退役）；面板快照与功能视图快照恒等（同 revision 同 entries）；编辑链=面板→目录路由→宿主唯一 runtime→`OnSettingsApplied`→功能经注入 view 读到新值（全链单真相，官方先行消费锚=真实 LIT/LIR/LHT/网络模块全迁移到注入 view）。
+
+**同权检验**：统一探针 Settings 缝五判据（读快照/合法提交 revision 推进/未知 id 拒/过期 ExpectedRevision 拒/停止边界写拒）；跨重启续账判据在停止与再启用子组。
+
+**不承诺**：`SettingsRuntime`/`ISettingsPersistence`/面板 editor 类本体不列契约（类本体自由）；平台统一迁移框架不做；跨机设置同步协议 Out of Scope。
+
+活样板 Settings 缝姿势（`NoOpFeaturePlugin.cs`，逐字）：
+
+```csharp
+var snapshot = settings.GetSnapshot(SettingRevisionScope.ClientPreference);
+var commit = settings.Submit(new ScopedSettingChangeRequest(
+    1000UL + snapshot.Revision, SettingRevisionScope.ClientPreference, snapshot.Revision,
+    new[] { new SettingMutation("noop.probe-toggle", SettingValue.Toggle(!current.Boolean)) }));
+probe.SettingsRevisionAdvanced = commit.Accepted && commit.Revision > snapshot.Revision;
+```
+
+### A.7 诊断与 Logger（出处：DEV-V3-07 / V3-T8）
+
+**注入面（形状既有，07 兑现矩阵行）**：`IFeatureLogger` 三方法窄面（`Info(eventName, diagnosticId)` / `Warning(eventName, error, diagnosticId)` / `Error(eventName, error, diagnosticId, exception)`），每模块绑定自身 FeatureId 的 view，**每功能一律接线**（无 facet 门）；`Error` 的 fault=「类型:消息」**无堆栈**（不保存敏感 payload）。
+
+**行为面八条（07 票登记正文）**：三方法 void=**无报错面**，隔离义务全在 view 侧——sink 恒抛与主+fallback 双故障均不外抛（故障观察=BUE-LOG-005 恰一条/episode latch）；每行盖自身 FeatureId+代际；代际撤账后（停用/隔离/启动失败/启用失败/宿主停止）写入=不产模块行+BUE-LOG-004 显式留痕一条（reason 区分 write-boundary/host-stopped）+静默计数；`OpenGeneration` 重臂=宿主停止是边界非死刑（reload 后可恢复）；前缀纪律按保留段身份判定（段内白名单身份经登记桥准入才存在——治理哲学=T2 同一条）；null/空白标识符=拒写+BUE-LOG-002；消毒=空白→下划线+截断（event **64** / diagnosticId **128** / fault **256**，本票定值），条目键=截断后值、伪造换行不产第二行。
+
+**结构化行与统一 sink**：行写 BepInEx `LogOutput.log`（Info/Warning/Error→正常播放可见级别，非 Debug 静默通道；中文人读行走原通道不受改）；T4 隔离/T5 链路健康/状态投影行经统一摘要聚合（带码行按字段边界 token 聚合；无码行不聚合不造静默条目）——**分 seam 判据可定位、互不遮蔽**；设置拒绝/事件回调/dispatcher 拒绝行保留各自既有缝（收编面以 spec 三缝为准）。
+
+**有界诊断摘要（本票定值）**：按 **(FeatureId, DiagnosticId)** 聚合（级别=max 所见/计数/首末 UTC 时间）；容量 **128**——溢出=模块原行照写（证据链不被掐）+BUE-LOG-003 观察恰一条+新码不再聚合（内存有界）；输出限频=首见一条+每条目 **30000ms** 至多一条（只限摘要行，≠过滤原行）；纯内存=重启不持久；冻结行形：
+
+```text
+BUE diagnostic-summary featureId= diagnosticId= [level=] count= firstSeen= lastSeen=
+```
+
+**BUE-* 前缀纪律**：`BUE-*` 平台诊断前缀**保留**——保留段外的身份冒用 BUE-* 码=拒写+BUE-LOG-001（latch 一条+计数）；生态诊断码用 **FeatureId 派生前缀**（合法示例见 B.9）；段内白名单身份（如官方功能 BUE-LIT-*、样例 BUE-NOOP-*）经桥准入后放行——这正是官方先行行能通过的前置。
+
+**导出与验收边界（冻结）**：BUE **不建**日志复制器/采集器/面板导出动作；原始日志导出归 UMM 人工流程（Player.log + LogOutput.log）；**摘要≠验收授权**——CaseId/RELEASES 仍走人工批准链（发布纪律 §C.5）。
+
+活样板 Logger 缝姿势（`NoOpFeaturePlugin.cs`，逐字）：
+
+```csharp
+probe.LoggerAvailable = true;
+logger.Info("noop-probe-info", "BUE-NOOP-INFO");
+probe.LoggerInfoWritten = true;
+logger.Warning("noop-probe-warning", FrameworkErrorCode.SettingRejected, "BUE-NOOP-WARN");
+logger.Error("noop-probe-error", FrameworkErrorCode.None, "BUE-NOOP-ERROR", null);
+```
+
+**同权检验**：官方 LIT 启停两结构化行经注入 view（BUE-LIT-START/STOP，官方先行锚）；生态侧=统一探针 Logger 缝（三方法窄面+行级判据+摘要计数）。
+
+**不承诺**：诊断实时视图、诊断附件 API、UMM 诊断包自动化=Out of Scope（spec 已钉）；摘要条目集合不是稳定查询 API（内存有界、重启即空、限频输出）。
+
+## 附录 B：诊断与身份码表
+
+### B.0 总则（行形、级别与两分类口径）
+
+结构化诊断行统一写入 BepInEx `LogOutput.log`（键值对形如 `event=<名> feature=<id> ... diagnosticId=<码>`；`BUE diagnostic-summary featureId=... diagnosticId=... level=... count=... firstSeen=... lastSeen=...` 为冻结摘要行形（A.7））。诊断码两分类（04/05/06/07 票统一口径）：
+
+- **拒绝码表**（作者须按语义分支处置的显式拒绝）：B 节各表中列「拒绝」属性的码——`BUE-REG-*`、`BUE-EVT-001..004` 属之。
+- **宿主观察行**（记录事实、不要求作者分支处置）：`*-ACCEPT`、`*-CREATED`、`*-GEN`、`BUE-LIFE-STATE/RELEASE/ISOLATE`、`BUE-CLOCK-001`、`BUE-PLATFORM-*` 等——它们**不入拒绝码表语义**，出现时按行内容理解，不触发作者侧降级分支。运行期内部拒绝行（LIFE/NET/MT/SET/LOG 家族的 `001..` 码）居中：由宿主在拒绝发生处写行，作者经**显式方法返回值**（TryTrack=false/Post 结果/Submit 结果）分支，诊断行供定位。
+
+### B.1 注册拒绝码表 BUE-REG（判定顺序见 A.1）
+
+| 码 | Reason（冻结枚举值） | 触发 | 作者处置建议 |
+|---|---|---|---|
+| `BUE-REG-ACCEPT` | None | 受理（观察） | 无需处置；FeatureId 绑定生效 |
+| `BUE-REG-001` | HostUnavailable(100) | 宿主仍在 HostStarting 期 | 推迟注册（等 BUE 前置就绪；硬依赖下正常不会遇到） |
+| `BUE-REG-002` | CoreUnavailable(900) | 宿主 CoreSafeMode | 禁用自身功能并提示用户修复 BUE 部署（等前置=不可用终态，不自愈） |
+| `BUE-REG-003` | PhaseClosed(101) | 注册窗口已关（目录冻结/RuntimeReady 后） | 按「BUE 已越过装配点」降级：功能不启动，提示重载或重启游戏 |
+| `BUE-REG-004` | InvalidDefinitionArtifact(201) | 定义工件无效（null/FeatureId 空/FormatVersion=0/DefinitionSetId 空/canonical payload 空或摘要不符） | 修工件（作者侧编码/打包错误，确定性失败） |
+| `BUE-REG-005` | InvalidModuleFactory(204) | ModuleFactory null | 修注册对象 |
+| `BUE-REG-006` | ContractIncompatible(202) | `MinimumBueContract` Major≠2 或 Minor 超批次 | 报版本不兼容（提示升级 BUE 或降低自身契约需求，§C.1/C.2） |
+| `BUE-REG-007` | DuplicateFeature(200) | 同 FeatureId 重复登记 | 检查双份部署/重复调用（§6 双装场景联动 BUE-PLATFORM-001） |
+| `BUE-REG-008` | InvalidClientUiRegistration(205) | ClientUi 卫星 id/token 空或契约不兼容 | 修卫星声明或放弃 UI 卫星降级 |
+| `BUE-REG-009` | InvalidDefinitionArtifact(201) | 登记期读取注册属性抛异常（折叠保护） | 注册对象属性须无副作用不抛 |
+| `BUE-REG-010` | ReservedFeatureId(206) | FeatureId 在官方保留段且不在白名单 | 改用作者反向域名自有 FeatureId（B.10 示例）——冒用官方身份**不会**成功 |
+| `BUE-REG-011` | InvalidDefinitionArtifact(201) | 设置 facet 无效（空描述符/跨功能 id/超 64 条/FeatureId≠本功能） | 修 schema 声明（A.6 facet 规则） |
+
+### B.2 平台自检码 BUE-PLATFORM
+
+| 码 | 语义 | 处置 |
+|---|---|---|
+| `BUE-PLATFORM-001` | 双装冲突诊断（同程序集名不同来源副本已进入 AppDomain；正文 §6 冻结面） | 玩家按 conflictLocation 移除非官方副本；BUE 不删文件 |
+| `BUE-PLATFORM-002` | 自检**自身**故障隔离行（扫描侧异常留痕、不阻塞启动；专码不挪用） | 无作者动作；反馈时随日志带走 |
+
+### B.3 事件登记码 BUE-EVT（判定顺序=格式→前缀→类型→身份串）
+
+| 码 | 语义 | 作者处置 |
+|---|---|---|
+| `BUE-EVT-ACCEPT` | 类型归属登记受理（观察行） | — |
+| `BUE-EVT-001` | InvalidEventId（格式：缺 `/` 分隔、空 owner 段或空事件段） | 修事件身份串（`<自身FeatureId>/<event-name>`） |
+| `BUE-EVT-002` | EventIdNotDerivedFromOwner（前缀≠自身 FeatureId——不能替别人登记） | 用自己身份派生 |
+| `BUE-EVT-003` | EventTypeAlreadyRegistered（类型已挂他处/自家跨代重登；**不覆盖**） | 视为幂等：路由在手即可发布收帧（A.2 跨代幂等） |
+| `BUE-EVT-004` | EventIdAlreadyRegistered（身份串已被占） | 换事件名 |
+
+发布/订阅运行期拒绝走结构化 reason 行（`event=feature-event result=publish-rejected reason=type-not-registered|owner-mismatch|event-id-mismatch`、订阅未登记=`reason=type-not-registered`+fail-fast 异常），非 REG/EVT 拒绝码族——A.2 路由不变量的可观察面。
+
+### B.4 生命周期码 BUE-LIFE
+
+**观察行（不入拒绝语义）**：`BUE-LIFE-STATE`（每次合法状态迁移一行，含 to=/generation=/revision=/reason=）、`BUE-LIFE-ACCEPT`（TryTrack 受理）、`BUE-LIFE-RELEASE`（停止边界资源释放）、`BUE-LIFE-ISOLATE`（功能级隔离，含 stage=/error=）。
+
+**TryTrack 拒绝码（拒绝序=null→状态门→代际→重复→容量）**：
+
+| 码 | 触发 | 作者处置 |
+|---|---|---|
+| `BUE-LIFE-001` | 登记 null 资源 | 修代码（开发期错误） |
+| `BUE-LIFE-003` | 状态门：非 Starting/Running（feature-isolated / feature-not-running / unknown-feature） | 停止/隔离后不再登记——资源只在活代际拥有 |
+| `BUE-LIFE-004` | 视图代际过期（stale-generation） | 用**当前**注入视图登记（旧代际视图全失效，A.3） |
+| `BUE-LIFE-005` | 同一实例重复登记（不双释放） | 去重自有资源 |
+| `BUE-LIFE-006` | 停止清理期单资源 Dispose 抛异常（隔离+继续） | 资源自身 Dispose 须幂等无抛——作者侧 bug 信号 |
+| `BUE-LIFE-002` | 容量超限（64/功能/代际，本票定值） | 收敛同代际资源数；平台不静默丢 |
+
+### B.5 网络与投递码 BUE-NET / BUE-MT
+
+**BUE-NET（运行期拒绝/健康观察）**：
+
+| 码 | 语义 |
+|---|---|
+| `BUE-NET-001` | 发送预算拒绝（`Throttled` 伴随行，A.4） |
+| `BUE-NET-002` | 会话链路 degraded（连续失败达阈值 10 恰一条） |
+| `BUE-NET-003` | 会话链路 recovered（恢复恰一条+清零；002/003=电平式一对） |
+| `BUE-NET-004` | 入站 handler 异常隔离（不扩散不打穿泵线程） |
+| `BUE-NET-005` | 回放失败投影（reason 四态=not-ready/detached/replay-failed/transport-unavailable，禁空 catch） |
+
+**BUE-MT（主线程投递）**：
+
+| 码 | 语义 | 作者侧信号 |
+|---|---|---|
+| `BUE-MT-ACCEPT` | 投递受理（观察行） | — |
+| `BUE-MT-001` | 队列容量拒绝（全局 256 待处理） | 显式 `CapacityExceeded`——降频/合并任务 |
+| `BUE-MT-002` | 代际或作用域失效拒（停止/隔离/换代/宿主停止） | 显式 `GenerationInvalid`——别向旧代际投 |
+| `BUE-MT-003` | 执行期单任务异常隔离 | 任务自身 bug 信号（不扩散不打穿泵） |
+| `BUE-MT-004` | 无效任务（null 投递，fail-fast 先行浮出行） | 开发期错误 |
+| `BUE-MT-005` | 非主线程泵拒绝 | 泵线程违例信号（A.4 禁自建泵） |
+| `BUE-MT-006` | 宿主泵组合带失败 | 平台侧故障行，反馈带走 |
+
+**宿主观察行**：`BUE-MT-GEN`（代际开账/撤账）、`BUE-MT-CREATED`（组合根行）——非拒绝语义，不入拒绝码表（分类口径见 B.0）。
+
+### B.6 时钟码 BUE-CLOCK
+
+`BUE-CLOCK-001`：宿主时钟自身故障观察行（`event=host-tick result=failed errorType=... message=... diagnosticId=BUE-CLOCK-001`）——显式 false 返回+零派发+失败拍不消耗序号（A.5 第 7 条）；宿主观察行，不入拒绝码表。
+
+### B.7 设置码 BUE-SET
+
+| 码 | 语义 | 作者侧信号 |
+|---|---|---|
+| `BUE-SET-001` | 视图写入被拒：代际失效/停止边界后（generation-invalid） | `Submit` 显式拒——用当前代际视图（A.6） |
+| `BUE-SET-002` | 视图写入被拒：ServerAuthority scope 非权威端（not-authority-side） | `Submit` 显式拒（UnauthorizedSender）——按角色降级为只读 |
+| `BUE-SET-003` | 同功能 schema 冲突：注册表 KeepExisting 显式拒（防第二事实源） | 单宿主内同功能只应有一个 runtime（正常不可达；插件自构 runtime 违例信号） |
+| `BUE-SET-004` | 面板回退编辑器拒编辑未提供设置的功能（不伪造设置页） | 面板侧观察行，非作者面 |
+| `BUE-SET-005` | 无效 schema 抵达注册表（登记侧同门=BUE-REG-011；直接构造注册表=宿主内部带子，均显式行不落空） | facet 声明或宿主组装违例信号 |
+
+**宿主观察行**：`BUE-SET-CREATED`（每功能 runtime 恰一条）、`BUE-SET-GEN`（代际边界：generation-opened / owner-invalidated / composition invalidate 失败）——非拒绝语义，不入拒绝码表（B.0 口径）。
+
+### B.8 诊断码 BUE-LOG
+
+| 码 | 语义 |
+|---|---|
+| `BUE-LOG-001` | 保留段外身份冒用 `BUE-*` 诊断码=拒写（latch 一条+计数，不逐行刷） |
+| `BUE-LOG-002` | 无效标识符（null/空白 event 或 diagnosticId）=拒写留痕 |
+| `BUE-LOG-003` | 摘要容量溢出观察（128 上限；原行照写=证据链不被掐，新码不聚合） |
+| `BUE-LOG-004` | 代际撤账后写入拒（reason 区分 write-boundary / host-stopped；再启用恢复） |
+| `BUE-LOG-005` | Logger 内部故障隔离 fallback 行（主+fallback 双故障均不外抛，模块永不被日志反噬） |
+
+**宿主观察行**：`BUE-LOG-CREATED`（组合根行）、`BUE-LOG-GEN`（代际账行）——非拒绝语义，不入拒绝码表（B.0 口径）。
+
+### B.9 前缀纪律与生态诊断码命名
+
+- `BUE-*` = **平台保留前缀**（诊断域）：保留段（B.10 的 FeatureId 段）内且经登记桥准入的身份才可写 `BUE-*` 码（官方功能 BUE-LIT-*、样例 BUE-NOOP-* 属之）；段外身份冒用=拒写+BUE-LOG-001（治理哲学=T2/010 同一条：身份段决定码段资格）。
+- 生态诊断码命名=**FeatureId 派生前缀**：建议形态 `<feature 末段>-<序号/语义名>`，例：`com.acme.medical-overlay` 功能用 `medical-overlay-001`；与平台保留段互不遮蔽、互不冒充。
+- 标识符消毒（写前统一执行，A.7）：空白→下划线；截断=event 64 字符、diagnosticId 128 字符、fault 256 字符；伪造换行不产第二行；摘要条目键=截断后值。
+
+### B.10 FeatureId 保留段与合法/非法示例
+
+- 保留段根：`io.github.yu80rice.bue`（恰等或其 `.` 前缀段）。段内白名单七值（唯一可注册身份，01 票冻结枚举）：`io.github.yu80rice.bue.better-item-interaction`（BII）、`io.github.yu80rice.bue.inventory-tidy`（LIT）、`io.github.yu80rice.bue.in-place-reload`（LIR）、`io.github.yu80rice.bue.horde-tracker`（LHT）、`io.github.yu80rice.bue.network`、`io.github.yu80rice.bue.network.v1compat`（官方网络模块对）、`io.github.yu80rice.bue.noop`（样例生态身份）。段内另有非注册功能保留身份 `io.github.yu80rice.bue.host`（宿主时钟/总线保留，任何功能不可 mint）。
+- **合法示例**（生态作者反向域名）：`com.acme.medical-overlay`、`io.gitlab.acme.bue-overlay-pack`、`dev.someone.custom-hotkeys`——段外身份，`BUE-*` 诊断码不可用作其 diagnosticId（B.9）。
+- **非法示例**（确定性拒 BUE-REG-010/`ReservedFeatureId`）：`io.github.yu80rice.bue.medical-overlay`（冒用官方段）、`io.github.yu80rice.bue`（恰等根串）、`io.github.yu80rice.bue.host`（宿主保留）。
+- 身份纪律（正文 §2 延伸）：FeatureId≠GUID≠文件名≠路径；BUE 插件 GUID `io.github.yu80rice.betterunturnedexperience` 与程序集名 `BetterUnturnedExperience` 冻结；不反射 caller、不读部署路径判定身份。
+
+## 附录 C：契约版本与迁移
+
+### C.1 2.0→2.1 加性条目总账（DEV-V3-01..07 单一批次，Minor 2.1；若实际分批则顺延 2.2）
+
+| 票 | 加性条目（全部向后兼容，2.0 模块继续可注册可运行） |
+|---|---|
+| 01（V3-T2） | `FeatureRegistrationReason.ReservedFeatureId=206`；白名单+`BUE-REG-010`；宿主 `SupportedContractMinor` 门槛开至 1 |
+| 02（V3-T3） | `IFeatureEventRegistry` + `bootstrap.EventRegistry`（11 成员之落位）；`FeatureEventRegistrationReason/Result`；`BUE-EVT-*` 码族；路由归属不变量（A.2） |
+| 03（V3-T4） | `IFeatureLifetime.CurrentStatus`（只读查询）；`FeatureStatusView` 六成员构造器、`NegotiatedFeatureView` 七参构造器（可构造结果先例=DEV-V2-21）；TryTrack 容量 64/代际；`BUE-LIFE-*` 码族 |
+| 04（V3-T5） | `NetworkSendResult.Throttled=205`；`IFeatureBootstrap.MainThread` + `IFeatureMainThread`/`MainThreadPostResult`/`MainThreadPostReason`；预算 2000ms/256、队列 256/每拍 32、链路阈值 10；`BUE-NET-*`/`BUE-MT-*` 码族 |
+| 05（V3-T6） | **零新增契约面**——HostTick 八条语义+自节流模式升格为登记契约（A.5）；`BUE-CLOCK-001` 观察行 |
+| 06（V3-T7） | `IFeatureSettingsRegistration`（恰两成员，类型发现式可选面；`IFeatureRegistration` 恰 4 属性不变）；`FeatureRegistrationEntry` 目录投影加性两属性；`BUE-REG-011`；`BUE-SET-*` 码族；facet 上限 64/功能 |
+| 07（V3-T8） | **零新增契约面**——`IFeatureLogger` 既有形状兑现矩阵行（每功能一律非 null）；消毒截断定值（64/128/256）、摘要容量 128、限频 30000ms；`BUE-LOG-*` 码族 |
+
+**版本时序纪律**：「接上某 2.1 成员」≠「2.1 已发布」——01..08 期间一切构建=开发态内部基线（不产正式候选、不进 RELEASES、不授 CaseId）；对外 2.1 版本以 DEV-V3-09 整体候选经三环境验收+人工批准后为准（§C.5）。本附录成文时正文 §7 登记保持 2.0（发布事实未翻转）。
+
+### C.2 安全降级原则（旧模块在 2.1 宿主上）
+
+1. **未知结果值不当成功**：`NetworkSendResult`（含新值 `Throttled`）与一切枚举/结构返回值——只有冻结的显式成功值算成功，未知值按失败/待重试降级（红测锚=04「未知 NetworkSendResult 旧模块安全降级」）。
+2. **Bootstrap 成员 null 容忍**：阶段基线纪律（A.1）——面向未发布版本编码的模块对未接线成员 null 必须可降级；对 2.1 宿主按矩阵终态列即可免防御（五成员永非 null 是硬承诺）。
+3. **显式结果不抛异常**：Admission/登记/投递/提交一律消费显式结果，不 try/catch 控制流；异常面只剩开发期错误（null-handler/null-task/未登记订阅 fail-fast）。
+4. **拒绝按码分支**：B.1/B.3 拒绝码表的处置建议列即降级剧本（等待/禁用自身/提示缺前置/报版本不兼容）。
+5. **诊断行不透明**：新码/新行出现不改变行为契约（摘要≠验收授权，导出归 UMM 人工）。
+
+### C.3 Major 纪律（破坏性变更）
+
+冻结面的破坏性变更**必升 Major** 并在正文 §7 登记迁移条目；宿主注册门槛=Major 恰 2（`ContractIncompatible` 拒其他 Major）。加性变更（新枚举值/新可选面/新构造器/新矩阵成员）走 Minor 批次，2.0 模块零重编译可继续注册。既有先例边界：正文 §2 程序集名冻结、§7 各条①-⑦ 破坏性登记格式不变。
+
+### C.4 Contracts 拆分四条件=门禁条款（当前结论：**继续暂缓**，T9 裁决②）
+
+第三方引用形态维持：**直接引用完整主 DLL `BetterUnturnedExperience.dll` + `CopyLocal=false` + 禁捆绑**（正文 §4）。不拆独立 Contracts.dll 的当前结论只对「四条件全部未触发」负责；逐条登记如下（定义/事实判定/触发信号/重评义务）：
+
+| 条件 | 定义 | 当前事实判定（V3-R1 基线） | 触发信号（未来何时重看） | 触发后重评义务 |
+|---|---|---|---|---|
+| ① | 第三方需脱离完整 BUE DLL 编译 | **未触发**（NoOp 生态路径经主 DLL 编译+注册全程被验；R1 未发现真实第三方需求信号） | 出现「因引用完整 DLL 而放弃接入」的具名生态案例/仓库外构建约束 | 立案评估纯编译面子集；预判潜在最先触发=本条 |
+| ② | 多仓库需要稳定纯契约包 | **未触发**（单仓库；契约文档随主 DLL 走） | 出现仓库外第二消费方需按包版本引用契约 | 评估包化+版本对齐纪律 |
+| ③ | runtime 与 SDK 发布节奏须独立 | **未触发**（文档随主 DLL 版本，无独立发版需求） | 生态要求「契约先行、runtime 后补」的节奏分裂证据 | 评估独立发布通道；预判潜在第二触发=本条 |
+| ④ | 需公开桥接 adapter 而不暴露主程序集 | **未触发**（注册桥 `BueRuntimeHost` 已在主程序集且面窄） | 出现必须藏主程序集内部面的具名安全/冲突案例 | 评估 adapter 程序集 |
+
+触发预判（T9 裁决②具名）=**①编译脱耦**需求先现、**③发布节奏分化**次之；「可能先触发」≠「已触发」——本条只是排序预判。拆分实施动作不在本图（图级冻结）；任何拆分须另立票并满足四条件之一+重新裁决（spec Out of Scope「未满足四条件即拆 Contracts.dll」=永久冻结面）。
+
+### C.5 SDK 文档版本绑定与 RELEASES 注记要求
+
+- **文档不独立发版**：本 SDK 契约文档随 BUE 主 DLL 契约版本走、随实施发布节奏同步（v8 交付包内文档=2.0 基线原状保持；2.1 文档与本附录属开发态，对玩家生效随 09 交付包同步换新）。
+- **实施发布链顺序**（T9 裁决⑦）：源码契约更新→SDK 文档同步→候选 DLL→实机/双轴审查→**SHA-256/CaseId 人工批准**→publish 交付包换新→RELEASES 行。
+- **RELEASES 行注记最低要求**：契约版本（如 `2.1`）、候选 SHA-256、三环境验收绑定（LoadSetIdentity 轻链）、本附录各 C.1 条目批次的覆盖声明、破坏性变更指向正文 §7 登记条目。中间构建一律**不授** CaseId（01..08 候选纪律，本票同样遵守：不产候选 DLL、不更 RELEASES）。
+
+### C.6 生态 DLL 上架前自检清单（11 项人工核对，T9 裁决④）
+
+发布生态 DLL 前逐项打勾——本文不建自动验证工具（裁决①），清单=人工门禁：
+
+- [ ] 1. BepInEx 插件入口存在：自有 `[BepInPlugin]` GUID，独立 DLL（不复用 BUE GUID、不请求源码聚合）
+- [ ] 2. `[BepInDependency]` 前置指向 BUE GUID `io.github.yu80rice.betterunturnedexperience`，HardDependency
+- [ ] 3. 编译期引用正确版本主 DLL，与目标 BUE 契约版本对齐（`MinimumBueContract`，A.1/C.3）
+- [ ] 4. 引用 `CopyLocal=false`（`<Private>False`）
+- [ ] 5. 发布包未捆绑 `BetterUnturnedExperience.dll`（只含你自己的 DLL）
+- [ ] 6. FeatureId 不用官方保留段（`io.github.yu80rice.bue.*` 冒用=确定性拒 BUE-REG-010，B.10 示例对照）
+- [ ] 7. DiagnosticId 不用 `BUE-*` 前缀（生态码=FeatureId 派生前缀，B.9；冒用=拒写留痕）
+- [ ] 8. 对未知 `NetworkSendResult` 值安全降级（只有显式 `Sent` 算成功，C.2）
+- [ ] 9. 不调用内部宿主控制面：AssemblyRef 无 `BetterUnturnedExperience.Contracts/Core`（正文 §4 闭包规则），只引用公开契约类型
+- [ ] 10. 停止时释放事件/网络/Tick 资源：不自拆总线订阅（宿主自动注销）、处理停止边界写拒（BUE-SET-001/BUE-LOG-004/BUE-MT-002 为预期信号）
+- [ ] 11. 不把 LogOutput、CaseId、RELEASES 当运行时契约（诊断=证据链非接口；摘要≠验收授权；发布台账人工）
