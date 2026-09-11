@@ -971,9 +971,13 @@ namespace BetterUnturnedExperience.Plugin
             if (selected.Kind == ManagementEntryKind.BueFeature)
             {
                 AddDetailLabel(ref y, "BUE 功能设置", ESleekFontSize.Medium);
-                for (var index = 0; index < selected.BueSettings.Count; index++)
+                // DEV-V4-02: the panel draws the model row projection (join of
+                // snapshot entry + feature schema + draft state), not the raw
+                // contract entry — 显示名→描述→控件 lives in AddBueSettingRow.
+                var settings = runtime.Model.GetSettingRows(selected.StableId);
+                for (var index = 0; index < settings.Count; index++)
                 {
-                    AddBueSettingControl(ref y, selected, selected.BueSettings[index]);
+                    AddBueSettingRow(ref y, settings[index]);
                 }
                 AddDetailLabel(ref y, "功能状态：" + selected.FeatureState, ESleekFontSize.Small);
                 AddDetailLabel(ref y, "表现状态：" + selected.Presentation.State, ESleekFontSize.Small);
@@ -985,9 +989,12 @@ namespace BetterUnturnedExperience.Plugin
             else
             {
                 AddDetailLabel(ref y, "普通 BepInEx ConfigEntry", ESleekFontSize.Medium);
-                for (var index = 0; index < selected.PluginConfig.Count; index++)
+                // DEV-V4-02: external rows go through the same projection and
+                // the same 显示名→描述→控件 structure (同权).
+                var configRows = runtime.Model.GetPluginConfigRows(selected.StableId);
+                for (var index = 0; index < configRows.Count; index++)
                 {
-                    AddPluginConfigControl(ref y, selected, selected.PluginConfig[index]);
+                    AddPluginConfigRow(ref y, selected.StableId, configRows[index]);
                 }
             }
             // DEV-V4-01: draft actions. When a navigation-away is armed show the
@@ -1013,41 +1020,70 @@ namespace BetterUnturnedExperience.Plugin
             else if (runtime.Model.ExternalManagerDetected) SetStatus(runtime.Model.CompatibilityNotice, false);
         }
 
-        private void AddBueSettingControl(ref int y, ManagementEntryView row, SettingEntryView setting)
+        // DEV-V4-02 (V4-T3 Q37/Q38/Q41/Q43): one setting row = 显示名 → 描述 →
+        // 控件. The editable rows no longer print "SettingId = 值" — the current
+        // value lives ON the control (toggle state / cycle button text / editor
+        // text), and the name label is the descriptor's literal display name.
+        // An empty description is NOT painted and takes no space (Q37).
+        // A read-only row (ServerAuthority / CanEdit=false / Choice without
+        // levels) paints the current value as a read-only label and draws NO
+        // greyed-out fake control (Q43). All edits land in the draft only —
+        // the authoritative source is touched solely by 保存配置 (DEV-V4-01).
+        private void AddBueSettingRow(ref int y, PanelSettingRowView row)
         {
-            // DEV-V4-01: the setting edit lands in the draft (no authoritative
-            // write); the row shows the draft's effective value and is tagged
-            // 未保存 when it differs from the authoritative snapshot. Read-only
-            // and ServerAuthority rows are never editable and never enter the draft.
-            var dirty = runtime.Model.IsBueSettingDirty(setting.SettingId);
-            var effective = runtime.Model.EffectiveBueSettingValue(setting.SettingId);
-            AddDetailLabel(ref y, setting.SettingId + " = " + FormatSetting(effective) + (dirty ? "（未保存）" : string.Empty), ESleekFontSize.Small);
-            if (!setting.CanEdit || setting.Authority == SettingAuthority.ServerAuthoritative) return;
-            if (effective.Kind == SettingKind.Toggle)
+            AddDetailLabel(ref y, row.DisplayName + (row.IsDirty ? "（未保存）" : string.Empty), ESleekFontSize.Small);
+            if (!string.IsNullOrEmpty(row.Description)) AddDetailLabel(ref y, row.Description, ESleekFontSize.Small);
+            var settingId = row.SettingId;
+            switch (row.ControlKind)
             {
-                var toggle = Glazier.Get().CreateToggle();
-                toggle.PositionOffset_Y = y;
-                toggle.SizeOffset_X = 40f;
-                toggle.SizeOffset_Y = 30f;
-                toggle.Value = effective.Boolean;
-                toggle.OnValueChanged += delegate(ISleekToggle ignored, bool value)
-                {
-                    runtime.Model.DraftEditBueSetting(setting.SettingId, PluginConfigValue.BooleanValue(value));
-                    RenderDetails();
-                };
-                detailScroll.AddChild(toggle);
-                y += 36;
-            }
-            else
-            {
-                AddTextEditor(ref y, setting.SettingId, FormatSetting(effective), raw =>
-                {
-                    PluginConfigValue value;
-                    if (!TryConvertSetting(effective.Kind, raw, out value)) return false;
-                    if (!runtime.Model.DraftEditBueSetting(setting.SettingId, value)) return false;
-                    RenderDetails();
-                    return true;
-                });
+                case PanelSettingControlKind.Cycle:
+                    var cycle = Glazier.Get().CreateButton();
+                    cycle.PositionOffset_Y = y;
+                    cycle.SizeOffset_X = 220f;
+                    cycle.SizeOffset_Y = 32f;
+                    cycle.Text = FormatSetting(row.EffectiveValue);
+                    cycle.TooltipText = "左键：下一档；右键：上一档";
+                    cycle.OnClicked += delegate(ISleekElement ignored)
+                    {
+                        runtime.Model.DraftCycleBueSetting(settingId, 1);
+                        RenderDetails();
+                    };
+                    cycle.OnRightClicked += delegate(ISleekElement ignored)
+                    {
+                        runtime.Model.DraftCycleBueSetting(settingId, -1);
+                        RenderDetails();
+                    };
+                    detailScroll.AddChild(cycle);
+                    y += 38;
+                    break;
+                case PanelSettingControlKind.Toggle:
+                    var toggle = Glazier.Get().CreateToggle();
+                    toggle.PositionOffset_Y = y;
+                    toggle.SizeOffset_X = 40f;
+                    toggle.SizeOffset_Y = 30f;
+                    toggle.Value = row.EffectiveValue.Boolean;
+                    toggle.OnValueChanged += delegate(ISleekToggle ignored, bool value)
+                    {
+                        runtime.Model.DraftEditBueSetting(settingId, PluginConfigValue.BooleanValue(value));
+                        RenderDetails();
+                    };
+                    detailScroll.AddChild(toggle);
+                    y += 36;
+                    break;
+                case PanelSettingControlKind.TextEditor:
+                    var kind = row.Kind;
+                    AddTextEditor(ref y, settingId, FormatSetting(row.EffectiveValue), raw =>
+                    {
+                        PluginConfigValue value;
+                        if (!TryConvertSetting(kind, raw, out value)) return false;
+                        if (!runtime.Model.DraftEditBueSetting(settingId, value)) return false;
+                        RenderDetails();
+                        return true;
+                    });
+                    break;
+                default:
+                    AddDetailLabel(ref y, "当前值：" + FormatSetting(row.EffectiveValue), ESleekFontSize.Small);
+                    break;
             }
         }
 
@@ -1078,38 +1114,66 @@ namespace BetterUnturnedExperience.Plugin
             y += 40;
         }
 
-        private void AddPluginConfigControl(ref int y, ManagementEntryView row, PluginConfigEntryView entry)
+        // DEV-V4-02: external ConfigEntry rows share the BUE row structure —
+        // 显示名 → 描述（空不画）→ 控件, the same cycle control wherever the
+        // entry carries 档位 (AllowedChoices arrives with DEV-V4-08's
+        // collection; the seam is live here), and a read-only value line with
+        // NO fake control where it doesn't. Edits enter the same draft.
+        // 需要重启 stays a row-level 固有属性 marker (DEV-V4-08 owns badges).
+        private void AddPluginConfigRow(ref int y, string pluginGuid, PanelConfigRowView row)
         {
-            // DEV-V4-01: external ConfigEntry edits enter the same draft model.
-            var dirty = runtime.Model.IsPluginConfigDirty(entry.Key);
-            var draft = runtime.Model.EffectivePluginConfigValue(entry.Key);
-            var display = draft.Kind == PluginConfigValueKind.Unsupported ? entry.Value : draft;
-            AddDetailLabel(ref y, entry.DisplayName + " = " + FormatPluginValue(display) + (entry.RequiresRestart ? "（需要重启）" : string.Empty) + (dirty ? "（未保存）" : string.Empty), ESleekFontSize.Small);
-            if (!entry.CanEdit) return;
-            var pluginGuid = row.StableId;
-            if (entry.Kind == PluginConfigValueKind.Boolean)
+            var key = row.Key;
+            AddDetailLabel(ref y, row.DisplayName
+                + (row.RequiresRestart ? "（需要重启）" : string.Empty)
+                + (row.IsDirty ? "（未保存）" : string.Empty), ESleekFontSize.Small);
+            if (!string.IsNullOrEmpty(row.Description)) AddDetailLabel(ref y, row.Description, ESleekFontSize.Small);
+            switch (row.ControlKind)
             {
-                var toggle = Glazier.Get().CreateToggle();
-                toggle.PositionOffset_Y = y;
-                toggle.SizeOffset_X = 40f;
-                toggle.SizeOffset_Y = 30f;
-                toggle.Value = display.Boolean;
-                toggle.OnValueChanged += delegate(ISleekToggle ignored, bool value)
-                {
-                    runtime.Model.DraftEditPluginConfig(pluginGuid, entry.Key, value ? "true" : "false");
-                    RenderDetails();
-                };
-                detailScroll.AddChild(toggle);
-                y += 36;
-            }
-            else
-            {
-                AddTextEditor(ref y, entry.Key, FormatPluginValue(display), raw =>
-                {
-                    if (!runtime.Model.DraftEditPluginConfig(pluginGuid, entry.Key, raw)) return false;
-                    RenderDetails();
-                    return true;
-                });
+                case PanelSettingControlKind.Cycle:
+                    var cycle = Glazier.Get().CreateButton();
+                    cycle.PositionOffset_Y = y;
+                    cycle.SizeOffset_X = 220f;
+                    cycle.SizeOffset_Y = 32f;
+                    cycle.Text = FormatPluginValue(row.Effective);
+                    cycle.TooltipText = "左键：下一档；右键：上一档";
+                    cycle.OnClicked += delegate(ISleekElement ignored)
+                    {
+                        runtime.Model.DraftCyclePluginConfig(pluginGuid, key, 1);
+                        RenderDetails();
+                    };
+                    cycle.OnRightClicked += delegate(ISleekElement ignored)
+                    {
+                        runtime.Model.DraftCyclePluginConfig(pluginGuid, key, -1);
+                        RenderDetails();
+                    };
+                    detailScroll.AddChild(cycle);
+                    y += 38;
+                    break;
+                case PanelSettingControlKind.Toggle:
+                    var toggle = Glazier.Get().CreateToggle();
+                    toggle.PositionOffset_Y = y;
+                    toggle.SizeOffset_X = 40f;
+                    toggle.SizeOffset_Y = 30f;
+                    toggle.Value = row.Effective.Boolean;
+                    toggle.OnValueChanged += delegate(ISleekToggle ignored, bool value)
+                    {
+                        runtime.Model.DraftEditPluginConfig(pluginGuid, key, value ? "true" : "false");
+                        RenderDetails();
+                    };
+                    detailScroll.AddChild(toggle);
+                    y += 36;
+                    break;
+                case PanelSettingControlKind.TextEditor:
+                    AddTextEditor(ref y, key, FormatPluginValue(row.Effective), raw =>
+                    {
+                        if (!runtime.Model.DraftEditPluginConfig(pluginGuid, key, raw)) return false;
+                        RenderDetails();
+                        return true;
+                    });
+                    break;
+                default:
+                    AddDetailLabel(ref y, "当前值：" + FormatPluginValue(row.Effective), ESleekFontSize.Small);
+                    break;
             }
         }
 

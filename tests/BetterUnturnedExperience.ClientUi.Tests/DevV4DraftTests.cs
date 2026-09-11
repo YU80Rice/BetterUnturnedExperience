@@ -388,6 +388,14 @@ namespace BetterUnturnedExperience.ClientUi.Tests
                 return SnapshotFor(feature);
             }
 
+            // DEV-V4-02: the draft tests keep their no-schema fixture honest —
+            // rows fall back to SettingId names (DEV-V4-02's own fixture seeds
+            // descriptors in DevV4PanelControlsTests).
+            public IReadOnlyList<SettingDescriptor> GetDescriptors(FeatureId feature)
+            {
+                return new SettingDescriptor[0];
+            }
+
             public SettingChangeResult Apply(FeatureId feature, uint expectedRevision, SettingMutation mutation)
             {
                 ApplyCalls++;

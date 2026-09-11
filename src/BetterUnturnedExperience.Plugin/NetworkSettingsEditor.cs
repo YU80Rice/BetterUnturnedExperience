@@ -20,13 +20,20 @@ namespace BetterUnturnedExperience.Plugin
         private static long nextRequestId;
         private readonly SettingsRuntime runtime;
         private readonly Action onApplied;
+        // DEV-V4-02: the row projection's schema join input — the SAME frozen
+        // descriptor list the catalog registered (never a re-derived copy), so
+        // 面板行形状与宿主校验口径同源. Null = no schema (projection falls back).
+        private readonly IReadOnlyList<SettingDescriptor> descriptors;
 
-        internal SettingsRuntimeBueEditor(SettingsRuntime runtime) : this(runtime, null) { }
+        internal SettingsRuntimeBueEditor(SettingsRuntime runtime) : this(runtime, null, null) { }
 
-        internal SettingsRuntimeBueEditor(SettingsRuntime runtime, Action onApplied)
+        internal SettingsRuntimeBueEditor(SettingsRuntime runtime, Action onApplied) : this(runtime, onApplied, null) { }
+
+        internal SettingsRuntimeBueEditor(SettingsRuntime runtime, Action onApplied, IReadOnlyList<SettingDescriptor> descriptors)
         {
             this.runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
             this.onApplied = onApplied;
+            this.descriptors = descriptors;
         }
 
         public FeatureSettingsSnapshot GetSnapshot(FeatureId feature)
@@ -34,6 +41,12 @@ namespace BetterUnturnedExperience.Plugin
             return string.Equals(feature.Value, runtime.Feature.Value, StringComparison.Ordinal)
                 ? runtime.GetSnapshot(SettingRevisionScope.ClientPreference)
                 : UnavailableSnapshot(feature);
+        }
+
+        public IReadOnlyList<SettingDescriptor> GetDescriptors(FeatureId feature)
+        {
+            if (!string.Equals(feature.Value, runtime.Feature.Value, StringComparison.Ordinal)) return new SettingDescriptor[0];
+            return descriptors ?? new SettingDescriptor[0];
         }
 
         public SettingChangeResult Apply(FeatureId feature, uint expectedRevision, SettingMutation mutation)
@@ -111,6 +124,24 @@ namespace BetterUnturnedExperience.Plugin
             return editor.ApplyBatch(feature, expectedRevision, mutations);
         }
 
+        // DEV-V4-02: schema lookup answers from the SAME catalog projection the
+        // route uses (per call, never a stale copy). No facet → no schema →
+        // empty list; the composition (BII) editor owns its honest answer.
+        public IReadOnlyList<SettingDescriptor> GetDescriptors(FeatureId feature)
+        {
+            if (string.Equals(feature.Value, BetterItemInteractionSettingsState.Feature.Value, StringComparison.Ordinal)) return compositionEditor.GetDescriptors(feature);
+            var runtime = BueRuntimeHost.CurrentRuntime;
+            if (runtime == null || runtime.Catalog == null) return new SettingDescriptor[0];
+            var entries = runtime.Catalog.Entries;
+            for (var index = 0; index < entries.Count; index++)
+            {
+                var entry = entries[index];
+                if (string.Equals(entry.Definition.Feature.Value, feature.Value, StringComparison.Ordinal))
+                    return entry.SettingDescriptors ?? new SettingDescriptor[0];
+            }
+            return new SettingDescriptor[0];
+        }
+
         private IBueSettingsEditor Resolve(FeatureId feature)
         {
             if (string.Equals(feature.Value, BetterItemInteractionSettingsState.Feature.Value, StringComparison.Ordinal)) return compositionEditor;
@@ -123,7 +154,7 @@ namespace BetterUnturnedExperience.Plugin
                 if (!string.Equals(entry.Definition.Feature.Value, feature.Value, StringComparison.Ordinal)) continue;
                 if (entry.SettingDescriptors == null) return null;
                 var settingsRuntime = BueSettingsRuntime.Registry.GetOrCreateRuntime(entry.Definition.Feature, entry.SettingDescriptors);
-                return settingsRuntime == null ? null : new SettingsRuntimeBueEditor(settingsRuntime, entry.OnSettingsApplied);
+                return settingsRuntime == null ? null : new SettingsRuntimeBueEditor(settingsRuntime, entry.OnSettingsApplied, entry.SettingDescriptors);
             }
             return null;
         }

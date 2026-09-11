@@ -6611,6 +6611,13 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 onApply();
                 return new SettingChangeResult(false, FrameworkErrorCode.SettingRejected, 0, GetSnapshot(feature));
             }
+            // DEV-V4-02: no schema on this counting fake — the row projection
+            // falls back to SettingId names, which is what these wiring tests
+            // assert (they never depend on display text).
+            public System.Collections.Generic.IReadOnlyList<SettingDescriptor> GetDescriptors(FeatureId feature)
+            {
+                return new SettingDescriptor[0];
+            }
         }
 
         private static TestSurfaceContext CreateTestSurface(ContainerKind kind, byte page, uint generation)

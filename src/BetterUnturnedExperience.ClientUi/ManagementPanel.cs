@@ -89,9 +89,20 @@ namespace BetterUnturnedExperience.ClientUi.Internal
         internal double? Minimum { get; }
         internal double? Maximum { get; }
         internal int MaximumLength { get; }
+        // DEV-V4-02 (V4-T3 Q38/Q40/Q42): the EXTERNAL Cycle/description control
+        // seam. The panel projects a non-empty AllowedChoices as the same cycle
+        // control a BUE Choice gets, and renders Description in the shared
+        // display-name → description → control row structure. This ticket only
+        // opens the seam — the full external collection (Unturned.Cycle /
+        // AcceptableValueList detection, ConfigDescription capture, failure
+        // classification) is DEV-V4-08's, so every producer keeps passing the
+        // defaults below until 08 fills them.
+        internal string Description { get; }
+        internal IReadOnlyList<string> AllowedChoices { get; }
 
         internal PluginConfigEntryView(string key, string displayName, PluginConfigValueKind kind, PluginConfigValue value,
-            bool requiresRestart, bool canEdit, double? minimum = null, double? maximum = null, int maximumLength = 4096)
+            bool requiresRestart, bool canEdit, double? minimum = null, double? maximum = null, int maximumLength = 4096,
+            string description = null, IReadOnlyList<string> allowedChoices = null)
         {
             Key = key ?? string.Empty;
             DisplayName = displayName ?? string.Empty;
@@ -102,6 +113,89 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             Minimum = minimum;
             Maximum = maximum;
             MaximumLength = maximumLength;
+            Description = description ?? string.Empty;
+            AllowedChoices = allowedChoices ?? new string[0];
+        }
+    }
+
+    // DEV-V4-02 (V4-T3): the panel row shape every setting/config line renders
+    // as — one shared vocabulary so BUE settings and external ConfigEntries
+    // present the same 显示名 → 描述 → 控件 structure with equal rights.
+    internal enum PanelSettingControlKind : byte
+    {
+        Toggle,
+        TextEditor,
+        Cycle,
+        ReadOnly
+    }
+
+    // The panel projection of one BUE setting row (spec 契约结论:「填数据 +
+    // 面板去读」— SettingEntryView 的 DisplayNameKey / DescriptionKey /
+    // AllowedValues / Kind 经此投影到达面板，零 2.1 公开成员变化). The keys are
+    // LITERAL display text this phase (V4-T3 Q36); the contract snapshot entry
+    // has no descriptor fields, so the model joins the entry with its feature
+    // schema (IBueSettingsEditor.GetDescriptors) and draft state.
+    internal readonly struct PanelSettingRowView
+    {
+        // Q37: description truncation aligns with UPM — the first 120
+        // characters, then an ellipsis. Truncation lives in the PROJECTION so
+        // the pure model seam can assert it without the native render surface.
+        internal const int DescriptionDisplayLimit = 120;
+
+        internal string SettingId { get; }
+        internal string DisplayName { get; }
+        internal string Description { get; }
+        internal SettingKind Kind { get; }
+        internal IReadOnlyList<string> AllowedValues { get; }
+        internal SettingAuthority Authority { get; }
+        internal PanelSettingControlKind ControlKind { get; }
+        internal SettingValue EffectiveValue { get; }
+        internal bool IsDirty { get; }
+
+        internal PanelSettingRowView(string settingId, string displayName, string description, SettingKind kind,
+            IReadOnlyList<string> allowedValues, SettingAuthority authority, PanelSettingControlKind controlKind,
+            SettingValue effectiveValue, bool isDirty)
+        {
+            SettingId = settingId ?? string.Empty;
+            DisplayName = displayName ?? string.Empty;
+            Description = description ?? string.Empty;
+            Kind = kind;
+            AllowedValues = allowedValues ?? new string[0];
+            Authority = authority;
+            ControlKind = controlKind;
+            EffectiveValue = effectiveValue;
+            IsDirty = isDirty;
+        }
+    }
+
+    // DEV-V4-02: the external-ConfigEntry counterpart of the row projection,
+    // carrying the same shape vocabulary so the panel draws one structure for
+    // both sources (同权). Effective/IsDirty are draft-aware (V4-T1 同一套草稿).
+    internal readonly struct PanelConfigRowView
+    {
+        internal string Key { get; }
+        internal string DisplayName { get; }
+        internal string Description { get; }
+        internal PluginConfigValueKind Kind { get; }
+        internal IReadOnlyList<string> AllowedChoices { get; }
+        internal PanelSettingControlKind ControlKind { get; }
+        internal PluginConfigValue Effective { get; }
+        internal bool IsDirty { get; }
+        internal bool RequiresRestart { get; }
+
+        internal PanelConfigRowView(string key, string displayName, string description, PluginConfigValueKind kind,
+            IReadOnlyList<string> allowedChoices, PanelSettingControlKind controlKind, PluginConfigValue effective,
+            bool isDirty, bool requiresRestart)
+        {
+            Key = key ?? string.Empty;
+            DisplayName = displayName ?? string.Empty;
+            Description = description ?? string.Empty;
+            Kind = kind;
+            AllowedChoices = allowedChoices ?? new string[0];
+            ControlKind = controlKind;
+            Effective = effective;
+            IsDirty = isDirty;
+            RequiresRestart = requiresRestart;
         }
     }
 
@@ -248,6 +342,15 @@ namespace BetterUnturnedExperience.ClientUi.Internal
         // (设置提交原子性 / V4-T1). Implementers map this onto a single
         // SettingsRuntime.Submit — never one Submit per field.
         SettingChangeResult ApplyBatch(FeatureId feature, uint expectedRevision, IReadOnlyList<SettingMutation> mutations);
+        // DEV-V4-02 (V4-T3 契约结论「填数据+面板去读」): the feature's setting
+        // SCHEMA (descriptor list) as the panel row projection's join input —
+        // DisplayNameKey / DescriptionKey / Kind / AllowedValues never reach
+        // the contract snapshot, so the projection reads them here. This is an
+        // internal ClientUi seam (public ≠ 契约), NOT a contract member.
+        // Implementers with no declared schema (BII composition chrome) return
+        // an empty list and the projection falls back honestly (display name =
+        // SettingId, shape from the effective value's kind).
+        IReadOnlyList<SettingDescriptor> GetDescriptors(FeatureId feature);
     }
 
     internal interface IPluginConfigEditor
@@ -483,7 +586,8 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             if (!TryParse(entry.Kind, rawValue, out value)) return new PluginConfigEditResult(false, entry.RequiresRestart, PluginConfigEditRejection.InvalidValue);
             if (!WithinBounds(entry, value)) return new PluginConfigEditResult(false, entry.RequiresRestart, PluginConfigEditRejection.InvalidValue);
             if (!pluginConfigEditor.TrySet(pluginGuid, key, value)) return new PluginConfigEditResult(false, entry.RequiresRestart, PluginConfigEditRejection.PersistenceFailed);
-            entries[index] = new PluginConfigEntryView(entry.Key, entry.DisplayName, entry.Kind, value, entry.RequiresRestart, entry.CanEdit, entry.Minimum, entry.Maximum, entry.MaximumLength);
+            entries[index] = new PluginConfigEntryView(entry.Key, entry.DisplayName, entry.Kind, value, entry.RequiresRestart, entry.CanEdit, entry.Minimum, entry.Maximum, entry.MaximumLength,
+                entry.Description, entry.AllowedChoices);
             plugins[pluginGuid] = new LoadedPluginDescriptor(plugin.Guid, plugin.DisplayName, plugin.Version, entries);
             return new PluginConfigEditResult(true, entry.RequiresRestart, PluginConfigEditRejection.None);
         }
@@ -513,7 +617,16 @@ namespace BetterUnturnedExperience.ClientUi.Internal
                     SettingsBaselineRevision = feature.Settings.Revision,
                     EnableIntentBaseline = IsFeatureCurrentlyEnabled(feature.State)
                 };
-                foreach (var entry in VisibleSettings(feature.Settings)) opened.BaselineSettings[entry.SettingId] = entry;
+                foreach (var entry in VisibleSettings(feature.Settings))
+                {
+                    opened.BaselineSettings[entry.SettingId] = entry;
+                    opened.SettingOrder.Add(entry.SettingId);
+                }
+                // DEV-V4-02: the schema join input is captured with the draft so
+                // one logical session sees one stable shape (the row projection
+                // reads DisplayNameKey / DescriptionKey / AllowedValues / Kind).
+                foreach (var descriptor in bueSettingsEditor.GetDescriptors(feature.Feature) ?? new SettingDescriptor[0])
+                    if (!opened.BaselineDescriptors.ContainsKey(descriptor.SettingId)) opened.BaselineDescriptors[descriptor.SettingId] = descriptor;
                 draft = opened;
                 return;
             }
@@ -521,7 +634,11 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             if (plugins.TryGetValue(stableId, out plugin))
             {
                 var opened = new DetailDraft { StableId = stableId, Kind = ManagementEntryKind.ExternalPlugin };
-                foreach (var entry in plugin.ConfigEntries) opened.BaselineConfig[entry.Key] = entry;
+                foreach (var entry in plugin.ConfigEntries)
+                {
+                    opened.BaselineConfig[entry.Key] = entry;
+                    opened.ConfigOrder.Add(entry.Key);
+                }
                 draft = opened;
             }
         }
@@ -558,10 +675,73 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             SettingEntryView baseline;
             if (!draft.BaselineSettings.TryGetValue(settingId, out baseline)) return false;
             if (!baseline.CanEdit || baseline.Authority == SettingAuthority.ServerAuthoritative) return false;
+            // DEV-V4-02 (V4-T3 Q38/Q43): a Choice is a discrete档位行 — it is
+            // changed ONLY through the cycle seam (档位值受 AllowedValues 约束),
+            // never through the free-text editor; a Choice without levels is
+            // read-only and 不降级文本框.
+            if (baseline.EffectiveValue.Kind == SettingKind.Choice) return false;
             var edited = ToSettingMutation(settingId, value).Value;
             if (SettingValuesEqual(baseline.EffectiveValue, edited)) draft.SettingEdits.Remove(settingId);
             else draft.SettingEdits[settingId] = edited;
             return true;
+        }
+
+        // DEV-V4-02 (V4-T3 Q38/Q41): the Cycle command for one BUE Choice row.
+        // step +1 = 左键下一档、-1 = 右键上一档, 最后档左键回第一档/第一档右键回
+        // 最后档 (到头循环); 单档左右键都不变值. 当前值不在档位表（脏数据/策略收窄）
+        // 时左键落第一档、右键落最后档——切换永远落在合法档位上. 改的是草稿:
+        // 与权威值相等即撤编辑（Q41 最终值=权威值则不脏）, 权威源只在 SaveDraft 触碰.
+        internal bool DraftCycleBueSetting(string settingId, int step)
+        {
+            EnsurePreferencesLoaded();
+            if (draft == null || draft.Kind != ManagementEntryKind.BueFeature) return false;
+            SettingEntryView baseline;
+            if (!draft.BaselineSettings.TryGetValue(settingId, out baseline)) return false;
+            if (!baseline.CanEdit || baseline.Authority == SettingAuthority.ServerAuthoritative) return false;
+            if (baseline.EffectiveValue.Kind != SettingKind.Choice) return false;
+            var levels = ChoiceLevels(baseline, DraftDescriptor(draft, settingId));
+            // Q43: 无非空档位的 Choice 是只读行 — 不进草稿, 没有 Cycle.
+            if (levels.Count == 0) return false;
+            var current = EffectiveBueSettingValue(settingId);
+            var next = levels[NextCycleIndex(levels, current.Text, step)];
+            var edited = SettingValue.Choice(next);
+            if (SettingValuesEqual(baseline.EffectiveValue, edited)) draft.SettingEdits.Remove(settingId);
+            else draft.SettingEdits[settingId] = edited;
+            return true;
+        }
+
+        // DEV-V4-02: the external-ConfigEntry cycle through the SAME control
+        // seam (08 fills AllowedChoices from Unturned.Cycle /
+        // AcceptableValueList; here a non-empty list already cycles). The write
+        // goes through the existing parse/bounds draft path, so an unparsable
+        // level is rejected honestly rather than entering the draft.
+        internal bool DraftCyclePluginConfig(string pluginGuid, string key, int step)
+        {
+            EnsurePreferencesLoaded();
+            if (draft == null || draft.Kind != ManagementEntryKind.ExternalPlugin) return false;
+            if (!string.Equals(pluginGuid, draft.StableId, StringComparison.Ordinal)) return false;
+            PluginConfigEntryView entry;
+            if (!draft.BaselineConfig.TryGetValue(key, out entry)) return false;
+            if (entry.AllowedChoices == null || entry.AllowedChoices.Count == 0) return false;
+            var current = EffectivePluginConfigValue(key);
+            var next = entry.AllowedChoices[NextCycleIndex(entry.AllowedChoices, current.Text, step)];
+            return DraftEditPluginConfig(pluginGuid, key, next);
+        }
+
+        private static int NextCycleIndex(IReadOnlyList<string> levels, string current, int step)
+        {
+            var count = levels.Count;
+            var index = -1;
+            for (var position = 0; position < count; position++)
+                if (string.Equals(levels[position], current ?? string.Empty, StringComparison.Ordinal)) { index = position; break; }
+            if (index < 0) return step >= 0 ? 0 : count - 1;
+            return ((index + step) % count + count) % count;
+        }
+
+        private static SettingDescriptor? DraftDescriptor(DetailDraft currentDraft, string settingId)
+        {
+            SettingDescriptor descriptor;
+            return currentDraft.BaselineDescriptors.TryGetValue(settingId, out descriptor) ? descriptor : (SettingDescriptor?)null;
         }
 
         internal bool DraftEditPluginConfig(string pluginGuid, string key, string rawValue)
@@ -630,6 +810,120 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             return PluginConfigValue.UnsupportedValue();
         }
 
+        // ── DEV-V4-02：配置行投影（V4-T3「显示名→描述→控件」+ Cycle 形状）──
+        // 面板不再消费契约 SettingEntryView 直接画行：这里把快照行与本条 schema
+        // （GetDescriptors）联表，连同草稿生效值/脏标记投影为行视图。只渲染行视图
+        // 就满足「不再以 SettingId = 值作为可编辑行主标签」——组合串在本类型里根本
+        // 不存在。无 open draft 时如实投影权威快照（不脏）。
+
+        internal IReadOnlyList<PanelSettingRowView> GetSettingRows(string stableId)
+        {
+            EnsurePreferencesLoaded();
+            var rows = new List<PanelSettingRowView>();
+            if (draft != null && draft.Kind == ManagementEntryKind.BueFeature && string.Equals(draft.StableId, stableId, StringComparison.Ordinal))
+            {
+                foreach (var settingId in draft.SettingOrder)
+                {
+                    SettingEntryView baseline;
+                    if (!draft.BaselineSettings.TryGetValue(settingId, out baseline)) continue;
+                    rows.Add(ProjectSettingRow(baseline, DraftDescriptor(draft, settingId), EffectiveBueSettingValue(settingId), IsBueSettingDirty(settingId)));
+                }
+                return new ReadOnlyCollection<PanelSettingRowView>(rows);
+            }
+            BueFeatureManagementEntry feature;
+            if (!string.IsNullOrEmpty(stableId) && features.TryGetValue(stableId, out feature))
+            {
+                var descriptors = new Dictionary<string, SettingDescriptor>(StringComparer.Ordinal);
+                foreach (var descriptor in bueSettingsEditor.GetDescriptors(feature.Feature) ?? new SettingDescriptor[0])
+                    if (!descriptors.ContainsKey(descriptor.SettingId)) descriptors[descriptor.SettingId] = descriptor;
+                foreach (var entry in VisibleSettings(feature.Settings))
+                {
+                    SettingDescriptor descriptor;
+                    var hasDescriptor = descriptors.TryGetValue(entry.SettingId, out descriptor);
+                    rows.Add(ProjectSettingRow(entry, hasDescriptor ? descriptor : (SettingDescriptor?)null, entry.EffectiveValue, false));
+                }
+            }
+            return new ReadOnlyCollection<PanelSettingRowView>(rows);
+        }
+
+        internal IReadOnlyList<PanelConfigRowView> GetPluginConfigRows(string stableId)
+        {
+            EnsurePreferencesLoaded();
+            var rows = new List<PanelConfigRowView>();
+            if (draft != null && draft.Kind == ManagementEntryKind.ExternalPlugin && string.Equals(draft.StableId, stableId, StringComparison.Ordinal))
+            {
+                foreach (var key in draft.ConfigOrder)
+                {
+                    PluginConfigEntryView entry;
+                    if (!draft.BaselineConfig.TryGetValue(key, out entry)) continue;
+                    rows.Add(ProjectConfigRow(entry, EffectivePluginConfigValue(key), IsPluginConfigDirty(key)));
+                }
+                return new ReadOnlyCollection<PanelConfigRowView>(rows);
+            }
+            LoadedPluginDescriptor plugin;
+            if (!string.IsNullOrEmpty(stableId) && plugins.TryGetValue(stableId, out plugin))
+                for (var index = 0; index < plugin.ConfigEntries.Count; index++)
+                    rows.Add(ProjectConfigRow(plugin.ConfigEntries[index], plugin.ConfigEntries[index].Value, false));
+            return new ReadOnlyCollection<PanelConfigRowView>(rows);
+        }
+
+        private static PanelSettingRowView ProjectSettingRow(SettingEntryView entry, SettingDescriptor? descriptor, SettingValue effective, bool dirty)
+        {
+            var kind = entry.EffectiveValue.Kind;
+            var levels = ChoiceLevels(entry, descriptor);
+            var editable = entry.CanEdit && entry.Authority != SettingAuthority.ServerAuthoritative;
+            var displayName = descriptor.HasValue && !string.IsNullOrEmpty(descriptor.Value.DisplayNameKey) ? descriptor.Value.DisplayNameKey : entry.SettingId;
+            var description = descriptor.HasValue ? TruncateDescription(descriptor.Value.DescriptionKey) : string.Empty;
+            return new PanelSettingRowView(entry.SettingId, displayName, description, kind, levels, entry.Authority,
+                ControlKindForSetting(kind, levels, editable), effective, dirty);
+        }
+
+        private static PanelConfigRowView ProjectConfigRow(PluginConfigEntryView entry, PluginConfigValue effective, bool dirty)
+        {
+            var editable = entry.CanEdit && entry.Kind != PluginConfigValueKind.Unsupported;
+            var hasLevels = entry.AllowedChoices != null && entry.AllowedChoices.Count > 0;
+            PanelSettingControlKind control;
+            if (!editable) control = PanelSettingControlKind.ReadOnly;
+            else if (hasLevels) control = PanelSettingControlKind.Cycle;
+            else if (entry.Kind == PluginConfigValueKind.Boolean) control = PanelSettingControlKind.Toggle;
+            else control = PanelSettingControlKind.TextEditor;
+            return new PanelConfigRowView(entry.Key, entry.DisplayName, TruncateDescription(entry.Description), entry.Kind,
+                entry.AllowedChoices ?? new string[0], control, effective, dirty, entry.RequiresRestart);
+        }
+
+        private static PanelSettingControlKind ControlKindForSetting(SettingKind kind, IReadOnlyList<string> levels, bool editable)
+        {
+            // Q43: 只读行不画灰掉的假控件。Q38/Q41: Choice 有档位才 Cycle（单档也
+            // 可编）；无档位只读、不降级文本框。Q39: 其它 Kind 维持形状——KeyBinding
+            // 无专用捕获，走文本编辑。
+            if (kind == SettingKind.Choice) return editable && levels.Count > 0 ? PanelSettingControlKind.Cycle : PanelSettingControlKind.ReadOnly;
+            if (!editable) return PanelSettingControlKind.ReadOnly;
+            if (kind == SettingKind.Toggle) return PanelSettingControlKind.Toggle;
+            return PanelSettingControlKind.TextEditor;
+        }
+
+        private static IReadOnlyList<string> ChoiceLevels(SettingEntryView entry, SettingDescriptor? descriptor)
+        {
+            // 档位来源优先级镜像 SettingsRuntime 校验口径（policy ?: descriptor）：
+            // 服务端策略的非空 AllowedValues 收窄描述符档位。
+            IReadOnlyList<SettingValue> source = null;
+            if (entry.HasPolicy && entry.Policy.AllowedValues != null && entry.Policy.AllowedValues.Count > 0) source = entry.Policy.AllowedValues;
+            else if (descriptor.HasValue && descriptor.Value.AllowedValues != null && descriptor.Value.AllowedValues.Count > 0) source = descriptor.Value.AllowedValues;
+            if (source == null) return new string[0];
+            var levels = new List<string>(source.Count);
+            for (var index = 0; index < source.Count; index++) levels.Add(source[index].Text ?? string.Empty);
+            return new ReadOnlyCollection<string>(levels);
+        }
+
+        private static string TruncateDescription(string text)
+        {
+            // Q37: 对齐 UPM 的 120 截断（前 120 字 + 省略号）；空=不画不占位由
+            // 渲染层按空串跳行，投影层如实给空串。
+            if (string.IsNullOrEmpty(text)) return string.Empty;
+            if (text.Length <= PanelSettingRowView.DescriptionDisplayLimit) return text;
+            return text.Substring(0, PanelSettingRowView.DescriptionDisplayLimit) + "...";
+        }
+
         /// <summary>「保存配置」：按冻结写入顺序把草稿交给权威源——BUE 设置
         /// （一次原子 Submit，基准 = 进入详情/本源上次成功的 revision）→ 外部
         /// ConfigEntry（逐条）→ 功能启停（最后，且不以「前面全成功」为前提，
@@ -653,7 +947,12 @@ namespace BetterUnturnedExperience.ClientUi.Internal
                 {
                     draft.SettingsBaselineRevision = result.Revision;
                     draft.BaselineSettings.Clear();
-                    foreach (var entry in VisibleSettings(result.Snapshot)) draft.BaselineSettings[entry.SettingId] = entry;
+                    draft.SettingOrder.Clear();
+                    foreach (var entry in VisibleSettings(result.Snapshot))
+                    {
+                        draft.BaselineSettings[entry.SettingId] = entry;
+                        draft.SettingOrder.Add(entry.SettingId);
+                    }
                     draft.SettingEdits.Clear();
                     CommitFeatureSnapshot(draft.Feature, result.Snapshot);
                 }
@@ -684,7 +983,8 @@ namespace BetterUnturnedExperience.ClientUi.Internal
                         if (pluginConfigEditor != null && pluginConfigEditor.TrySet(draft.StableId, entry.Key, pending))
                         {
                             entries[position] = new PluginConfigEntryView(entry.Key, entry.DisplayName, entry.Kind, pending,
-                                entry.RequiresRestart, entry.CanEdit, entry.Minimum, entry.Maximum, entry.MaximumLength);
+                                entry.RequiresRestart, entry.CanEdit, entry.Minimum, entry.Maximum, entry.MaximumLength,
+                                entry.Description, entry.AllowedChoices);
                             if (entry.RequiresRestart) requiresRestart = true;
                             committed.Add(entry.Key);
                         }
@@ -826,10 +1126,16 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             internal FeatureId Feature;
             internal uint SettingsBaselineRevision;
             internal readonly Dictionary<string, SettingEntryView> BaselineSettings = new Dictionary<string, SettingEntryView>(StringComparer.Ordinal);
+            // DEV-V4-02: the row projection must keep the snapshot's display
+            // order (a dictionary does not), and the Cycle/read-only shape rules
+            // join each row with its feature schema — captured once at open.
+            internal readonly List<string> SettingOrder = new List<string>();
+            internal readonly Dictionary<string, SettingDescriptor> BaselineDescriptors = new Dictionary<string, SettingDescriptor>(StringComparer.Ordinal);
             internal readonly Dictionary<string, SettingValue> SettingEdits = new Dictionary<string, SettingValue>(StringComparer.Ordinal);
             internal bool EnableIntentBaseline;
             internal bool? EnableEdit;
             internal readonly Dictionary<string, PluginConfigEntryView> BaselineConfig = new Dictionary<string, PluginConfigEntryView>(StringComparer.Ordinal);
+            internal readonly List<string> ConfigOrder = new List<string>();
             internal readonly Dictionary<string, PluginConfigValue> ConfigEdits = new Dictionary<string, PluginConfigValue>(StringComparer.Ordinal);
         }
 

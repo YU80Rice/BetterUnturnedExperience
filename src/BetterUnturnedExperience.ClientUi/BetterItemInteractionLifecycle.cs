@@ -90,6 +90,15 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             return ApplyBatch(feature, expectedRevision, new[] { mutation });
         }
 
+        // DEV-V4-02: BII is composition chrome with a hand-built snapshot and
+        // NO declared schema — the honest answer is an empty list, so the row
+        // projection falls back (display name = SettingId, shape from the
+        // effective value's kind). 官方人读文案是 DEV-V4-07 的对照表工作。
+        public IReadOnlyList<SettingDescriptor> GetDescriptors(FeatureId feature)
+        {
+            return new SettingDescriptor[0];
+        }
+
         // DEV-V4-01: the BII composition editor honours the batch seam with
         // the same all-or-nothing contract as SettingsRuntime — every mutation
         // must be one of BII's two client toggles and the whole batch lands on

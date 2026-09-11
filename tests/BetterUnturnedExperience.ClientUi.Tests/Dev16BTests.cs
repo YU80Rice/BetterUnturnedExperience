@@ -208,6 +208,7 @@ namespace BetterUnturnedExperience.ClientUi.Tests
             internal uint LastExpectedRevision { get; private set; }
             internal SettingMutation LastMutation { get; private set; }
             public FeatureSettingsSnapshot GetSnapshot(FeatureId feature) { return snapshot; }
+            public System.Collections.Generic.IReadOnlyList<SettingDescriptor> GetDescriptors(FeatureId feature) { return new SettingDescriptor[0]; }
             public SettingChangeResult Apply(FeatureId feature, uint expectedRevision, SettingMutation mutation)
             {
                 return ApplyBatch(feature, expectedRevision, new[] { mutation });

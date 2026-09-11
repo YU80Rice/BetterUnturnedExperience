@@ -1,0 +1,5 @@
+DEV-V4-02 red-first observation 2026-09-11 (tests written against not-yet-existing seam):
+DevV4PanelControlsTests.cs(368,24): error CS0246: PanelSettingRowView
+DevV4PanelControlsTests.cs(376,24): error CS0246: PanelConfigRowView
+(plus missing members GetSettingRows/GetPluginConfigRows/DraftCycleBueSetting/DraftCyclePluginConfig/GetDescriptors driving the seam)
+After implementation: behavioral red on CycleWrapsAtBothEnds (test-seeded baseline was first level; assertion corrected to first-right->last / last-left->first), then GREEN.
