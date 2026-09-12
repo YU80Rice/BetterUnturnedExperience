@@ -450,6 +450,11 @@ namespace BetterUnturnedExperience.Lit
         {
             if (module == null || !module.ShouldInjectTidyButtonForNewPage) return;
             if (InjectButtonForTests == null && !module.PatchesInstalled) return;
+            // DEV-V4-09（用户预警「日志要刷疯了」）：全页在册=无事可做，**静默
+            // 短路**——不解析 Glazier、不打注入完成行（16 拍一次 ≈ 60fps 每秒
+            // 3.75 次，稳态刷行=小时万行级噪音；Phase-3 F1 日志风暴同类零容忍）。
+            // 部分在册（个别页创建失败）仍走到注入=重试自愈，真做事才打日志。
+            if (s_TidyButtons.Count >= HEADER_INJECT_COUNT) return;
             Array headers = HeadersForTests != null ? HeadersForTests() : ReadStaticHeaders();
             if (headers == null) return;
             InjectButtonsInto(headers, skipTrackedPages: true);

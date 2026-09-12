@@ -11919,6 +11919,24 @@ namespace BetterUnturnedExperience.Plugin.Tests
                         Check(injectedPages.Count == beforeDedupe,
                             "实时注入：已在册页不重复注入（在册去重，不画双按钮）");
 
+                        // DEV-V4-09（用户预警「日志要刷疯了」）：全页在册后泵尝试必须
+                        // **静默短路**——不打注入完成行、不走反射解析。16 拍一次 ≈
+                        // 60fps 下每秒 3.75 次，稳态刷日志=小时万行级纯噪音（项目
+                        // 在 Phase-3 抓过 63 行/秒风暴，同类缺陷零容忍）。
+                        var previousSink = LitRuntime.LogSink;
+                        var tidyLines = new List<string>();
+                        LitRuntime.LogSink = line => { if (line != null && line.IndexOf("[TidyUI]", StringComparison.Ordinal) >= 0) tidyLines.Add(line); };
+                        try
+                        {
+                            PumpTidyModule(module);
+                            Check(tidyLines.Count == 0,
+                                "实时注入：全页在册后泵静默短路（稳态零 [TidyUI] 日志行，真做事才打日志）");
+                        }
+                        finally
+                        {
+                            LitRuntime.LogSink = previousSink;
+                        }
+
                         injectedPages.Clear();
                         var bus3 = new BetterUnturnedExperience.Core.Events.FeatureEventBus();
                         var pair3 = BetterUnturnedExperience.Core.Network.LocalLoopbackTransport.CreatePair();
