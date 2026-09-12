@@ -69,6 +69,7 @@
     <Compile Include="BueRuntimeLog.cs" />
     <Compile Include="BuePlatformDoubleInstallCheck.cs" />
     <Compile Include="..\BetterUnturnedExperience.ClientUi\ManagementPanel.cs"><Link>EmbeddedClientUi\ManagementPanel.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.ClientUi\PanelChromeCopy.cs"><Link>EmbeddedClientUi\PanelChromeCopy.cs</Link></Compile>
     <!-- DEV-V2-15: embed the migrated LIT (inventory tidy) domain into the single runtime assembly.
          The old plugin's BepInEx identity, LMN dependency, harness fixtures and dead passive-tidy
          patch are NOT in this list — the exclusion is a hard rule verified by the host red test. -->

@@ -1,0 +1,7 @@
+DEV-14 official registration parity tests: FAIL
+System.InvalidOperationException: 消费锚：整理模式描述=Q61 冻结原文逐字（DEV-V4-07 交接落地，06 时为空不画）
+   在 BetterUnturnedExperience.Plugin.Tests.Program.<>c__DisplayClass231_0.<AssertBueV3SettingsWiringAndPanelRouting>g__Check|0(Boolean condition, String message)
+   在 BetterUnturnedExperience.Plugin.Tests.Program.<>c__DisplayClass231_1.<AssertBueV3SettingsWiringAndPanelRouting>b__18()
+   在 BetterUnturnedExperience.Plugin.Tests.Program.<>c__DisplayClass231_0.<AssertBueV3SettingsWiringAndPanelRouting>g__Group|1(String name, Action body)
+   在 BetterUnturnedExperience.Plugin.Tests.Program.AssertBueV3SettingsWiringAndPanelRouting(Boolean collectAllFailures)
+   在 BetterUnturnedExperience.Plugin.Tests.Program.Main()

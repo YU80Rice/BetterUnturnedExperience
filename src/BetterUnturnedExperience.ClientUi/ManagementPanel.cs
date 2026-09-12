@@ -403,9 +403,11 @@ namespace BetterUnturnedExperience.ClientUi.Internal
         // DisplayNameKey / DescriptionKey / Kind / AllowedValues never reach
         // the contract snapshot, so the projection reads them here. This is an
         // internal ClientUi seam (public ≠ 契约), NOT a contract member.
-        // Implementers with no declared schema (BII composition chrome) return
-        // an empty list and the projection falls back honestly (display name =
-        // SettingId, shape from the effective value's kind).
+        // Implementers with no declared schema return an empty list and the
+        // projection falls back honestly (display name = SettingId, shape from
+        // the effective value's kind). DEV-V4-07: BII composition chrome now
+        // declares exactly ONE AutoRotate descriptor (Q62 frozen copy) — the
+        // retired Enabled master switch never re-enters the schema.
         IReadOnlyList<SettingDescriptor> GetDescriptors(FeatureId feature);
     }
 
@@ -961,6 +963,19 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             return new PanelFeatureStatusView(feature.HasStoppableLifecycle && StateHasEnableToggle(feature.State),
                 target, pending, pendingText, stateText, ProjectPresentationText(feature.Presentation.State),
                 isolationReason);
+        }
+
+        // ── DEV-V4-07：功能级一句话投影（V4-T6 Q60 chrome 对照表）──
+        // 事实源=PanelChromeCopy（面板 chrome，不进契约）。只对 BUE 功能条目回答：
+        // 无对照表的生态条目=空串（不画不占位），外部插件与未知 stableId=空串
+        // （对照表只覆盖 BUE 功能目录）。空串由渲染层跳行，绝不画占位句。
+        internal string GetFeatureDescription(string stableId)
+        {
+            EnsurePreferencesLoaded();
+            BueFeatureManagementEntry feature;
+            if (string.IsNullOrEmpty(stableId) || !features.TryGetValue(stableId, out feature)) return string.Empty;
+            string description;
+            return PanelChromeCopy.TryGetDescription(feature.Feature.Value, out description) ? description : string.Empty;
         }
 
         // Q46/Q50 九态映射（待启动 ≠ 启动中）。Disabled/Stopped 须结合停用原因：

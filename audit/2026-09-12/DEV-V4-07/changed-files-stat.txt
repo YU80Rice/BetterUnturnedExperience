@@ -1,0 +1,11 @@
+ .../BetterItemInteractionLifecycle.cs              |  19 ++-
+ .../BetterUnturnedExperience.ClientUi.csproj       |   1 +
+ .../ManagementPanel.cs                             |  21 +++-
+ .../InventoryTidyModule.cs                         |  26 ++--
+ .../NoOpFeaturePlugin.cs                           |  36 +++++-
+ .../BetterUnturnedExperience.Plugin.csproj         |   1 +
+ .../BueNativeManagementPanel.cs                    |   7 ++
+ .../BetterUnturnedExperience.ClientUi.Tests.csproj |   1 +
+ .../Program.cs                                     |   5 +-
+ .../Program.cs                                     | 138 ++++++++++++++++++++-
+ 10 files changed, 225 insertions(+), 30 deletions(-)

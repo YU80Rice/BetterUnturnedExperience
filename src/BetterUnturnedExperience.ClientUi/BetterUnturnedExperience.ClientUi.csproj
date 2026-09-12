@@ -37,6 +37,7 @@
     <Compile Include="SettingsSnapshotPresenter.cs" />
     <Compile Include="BetterItemInteractionLifecycle.cs" />
     <Compile Include="ManagementPanel.cs" />
+    <Compile Include="PanelChromeCopy.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>

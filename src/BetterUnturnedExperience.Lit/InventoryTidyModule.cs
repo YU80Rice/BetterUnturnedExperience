@@ -90,24 +90,24 @@ namespace BetterUnturnedExperience.Lit
         /// <summary>The settings facet schema this feature declares (V3-T7:
         /// 功能拥有 Schema; DEV-V4-06: the two global choices replace the
         /// retired enabled toggle) — the host composes the runtime from it.
-        /// The display names are the Q56 frozen copy (整理模式/整理方向);
-        /// the DESCRIPTION sentences belong to DEV-V4-07 — the keys stay
-        /// empty until then and the panel draws no description line (T3:
-        /// 空不画). MaximumUtf8Bytes covers the frozen Chinese literals
-        /// (2 chars = 6 UTF-8 bytes each) with headroom; values only arrive
-        /// through the Cycle seam, which is AllowedValues-restricted anyway.</summary>
+        /// The display names are the Q56 frozen copy (整理模式/整理方向) and
+        /// the description sentences are the Q61 frozen copy, landed by
+        /// DEV-V4-07 (描述解释玩家可见效果). MaximumUtf8Bytes covers the
+        /// frozen Chinese literals (2 chars = 6 UTF-8 bytes each) with
+        /// headroom; values only arrive through the Cycle seam, which is
+        /// AllowedValues-restricted anyway.</summary>
         internal static IReadOnlyList<SettingDescriptor> CreateSettingsDescriptors(FeatureId feature)
         {
             return new[]
             {
                 new SettingDescriptor(
-                    feature, ModeSettingId, ModeDisplayName, string.Empty,
+                    feature, ModeSettingId, ModeDisplayName, ModeDescription,
                     SettingKind.Choice, SettingAuthority.ClientLocal, SettingValue.Choice(ModeSameTypeLabel),
                     default(SettingValueOption), default(SettingValueOption), default(SettingValueOption),
                     new[] { SettingValue.Choice(ModeSameTypeLabel), SettingValue.Choice(ModeMaxRectsLabel), SettingValue.Choice(ModeFfdLabel) },
                     16, null, 1, 0, null, null),
                 new SettingDescriptor(
-                    feature, DirectionSettingId, DirectionDisplayName, string.Empty,
+                    feature, DirectionSettingId, DirectionDisplayName, DirectionDescription,
                     SettingKind.Choice, SettingAuthority.ClientLocal, SettingValue.Choice(DirectionDescendingLabel),
                     default(SettingValueOption), default(SettingValueOption), default(SettingValueOption),
                     new[] { SettingValue.Choice(DirectionDescendingLabel), SettingValue.Choice(DirectionAscendingLabel) },
@@ -122,10 +122,16 @@ namespace BetterUnturnedExperience.Lit
         internal const string ModeFfdLabel = "大件";
         internal const string DirectionDescendingLabel = "降序";
         internal const string DirectionAscendingLabel = "升序";
-        // Q56 frozen display names (the panel's row title). The description
-        // sentences arrive with DEV-V4-07's copy table.
+        // Q56 frozen display names (the panel's row title) + DEV-V4-07 (Q61)
+        // frozen description sentences — the description explains the PLAYER-
+        // VISIBLE effect of each level, never the solver algorithm or
+        // O-LIT-1 (V4-T6 Q61: 描述解释玩家可见效果，不承诺排序算法或 O-LIT-1；
+        // 120 是显示截断，不是正文契约上限).
         internal const string ModeDisplayName = "整理模式";
         internal const string DirectionDisplayName = "整理方向";
+        internal const string ModeDescription =
+            "同类：把相同物品聚在一起；空间：优先保留大块空位；大件：优先放置大件。对当前栏整理和全身整理都生效。";
+        internal const string DirectionDescription = "降序：大件优先；升序：小件优先。与整理模式共同决定整理顺序。";
 
         /// <summary>DEV-V4-06: the nine-state → tidy-UI action table (V4-T5
         /// Q55). Pure so the host tests pin every state explicitly; the module

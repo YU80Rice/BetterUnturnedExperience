@@ -970,6 +970,13 @@ namespace BetterUnturnedExperience.Plugin
             y += 40;
             if (selected.Kind == ManagementEntryKind.BueFeature)
             {
+                // DEV-V4-07 (V4-T6 Q60): the feature-level one-liner from the
+                // chrome copy table — drawn only when the table has the entry
+                // (无表则不画、不占位；外部插件分支不画，Q60 对照表只覆盖 BUE
+                // 功能目录). The sentence never replaces the status lines below.
+                var featureDescription = runtime.Model.GetFeatureDescription(selected.StableId);
+                if (!string.IsNullOrEmpty(featureDescription))
+                    AddDetailLabel(ref y, featureDescription, ESleekFontSize.Small);
                 AddDetailLabel(ref y, "BUE 功能设置", ESleekFontSize.Medium);
                 // DEV-V4-02: the panel draws the model row projection (join of
                 // snapshot entry + feature schema + draft state), not the raw

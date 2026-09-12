@@ -11887,9 +11887,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                         }
                         Check(!hasEnabledRow, "消费锚：enabled 不在行投影（退役总开关不复画）");
                         Check(modeRow.DisplayName == "整理模式" && directionRow.DisplayName == "整理方向",
-                            "消费锚：显示名=Q56 冻结文案（整理模式/整理方向，不再暴露内部键名）");
-                        Check(modeRow.Description.Length == 0 && directionRow.Description.Length == 0,
-                            "消费锚：描述句子归 DEV-V4-07——本票描述键为空、行投影空不画（T3）");
+                            "消费锚：显示名=Q56 冻结文案（整理模式/整理方向，不再暴露内部键名）；描述句断言随 DEV-V4-07 落入其行投影组");
                         Check(modeRow.ControlKind == PanelSettingControlKind.Cycle && modeRow.Kind == SettingKind.Choice,
                             "消费锚：整理模式行=Choice→Cycle 控件（02 行投影真实消费官方 Choice）");
                         Check(directionRow.ControlKind == PanelSettingControlKind.Cycle && directionRow.Kind == SettingKind.Choice,
@@ -11928,6 +11926,138 @@ namespace BetterUnturnedExperience.Plugin.Tests
                         BueRuntimeHost.Bind(previousRuntime);
                     }
                 });
+
+                // ── DEV-V4-07：官方文案、设置中文与 NoOp Choice（spec「官方文案与 NoOp
+                // （V4-T6 → DEV-V4-07）」+ Q60–Q64）。三缝分开：chrome 对照表（面板 chrome，
+                // 非契约）、设置显示名/描述（Q61/Q62/Q64 逐字，全部经面板行投影缝断言，
+                // 不直读描述符/注册面——Testing Decisions「只测外显行为」）、运行时状态
+                // 投影（05 已落，本票不动）。候选纪律=不授候选不加 RELEASES 不授 CaseId。──
+
+                Group("DEV-V4-07 NoOp 探针档位 Cycle 改草稿（T1 检验点③：NoOp 描述+Toggle+Choice）", () =>
+                {
+                    EnsureSettings();
+                    var noopFeature = new FeatureId("io.github.yu80rice.bue.noop");
+                    var previousRuntime = BueRuntimeHost.CurrentRuntime;
+                    var runtime = new FeatureRegistrationRuntime();
+                    BueRuntimeHost.Bind(runtime);
+                    runtime.OpenRegistration();
+                    Check(runtime.Register(NoOpFeatureRegistration.ProbeRegistration).Accepted,
+                        "锚③ setup：NoOp 样板登记受理（同公共桥同路由）");
+                    Check(runtime.CompleteRuntime(), "锚③ setup：目录冻结");
+                    var composition = new BueClientUiCompositionRoot();
+                    try
+                    {
+                        composition.RefreshManagementPanel();
+                        var model = composition.ManagementPanel.Model;
+                        Check(model.GetFeatureDescription(noopFeature.Value)
+                                == "生态接入样板，用于展示功能描述、Toggle 和 Choice 在面板中的呈现。",
+                            "锚③：NoOp 功能级一句话经 chrome 对照表投影可达（面板 chrome，非契约成员）");
+                        model.OpenDetail(noopFeature.Value);
+                        var rows = model.GetSettingRows(noopFeature.Value);
+                        Check(rows.Count == 2, "锚③：NoOp 详情恰两行（Toggle+Choice 供生态作者对照）");
+                        PanelSettingRowView toggleRow = default(PanelSettingRowView);
+                        PanelSettingRowView choiceRow = default(PanelSettingRowView);
+                        for (var rowIndex = 0; rowIndex < rows.Count; rowIndex++)
+                        {
+                            if (rows[rowIndex].SettingId == "noop.probe-toggle") toggleRow = rows[rowIndex];
+                            if (rows[rowIndex].SettingId == "noop.probe-choice") choiceRow = rows[rowIndex];
+                        }
+                        Check(toggleRow.DisplayName == "探针开关"
+                                && toggleRow.Description == "样板用的开关，证明生态 Toggle 能出现在面板。"
+                                && toggleRow.ControlKind == PanelSettingControlKind.Toggle
+                                && toggleRow.EffectiveValue.Boolean,
+                            "锚③：探针开关行=中文文案+Toggle 控件+默认开（Q64 冻结原文逐字）");
+                        Check(choiceRow.DisplayName == "探针档位"
+                                && choiceRow.Description == "样板用的循环切换，证明生态 Choice 能出现在面板。"
+                                && choiceRow.ControlKind == PanelSettingControlKind.Cycle
+                                && choiceRow.AllowedValues.Count == 2 && choiceRow.AllowedValues[0] == "甲" && choiceRow.AllowedValues[1] == "乙"
+                                && choiceRow.EffectiveValue.Text == "甲",
+                            "锚③：探针档位行=中文文案+Cycle 控件+档位甲/乙+默认甲");
+                        Check(model.DraftCycleBueSetting("noop.probe-choice", 1) && model.IsDirty,
+                            "锚③：左键下一档（甲→乙）进草稿即脏");
+                        var store = BetterUnturnedExperience.Plugin.BueSettingsRuntime.Registry;
+                        SettingValue during; uint duringRevision;
+                        Check(store.TryGetRuntime(noopFeature).TryGet("noop.probe-choice", out during, out duringRevision)
+                                && during.Text == "甲",
+                            "锚③：改档位不立刻写权威源（宿主 runtime 仍甲）");
+                        Check(model.DraftCycleBueSetting("noop.probe-choice", -1) && !model.IsDirty,
+                            "锚③：同一草稿会话内右键拨回默认档（乙→甲）不再脏（Q41）");
+                        Check(model.DraftCycleBueSetting("noop.probe-choice", 1) && model.IsDirty,
+                            "锚③：再次左键（甲→乙）待保存");
+                        var report = model.SaveDraft();
+                        Check(report.Outcome == DraftSaveOutcome.Success && report.PrimaryMessage == "配置已保存。",
+                            "锚③：保存成功文案（Choice 走一次原子 Submit）");
+                        SettingValue after; uint afterRevision;
+                        Check(store.TryGetRuntime(noopFeature).TryGet("noop.probe-choice", out after, out afterRevision)
+                                && after.Text == "乙" && afterRevision == duringRevision + 1,
+                            "锚③：保存后宿主 runtime 读到乙（revision 单次推进）");
+                        var noopSave = model.SaveDraft();
+                        Check(noopSave.Outcome == DraftSaveOutcome.NoChanges && noopSave.PrimaryMessage == "没有需要保存的修改。",
+                            "锚③：不脏保存=空操作文案（不误写盘）");
+                    }
+                    finally
+                    {
+                        composition.Destroy();
+                        BueRuntimeHost.Bind(previousRuntime);
+                    }
+                });
+
+                Group("DEV-V4-07 行投影 Q61 描述逐字与退役 enabled 对拍（与 DEV-V4-04 对拍）", () =>
+                {
+                    // 文案与退役对拍全部经面板行投影缝（GetSettingRows）断言，
+                    // 不直读描述符/注册面（Testing Decisions「只测外显行为」）。
+                    // BII 的行级对拍在 ClientUi.Tests DevV4OfficialCopyTests（真实
+                    // BII 编辑器）；此处锚 LIT+NoOp 的真实宿主路由。
+                    EnsureSettings();
+                    var lit = new FeatureId("io.github.yu80rice.bue.inventory-tidy");
+                    var noopFeature = new FeatureId("io.github.yu80rice.bue.noop");
+                    var previousRuntime = BueRuntimeHost.CurrentRuntime;
+                    var runtime = new FeatureRegistrationRuntime();
+                    BueRuntimeHost.Bind(runtime);
+                    runtime.OpenRegistration();
+                    Check(BueRuntimeHost.Register(InventoryTidyFeatureRegistration.CreateRegistration()).Accepted,
+                        "07 对拍 setup：真实 LIT 注册受理（facet=两条 Choice）");
+                    Check(runtime.Register(NoOpFeatureRegistration.ProbeRegistration).Accepted,
+                        "07 对拍 setup：NoOp 样板登记受理");
+                    Check(runtime.CompleteRuntime(), "07 对拍 setup：目录冻结");
+                    BueFeatureStartRuntime.StartCatalog(runtime, NewLoopbackNetwork(3602UL));
+                    var composition = new BueClientUiCompositionRoot();
+                    try
+                    {
+                        composition.RefreshManagementPanel();
+                        var model = composition.ManagementPanel.Model;
+                        model.OpenDetail(lit.Value);
+                        var litRows = model.GetSettingRows(lit.Value);
+                        Check(litRows.Count == 2, "07：LIT 详情恰两行（enabled 退役不占行）");
+                        var litModeDescription = string.Empty;
+                        var litDirectionDescription = string.Empty;
+                        var litHasEnabled = false;
+                        for (var i = 0; i < litRows.Count; i++)
+                        {
+                            if (litRows[i].SettingId == "inventorytidy.mode") litModeDescription = litRows[i].Description;
+                            if (litRows[i].SettingId == "inventorytidy.direction") litDirectionDescription = litRows[i].Description;
+                            if (string.Equals(litRows[i].SettingId, "inventorytidy.enabled", StringComparison.Ordinal)) litHasEnabled = true;
+                        }
+                        Check(litModeDescription == "同类：把相同物品聚在一起；空间：优先保留大块空位；大件：优先放置大件。对当前栏整理和全身整理都生效。",
+                            "07：整理模式描述=Q61 冻结原文逐字（经行投影缝，不直读描述符）");
+                        Check(litDirectionDescription == "降序：大件优先；升序：小件优先。与整理模式共同决定整理顺序。",
+                            "07：整理方向描述=Q61 冻结原文逐字（经行投影缝）");
+                        Check(!litHasEnabled, "07：LIT 行投影无 inventorytidy.enabled（退役键不因文案票回潮，与 04 对拍）");
+                        model.OpenDetail(noopFeature.Value);
+                        var noopRows = model.GetSettingRows(noopFeature.Value);
+                        var noopHasEnabled = false;
+                        for (var i = 0; i < noopRows.Count; i++)
+                            if (noopRows[i].SettingId.IndexOf("enabled", StringComparison.OrdinalIgnoreCase) >= 0) noopHasEnabled = true;
+                        Check(noopRows.Count == 2 && !noopHasEnabled,
+                            "07：NoOp 恰两行（Toggle+Choice）且无 enabled 别名行（两探针均非生命周期代理，Q64：不登记 legacy alias）");
+                    }
+                    finally
+                    {
+                        BueFeatureStartRuntime.StopAll(FeatureStopReason.PluginStopping);
+                        composition.Destroy();
+                        BueRuntimeHost.Bind(previousRuntime);
+                    }
+                });
             }
             catch (Exception error) when (collectAllFailures)
             {
@@ -11943,7 +12073,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 }
             }
             if (collectAllFailures && reds.Count == 0)
-                Console.WriteLine("DEV-V3-06 settings collection: ALL GREEN (0 failures) — groups: 面板目录路由/不伪造页/矩阵两侧/官方与生态并列/登记 facet 侧/官方先行消费真实 LIT/生态对照 NoOp/面板启停命令适配器");
+                Console.WriteLine("DEV-V3-06 settings collection: ALL GREEN (0 failures) — groups: 面板目录路由/不伪造页/矩阵两侧/官方与生态并列/登记 facet 侧/官方先行消费真实 LIT/生态对照 NoOp/面板启停命令适配器/DEV-V4-07 官方文案与 NoOp Choice");
             if (collectAllFailures && reds.Count > 0)
                 throw new InvalidOperationException("DEV-V3-06 red collection (" + reds.Count + "): " + string.Join(" || ", reds));
         }

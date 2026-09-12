@@ -90,13 +90,22 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             return ApplyBatch(feature, expectedRevision, new[] { mutation });
         }
 
-        // DEV-V4-02: BII is composition chrome with a hand-built snapshot and
-        // NO declared schema — the honest answer is an empty list, so the row
-        // projection falls back (display name = SettingId, shape from the
-        // effective value's kind). 官方人读文案是 DEV-V4-07 的对照表工作。
+        // DEV-V4-02 → DEV-V4-07: BII is composition chrome with a hand-built
+        // snapshot — the row shape still joins through the SAME descriptor
+        // seam, now carrying the Q62 frozen copy (显示名「自动旋转」、描述
+        // 「拖入时自动旋转物品以适配空位。」). Exactly ONE descriptor: the
+        // legacy Enabled master switch stays retired (DEV-V4-04) and never
+        // re-enters the schema.
         public IReadOnlyList<SettingDescriptor> GetDescriptors(FeatureId feature)
         {
-            return new SettingDescriptor[0];
+            if (!string.Equals(feature.Value, BetterItemInteractionSettingsState.Feature.Value, StringComparison.Ordinal)) return new SettingDescriptor[0];
+            return new[]
+            {
+                new SettingDescriptor(BetterItemInteractionSettingsState.Feature, "AutoRotate", "自动旋转", "拖入时自动旋转物品以适配空位。",
+                    SettingKind.Toggle, SettingAuthority.ClientLocal, SettingValue.Toggle(true),
+                    default(SettingValueOption), default(SettingValueOption), default(SettingValueOption),
+                    null, 16, null, 1, 0, null, null)
+            };
         }
 
         // DEV-V4-01: the BII composition editor honours the batch seam with

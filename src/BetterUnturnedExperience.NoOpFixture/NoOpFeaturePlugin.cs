@@ -232,16 +232,32 @@ namespace BetterUnturnedExperience.NoOpFixture
             public ContractVersion MinimumBueContract { get { return new ContractVersion(2, 0); } }
             public IFeatureModuleFactory ModuleFactory { get { return new NoOpFactory(); } }
             public IClientUiSatelliteRegistration ClientUi { get { return null; } }
-            // DEV-V3-06: the settings facet — the sample declares its schema
-            // (one ClientLocal toggle; 已承诺 scope only, no ServerAuthority
-            // write entry offered — nothing is faked, per the ticket rule).
-            public IReadOnlyList<SettingDescriptor> SettingDescriptors { get { return new[] { ProbeToggle }; } }
+            // DEV-V3-06 → DEV-V4-07: the settings facet — the sample declares
+            // its schema per the Q64 frozen copy: the kept toggle row
+            // (probe-toggle, 探针开关) plus the NEW choice row (probe-choice,
+            // 探针档位, 甲/乙, default 甲) so ecosystem authors can compare
+            // Toggle AND Cycle rendering against the same fixture (T1 检验点③;
+            // NoOp 不替代 LIT 对 Choice 的官方先行消费). Both rows are plain
+            // ClientPreference settings — NEITHER is a lifecycle proxy and
+            // NEITHER registers a legacy alias (04 对拍). 已承诺 scope only,
+            // no ServerAuthority write entry offered — nothing is faked.
+            public IReadOnlyList<SettingDescriptor> SettingDescriptors { get { return new[] { ProbeToggle, ProbeChoice }; } }
             public Action OnSettingsApplied { get { return null; } }
             private static readonly SettingDescriptor ProbeToggle = new SettingDescriptor(
-                new FeatureId("io.github.yu80rice.bue.noop"), "noop.probe-toggle", "noop.probe-toggle", "noop.probe-toggle",
+                new FeatureId("io.github.yu80rice.bue.noop"), "noop.probe-toggle", "探针开关", "样板用的开关，证明生态 Toggle 能出现在面板。",
                 SettingKind.Toggle, SettingAuthority.ClientLocal, SettingValue.Toggle(true),
                 default(SettingValueOption), default(SettingValueOption), default(SettingValueOption),
                 null, 0, null, 1, 0, null, null);
+            // MaximumUtf8Bytes=16 covers 甲/乙 (3 UTF-8 bytes each): the
+            // runtime byte gate is exact (0 would reject every Choice submit).
+            private static readonly SettingDescriptor ProbeChoice = new SettingDescriptor(
+                new FeatureId("io.github.yu80rice.bue.noop"), "noop.probe-choice", "探针档位", "样板用的循环切换，证明生态 Choice 能出现在面板。",
+                SettingKind.Choice, SettingAuthority.ClientLocal, SettingValue.Choice(ProbeChoiceDefault),
+                default(SettingValueOption), default(SettingValueOption), default(SettingValueOption),
+                new[] { SettingValue.Choice(ProbeChoiceDefault), SettingValue.Choice(ProbeChoiceAlternate) },
+                16, null, 1, 1, null, null);
+            internal const string ProbeChoiceDefault = "甲";
+            internal const string ProbeChoiceAlternate = "乙";
         }
 
         private sealed class NoOpFactory : IFeatureModuleFactory
@@ -488,7 +504,15 @@ namespace BetterUnturnedExperience.NoOpFixture
                     {
                         if (snapshot.Entries[i].SettingId == "noop.probe-toggle") probe.SettingsSchemaVisible = true;
                     }
-                    var current = snapshot.Entries.Count == 0 ? SettingValue.Toggle(true) : snapshot.Entries[0].EffectiveValue;
+                    // DEV-V4-07: the facet now has TWO rows (probe-toggle +
+                    // probe-choice) — locate the toggle row by id instead of
+                    // assuming snapshot order, so the chain criteria stay
+                    // order-independent while the fixture grows.
+                    var current = SettingValue.Toggle(true);
+                    for (var i = 0; i < snapshot.Entries.Count; i++)
+                    {
+                        if (snapshot.Entries[i].SettingId == "noop.probe-toggle") { current = snapshot.Entries[i].EffectiveValue; break; }
+                    }
                     var mutation = new[] { new SettingMutation("noop.probe-toggle", SettingValue.Toggle(!current.Boolean)) };
                     var expectedRevision = fault == NoOpProbeFault.SettingsCommitExpectation
                         ? snapshot.Revision + 777u : snapshot.Revision;

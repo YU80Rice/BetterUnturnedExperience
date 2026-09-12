@@ -1,0 +1,12 @@
+M src/BetterUnturnedExperience.ClientUi/BetterItemInteractionLifecycle.cs
+M src/BetterUnturnedExperience.ClientUi/BetterUnturnedExperience.ClientUi.csproj
+M src/BetterUnturnedExperience.ClientUi/ManagementPanel.cs
+M src/BetterUnturnedExperience.Lit/InventoryTidyModule.cs
+M src/BetterUnturnedExperience.NoOpFixture/NoOpFeaturePlugin.cs
+M src/BetterUnturnedExperience.Plugin/BetterUnturnedExperience.Plugin.csproj
+M src/BetterUnturnedExperience.Plugin/BueNativeManagementPanel.cs
+M tests/BetterUnturnedExperience.ClientUi.Tests/BetterUnturnedExperience.ClientUi.Tests.csproj
+M tests/BetterUnturnedExperience.ClientUi.Tests/Program.cs
+M tests/BetterUnturnedExperience.Plugin.Tests/Program.cs
+?? src/BetterUnturnedExperience.ClientUi/PanelChromeCopy.cs
+?? tests/BetterUnturnedExperience.ClientUi.Tests/DevV4OfficialCopyTests.cs
