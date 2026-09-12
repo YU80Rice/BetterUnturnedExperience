@@ -8,6 +8,7 @@
 - 本地来源快照：`D:\Agent-工作目录\DevelopMyUNMultiplayerModAndModloader\UnturnedPluginManager`
 - 采用时记录的提交：`9b75730`（`v26.8.11.3: 修复游戏内无法打开插件管理界面的问题`）
 - 上游源码快照（逐字节一致，blob 哈希可对照上游 `9b75730` 核验）：[`UnturnedPluginManager-snapshot/`](UnturnedPluginManager-snapshot/)，以作者署名的 vendor 提交入本仓库历史，使其贡献出现在 GitHub Contributors 认定中
+- 作者后续开发技能包（2026-09-11 归档，文档写到 v26.8.13.3，比本体快照新）：[`unturned-plugin-dev/`](unturned-plugin-dev/)
 - 作者署名：`35117+Deepseek-v4-falsh-0731`
 
 ## 使用许可记录
