@@ -8975,6 +8975,120 @@ namespace BetterUnturnedExperience.Plugin.Tests
                         "面板启停：Isolated→手动再启用=新代际 Running");
                 });
 
+                // DEV-V4-03: the panel submits a TARGET state (启用/停用); the
+                // machine interprets it at submit time. Agreement = success-
+                // shaped no-op (现网对这三条路径返回失败——本组先红后绿修的是机，
+                // 不是面板 if); difference moves (停跑/复停/复离); disallowed
+                // transitions fail so the caller keeps its draft intent.
+                Group("目标提交空操作", () =>
+                {
+                    // A. Running + 目标启用 = 空操作成功（现网 enable-rejected
+                    // invalid-state 先红）：状态、修订、工厂实例三不变。
+                    var feature = new FeatureId("io.example.lifecycle-target-running");
+                    var probe = new LifecycleProbeRegistration("io.example.lifecycle-target-running");
+                    var baseCount = LifecycleProbeModule.Created.Count;
+                    StartProbe(probe);
+                    var running = probe.Module;
+                    Check(running.Bootstrap.Lifetime.CurrentStatus.State == FeatureState.Running,
+                        "目标提交 setup：探针 Running");
+                    var runningRevision = running.Bootstrap.Lifetime.CurrentStatus.StateRevision;
+                    Check(BueFeatureStartRuntime.SetFeatureEnabled(feature, true),
+                        "目标提交：Running 再提交启用=空操作成功（现网 invalid-state 拒，先红）");
+                    var afterNoopEnable = running.Bootstrap.Lifetime.CurrentStatus;
+                    Check(afterNoopEnable.State == FeatureState.Running && afterNoopEnable.StateRevision == runningRevision,
+                        "目标提交：Running 空操作后状态与修订不变（无假迁移）");
+                    Check(LifecycleProbeModule.Created.Count == baseCount + 1,
+                        "目标提交：Running 空操作不经工厂（不新开代际）");
+
+                    // B. 已用户停用再提交停用 = 空操作成功（现网 disable-rejected
+                    // not-running 先红）：投影停在 Stopped/UserDisabled 原样。
+                    Check(BueFeatureStartRuntime.SetFeatureEnabled(feature, false),
+                        "目标提交 setup：面板停用=UserDisabled");
+                    var stoppedView = running.Bootstrap.Lifetime.CurrentStatus;
+                    Check(stoppedView.State == FeatureState.Stopped && stoppedView.StopReason == FeatureStopReason.UserDisabled,
+                        "目标提交 setup：停用投影=Stopped/UserDisabled");
+                    Check(BueFeatureStartRuntime.SetFeatureEnabled(feature, false),
+                        "目标提交：已停用再提交停用=空操作成功（现网 not-running 拒，先红）");
+                    var afterNoopDisable = running.Bootstrap.Lifetime.CurrentStatus;
+                    Check(afterNoopDisable.State == FeatureState.Stopped
+                            && afterNoopDisable.StopReason == FeatureStopReason.UserDisabled
+                            && afterNoopDisable.StateRevision == stoppedView.StateRevision,
+                        "目标提交：已停用空操作后投影原样（无假迁移无新代际）");
+                    Check(LifecycleProbeModule.Created.Count == baseCount + 1,
+                        "目标提交：已停用空操作不经工厂");
+
+                    // C. Isolated + 目标停用 = 空操作成功（现网 not-running 拒，
+                    // 先红）：保持隔离不走会失败的 disable，不新开代际。
+                    var isoFeature = new FeatureId("io.example.lifecycle-target-iso");
+                    var isoProbe = new LifecycleProbeRegistration("io.example.lifecycle-target-iso");
+                    var isoCreates = 0;
+                    isoProbe.ModuleProvider = () =>
+                    {
+                        var module = new LifecycleProbeModule();
+                        if (isoCreates++ == 0)
+                            module.StartBehavior = (m, bootstrap) => throw new InvalidOperationException("probe-start-failure");
+                        return module;
+                    };
+                    var isoBase = LifecycleProbeModule.Created.Count;
+                    StartProbe(isoProbe);
+                    var isolatedFirst = LifecycleProbeModule.Created[isoBase];
+                    Check(isolatedFirst != null && isolatedFirst.Bootstrap.Lifetime.CurrentStatus.State == FeatureState.Isolated,
+                        "目标提交 setup：Start 抛→Isolated");
+                    var isoRevision = isolatedFirst.Bootstrap.Lifetime.CurrentStatus.StateRevision;
+                    Check(BueFeatureStartRuntime.SetFeatureEnabled(isoFeature, false),
+                        "目标提交：Isolated 再提交停用=空操作成功（保持隔离，现网 not-running 拒，先红）");
+                    var isoAfter = isolatedFirst.Bootstrap.Lifetime.CurrentStatus;
+                    Check(isoAfter.State == FeatureState.Isolated && isoAfter.StopReason == FeatureStopReason.RuntimeIsolated
+                            && isoAfter.StateRevision == isoRevision,
+                        "目标提交：Isolated 空操作后保持隔离（无假迁移无新代际）");
+                    Check(LifecycleProbeModule.Created.Count == isoBase + 1,
+                        "目标提交：Isolated 空操作不经工厂");
+
+                    // D. Isolated + 目标启用 = 恢复并新代际（既有语义的镜像锚，
+                    // 与「面板启停」组的 Isolated 再启用同判据收进本组）。
+                    Check(BueFeatureStartRuntime.SetFeatureEnabled(isoFeature, true),
+                        "目标提交：Isolated 目标启用=恢复成功");
+                    Check(LifecycleProbeModule.Created.Count == isoBase + 2,
+                        "目标提交：Isolated 恢复经工厂新开代际");
+                    var revived = LifecycleProbeModule.Created[isoBase + 1];
+                    Check(revived != null && revived.Bootstrap.Lifetime.CurrentStatus.State == FeatureState.Running
+                            && revived.Bootstrap.LifecycleGeneration > isolatedFirst.Bootstrap.LifecycleGeneration,
+                        "目标提交：Isolated 恢复=新代际 Running");
+
+                    // E. 过渡期（Starting）内重入提交两个方向都不允许——显式失败，
+                    // 且不污染本次启动（不迁移不撤销，Start 照常完成 Running）。
+                    var reentry = new FeatureId("io.example.lifecycle-target-reentry");
+                    var reentryProbe = new LifecycleProbeRegistration("io.example.lifecycle-target-reentry");
+                    var disableDuringStarting = true;
+                    var enableDuringStarting = true;
+                    reentryProbe.ModuleProvider = () =>
+                    {
+                        var module = new LifecycleProbeModule();
+                        module.StartBehavior = (m, bootstrap) =>
+                        {
+                            disableDuringStarting = BueFeatureStartRuntime.SetFeatureEnabled(reentry, false);
+                            enableDuringStarting = BueFeatureStartRuntime.SetFeatureEnabled(reentry, true);
+                            return new FeatureStartResult(true, FrameworkErrorCode.None, "BUE-V3-LIFECYCLE-START");
+                        };
+                        return module;
+                    };
+                    StartProbe(reentryProbe);
+                    Check(BueFeatureStartRuntime.SetFeatureEnabled(reentry, false), "目标提交 setup：reentry 停用");
+                    var reentryBase = LifecycleProbeModule.Created.Count;
+                    Check(BueFeatureStartRuntime.SetFeatureEnabled(reentry, true),
+                        "目标提交 setup：reentry 再启用（Start 内重入提交）");
+                    Check(!disableDuringStarting, "目标提交：Starting 过渡期提交停用=显式失败（不允许转换）");
+                    Check(!enableDuringStarting, "目标提交：Starting 过渡期提交启用=显式失败（不允许转换）");
+                    var reentryModule = LifecycleProbeModule.Created[reentryBase];
+                    Check(reentryModule != null && reentryModule.Bootstrap.Lifetime.CurrentStatus.State == FeatureState.Running,
+                        "目标提交：过渡期失败的提交不污染本次启动（仍 Running）");
+
+                    // F. 未注册功能两个方向的目标提交都显式失败（不允许转换；
+                    // disable 侧与「面板启停」组的 never-registered 锚同构）。
+                    Check(!BueFeatureStartRuntime.SetFeatureEnabled(new FeatureId("io.example.never-registered-target"), true),
+                        "目标提交：未注册功能提交启用=显式失败");
+                });
+
                 Group("隔离不扩散", () =>
                 {
                     var boom = new LifecycleProbeRegistration("io.example.lifecycle-iso-view");
@@ -9108,6 +9222,12 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     Check(litModule2.Lifetime != null
                         && litModule2.Lifetime.CurrentStatus.State == FeatureState.Running,
                         "官方锚：新实例查询=Running（重新运行成功）");
+                    // DEV-V4-03 目标提交：官方功能 Running 时再提交启用=空操作
+                    // 成功（现网 invalid-state 拒，先红）——官方先行消费空操作语义。
+                    Check(BueFeatureStartRuntime.SetFeatureEnabled(litFeature, true),
+                        "官方锚：Running 官方功能再提交启用=空操作成功（现网拒，先红）");
+                    Check(ReferenceEquals(InventoryTidyFeatureRegistration.WiredModule, litModule2),
+                        "官方锚：空操作不经工厂（官方实例不变，无新代际）");
                     var received = new List<TidyCompleted>();
                     BueHostEventRuntime.Bus.Subscriber(litFeature).Subscribe<TidyCompleted>(received.Add);
                     litModule2.PublishTidyCompleted(3, 3, TidyCommitResult.Committed, 0UL, 900UL);
@@ -11926,10 +12046,17 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     Check(BueFeatureStartRuntime.TryGetStatus(noopFeature, out isolated)
                             && isolated.State == FeatureState.Isolated,
                         "隔离缝：状态投影如实 Isolated");
-                    // Isolated 不自动重启：没有任何东西把它重新臂起——停用命令
-                    // 也被拒（不制造假迁移）；只有显式启用才走新代际。
-                    Check(!BueFeatureStartRuntime.SetFeatureEnabled(noopFeature, false),
-                        "隔离缝：对 Isolated 发停用=not-running 拒（Isolated 不自动重启的镜像判据）");
+                    // Isolated 不自动重启：没有任何东西把它重新臂起；DEV-V4-03
+                    // 目标提交语义下停用提交=空操作成功（现网 not-running 拒，
+                    // 本锚先红后绿），只有显式启用才开新代际。
+                    Check(BueFeatureStartRuntime.SetFeatureEnabled(noopFeature, false),
+                        "隔离缝：对 Isolated 发停用=空操作成功（目标提交语义，先红）");
+                    FeatureStatusView isolatedKept;
+                    Check(BueFeatureStartRuntime.TryGetStatus(noopFeature, out isolatedKept)
+                            && isolatedKept.State == FeatureState.Isolated
+                            && isolatedKept.StopReason == FeatureStopReason.RuntimeIsolated
+                            && isolatedKept.StateRevision == isolated.StateRevision,
+                        "隔离缝：空操作停用后保持隔离（不走会失败的 disable，无假迁移不新开代际）");
                     // 显式再启用（旋钮已随 RunProbe 复位 None）→ 同一登记记录
                     // 新代际全链重跑（宿主停止/隔离是边界不是死刑，04/07 同构）。
                     Check(BueFeatureStartRuntime.SetFeatureEnabled(noopFeature, true),

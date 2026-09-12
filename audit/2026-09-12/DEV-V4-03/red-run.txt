@@ -1,0 +1,7 @@
+DEV-14 official registration parity tests: FAIL
+System.InvalidOperationException: 目标提交：Running 再提交启用=空操作成功（现网 invalid-state 拒，先红）
+   在 BetterUnturnedExperience.Plugin.Tests.Program.<>c__DisplayClass184_0.<AssertBueV3LifecycleProjection>g__Check|0(Boolean condition, String message)
+   在 BetterUnturnedExperience.Plugin.Tests.Program.<>c__DisplayClass184_0.<AssertBueV3LifecycleProjection>b__11()
+   在 BetterUnturnedExperience.Plugin.Tests.Program.<>c__DisplayClass184_0.<AssertBueV3LifecycleProjection>g__Group|1(String name, Action body)
+   在 BetterUnturnedExperience.Plugin.Tests.Program.AssertBueV3LifecycleProjection(Boolean collectAllFailures)
+   在 BetterUnturnedExperience.Plugin.Tests.Program.Main()

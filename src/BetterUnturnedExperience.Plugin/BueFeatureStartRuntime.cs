@@ -187,6 +187,15 @@ namespace BetterUnturnedExperience.Plugin
         /// generation. Isolated features do NOT auto-restart — only this
         /// explicit user-driven call moves them back to Starting. Official and
         /// ecosystem features share this one seam (契约面同权).
+        ///
+        /// DEV-V4-03: the argument is a TARGET state (面板只提交目标启用/停用),
+        /// interpreted HERE against the machine's authoritative state at
+        /// submit time — agreement is a success-shaped no-op (Running+enable,
+        /// already-stopped+disable, Isolated+disable keeps the isolation
+        /// without issuing the would-fail disable or a new generation); a
+        /// difference moves (disable a running feature → UserDisabled; enable
+        /// a stopped/disabled/isolated feature → new generation); a disallowed
+        /// transition fails so the caller keeps its draft intent.
         /// </summary>
         internal static bool SetFeatureEnabled(FeatureId feature, bool enabled)
         {
@@ -200,25 +209,47 @@ namespace BetterUnturnedExperience.Plugin
             {
                 entry = FindEntryLocked(feature.Value);
             }
+            var machine = entry != null ? entry.Machine : null;
+            var state = machine != null ? machine.CurrentStatus(feature).State : FeatureState.Discovered;
             if (!enabled)
             {
-                if (entry == null || entry.Stopped || entry.Module == null)
+                if (entry == null)
                 {
-                    BueRuntimeLog.Runtime("[BUE-V2HOST] event=feature-panel result=disable-rejected feature=" + feature.Value + " reason=not-running");
+                    BueRuntimeLog.Runtime("[BUE-V2HOST] event=feature-panel result=disable-rejected feature=" + feature.Value + " reason=unknown-feature");
                     return false;
                 }
-                StopEntry(entry, FeatureStopReason.UserDisabled);
-                BueRuntimeLog.Runtime("[BUE-V2HOST] event=feature-panel result=user-disabled feature=" + feature.Value);
-                return true;
+                if (state == FeatureState.Running)
+                {
+                    StopEntry(entry, FeatureStopReason.UserDisabled);
+                    BueRuntimeLog.Runtime("[BUE-V2HOST] event=feature-panel result=user-disabled feature=" + feature.Value);
+                    return true;
+                }
+                if (state == FeatureState.Stopped || state == FeatureState.Disabled)
+                {
+                    BueRuntimeLog.Runtime("[BUE-V2HOST] event=feature-panel result=disable-noop feature=" + feature.Value + " reason=already-stopped");
+                    return true;
+                }
+                if (state == FeatureState.Isolated)
+                {
+                    // 保持隔离：不走会失败的 disable，不新开代际（隔离不是
+                    // 面板分支能解释的状态，空操作成功由机裁决）。
+                    BueRuntimeLog.Runtime("[BUE-V2HOST] event=feature-panel result=disable-noop feature=" + feature.Value + " reason=isolated-kept");
+                    return true;
+                }
+                BueRuntimeLog.Runtime("[BUE-V2HOST] event=feature-panel result=disable-rejected feature=" + feature.Value + " reason=invalid-state state=" + state);
+                return false;
             }
             if (entry == null)
             {
                 BueRuntimeLog.Runtime("[BUE-V2HOST] event=feature-panel result=enable-rejected feature=" + feature.Value + " reason=unknown-feature");
                 return false;
             }
-            var machine = entry.Machine;
-            var state = machine.CurrentStatus(feature).State;
-            if (state != FeatureState.Stopped && state != FeatureState.Isolated && state != FeatureState.Disabled)
+            if (state == FeatureState.Running)
+            {
+                BueRuntimeLog.Runtime("[BUE-V2HOST] event=feature-panel result=enable-noop feature=" + feature.Value + " reason=already-running");
+                return true;
+            }
+            if (state != FeatureState.Stopped && state != FeatureState.Disabled && state != FeatureState.Isolated)
             {
                 BueRuntimeLog.Runtime("[BUE-V2HOST] event=feature-panel result=enable-rejected feature=" + feature.Value + " reason=invalid-state state=" + state);
                 return false;

@@ -1,0 +1,14 @@
+DEV-V4-03 static gates 2026-09-12
+UI/native token scan PASS: 28 C# files
+模型两文件 UI/native token 计数:
+src/BetterUnturnedExperience.ClientUi/BetterItemInteractionLifecycle.cs:0
+src/BetterUnturnedExperience.ClientUi/ManagementPanel.cs:0
+原生面板退役标签残留扫描（1=无）:
+3
+git diff --check exit:
+warning: in the working copy of 'CONTEXT.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/third-party/UnturnedPluginManager-attribution.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/BetterUnturnedExperience.ClientUi.Tests/DevV4DraftTests.cs', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/BetterUnturnedExperience.ClientUi.Tests/Program.cs', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/BetterUnturnedExperience.Plugin.Tests/Program.cs', LF will be replaced by CRLF the next time Git touches it
+0

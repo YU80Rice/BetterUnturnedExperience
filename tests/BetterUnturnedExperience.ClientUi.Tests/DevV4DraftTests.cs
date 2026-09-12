@@ -20,6 +20,7 @@ namespace BetterUnturnedExperience.ClientUi.Tests
             SaveAppliesAllSettingsInOneAtomicSubmit();
             RevisionConflictCarriesTheExactText();
             CrossSourcePartialSuccessStillAttemptsLaterSources();
+            ToggleFailureKeepsIntentInDraft();
             ExternalRestartBadgeOnlyOnSuccessfulWrite();
             PluginVanishedMidSessionIsNotASuccess();
             ExternalConfigWritesInStableOrder();
@@ -176,6 +177,29 @@ namespace BetterUnturnedExperience.ClientUi.Tests
             Assert(toggles.Calls.Count == 1 && toggles.Calls[0] == false, "设置失败仍尝试后续源（启停照常提交）");
             Assert(model.IsDirty, "失败项仍留草稿");
             Assert(!model.IsFeatureEnableDirty, "成功的启停意图不再脏");
+        }
+
+        private static void ToggleFailureKeepsIntentInDraft()
+        {
+            // DEV-V4-03：生命周期机拒绝不允许的转换（handler=false）→ 该启停
+            // 意图留在草稿并给原因（跨源部分成功的启停面）；面板不按 FeatureState
+            // 写分支——拒绝语义只在机里。
+            var editor = new DraftableSettingsEditor();
+            var feature = new FeatureId("io.github.yu80rice.bue.draft11");
+            editor.Seed(feature, ToggleEntry("notify", true));
+            var toggles = new RecordingToggleHandler { Result = false };
+            var model = NewModel(editor);
+            model.FeatureToggleHandler = toggles.Handle;
+            model.Refresh(new[] { Feature(feature, "甲", editor) }, new LoadedPluginDescriptor[0]);
+            model.OpenDetail(feature.Value);
+            model.DraftSetFeatureEnabled(false);
+
+            var report = model.SaveDraft();
+
+            Assert(report.Outcome == DraftSaveOutcome.PartialFailure, "启停被生命周期机拒绝=部分失败");
+            Assert(ContainsMessage(report, "未保存：功能启停失败。"), "拒绝给启停失败原因");
+            Assert(toggles.Calls.Count == 1 && toggles.Calls[0] == false, "拒绝前确实提交过目标状态");
+            Assert(model.IsDirty && model.IsFeatureEnableDirty, "被拒启停意图留在草稿");
         }
 
         private static void ExternalRestartBadgeOnlyOnSuccessfulWrite()
