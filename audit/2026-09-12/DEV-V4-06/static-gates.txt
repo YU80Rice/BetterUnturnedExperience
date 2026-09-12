@@ -1,0 +1,7 @@
+dotnet build BetterUnturnedExperience.sln -t:Rebuild -c Release: 0 警告 0 错误 (final-build-console.log)
+git diff --check exit: 0
+Verify-NoUiTokens.ps1 -SourceRoot src/BetterUnturnedExperience.Core: PASS (30 C# files)
+ClientUi 模型两文件（本票零改动）: ManagementPanel.cs UI/native token = 0（grep Glazier|ISleek|Unity = 0）
+ClientUi 全目录扫描命中 ItemInteractionUiComponent.cs:Glazier = 既有 UI 组件文件，06 未改动（git diff HEAD 该目录零文件）
+退役面 grep（s_PageTidyMode/s_PageSortDescending/HandleModeClick/HandleDirectionClick/MODE_POS_OFFSET_X/DIR_POS_OFFSET_X/TOOLTIP_MODE/TOOLTIP_DIR/ButtonKind）: 0 命中
+inventorytidy.enabled 残留: 仅 BueLegacyEnabledMigrationAdapter.cs:36（迁移 adapter 别名表合法持有）

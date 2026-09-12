@@ -18,29 +18,55 @@ namespace BetterUnturnedExperience.Lit
         // role never falls back to a local (unauthoritative) tidy.
         RejectedNoSession = 4,
         RejectedSendFailed = 5,
+        // DEV-V4-06: the saved mode/direction snapshot could not be read or
+        // carried a value outside the frozen choice literals — the click is
+        // refused honestly instead of inventing a combination that was never
+        // saved (V4-T5 Q59).
+        RejectedPreferenceUnavailable = 6,
     }
 
     /// <summary>
     /// DEV-V2-15: the inventory-tidy official feature module. Owns the
     /// single-player tidy path:
-    ///   - the enabled toggle is the ONE persisted setting (DEV-V3-06: the
-    ///     host-owned SettingsRuntime behind the injected scoped view;
-    ///     ClientLocal; off → the patches come off and requests fall back to
-    ///     native, on → re-arm with a fresh fault gate, spec「LIT：设置」);
+    ///   - DEV-V4-06: the legacy enabled master switch is RETIRED (the V4
+    ///     migration made the lifecycle machine the only switch) — the module
+    ///     schema is the global mode/direction choice pair, the tidy UI
+    ///     availability is decided by lifecycle FACTS
+    ///     (IFeatureLifetime.CurrentStatus, never a patch-private bool), and
+    ///     the title-bar click reads the SAVED ClientPreference snapshot
+    ///     (one GetSnapshot read serves both values — the panel draft, the
+    ///     old per-page memory dictionaries and the previous click cache are
+    ///     never consulted);
     ///   - the tidy plan is produced through the module's ITidyStrategy
     ///     (built-in default-grid-v1 wrapping the migrated InventorySolver);
     ///   - the UI patch set lives under the Harmony id = FeatureId (install
-    ///     at start, UnpatchSelf at stop — spec「Harmony ID 收编」);
-    ///   - static page state (direction/mode dictionaries, button refs) is
-    ///     module-generation memory state, cleared at the stop boundary —
-    ///     never leaked across generations (spec「静态表绑功能代际」);
+    ///     at start, UnpatchSelf at stop — spec「Harmony ID 收编」); U3DS
+    ///     headless never arms it (T1 Q17, a decision gate — not exceptions);
     ///   - Stop maps the old three-phase unload: quiesce (refuse new
     ///     requests) → dispatcher shutdown (drain + cancel queued work) →
-    ///     full teardown (unpatch + clear state).
+    ///     full teardown (unpatch + injected-button removal + clear state).
     /// </summary>
     internal sealed class InventoryTidyModule : IFeatureModule
     {
-        private const string EnabledSettingId = "inventorytidy.enabled";
+        /// <summary>DEV-V4-06: the tidy-title-bar action the CURRENT lifecycle
+        /// fact dictates (V4-T5 Q55 nine-state table). Inject = only Running;
+        /// RemoveExisting = Disabled/Stopped/Isolated/Incompatible tear the
+        /// already-injected buttons down; KeepWithoutNew = transitions keep
+        /// whatever exists but serve nothing new and refuse clicks.</summary>
+        internal enum TidyUiLifecycleAction : byte
+        {
+            Inject = 0,
+            RemoveExisting = 1,
+            KeepWithoutNew = 2,
+        }
+
+        // DEV-V4-06: the global mode/direction ClientPreference choices (V4-T5
+        // Q56). The Chinese literals are BOTH the machine values and the
+        // display values this phase; a later i18n ticket must split
+        // machine/display explicitly, never reuse these as a stable protocol.
+        internal const string ModeSettingId = "inventorytidy.mode";
+        internal const string DirectionSettingId = "inventorytidy.direction";
+
         private Harmony harmony;
 
         // DEV-V3-06: the module no longer constructs or holds a
@@ -59,28 +85,103 @@ namespace BetterUnturnedExperience.Lit
             Feature = feature;
             Strategy = new DefaultGridV1Strategy();
             FaultGate = new LocalTidyFaultGate();
-            Enabled = ReadToggle();
         }
 
         /// <summary>The settings facet schema this feature declares (V3-T7:
-        /// 功能拥有 Schema) — the host composes the runtime from it.</summary>
+        /// 功能拥有 Schema; DEV-V4-06: the two global choices replace the
+        /// retired enabled toggle) — the host composes the runtime from it.
+        /// The display names are the Q56 frozen copy (整理模式/整理方向);
+        /// the DESCRIPTION sentences belong to DEV-V4-07 — the keys stay
+        /// empty until then and the panel draws no description line (T3:
+        /// 空不画). MaximumUtf8Bytes covers the frozen Chinese literals
+        /// (2 chars = 6 UTF-8 bytes each) with headroom; values only arrive
+        /// through the Cycle seam, which is AllowedValues-restricted anyway.</summary>
         internal static IReadOnlyList<SettingDescriptor> CreateSettingsDescriptors(FeatureId feature)
         {
-            return new[] { ToggleDescriptor(feature) };
+            return new[]
+            {
+                new SettingDescriptor(
+                    feature, ModeSettingId, ModeDisplayName, string.Empty,
+                    SettingKind.Choice, SettingAuthority.ClientLocal, SettingValue.Choice(ModeSameTypeLabel),
+                    default(SettingValueOption), default(SettingValueOption), default(SettingValueOption),
+                    new[] { SettingValue.Choice(ModeSameTypeLabel), SettingValue.Choice(ModeMaxRectsLabel), SettingValue.Choice(ModeFfdLabel) },
+                    16, null, 1, 0, null, null),
+                new SettingDescriptor(
+                    feature, DirectionSettingId, DirectionDisplayName, string.Empty,
+                    SettingKind.Choice, SettingAuthority.ClientLocal, SettingValue.Choice(DirectionDescendingLabel),
+                    default(SettingValueOption), default(SettingValueOption), default(SettingValueOption),
+                    new[] { SettingValue.Choice(DirectionDescendingLabel), SettingValue.Choice(DirectionAscendingLabel) },
+                    16, null, 1, 1, null, null),
+            };
+        }
+
+        // Q56 frozen literal↔solver mapping: 降序 = the existing 大件优先
+        // direction; 升序 = the opposite. The labels are the machine values.
+        internal const string ModeSameTypeLabel = "同类";
+        internal const string ModeMaxRectsLabel = "空间";
+        internal const string ModeFfdLabel = "大件";
+        internal const string DirectionDescendingLabel = "降序";
+        internal const string DirectionAscendingLabel = "升序";
+        // Q56 frozen display names (the panel's row title). The description
+        // sentences arrive with DEV-V4-07's copy table.
+        internal const string ModeDisplayName = "整理模式";
+        internal const string DirectionDisplayName = "整理方向";
+
+        /// <summary>DEV-V4-06: the nine-state → tidy-UI action table (V4-T5
+        /// Q55). Pure so the host tests pin every state explicitly; the module
+        /// feeds it the LIFECYCLE FACT (IFeatureLifetime.CurrentStatus.State),
+        /// never its own booleans.</summary>
+        internal static TidyUiLifecycleAction DecideTidyUiAction(FeatureState state)
+        {
+            switch (state)
+            {
+                case FeatureState.Running:
+                    return TidyUiLifecycleAction.Inject;
+                case FeatureState.Disabled:
+                case FeatureState.Stopped:
+                case FeatureState.Isolated:
+                case FeatureState.Incompatible:
+                    return TidyUiLifecycleAction.RemoveExisting;
+                default:
+                    // Starting/Stopping/Isolating/Discovered: keep what exists,
+                    // add nothing, serve nothing (clicks fall back natively).
+                    return TidyUiLifecycleAction.KeepWithoutNew;
+            }
+        }
+
+        /// <summary>The lifecycle fact view this generation answers from; null
+        /// only on hand-composed stage-baseline bootstraps — then there is NO
+        /// lifecycle fact and the UI availability is fail-closed.</summary>
+        internal TidyUiLifecycleAction CurrentTidyUiAction
+        {
+            get
+            {
+                var lifetime = Lifetime;
+                if (lifetime == null) return TidyUiLifecycleAction.KeepWithoutNew;
+                return DecideTidyUiAction(lifetime.CurrentStatus.State);
+            }
+        }
+
+        /// <summary>DEV-V4-06: whether a NEWLY CONSTRUCTED inventory page may
+        /// receive the tidy button. Only the Running fact injects.</summary>
+        internal bool ShouldInjectTidyButtonForNewPage
+        {
+            get { return CurrentTidyUiAction == TidyUiLifecycleAction.Inject; }
         }
 
         internal FeatureId Feature { get; }
         // DEV-V3-06: the host-injected scoped settings view (the official
-        // first consumption of the Settings matrix row — every setting read
-        // rides it; null only on hand-composed stage-baseline bootstraps, in
-        // which case the descriptor default applies).
+        // first consumption of the Settings matrix row). DEV-V4-06: it is
+        // ONLY the saved store the tidy click snapshots (Q59) — null on
+        // hand-composed stage-baseline bootstraps, and then the click
+        // refuses (RejectedPreferenceUnavailable); no default is ever
+        // invented without a saved snapshot.
         internal IScopedFeatureSettings SettingsView { get; private set; }
         internal LocalTidyFaultGate FaultGate { get; }
 
         /// <summary>The strategy the module plans with; replacement is a developer seam, null is a developer error.</summary>
         internal ITidyStrategy Strategy { get; set; }
 
-        internal bool Enabled { get; private set; }
         internal bool PatchesInstalled { get; private set; }
         internal bool Started { get; private set; }
         internal bool ShuttingDown { get; private set; }
@@ -143,15 +244,21 @@ namespace BetterUnturnedExperience.Lit
             if (bootstrap == null) throw new ArgumentNullException(nameof(bootstrap));
             if (bootstrap.OwnedEvents == null || bootstrap.Network == null)
                 throw new ArgumentException("the host bootstrap must compose the owned event publisher and the network API (never null)", nameof(bootstrap));
+            // DEV-V4-06: a Start IS a new module generation (the machine lands
+            // it after Starting). The previous generation's stop boundary must
+            // not leak in — otherwise the SAME wired instance could never
+            // serve again after the panel's disable→enable round trip.
+            ShuttingDown = false;
             OwnedEvents = bootstrap.OwnedEvents;
             Events = bootstrap.Events;
             Network = bootstrap.Network;
             LifecycleGeneration = bootstrap.LifecycleGeneration;
             Logger = bootstrap.Logger; // DEV-V3-07: nullable stage-baseline seam (see the property)
-            // DEV-V3-06 official first consumption: the enabled toggle rides
-            // the host-injected scoped view (the Settings matrix row) — the
-            // authoritative read happens BEFORE the patches arm.
-            AttachSettingsView(bootstrap.Settings); // DEV-V3-06: bind + read BEFORE arming
+            // DEV-V3-06 official first consumption: the scoped settings view
+            // rides the bootstrap (DEV-V4-06: the mode/direction snapshot the
+            // tidy click reads comes through it) and binds BEFORE the patches
+            // arm.
+            AttachSettingsView(bootstrap.Settings); // DEV-V3-06: bind BEFORE arming
             EnsureStarted();
             // DEV-V2-21: the fault scope book binds the feature-private disk
             // persistence (JSON key structure unchanged); the production
@@ -189,6 +296,13 @@ namespace BetterUnturnedExperience.Lit
                 Lifetime = bootstrap.Lifetime;
                 var handles = NetService.SubscriptionHandles;
                 for (var i = 0; i < handles.Count; i++) bootstrap.Lifetime.TryTrack(handles[i]);
+                // DEV-V4-06: the tidy-title-bar teardown rides the SAME
+                // resource seam — the machine's Withdraw (isolation AND
+                // complete-stop) disposes this handle, which removes the
+                // buttons already injected into open pages (Q55: 隔离后移除).
+                // Tracking is unconditional: Dispose is idempotent and the
+                // removal pass is a no-op when nothing is tracked.
+                bootstrap.Lifetime.TryTrack(new InventoryTidyUiPatch.UiTeardownHandle());
             }
             // DEV-V3-07 official-first consumption of the Logger matrix row:
             // the structured start diagnostic rides the INJECTED view (the
@@ -269,10 +383,11 @@ namespace BetterUnturnedExperience.Lit
             MainThreadDispatcher.Shutdown();
             LitRuntime.LogInfo("[Tidy] 模块停止：阶段 2/3 dispatcher 关停完成");
 
-            // 阶段 3：完全关停 — 撤销自身补丁 + 清空功能代际静态表 + 解绑日志缝
-            //（解绑放在收尾日志之后，阶段完成信息仍可见）。
+            // 阶段 3：完全关停 — 撤销自身补丁 + 拆除已注入按钮（移除对象/解绑
+            // 回调/清引用，Q55：停用后已打开页面不留死按钮）+ 清空功能代际静态
+            // 表 + 解绑日志缝（解绑放在收尾日志之后，阶段完成信息仍可见）。
             UninstallPatches();
-            InventoryTidyUiPatch.ResetStateForShutdown();
+            InventoryTidyUiPatch.RemoveInjectedButtons();
             // DEV-V2-21: the network service fully tears down AFTER the
             // dispatcher drain — queued compensations already ran; the
             // channel unregisters and every memory table drops while the
@@ -280,17 +395,24 @@ namespace BetterUnturnedExperience.Lit
             NetService?.Stop();
             NetService = null;
             FaultBook = null;
-            LitRuntime.LogInfo("[Tidy] 模块停止：阶段 3/3 完全关停（补丁已撤、静态表已清）");
+            // 阶段 3 收尾日志按拆除事实如实区分：全部清干净 vs 仍有失败页引用
+            // 在册待重试（Q55 红线：不把停用伪装成拆除成功）。
+            if (InventoryTidyUiPatch.HasTrackedButtons)
+                LitRuntime.LogInfo("[Tidy] 模块停止：阶段 3/3 完全关停（补丁已撤；部分按钮引用因移除失败仍在册，待下次拆除重试 diagnosticId=BUE-LIT-TEARDOWN）");
+            else
+                LitRuntime.LogInfo("[Tidy] 模块停止：阶段 3/3 完全关停（补丁已撤、按钮引用已清）");
             LitRuntime.LogSink = null;
             LitRuntime.ErrorLogSink = null;
         }
 
         /// <summary>
         /// Idempotent start: caches the main-thread id for the transaction
-        /// service and installs the UI patch when enabled. Production binds
-        /// this at Awake (the host start path that drives
-        /// IFeatureModule.Start belongs to a later ticket); Start forwards
-        /// here so the module behaves correctly when that path exists.
+        /// service and arms the UI patch for this module generation (the
+        /// lifecycle machine is the only switch; a shutting-down generation
+        /// and U3DS headless never arm). Production binds this at Awake
+        /// (the host start path that drives IFeatureModule.Start belongs to
+        /// a later ticket); Start forwards here so the module behaves
+        /// correctly when that path exists.
         /// </summary>
         internal void EnsureStarted()
         {
@@ -300,35 +422,21 @@ namespace BetterUnturnedExperience.Lit
             // generation owns (a previous generation's Stop closed it).
             MainThreadDispatcher.EnsureOpen();
             Started = true;
-            if (Enabled && !ShuttingDown)
+            if (!ShuttingDown)
             {
+                // DEV-V4-06: the lifecycle machine is the ONLY switch (the
+                // legacy enabled master switch is retired) — arming follows
+                // the module generation, U3DS headless never arms (T1 Q17).
                 InstallPatches();
             }
         }
 
-        /// <summary>
-        /// The panel toggle's effect: reads the authoritative setting and
-        /// applies the patch state immediately. Disable = native fallback
-        /// (patches off, requests refused); enable = patches re-installed
-        /// and the fault gate reset. This is NOT a module generation
-        /// boundary: the dispatcher queue state is untouched here (reopen
-        /// belongs to EnsureStarted; Shutdown belongs to Stop).
-        /// </summary>
-        internal void RefreshSwitches()
-        {
-            Enabled = ReadToggle();
-            if (!Enabled || ShuttingDown)
-            {
-                UninstallPatches();
-                return;
-            }
-            FaultGate.Reset();
-            InstallPatches();
-        }
-
         internal LitTidyRequestResult RequestLocalTidy(byte page, TidyMode mode, bool sortDescending)
         {
-            if (!Started || !Enabled || ShuttingDown) return LitTidyRequestResult.NativeFallback;
+            // DEV-V4-06: the generation gates only — the legacy enabled master
+            // switch is retired; a stopped/shutting module refuses, a running
+            // generation serves.
+            if (!Started || ShuttingDown) return LitTidyRequestResult.NativeFallback;
             if (Strategy == null) throw new InvalidOperationException("InventoryTidyModule.Strategy must never be null (developer error)");
             if (!FaultGate.Allowed) return LitTidyRequestResult.RejectedFaultCircuit;
 
@@ -345,6 +453,83 @@ namespace BetterUnturnedExperience.Lit
         }
 
         /// <summary>
+        /// DEV-V4-06: the title-bar button's ONE entry (Q54/Q59). Availability
+        /// is re-confirmed from the LIFECYCLE FACT before anything runs — a
+        /// button merely having been drawn never entitles a click — then the
+        /// SAVED ClientPreference snapshot is read (one read serves both
+        /// mode and direction; never the panel draft, never per-page memory,
+        /// never a previous-click cache) and the request rides the ordinary
+        /// RequestTidy seam. Refusals are explicit results, never fake
+        /// successes: transitions answer NativeFallback, an unreadable or
+        /// unknown-valued snapshot answers RejectedPreferenceUnavailable
+        /// (no combination that was never saved may be invented).
+        /// </summary>
+        internal LitTidyRequestResult RequestTidyFromUiClick(byte page, bool allPages)
+        {
+            if (!Started || ShuttingDown || CurrentTidyUiAction != TidyUiLifecycleAction.Inject)
+                return LitTidyRequestResult.NativeFallback;
+            TidyMode mode;
+            bool sortDescending;
+            if (!TryReadSavedTidyPreference(out mode, out sortDescending, out _))
+                return LitTidyRequestResult.RejectedPreferenceUnavailable;
+            return RequestTidy(allPages ? LitRuntime.AllPages : page, mode, sortDescending);
+        }
+
+        /// <summary>
+        /// DEV-V4-06: the same-revision saved-preference read (Q59). The whole
+        /// preference rides ONE GetSnapshot — the store revision is captured
+        /// atomically with both values, so a torn mode/direction combination
+        /// that never existed cannot be assembled. Unknown literals or a
+        /// schema-missing entry refuse the read honestly (the caller must not
+        /// silently fall back to defaults: the saved truth is unknown then).
+        /// </summary>
+        internal bool TryReadSavedTidyPreference(out TidyMode mode, out bool sortDescending, out uint revision)
+        {
+            mode = TidyMode.SameType;
+            sortDescending = true;
+            revision = 0;
+            var view = SettingsView;
+            if (view == null) return false;
+            var snapshot = view.GetSnapshot(SettingRevisionScope.ClientPreference);
+            var modeText = string.Empty;
+            var directionText = string.Empty;
+            var hasMode = false;
+            var hasDirection = false;
+            for (var i = 0; i < snapshot.Entries.Count; i++)
+            {
+                var entry = snapshot.Entries[i];
+                if (entry.SettingId == ModeSettingId) { modeText = entry.EffectiveValue.Text; hasMode = true; }
+                else if (entry.SettingId == DirectionSettingId) { directionText = entry.EffectiveValue.Text; hasDirection = true; }
+            }
+            if (!hasMode || !hasDirection) return false;
+            if (!TryMapModeLabel(modeText, out mode)) return false;
+            if (!TryMapDirectionLabel(directionText, out sortDescending)) return false;
+            revision = snapshot.Revision;
+            return true;
+        }
+
+        internal static bool TryMapModeLabel(string label, out TidyMode mode)
+        {
+            switch (label)
+            {
+                case ModeSameTypeLabel: mode = TidyMode.SameType; return true;
+                case ModeMaxRectsLabel: mode = TidyMode.MaxRects; return true;
+                case ModeFfdLabel: mode = TidyMode.FFD; return true;
+                default: mode = TidyMode.SameType; return false;
+            }
+        }
+
+        internal static bool TryMapDirectionLabel(string label, out bool sortDescending)
+        {
+            switch (label)
+            {
+                case DirectionDescendingLabel: sortDescending = true; return true;
+                case DirectionAscendingLabel: sortDescending = false; return true;
+                default: sortDescending = true; return false;
+            }
+        }
+
+        /// <summary>
         /// DEV-V2-21: the ONE tidy request entry the UI drives. The server
         /// role (single player, listen host, dedicated server) tidies
         /// LOCALLY — the authority path with generation 0 — and a true
@@ -353,7 +538,7 @@ namespace BetterUnturnedExperience.Lit
         /// </summary>
         internal LitTidyRequestResult RequestTidy(byte page, TidyMode mode, bool sortDescending)
         {
-            if (!Started || !Enabled || ShuttingDown) return LitTidyRequestResult.NativeFallback;
+            if (!Started || ShuttingDown) return LitTidyRequestResult.NativeFallback;
             if (LitTidyProductionAuthority.IsServerRole()) return RequestLocalTidy(page, mode, sortDescending);
             var service = NetService;
             if (service == null || !service.Started) return LitTidyRequestResult.RejectedNoSession;
@@ -384,6 +569,15 @@ namespace BetterUnturnedExperience.Lit
 
         private void InstallPatches()
         {
+            // DEV-V4-06: U3DS never arms the Glazier injection (T1 Q17) — a
+            // DECISION gate recorded as an honest diagnostic, never an
+            // exception pretending to be a gate.
+            if (BetterUnturnedExperience.Plugin.BueRuntimeCompletionChain.HeadlessDecision)
+            {
+                StartGateDiagnostics = "headless-ui-not-armed";
+                LitRuntime.LogInfo("[Tidy] U3DS headless：不武装整理按钮补丁（Headless 决策门禁）");
+                return;
+            }
             if (PatchesInstalled) return;
             try
             {
@@ -421,31 +615,14 @@ namespace BetterUnturnedExperience.Lit
             }
         }
 
-        /// <summary>DEV-V3-06: bind the host-injected scoped settings view and
-        /// re-read the switch (Start does this from the bootstrap; host-test
-        /// fixtures attach directly).</summary>
+        /// <summary>DEV-V3-06: bind the host-injected scoped settings view
+        /// (Start does this from the bootstrap; host-test fixtures attach
+        /// directly). DEV-V4-06: binding only — the retired enabled toggle
+        /// had its read here; the mode/direction snapshot is read at CLICK
+        /// time (Q59), never cached on the module.</summary>
         internal void AttachSettingsView(IScopedFeatureSettings view)
         {
             SettingsView = view;
-            Enabled = ReadToggle();
-        }
-
-        private bool ReadToggle()
-        {
-            var view = SettingsView;
-            if (view == null) return true; // no wired view yet = the descriptor default (on)
-            SettingValue value;
-            uint revision;
-            return view.TryGet(EnabledSettingId, out value, out revision) && value.Boolean;
-        }
-
-        private static SettingDescriptor ToggleDescriptor(FeatureId feature)
-        {
-            return new SettingDescriptor(
-                feature, EnabledSettingId, EnabledSettingId, EnabledSettingId,
-                SettingKind.Toggle, SettingAuthority.ClientLocal, SettingValue.Toggle(true),
-                default(SettingValueOption), default(SettingValueOption), default(SettingValueOption),
-                null, 0, null, 1, 0, null, null);
         }
     }
 }

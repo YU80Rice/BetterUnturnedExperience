@@ -207,8 +207,15 @@ namespace BetterUnturnedExperience.Core.Settings
                 if (!TryDecodeValue(parts, out value)) { error = "FileValueInvalid"; return false; }
                 values.Add(id, value);
             }
-            var parsedValues = values;
-            if (descriptors != null && descriptors.Any(d => !parsedValues.ContainsKey(d.SettingId))) { error = "FileSettingMissing"; return false; }
+            // DEV-V4-06: the document's digest is the integrity gate (any
+            // dropped entry line breaks it → FileIntegrityFailed → the file
+            // quarantines). Whether every current descriptor key is PRESENT
+            // is not a corruption question: a legacy document from before a
+            // schema change legitimately lacks the new keys (the DEV-V4-04
+            // migration window — the file must survive untouched until the
+            // migration retires the legacy key). Per-key decisions belong to
+            // the runtime's LoadScope (unknown keys ignored, absent keys get
+            // descriptor defaults), never to the file layer.
             return true;
         }
 

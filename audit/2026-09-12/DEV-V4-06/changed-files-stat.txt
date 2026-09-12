@@ -1,0 +1,9 @@
+ CONTEXT.md                                         |  52 +++
+ .../UnturnedPluginManager-attribution.md           |   1 +
+ .../Settings/SettingsRuntime.cs                    |  11 +-
+ .../InventoryTidyModule.cs                         | 325 ++++++++++---
+ .../Tidy/LitTidyProductionAuthority.cs             |   8 +
+ .../Ui/InventoryTidyUiPatch.cs                     | 465 ++++++++----------
+ .../InventoryTidyFeatureRegistration.cs            |  28 +-
+ .../Program.cs                                     | 520 +++++++++++++++++++--
+ 8 files changed, 1020 insertions(+), 390 deletions(-)

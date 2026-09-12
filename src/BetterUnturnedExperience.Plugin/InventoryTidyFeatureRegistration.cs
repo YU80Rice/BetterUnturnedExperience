@@ -83,19 +83,22 @@ namespace BetterUnturnedExperience.Plugin
                 payload);
         }
 
-        // DEV-V3-06 → DEV-V4-04: the settings facet existed as the module's
-        // ONE toggle schema; the legacy enabled master switch RETIRES with
-        // the V4 migration (spec「成功后旧字段从 schema 与面板退役」) — the
-        // registration declares NO facet now, the lifecycle is the only
-        // switch, and the panel has no enabled row to draw. (DEV-V4-06 will
-        // re-introduce LIT's mode/direction choices as the new facet.)
-        private sealed class Registration : IFeatureRegistration
+        // DEV-V3-06 → DEV-V4-04 → DEV-V4-06: the settings facet is BACK as
+        // the module's TWO global choices (inventorytidy.mode / direction,
+        // ClientPreference scope); the legacy enabled master switch STAYS
+        // retired (spec「成功后旧字段从 schema 与面板退役」) — the lifecycle
+        // is the only switch and the panel draws the two Choice rows through
+        // the DEV-V4-02 row projection (T1 检验点②: LIT is the official-first
+        // real consumer of the choice controls).
+        private sealed class Registration : IFeatureRegistration, IFeatureSettingsRegistration
         {
             private readonly InventoryTidyModule moduleForFactory;
+            private readonly FeatureId feature;
 
             internal Registration(InventoryTidyModule moduleForFactory)
             {
                 this.moduleForFactory = moduleForFactory;
+                feature = new FeatureId(FeatureIdValue);
             }
 
             public FeatureDefinitionArtifact Definition { get { return CreateDefinition(); } }
@@ -105,6 +108,17 @@ namespace BetterUnturnedExperience.Plugin
             public IFeatureModuleFactory ModuleFactory { get { return new ModuleFactory(moduleForFactory); } }
 
             public IClientUiSatelliteRegistration ClientUi { get { return null; } }
+
+            // DEV-V4-06: the two global choices. OnSettingsApplied stays null
+            // honestly — mode/direction have no working-state to refresh (the
+            // tidy click reads the saved snapshot at click time, Q59); the
+            // retired enabled toggle was the refresh hook's only caller.
+            public IReadOnlyList<SettingDescriptor> SettingDescriptors
+            {
+                get { return InventoryTidyModule.CreateSettingsDescriptors(feature); }
+            }
+
+            public Action OnSettingsApplied { get { return null; } }
         }
 
         private sealed class ModuleFactory : IFeatureModuleFactory

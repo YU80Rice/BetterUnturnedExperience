@@ -1,0 +1,8 @@
+CONTEXT.md
+docs/third-party/UnturnedPluginManager-attribution.md
+src/BetterUnturnedExperience.Core/Settings/SettingsRuntime.cs
+src/BetterUnturnedExperience.Lit/InventoryTidyModule.cs
+src/BetterUnturnedExperience.Lit/Tidy/LitTidyProductionAuthority.cs
+src/BetterUnturnedExperience.Lit/Ui/InventoryTidyUiPatch.cs
+src/BetterUnturnedExperience.Plugin/InventoryTidyFeatureRegistration.cs
+tests/BetterUnturnedExperience.Plugin.Tests/Program.cs

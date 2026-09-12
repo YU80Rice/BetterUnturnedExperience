@@ -22,9 +22,17 @@ namespace BetterUnturnedExperience.Lit
             this.module = module ?? throw new ArgumentNullException(nameof(module));
         }
 
+        /// <summary>Host-test seam (the BueSettingsRuntime.AuthorityProbeForTests
+        /// precedent): overrides the local role probe — the host has no
+        /// engine, so tests inject the role deterministically. Null = the
+        /// production engine probe.</summary>
+        internal static Func<bool> ServerRoleProbeForTests;
+
         /// <summary>The local role truth: a server process (single player, listen host, U3DS) tidies locally.</summary>
         internal static bool IsServerRole()
         {
+            var probe = ServerRoleProbeForTests;
+            if (probe != null) return probe();
             try { return Provider.isServer; }
             catch (Exception) { return false; }
         }

@@ -15,19 +15,24 @@ namespace BetterUnturnedExperience.Lit
 {
     /// <summary>
     /// 拦截 PlayerDashboardInventoryUI 构造函数，为 5 个标题栏（headers[0..4]，对应
-    /// Hands/Backpack/Vest/Shirt/Pants）分别注入两个按钮：
-    ///   - 方向切换按钮 [↓]/[↑]：宽度 40px，紧贴右侧；切换该页排序方向。
-    ///   - 整理按钮 [整理]：宽度 60px，紧贴方向按钮左侧；点击整理当前页，
-    ///     Ctrl+点击整理全身。
+    /// Hands/Backpack/Vest/Shirt/Pants）各注入一颗「整理」按钮（DEV-V4-06：
+    /// 标题栏只留一颗——模式与方向改为全局 ClientPreference Choice，在 LIT
+    /// 设置页用循环切换改）：
+    ///   - 整理按钮 [整理]：60×60，PositionOffset_X=-130（右侧预留 70px 避让
+    ///     耐久度文字与品质角标）；左键整理当前栏，Ctrl+左键按已保存的全局
+    ///     模式与方向整理全身（不含仓储栏）。
+    ///   - 注入与拆除由生命周期事实决定（V4-T5 Q55 九态表）：仅 Running 新开
+    ///     页注入；Disabled/Stopped/Isolated/Incompatible 拆除已有按钮；过渡
+    ///     态不新增、点击走原生回退。patch 不自持任何可用性布尔。
     ///
     /// 由于编译时不认识 ISleekElement/ISleekButton（在 Glazier.dll 中），
     /// 全部用反射 + Reflection.Emit 动态生成委托。
     ///
     /// DEV-V2-15 迁入改写：
     ///   - Harmony ID 收编 FeatureId（模块的 Harmony 实例持有，Start 装 / Stop UnpatchSelf）；
-    ///   - 点击不再发网络请求（旧 ManualTidyNetwork.SendTidyV2Request），改走模块的
-    ///     本地整理入口 RequestLocalTidy（单人路径：捕获→事务→热键恢复全本地）；
-    ///   - 每页方向/模式字典是内存态（非持久化），Stop 时随模块代际清零。
+    ///   - 点击走模块的 RequestTidyFromUiClick（生命周期门禁 + 已保存快照读）；
+    ///   - DEV-V4-06：每页内存字典（方向/模式）退役——模式与方向是全局已保存
+    ///     设置，按钮引用表仅用于停用/隔离时的拆除。
     /// </summary>
     [HarmonyPatch(typeof(PlayerDashboardInventoryUI), MethodType.Constructor)]
     internal static class InventoryTidyUiPatch
@@ -37,17 +42,131 @@ namespace BetterUnturnedExperience.Lit
         /// <summary>
         /// The armed module instance the patch routes clicks to. Set by the
         /// module's patch install, cleared by uninstall/stop — a click with
-        /// no armed module is a no-op, never a crash.
+        /// no armed module is a no-op, never a crash. Availability itself is
+        /// NOT this reference: the module re-reads the lifecycle fact on
+        /// every injection and every click (DEV-V4-06).
         /// </summary>
         internal static InventoryTidyModule ActiveModule { get; set; }
 
-        /// <summary>Module generation boundary: clears the per-page memory state and button references (Stop phase 3).</summary>
-        internal static void ResetStateForShutdown()
+        /// <summary>Host-test observable: whether any injected tidy button is
+        /// still tracked (the teardown pass clears the map; the retired
+        /// per-page dictionaries never come back). Read-only diagnostics —
+        /// never an availability input.</summary>
+        internal static bool HasTrackedButtons
         {
-            s_PageSortDescending.Clear();
-            s_PageTidyMode.Clear();
-            s_DirectionButtons.Clear();
-            s_ModeButtons.Clear();
+            get { return s_TidyButtons.Count > 0; }
+        }
+
+        /// <summary>
+        /// Host-test seam (the module's NetServiceFactoryForTests precedent):
+        /// the host has no Glazier, so the reflection RemoveChild cannot run
+        /// there. When set, the teardown pass routes the per-button removal
+        /// through it (header element, button) → removed? Null = production
+        /// reflection path.
+        /// </summary>
+        internal static Func<object, object, bool> RemoveChildForTests;
+
+        /// <summary>Host-test seam: registers a button reference exactly as
+        /// the Glazier Postfix would, so the teardown pass is observable
+        /// in-host (which buttons are tracked, unbound, removed, cleared).</summary>
+        internal static void TrackButtonForTests(byte page, object button, Delegate clickHandler, object headerElement)
+        {
+            s_TidyButtons[page] = button;
+            s_TidyClickHandlers[page] = clickHandler;
+            s_TidyHeaders[page] = headerElement;
+        }
+
+        /// <summary>
+        /// DEV-V4-06: the teardown pass (Q55「拆掉」): for every tracked
+        /// button — unbind the click callback, remove the object from its
+        /// native header (never breaking the header itself), then drop the
+        /// patch-held reference. Q55 red line「移除失败不得把停用伪装成成功」:
+        /// a button whose removal FAILED keeps its tracked reference — the
+        /// object still lives in the UI tree, so dropping the reference would
+        /// orphan it and fake a clean teardown; the pass logs the failure
+        /// with diagnosticId=BUE-LIT-TEARDOWN and a later pass (the next
+        /// Stop/withdrawal) retries it. Triggered by the module's Stop
+        /// (phase 3) and by the lifecycle machine's resource withdrawal via
+        /// <see cref="UiTeardownHandle"/> (isolation never calls Stop).
+        /// </summary>
+        internal static void RemoveInjectedButtons()
+        {
+            if (s_TidyButtons.Count == 0 && s_TidyClickHandlers.Count == 0 && s_TidyHeaders.Count == 0) return;
+            var removedPages = new List<byte>();
+            var failedPages = new List<byte>();
+            foreach (var pair in s_TidyButtons)
+            {
+                var page = pair.Key;
+                var button = pair.Value;
+                if (button == null) { removedPages.Add(page); continue; }
+                // 解绑回调：引用随按钮一起离开 UI 树，回调必须同步松开。
+                Delegate handler;
+                if (s_TidyClickHandlers.TryGetValue(page, out handler) && handler != null && s_OnClicked != null)
+                {
+                    try { s_OnClicked.RemoveEventHandler(button, handler); }
+                    catch (Exception e) { LogError($"page {page} 整理按钮回调解绑失败（继续移除）: {e.Message}"); }
+                }
+                object headerElement;
+                s_TidyHeaders.TryGetValue(page, out headerElement);
+                if (RemoveButtonFromHeader(headerElement, button)) removedPages.Add(page);
+                else failedPages.Add(page);
+            }
+            // 只有确认移除的按钮才清引用；失败页引用保留，下一次拆除重试。
+            for (var i = 0; i < removedPages.Count; i++)
+            {
+                s_TidyButtons.Remove(removedPages[i]);
+                s_TidyClickHandlers.Remove(removedPages[i]);
+                s_TidyHeaders.Remove(removedPages[i]);
+            }
+            if (failedPages.Count > 0)
+            {
+                var pages = string.Join(",", failedPages.ConvertAll(x => x.ToString()).ToArray());
+                LogError($"==== 拆除未完成：removed={removedPages.Count} failed={failedPages.Count}（page {pages}）——失败按钮引用保留待重试，不伪装拆除干净 diagnosticId=BUE-LIT-TEARDOWN ====");
+            }
+            else
+            {
+                LogInfo($"==== 拆除完成：removed={removedPages.Count}（原生标题栏保持完好）====");
+            }
+        }
+
+        /// <summary>The reflection RemoveChild against the native header; the
+        /// host-test seam replaces it when Glazier cannot exist.</summary>
+        private static bool RemoveButtonFromHeader(object headerElement, object button)
+        {
+            var overrideForTests = RemoveChildForTests;
+            if (overrideForTests != null) return overrideForTests(headerElement, button);
+            if (headerElement == null || s_RemoveChild == null)
+            {
+                LogError("无法执行 RemoveChild（原生 RemoveChild 未定位或 header 缺失）——按钮对象可能残留，该页引用保留待重试 diagnosticId=BUE-LIT-TEARDOWN");
+                return false;
+            }
+            try
+            {
+                s_OneArg[0] = button;
+                s_RemoveChild.Invoke(headerElement, s_OneArg);
+                return true;
+            }
+            catch (Exception e)
+            {
+                LogError($"RemoveChild 调用失败（按钮对象可能残留，该页引用保留待重试）diagnosticId=BUE-LIT-TEARDOWN: {e.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// DEV-V4-06: the module tracks this handle through the host lifecycle
+        /// seam (IFeatureLifetime.TryTrack) — the machine's Withdraw disposes
+        /// it on isolation AND complete-stop, which reaches the same teardown
+        /// pass even when no module.Stop runs (isolation never calls Stop).
+        /// Dispose is idempotent and never throws.
+        /// </summary>
+        internal sealed class UiTeardownHandle : IDisposable
+        {
+            public void Dispose()
+            {
+                try { RemoveInjectedButtons(); }
+                catch (Exception e) { LogError("UiTeardownHandle.Dispose 拆除失败（引用保留待重试）diagnosticId=BUE-LIT-TEARDOWN: " + e.Message); }
+            }
         }
 
         // ── headers 私有静态字段（Assembly-CSharp 内）──
@@ -62,6 +181,7 @@ namespace BetterUnturnedExperience.Lit
         private static MethodInfo s_CreateButton;
         private static bool      s_CreateButtonResolved;
         private static MethodInfo s_AddChild;
+        private static MethodInfo s_RemoveChild;
         // 布局 (ISleekElement)
         private static PropertyInfo s_PosScaleX;
         private static PropertyInfo s_PosOffsetX;
@@ -76,64 +196,44 @@ namespace BetterUnturnedExperience.Lit
         private static readonly object[] s_OneArg    = new object[1];
         private static bool s_Initialised;
 
-        // ── 业务状态：每页排序方向字典 + 方向按钮实例引用 ──
-        // key = page (2..6)，value = true 表示降序（↓），false 表示升序（↑）。默认降序。
-        private static readonly Dictionary<byte, bool> s_PageSortDescending =
-            new Dictionary<byte, bool>();
-        // key = page，value = 该页方向按钮的反射实例（用于切换文本）。
-        private static readonly Dictionary<byte, object> s_DirectionButtons =
+        // ── DEV-V4-06：已注入「整理」按钮的在册引用（仅用于拆除）──
+        // key = page (2..6)。patch 不持任何可用性状态：注入/点击都由模块按
+        // 生命周期事实现判（ShouldInjectTidyButtonForNewPage / 点击门禁）。
+        private static readonly Dictionary<byte, object> s_TidyButtons =
             new Dictionary<byte, object>();
-
-        // ── 业务状态：每页整理模式字典 + 模式按钮实例引用 ──
-        // v2.0.0：三态模式 SameType(同类) / MaxRects(空间) / FFD(大件)，默认 SameType。
-        // key = page (2..7)，value = TidyMode。默认 SameType=0。
-        private static readonly Dictionary<byte, TidyMode> s_PageTidyMode =
-            new Dictionary<byte, TidyMode>();
-        // key = page，value = 该页模式按钮的反射实例（用于切换文本）。
-        private static readonly Dictionary<byte, object> s_ModeButtons =
+        // key = page，value = 该页点击委托（拆除时解绑）。
+        private static readonly Dictionary<byte, Delegate> s_TidyClickHandlers =
+            new Dictionary<byte, Delegate>();
+        // key = page，value = 该页 header 元素（拆除时 RemoveChild 的父容器）。
+        private static readonly Dictionary<byte, object> s_TidyHeaders =
             new Dictionary<byte, object>();
 
         // ── 按钮布局常量 ──
-        // v2.0.0：模式按钮从单字符 "C"/"D" 改为中文 "同类"/"空间"/"大件"，宽度从 40 增至 60。
-        // 右侧预留 70px 安全空间，避让原版 "100%" 耐久度文字与绿色品质角标。
+        // DEV-V4-06：标题栏只画一颗「整理」。右侧预留 70px 安全空间，避让
+        // 原版 "100%" 耐久度文字与绿色品质角标。
         //
         // 排版几何（PositionScale_X = 1，相对父容器右边缘）：
-        //   - [整理] 按钮 B：宽 60，PositionOffset_X = -130  -> 右边缘 -70，恰好填满安全区左边界
-        //   - [↓]/[↑] 按钮 A：宽 40，PositionOffset_X = -175 -> 右边缘 -135，与 B 左边缘(-130) 间隔 5px
-        //   - [同类]/[空间]/[大件] 按钮 M：宽 60，PositionOffset_X = -240 -> 右边缘 -180，与 A 左边缘(-175) 间隔 5px
+        //   - [整理] 按钮 B：宽 60，PositionOffset_X = -130 -> 右边缘 -70，
+        //     恰好填满安全区左边界（Q54 冻结：60×60 @ -130，不留锁定空位）。
         //
-        // 视觉顺序（从左到右）：[同类/空间/大件]  5px  [↓/↑]  5px  [整理]  70px  [原版 100% 耐久度+绿色角标]
-        private const float MODE_POS_OFFSET_X  = -240f;
-        private const float MODE_SIZE_X        = 60f;
-        private const float DIR_POS_OFFSET_X   = -175f;
-        private const float DIR_SIZE_X         = 40f;
+        // 视觉顺序（从左到右）：[整理]  70px  [原版 100% 耐久度+绿色角标]
         private const float BTN_SIZE_Y         = 60f;
         private const float TIDY_POS_OFFSET_X  = -130f;
         private const float TIDY_SIZE_X        = 60f;
 
-        // ── 容器页（page=STORAGE=7，headers[5]）专用布局（v2.0.1 已弃用）──
-        // v2.0.1：不再为 STORAGE 注入整理按钮。V2 协议仅支持 page 2..6 服装页。
-        // 容器页涉及 InteractableStorage 生命周期、跨玩家并发、工坊虚拟容器等独立权限模型，
-        // 需要单独协议设计，不能与服装页共用同一套规则。
-        // 常量保留仅用于历史参考，不再使用。
-        [Obsolete("STORAGE 页不再注入整理按钮")]
-        private const float STORAGE_MODE_POS_OFFSET_X = -350f;
-        [Obsolete("STORAGE 页不再注入整理按钮")]
-        private const float STORAGE_DIR_POS_OFFSET_X  = -285f;
-        [Obsolete("STORAGE 页不再注入整理按钮")]
-        private const float STORAGE_TIDY_POS_OFFSET_X = -240f;
+        // ── 容器页（page=STORAGE=7，headers[5]）不注入（v2.0.1 起的既定裁决，
+        // DEV-V4-06 延续）：V2 协议仅支持 page 2..6 服装页；容器页涉及
+        // InteractableStorage 生命周期、跨玩家并发、工坊虚拟容器等独立权限模型，
+        // 不能与服装页共用同一套规则；注入会造成 UI 可点击但服务端确定性拒绝
+        // 的误导性 UI。旧 STORAGE 布局常量已随本票退役删除。
 
         // headers 循环上限：i=0..4 -> page 2..6（SLOTS..PANTS 服装页）。
-        // v2.0.1：移除 STORAGE (page=7) 整理按钮注入。
-        // 原因：V2 协议与快捷键逻辑只允许 page 2..6；STORAGE 容器页涉及 InteractableStorage
-        // 生命周期、跨玩家并发、工坊虚拟容器等独立权限模型，不能用同一套规则处理。
-        // 注入按钮到 STORAGE 会造成 UI 可点击但服务端确定性拒绝，属于误导性 UI。
         private const int HEADER_INJECT_COUNT = 5;
 
+        // DEV-V4-06：tooltip 用玩家语言钉死手势契约（Q54 原文）——模式与方向
+        // 已迁往 LIT 设置页（全局 ClientPreference Choice），不在标题栏。
         private const string TOOLTIP_TIDY =
-            "左键点击：整理当前空间的物品。\nCtrl + 左键点击：一键自动整理全身背包。";
-        private const string TOOLTIP_DIR = "切换排序方向（↓ 从大到小 / ↑ 从小到大）";
-        private const string TOOLTIP_MODE = "整理模式：同类=相同物品聚合 / 空间=剩余大矩形优先 / 大件=大件优先贪心";
+            "左键：整理当前栏；Ctrl+左键：按全局模式和方向整理全身（不含仓储栏）";
 
         private static void LogError(string msg) => LitRuntime.LogError($"{TAG} {msg}");
         private static void LogInfo(string msg)  => LitRuntime.LogInfo($"{TAG} {msg}");
@@ -166,6 +266,13 @@ namespace BetterUnturnedExperience.Lit
 
             s_AddChild = GetInterfaceMethod(s_ISleekElementType, "AddChild");
             if (s_AddChild == null) { LogError("无法定位 ISleekElement.AddChild() 方法！"); return; }
+
+            // DEV-V4-06: the teardown pass needs the native RemoveChild; a miss
+            // means every removal FAILS (reference retained, BUE-LIT-TEARDOWN
+            // logged, retried on the next pass) — never a reason to skip the
+            // injection and never a fake clean teardown.
+            s_RemoveChild = GetInterfaceMethod(s_ISleekElementType, "RemoveChild");
+            if (s_RemoveChild == null) LogError("ISleekElement.RemoveChild() 未定位（拆除将失败留痕并保留引用待重试 diagnosticId=BUE-LIT-TEARDOWN）");
 
             LogInfo("Glazier.Get / AddChild OK (CreateButton 推迟)");
 
@@ -300,10 +407,16 @@ namespace BetterUnturnedExperience.Lit
         }
 
         // ─────────────────────────────────────────────────────────────────
-        // Postfix：构造完成后注入 5 组双按钮
+        // Postfix：构造完成后注入 5 颗「整理」按钮
         // ─────────────────────────────────────────────────────────────────
         public static void Postfix()
         {
+            // DEV-V4-06 注入门（Q55）：只有 Running 事实允许新开页注入。模块
+            // 缺席（未启动/已停止/已隔离撤 ActiveModule）或生命周期事实非
+            // Running，一律不画——「按钮曾被画出」不构成注入资格。
+            var module = ActiveModule;
+            if (module == null || !module.ShouldInjectTidyButtonForNewPage) return;
+
             WarmupReflection();
             if (s_GlazierType == null || s_ISleekElementType == null || s_ISleekButtonType == null) return;
             if (s_HeadersField == null || s_OnClicked == null) return;
@@ -332,20 +445,13 @@ namespace BetterUnturnedExperience.Lit
                 LogInfo("CreateButton OK (来自 " + instanceType.Name + ")");
             }
 
-            // 循环注入 5 个标题栏：headers[0..4] -> page 2..6（SLOTS..PANTS 服装页）
+            // 循环注入 5 颗按钮：headers[0..4] -> page 2..6（SLOTS..PANTS 服装页）
             // v2.0.1：不再注入 STORAGE (headers[5])，因为 V2 协议不支持容器页整理。
-            // i=0..4 服装页统一用 DIR_POS_OFFSET_X / TIDY_POS_OFFSET_X（让出右侧 70px 避让耐久度角标）
+            // DEV-V4-06：所有注入页统一 TIDY_POS_OFFSET_X（60×60 @ -130，Q54 冻结）。
             int injected = 0;
             for (int i = 0; i < HEADER_INJECT_COUNT; i++)
             {
                 byte currentPage = (byte)(i + 2);
-                EnsurePageDefault(currentPage);
-                EnsurePageModeDefault(currentPage);
-
-                // 所有注入页（page 2..6）统一使用服装页布局
-                float modePosOffsetX = MODE_POS_OFFSET_X;
-                float dirPosOffsetX  = DIR_POS_OFFSET_X;
-                float tidyPosOffsetX = TIDY_POS_OFFSET_X;
 
                 object headerElement = headers.GetValue(i);
                 if (headerElement == null)
@@ -354,78 +460,28 @@ namespace BetterUnturnedExperience.Lit
                     continue;
                 }
 
-                // ── 创建模式按钮 M：[C]/[D] ──
-                object modeButton;
-                try { modeButton = s_CreateButton.Invoke(glazier, s_EmptyArgs); }
-                catch (Exception e) { LogError($"headers[{i}] modeButton CreateButton 失败: {e}"); continue; }
-                if (modeButton == null) { LogError($"headers[{i}] modeButton 返回 null"); continue; }
-
-                try
-                {
-                    s_PosScaleX  .SetValue(modeButton, 1f,                  null);
-                    s_PosOffsetX .SetValue(modeButton, modePosOffsetX,      null);
-                    s_SizeOffsetX.SetValue(modeButton, MODE_SIZE_X,          null);
-                    s_SizeOffsetY.SetValue(modeButton, BTN_SIZE_Y,           null);
-                    s_Text       .SetValue(modeButton,
-                        GetModeLabel(s_PageTidyMode[currentPage]), null);
-                    s_TooltipText.SetValue(modeButton, TOOLTIP_MODE,         null);
-                }
-                catch (Exception e) { LogError($"headers[{i}] modeButton 属性设置失败: {e}"); }
-
-                // 绑定模式按钮点击事件 -> HandleModeClick(currentPage)
-                try
-                {
-                    Delegate modeHandler = CreatePageDelegate(s_OnClicked.EventHandlerType, currentPage, ButtonKind.Mode);
-                    s_OnClicked.AddEventHandler(modeButton, modeHandler);
-                }
-                catch (Exception e) { LogError($"headers[{i}] modeButton 事件绑定失败: {e}"); }
-
-                // ── 创建方向按钮 A：[↓]/[↑] ──
-                object dirButton;
-                try { dirButton = s_CreateButton.Invoke(glazier, s_EmptyArgs); }
-                catch (Exception e) { LogError($"headers[{i}] dirButton CreateButton 失败: {e}"); continue; }
-                if (dirButton == null) { LogError($"headers[{i}] dirButton 返回 null"); continue; }
-
-                try
-                {
-                    s_PosScaleX  .SetValue(dirButton, 1f,                null);
-                    s_PosOffsetX .SetValue(dirButton, dirPosOffsetX,    null);
-                    s_SizeOffsetX.SetValue(dirButton, DIR_SIZE_X,        null);
-                    s_SizeOffsetY.SetValue(dirButton, BTN_SIZE_Y,        null);
-                    s_Text       .SetValue(dirButton, "↓",                null);
-                    s_TooltipText.SetValue(dirButton, TOOLTIP_DIR,        null);
-                }
-                catch (Exception e) { LogError($"headers[{i}] dirButton 属性设置失败: {e}"); }
-
-                // 绑定方向按钮点击事件 -> HandleDirectionClick(currentPage)
-                try
-                {
-                    Delegate dirHandler = CreatePageDelegate(s_OnClicked.EventHandlerType, currentPage, ButtonKind.Direction);
-                    s_OnClicked.AddEventHandler(dirButton, dirHandler);
-                }
-                catch (Exception e) { LogError($"headers[{i}] dirButton 事件绑定失败: {e}"); }
-
-                // ── 创建整理按钮 B：[整理] ──
+                // ── 创建整理按钮 B：[整理]（唯一按钮）──
                 object tidyButton;
                 try { tidyButton = s_CreateButton.Invoke(glazier, s_EmptyArgs); }
                 catch (Exception e) { LogError($"headers[{i}] tidyButton CreateButton 失败: {e}"); continue; }
                 if (tidyButton == null) { LogError($"headers[{i}] tidyButton 返回 null"); continue; }
 
+                Delegate tidyHandler = null;
                 try
                 {
                     s_PosScaleX  .SetValue(tidyButton, 1f,                 null);
-                    s_PosOffsetX .SetValue(tidyButton, tidyPosOffsetX,     null);
-                    s_SizeOffsetX.SetValue(tidyButton, TIDY_SIZE_X,         null);
-                    s_SizeOffsetY.SetValue(tidyButton, BTN_SIZE_Y,          null);
-                    s_Text       .SetValue(tidyButton, "整理",              null);
-                    s_TooltipText.SetValue(tidyButton, TOOLTIP_TIDY,        null);
+                    s_PosOffsetX .SetValue(tidyButton, TIDY_POS_OFFSET_X,  null);
+                    s_SizeOffsetX.SetValue(tidyButton, TIDY_SIZE_X,        null);
+                    s_SizeOffsetY.SetValue(tidyButton, BTN_SIZE_Y,         null);
+                    s_Text       .SetValue(tidyButton, "整理",             null);
+                    s_TooltipText.SetValue(tidyButton, TOOLTIP_TIDY,       null);
                 }
                 catch (Exception e) { LogError($"headers[{i}] tidyButton 属性设置失败: {e}"); }
 
                 // 绑定整理按钮点击事件 -> HandleTidyClick(currentPage)
                 try
                 {
-                    Delegate tidyHandler = CreatePageDelegate(s_OnClicked.EventHandlerType, currentPage, ButtonKind.Tidy);
+                    tidyHandler = CreatePageDelegate(s_OnClicked.EventHandlerType, currentPage);
                     s_OnClicked.AddEventHandler(tidyButton, tidyHandler);
                 }
                 catch (Exception e) { LogError($"headers[{i}] tidyButton 事件绑定失败: {e}"); }
@@ -433,58 +489,27 @@ namespace BetterUnturnedExperience.Lit
                 // ── AddChild 到 header ──
                 try
                 {
-                    s_OneArg[0] = modeButton;
-                    s_AddChild.Invoke(headerElement, s_OneArg);
-                    s_OneArg[0] = dirButton;
-                    s_AddChild.Invoke(headerElement, s_OneArg);
                     s_OneArg[0] = tidyButton;
                     s_AddChild.Invoke(headerElement, s_OneArg);
                 }
                 catch (Exception e) { LogError($"headers[{i}] AddChild 失败: {e}"); }
 
-                s_DirectionButtons[currentPage] = dirButton;
-                s_ModeButtons[currentPage] = modeButton;
+                // ── 在册（拆除责任登记：对象/回调/父容器）──
+                s_TidyButtons[currentPage] = tidyButton;
+                s_TidyClickHandlers[currentPage] = tidyHandler;
+                s_TidyHeaders[currentPage] = headerElement;
                 injected++;
-                LogInfo($"headers[{i}] -> page {currentPage} 三按钮注入 OK");
+                LogInfo($"headers[{i}] -> page {currentPage} 整理按钮注入 OK");
             }
 
-            LogInfo($"==== 注入完成：共 {injected}/{HEADER_INJECT_COUNT} 组三按钮 ====");
-        }
-
-        // ─────────────────────────────────────────────────────────────────
-        // 业务状态辅助
-        // ─────────────────────────────────────────────────────────────────
-        private static void EnsurePageDefault(byte page)
-        {
-            if (!s_PageSortDescending.ContainsKey(page))
-                s_PageSortDescending[page] = true; // 默认降序
-        }
-
-        private static void EnsurePageModeDefault(byte page)
-        {
-            if (!s_PageTidyMode.ContainsKey(page))
-                s_PageTidyMode[page] = TidyMode.SameType; // v2.0.0 默认同类优先
-        }
-
-        /// <summary>获取模式按钮的中文显示文本。</summary>
-        private static string GetModeLabel(TidyMode mode)
-        {
-            switch (mode)
-            {
-                case TidyMode.SameType: return "同类";
-                case TidyMode.MaxRects: return "空间";
-                case TidyMode.FFD: return "大件";
-                default: return "同类";
-            }
+            LogInfo($"==== 注入完成：共 {injected}/{HEADER_INJECT_COUNT} 颗整理按钮 ====");
         }
 
         // ─────────────────────────────────────────────────────────────────
         // 委托生成（Emit）：把 page 常量嵌入到 OnClicked 委托的调用链中。
         // ClickedButton 签名为 void(ISleekElement)，所以 DynamicMethod 接收一个参数。
         // ─────────────────────────────────────────────────────────────────
-        private enum ButtonKind { Direction, Tidy, Mode }
-
-        private static Delegate CreatePageDelegate(Type delegateType, byte page, ButtonKind kind)
+        private static Delegate CreatePageDelegate(Type delegateType, byte page)
         {
             MethodInfo invokeMethod = delegateType.GetMethod("Invoke");
             ParameterInfo[] parameters = invokeMethod.GetParameters();
@@ -492,101 +517,30 @@ namespace BetterUnturnedExperience.Lit
                 ? new[] { parameters[0].ParameterType }
                 : Type.EmptyTypes;
 
-            string prefix;
-            MethodInfo target;
-            switch (kind)
-            {
-                case ButtonKind.Direction:
-                    prefix = "DirClick_";
-                    target = typeof(InventoryTidyUiPatch).GetMethod("HandleDirectionClick",
-                        BindingFlags.Static | BindingFlags.NonPublic);
-                    break;
-                case ButtonKind.Mode:
-                    prefix = "ModeClick_";
-                    target = typeof(InventoryTidyUiPatch).GetMethod("HandleModeClick",
-                        BindingFlags.Static | BindingFlags.NonPublic);
-                    break;
-                default:
-                    prefix = "TidyClick_";
-                    target = typeof(InventoryTidyUiPatch).GetMethod("HandleTidyClick",
-                        BindingFlags.Static | BindingFlags.NonPublic);
-                    break;
-            }
-
             var dm = new DynamicMethod(
-                prefix + page + "_" + Guid.NewGuid().ToString("N").Substring(0, 6),
+                "TidyClick_" + page + "_" + Guid.NewGuid().ToString("N").Substring(0, 6),
                 null,
                 paramTypes,
                 typeof(InventoryTidyUiPatch));
 
             var il = dm.GetILGenerator();
             il.Emit(OpCodes.Ldc_I4, (int)page);
-            il.Emit(OpCodes.Call, target);
+            il.Emit(OpCodes.Call, typeof(InventoryTidyUiPatch).GetMethod("HandleTidyClick",
+                BindingFlags.Static | BindingFlags.NonPublic));
             il.Emit(OpCodes.Ret);
 
             return dm.CreateDelegate(delegateType);
         }
 
         // ─────────────────────────────────────────────────────────────────
-        // 事件回调：方向按钮点击 -> 切换该页排序方向 + 更新按钮文本
-        // ─────────────────────────────────────────────────────────────────
-        private static void HandleDirectionClick(byte page)
-        {
-            // 模块代际守卫：Stop 已清表后，残留按钮不得把旧代际状态写回新代际。
-            if (ActiveModule == null) return;
-            EnsurePageDefault(page);
-            bool newDescending = !s_PageSortDescending[page];
-            s_PageSortDescending[page] = newDescending;
-
-            string arrow = newDescending ? "↓" : "↑";
-            string label = newDescending ? "降序（大件优先）" : "升序（小件优先）";
-
-            if (s_DirectionButtons.TryGetValue(page, out object btn) && btn != null)
-            {
-                try { s_Text.SetValue(btn, arrow, null); }
-                catch (Exception e) { LogError($"page {page} 方向按钮文本切换失败: {e}"); }
-            }
-
-            TidyDiagnosticLog.Info("ui-sort-direction",
-                $"[TidyUI] page {page} 排序方向切换为 {label}");
-        }
-
-        // ─────────────────────────────────────────────────────────────────
-        // 事件回调：模式按钮点击 -> 三态循环切换 + 更新按钮文本
-        // v2.0.0：同类 -> 空间 -> 大件 -> 同类
-        // ─────────────────────────────────────────────────────────────────
-        private static void HandleModeClick(byte page)
-        {
-            // 模块代际守卫：同 HandleDirectionClick。
-            if (ActiveModule == null) return;
-            EnsurePageModeDefault(page);
-            TidyMode current = s_PageTidyMode[page];
-            s_PageTidyMode[page] = current switch
-            {
-                TidyMode.SameType => TidyMode.MaxRects,
-                TidyMode.MaxRects => TidyMode.FFD,
-                TidyMode.FFD      => TidyMode.SameType,
-                _                 => TidyMode.SameType,
-            };
-
-            string label = GetModeLabel(s_PageTidyMode[page]);
-            if (s_ModeButtons.TryGetValue(page, out object btn) && btn != null)
-            {
-                try { s_Text.SetValue(btn, label, null); }
-                catch (Exception e) { LogError($"page {page} 模式按钮文本切换失败: {e}"); }
-            }
-            TidyDiagnosticLog.Info("ui-tidy-mode",
-                $"[TidyUI] page {page} 整理模式切换为 {label}");
-        }
-
-        // ─────────────────────────────────────────────────────────────────
-        // 事件回调：整理按钮点击
-        //   - Ctrl 按下 -> 整理全身（用当前页的方向作为统一方向，尊重玩家最近的选择）
-        //   - 否则     -> 仅整理当前页
+        // 事件回调：整理按钮点击（唯一按钮）
+        //   - Ctrl 按下 -> 按已保存的全局模式与方向整理全身（不含仓储栏）
+        //   - 否则     -> 仅整理当前栏
         //
-        //   DEV-V2-15 架构：单人路径点击直接走模块的本地整理入口
-        //  (RequestLocalTidy → 主线程 dispatcher → LocalTidyExecutor 事务化整理 + 热键恢复)；
-        //   联机请求形态（上传快照 + 服务器权威事务）属 DEV-V2-21。
+        //   DEV-V4-06：模式与方向不再读本类任何字典——点击处理前先经模块的
+        //  RequestTidyFromUiClick 再确认生命周期可用性（Q54：不能只因「按钮
+        //  曾被画出」），再由模块读同一 revision 的已保存 ClientPreference
+        //  快照（Q59）。结果如实呈现（拒绝=原生回退/显式拒绝，不假成功）。
         // ─────────────────────────────────────────────────────────────────
         private static void HandleTidyClick(byte page)
         {
@@ -598,10 +552,6 @@ namespace BetterUnturnedExperience.Lit
             }
 
             bool ctrl = InputEx.GetKey(KeyCode.LeftControl) || InputEx.GetKey(KeyCode.RightControl);
-            EnsurePageDefault(page);
-            EnsurePageModeDefault(page);
-            bool desc = s_PageSortDescending[page];
-            TidyMode mode = s_PageTidyMode[page];
 
             try
             {
@@ -611,20 +561,8 @@ namespace BetterUnturnedExperience.Lit
                     LogError("无已装配的整理模块（未启动或已关闭），忽略点击");
                     return;
                 }
-                if (ctrl)
-                {
-                    TidyDiagnosticLog.Info("ui-tidy-request",
-                        $"[TidyUI] Ctrl+点击 -> 一键整理全身 (方向={desc}, 模式={GetModeLabel(mode)})");
-                    var allResult = module.RequestTidy(LitRuntime.AllPages, mode, desc);
-                    LogRequestResult("全身", allResult);
-                }
-                else
-                {
-                    TidyDiagnosticLog.Info("ui-tidy-request",
-                        $"[TidyUI] 点击 -> 整理 page {page} (方向={desc}, 模式={GetModeLabel(mode)})");
-                    var pageResult = module.RequestTidy(page, mode, desc);
-                    LogRequestResult($"page {page}", pageResult);
-                }
+                var result = module.RequestTidyFromUiClick(page, allPages: ctrl);
+                LogRequestResult(ctrl ? "全身" : $"page {page}", result);
             }
             catch (Exception e)
             {
@@ -641,7 +579,7 @@ namespace BetterUnturnedExperience.Lit
                     TidyDiagnosticLog.Info("ui-tidy-dispatched", $"[TidyUI] {scope} 整理请求已受理。");
                     break;
                 case LitTidyRequestResult.NativeFallback:
-                    TidyDiagnosticLog.Info("ui-tidy-native-fallback", $"[TidyUI] {scope} 整理被拒绝：功能未开启或已停止（原生回退）。");
+                    TidyDiagnosticLog.Info("ui-tidy-native-fallback", $"[TidyUI] {scope} 整理被拒绝：功能当前不可用（生命周期非 Running 或已停止，原生回退）。");
                     break;
                 case LitTidyRequestResult.RejectedFaultCircuit:
                     TidyDiagnosticLog.Info("ui-tidy-circuit-open", $"[TidyUI] {scope} 整理被拒绝：熔断已打开。");
@@ -651,6 +589,9 @@ namespace BetterUnturnedExperience.Lit
                     break;
                 case LitTidyRequestResult.RejectedSendFailed:
                     TidyDiagnosticLog.Info("ui-tidy-send-failed", $"[TidyUI] {scope} 整理请求发送失败（可靠通道未送达）。");
+                    break;
+                case LitTidyRequestResult.RejectedPreferenceUnavailable:
+                    TidyDiagnosticLog.Info("ui-tidy-preference-unavailable", $"[TidyUI] {scope} 整理被拒绝：无法读取已保存的整理模式/方向快照（不发明未保存过的组合）。");
                     break;
                 default:
                     TidyDiagnosticLog.Info("ui-tidy-queue-closed", $"[TidyUI] {scope} 整理被拒绝：主线程队列已关闭。");

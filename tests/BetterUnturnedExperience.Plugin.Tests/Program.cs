@@ -3575,12 +3575,83 @@ namespace BetterUnturnedExperience.Plugin.Tests
             internal void AdvanceMs(int ms) { UtcNow = UtcNow.AddMilliseconds(ms); }
         }
 
+        // DEV-V4-06: the fake scoped settings view feeding the LIT click seam —
+        // it counts GetSnapshot calls (the same-revision rule is "one read
+        // serves both values") and serves a canned ClientPreference snapshot.
+        private sealed class FakeTidySettingsView : IScopedFeatureSettings
+        {
+            public readonly List<SettingEntryView> Entries = new List<SettingEntryView>();
+            public uint Revision = 7U;
+            public int GetSnapshotCalls;
+
+            public FeatureSettingsSnapshot GetSnapshot(SettingRevisionScope revisionScope)
+            {
+                GetSnapshotCalls++;
+                return new FeatureSettingsSnapshot(new FeatureId(LitRuntime.FeatureIdValue), 1U,
+                    revisionScope, Revision, SettingSyncState.Ready, SettingSnapshotSource.LocalPersistent, Entries);
+            }
+
+            public bool TryGet(string settingId, out SettingValue value, out uint revision)
+            {
+                value = default(SettingValue);
+                revision = Revision;
+                for (var index = 0; index < Entries.Count; index++)
+                {
+                    if (Entries[index].SettingId != settingId) continue;
+                    value = Entries[index].EffectiveValue;
+                    return true;
+                }
+                return false;
+            }
+
+            public SettingChangeResult Submit(ScopedSettingChangeRequest request)
+            {
+                return new SettingChangeResult(false, FrameworkErrorCode.SettingRejected, Revision, default(FeatureSettingsSnapshot));
+            }
+
+            /// <summary>Sets or replaces one canned entry (schema drift legs drop entries).</summary>
+            internal void SetEntry(string settingId, SettingValue value)
+            {
+                for (var index = 0; index < Entries.Count; index++)
+                {
+                    if (Entries[index].SettingId != settingId) continue;
+                    Entries.RemoveAt(index);
+                    break;
+                }
+                Entries.Add(new SettingEntryView(settingId, SettingAuthority.ClientLocal,
+                    new SettingValueOption(true, value), false, default(SettingPolicyView), value, true, true));
+            }
+        }
+
+        // DEV-V4-06: the fake lifecycle view — the module's availability gate
+        // must read THIS (machine truth), never a patch-private bool.
+        private sealed class FakeTidyLifetime : IFeatureLifetime
+        {
+            public FeatureState State = FeatureState.Running;
+            public readonly List<IDisposable> Tracked = new List<IDisposable>();
+
+            public bool TryTrack(IDisposable registration)
+            {
+                Tracked.Add(registration);
+                return true;
+            }
+
+            public FeatureStatusView CurrentStatus
+            {
+                get { return new FeatureStatusView(new FeatureId(LitRuntime.FeatureIdValue), State, FrameworkErrorCode.None, FeatureStopReason.None, "fake-lifetime", 1UL); }
+            }
+        }
+
         /// <summary>The fake engine authority: records the calls the service makes; defaults produce a committed transaction.</summary>
         private sealed class FakeLitAuthority : ILitTidyAuthority
         {
             public int ExecuteCount;
             public uint LastRequestId;
             public byte LastPage;
+            // DEV-V4-06: record the mode/direction that traveled the wire so
+            // the click→snapshot→request→protocol chain is observable.
+            public TidyMode LastMode;
+            public bool LastSortDescending;
             public int RestoreCount;
             public int ConvergenceCount;
 
@@ -3591,6 +3662,8 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 ExecuteCount++;
                 LastRequestId = request.RequestId;
                 LastPage = request.Page;
+                LastMode = request.Mode;
+                LastSortDescending = request.SortDescending;
                 var page = request.Page == LitRuntime.AllPages ? (byte)2 : request.Page;
                 return new LitAuthorityResult
                 {
@@ -3652,6 +3725,9 @@ namespace BetterUnturnedExperience.Plugin.Tests
             public BetterUnturnedExperience.Core.Network.BueNetworkRuntime ClientRuntime;
             public InventoryTidyModule ServerModule;
             public InventoryTidyModule ClientModule;
+            // DEV-V4-06: the client module's lifecycle view (null = the stage-
+            // baseline hand-composed bootstrap, exactly like the pre-06 groups).
+            public FakeTidyLifetime ClientLifetime;
             public FakeLitAuthority ServerAuthority;
             public FakeLitAuthority ClientAuthority;
             public BetterUnturnedExperience.Core.Events.FeatureEventBus ServerBus;
@@ -3662,7 +3738,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
             public IConnectionSession ServerSession;
             public IConnectionSession ClientSession;
 
-            public static LitMultiplayerHarness Create(string faultDir, Func<IBueNetworkApi, IBueNetworkApi> serverNetworkDecorator = null, Func<DateTime> clock = null)
+            public static LitMultiplayerHarness Create(string faultDir, Func<IBueNetworkApi, IBueNetworkApi> serverNetworkDecorator = null, Func<DateTime> clock = null, FakeTidyLifetime clientLifetime = null)
             {
                 var localContract = new ContractVersion(2, 0);
                 var feature = new FeatureId(LitRuntime.FeatureIdValue);
@@ -3676,25 +3752,26 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     ServerRuntime = serverRuntime,
                     ServerAuthority = new FakeLitAuthority(),
                     ClientAuthority = new FakeLitAuthority(),
+                    ClientLifetime = clientLifetime,
                 };
                 harness.ServerBus = new BetterUnturnedExperience.Core.Events.FeatureEventBus();
                 harness.ServerModule = CreateModule(harness.ServerBus, serverRuntime, isServer: true, harness.ServerAuthority, faultDir, serverNetworkDecorator, clock);
                 harness.ClientBus = new BetterUnturnedExperience.Core.Events.FeatureEventBus();
-                harness.ClientModule = CreateModule(harness.ClientBus, clientRuntime, isServer: false, harness.ClientAuthority, faultDir);
+                harness.ClientModule = CreateModule(harness.ClientBus, clientRuntime, isServer: false, harness.ClientAuthority, faultDir, lifetime: clientLifetime);
                 harness.ClientModule.Network.Subscribe(feature, ChannelDirection.FromServer, (s, p) => harness.ClientRawFromServer.Add(p));
                 harness.ServerModule.Network.Subscribe(feature, ChannelDirection.FromClients, (s, p) => harness.ServerRawFromClients.Add(p));
                 harness.ServerBus.Subscriber(feature).Subscribe<TidyCompleted>(harness.ServerTidyEvents.Add);
                 return harness;
             }
 
-            private static InventoryTidyModule CreateModule(BetterUnturnedExperience.Core.Events.FeatureEventBus bus, BetterUnturnedExperience.Core.Network.BueNetworkRuntime runtime, bool isServer, FakeLitAuthority authority, string faultDir, Func<IBueNetworkApi, IBueNetworkApi> networkDecorator = null, Func<DateTime> clock = null)
+            private static InventoryTidyModule CreateModule(BetterUnturnedExperience.Core.Events.FeatureEventBus bus, BetterUnturnedExperience.Core.Network.BueNetworkRuntime runtime, bool isServer, FakeLitAuthority authority, string faultDir, Func<IBueNetworkApi, IBueNetworkApi> networkDecorator = null, Func<DateTime> clock = null, FakeTidyLifetime lifetime = null)
             {
                 var feature = new FeatureId(LitRuntime.FeatureIdValue);
                 var module = new InventoryTidyModule(feature);
                 module.ScopeDirectoryForTests = faultDir;
                 module.FaultContextForTests = () => new LitFaultScopeContext("TestMap", 1);
                 module.NetServiceFactoryForTests = (m, net, book) => new LitTidyNetService(m, networkDecorator != null ? networkDecorator(net) : net, authority, () => isServer, book, clock);
-                var bootstrap = new FeatureBootstrap(default(FeatureScopeIdentity), 1UL, null, bus.Subscriber(feature), bus.Publisher(feature), bus.EventRegistry(feature), null, null, null, runtime);
+                var bootstrap = new FeatureBootstrap(default(FeatureScopeIdentity), 1UL, null, bus.Subscriber(feature), bus.Publisher(feature), bus.EventRegistry(feature), null, null, lifetime, runtime);
                 var result = module.Start(bootstrap);
                 if (!result.Started) throw new InvalidOperationException("harness: module start failed: " + result.DiagnosticId);
                 return module;
@@ -4258,7 +4335,9 @@ namespace BetterUnturnedExperience.Plugin.Tests
             catch (ArgumentNullException) { nullStrategyThrown = true; }
             Assert(nullStrategyThrown, "service: a null strategy throws ArgumentNullException (no hidden default)");
 
-            // ── 3. enabled=false native fallback + module lifecycle gates. ──
+            // ── 3. lifecycle-gated tidy serving (DEV-V4-06: the legacy enabled
+            // master switch is RETIRED — the lifecycle machine is the only
+            // switch; the module schema is the mode/direction choice pair). ──
             var settingsFeature = new FeatureId("io.github.yu80rice.bue.inventory-tidy");
             // DEV-V3-06: the settings authority is the host-owned registry
             // (single source); the module consumes the very values a panel
@@ -4271,7 +4350,6 @@ namespace BetterUnturnedExperience.Plugin.Tests
             module.AttachSettingsView(settingsView);
             Assert(module.Feature.Value == "io.github.yu80rice.bue.inventory-tidy",
                 "module: the feature identity is the frozen LIT FeatureId");
-            Assert(module.Enabled, "module: enabled defaults to true (empty store)");
             Assert(module.Strategy.StrategyId == "default-grid-v1",
                 "module: the module default strategy is the built-in adapter");
             Assert(!module.PatchesInstalled,
@@ -4283,38 +4361,23 @@ namespace BetterUnturnedExperience.Plugin.Tests
             Assert(module.PatchesInstalled || module.StartGateDiagnostics.Length > 0,
                 "module: start installs the UI patch or records the environment gate diagnostic (no silent state)");
 
-            // Disable through the settings authority — the panel toggle path.
-            var snapshot = settingsView.GetSnapshot(SettingRevisionScope.ClientPreference);
-            Assert(snapshot.Entries.Count == 1 && snapshot.Entries[0].SettingId == "inventorytidy.enabled"
-                && snapshot.Entries[0].EffectiveValue.Boolean,
-                "settings: the module owns exactly one persisted toggle (enabled, default on)");
-            var disable = settingsView.Submit(new ScopedSettingChangeRequest(51UL, SettingRevisionScope.ClientPreference,
-                snapshot.Revision, new[] { new SettingMutation("inventorytidy.enabled", SettingValue.Toggle(false)) }));
-            Assert(disable.Accepted, "setup: the disable mutation is accepted");
-            module.RefreshSwitches();
-            Assert(!module.Enabled && !module.PatchesInstalled,
-                "fallback: disabling uninstalls the module's patches (native UI returns)");
-            Assert(module.RequestLocalTidy(3, TidyMode.SameType, true) == LitTidyRequestResult.NativeFallback,
-                "fallback: a disabled module answers every tidy request with the explicit native-fallback result");
+            // DEV-V4-06: the click seam reads the SAVED ClientPreference
+            // snapshot (never the panel draft, never per-page memory) — the
+            // descriptor defaults serve an empty store (同类 + 降序).
+            Assert(module.TryReadSavedTidyPreference(out var savedMode, out var savedDescending, out _)
+                && savedMode == TidyMode.SameType && savedDescending,
+                "module: the saved-preference read serves the schema defaults on an empty store (同类+降序)");
 
-            // Re-enable resets the fault gate (new module generation) and the
-            // request path re-arms.
-            var snapshotAfterDisable = settingsView.GetSnapshot(SettingRevisionScope.ClientPreference);
-            var enable = settingsView.Submit(new ScopedSettingChangeRequest(52UL, SettingRevisionScope.ClientPreference,
-                snapshotAfterDisable.Revision, new[] { new SettingMutation("inventorytidy.enabled", SettingValue.Toggle(true)) }));
-            Assert(enable.Accepted, "setup: the enable mutation is accepted");
-            module.RefreshSwitches();
-            Assert(module.Enabled, "re-arm: the module is enabled again");
             module.FaultGate.Open("host-red-test", restoreVerified: false);
             Assert(module.RequestLocalTidy(3, TidyMode.SameType, true) == LitTidyRequestResult.RejectedFaultCircuit,
                 "fault gate: an open circuit rejects tidy requests without dispatching work");
 
-            // Dispatch path: an enabled module with a closed gate enqueues the
+            // Dispatch path: a started module with a closed gate enqueues the
             // local tidy work for the main-thread pump.
             MainThreadDispatcher.ResetForTests();
             module.FaultGate.Reset();
             Assert(module.RequestLocalTidy(3, TidyMode.SameType, true) == LitTidyRequestResult.Dispatched,
-                "dispatch: an enabled module with a closed gate dispatches the local tidy work");
+                "dispatch: a started module with a closed gate dispatches the local tidy work");
             Assert(MainThreadDispatcher.PendingCount == 1, "dispatch: exactly one work item is queued");
             module.Tick();
             Assert(MainThreadDispatcher.PendingCount == 0,
@@ -4328,6 +4391,24 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 "stop: quiesce + dispatcher drain + patch teardown all observed");
             Assert(module.RequestLocalTidy(3, TidyMode.SameType, true) == LitTidyRequestResult.NativeFallback,
                 "stop: a stopped module answers tidy requests with the native fallback");
+
+            // DEV-V4-06 re-arm: the SAME wired instance re-enables through the
+            // panel's enable seam (a new-generation Start) — the stop boundary
+            // must not leave sticky shut-down state in the module.
+            MainThreadDispatcher.ResetForTests();
+            var rearmBus = new BetterUnturnedExperience.Core.Events.FeatureEventBus();
+            var rearmPair = BetterUnturnedExperience.Core.Network.LocalLoopbackTransport.CreatePair();
+            var rearmNetwork = new BetterUnturnedExperience.Core.Network.BueNetworkRuntime(rearmPair.First, new ContractVersion(2, 0), 1901UL);
+            module.ScopeDirectoryForTests = NewLitFaultDirectory();
+            module.FaultContextForTests = () => new LitFaultScopeContext("TestMap", 1);
+            var rearmStart = module.Start(new FeatureBootstrap(default(FeatureScopeIdentity), 2UL, settingsView,
+                rearmBus.Subscriber(settingsFeature), rearmBus.Publisher(settingsFeature),
+                rearmBus.EventRegistry(settingsFeature), null, null, null, rearmNetwork));
+            Assert(rearmStart.Started, "re-arm setup: the module generation restarts through Start");
+            Assert(!module.ShuttingDown,
+                "re-arm: the stop boundary does not leak into the new module generation");
+            Assert(module.RequestLocalTidy(3, TidyMode.SameType, true) == LitTidyRequestResult.Dispatched,
+                "re-arm: a re-enabled module generation serves tidy requests again (no sticky stopped state)");
 
             // ── 4. Harness and old-plugin types are excluded from production. ──
             // Compile-list level (the ticket's literal wording: 排除出生产编译列表):
@@ -9246,9 +9327,10 @@ namespace BetterUnturnedExperience.Plugin.Tests
                         "生态对照：停止边界 probe 资源被宿主释放（逆序清理对生态样例同权）");
                 });
 
-                // DEV-V4-04：官方 legacy enabled 迁移——facet 退役面（先红：现网
-                // 五个官方功能仍把 enabled 总开关声明成唯一 facet）。只断言外显缝：
-                // 目录条目 descriptor 与设置注册表 runtime（面板行投影的数据源）。
+                // DEV-V4-04 → DEV-V4-06：官方 legacy enabled 迁移的退役面在 06
+                // 翻转为「facet 回归」——LIT 声明两条全局 Choice（mode/direction），
+                // 而 enabled 总开关保持退役（descriptor 集里没有它）；启动路径为
+                // 两条 Choice 组装设置 runtime（面板行投影与点击快照的同一数据源）。
                 Group("legacy facet 退役", () =>
                 {
                     var litFeature = new FeatureId(InventoryTidyFeatureRegistration.FeatureIdValue);
@@ -9267,14 +9349,33 @@ namespace BetterUnturnedExperience.Plugin.Tests
                         var catalogEntries = litRuntime.Catalog.Entries;
                         for (var i = 0; i < catalogEntries.Count; i++)
                             if (catalogEntries[i].Definition.Feature.Value == litFeature.Value) litEntry = catalogEntries[i];
-                        Check(litEntry != null && litEntry.SettingDescriptors == null,
-                            "LIT facet 退役：目录条目不再声明 enabled 描述符（schema 退役→设置页无 enabled 行）");
+                        Check(litEntry != null && litEntry.SettingDescriptors != null && litEntry.SettingDescriptors.Count == 2,
+                            "DEV-V4-06：目录条目声明两条全局 Choice（mode/direction facet 回归）");
+                        var hasEnabledDescriptor = false;
+                        var hasModeDescriptor = false;
+                        var hasDirectionDescriptor = false;
+                        if (litEntry != null && litEntry.SettingDescriptors != null)
+                        {
+                            for (var i = 0; i < litEntry.SettingDescriptors.Count; i++)
+                            {
+                                var descriptorId = litEntry.SettingDescriptors[i].SettingId;
+                                if (descriptorId == "inventorytidy.enabled") hasEnabledDescriptor = true;
+                                if (descriptorId == "inventorytidy.mode") hasModeDescriptor = true;
+                                if (descriptorId == "inventorytidy.direction") hasDirectionDescriptor = true;
+                            }
+                        }
+                        Check(hasModeDescriptor && hasDirectionDescriptor && !hasEnabledDescriptor,
+                            "enabled 保持退役：descriptor 集恰含 mode/direction，绝无 inventorytidy.enabled（旧总开关不复进 schema）");
                         BueFeatureStartRuntime.StartCatalog(litRuntime, NewLoopbackNetwork(litRuntime.Catalog.CatalogRevision));
-                        Check(BueSettingsRuntime.Registry.TryGetRuntime(litFeature) == null,
-                            "LIT facet 退役：启动路径不再为它组装设置 runtime（旧总开关彻底退出 schema 与面板）");
+                        Check(BueSettingsRuntime.Registry.TryGetRuntime(litFeature) != null,
+                            "DEV-V4-06：启动路径为两条 Choice 组装设置 runtime（同一权威源供面板与点击快照）");
+                        var litWired = InventoryTidyFeatureRegistration.WiredModule;
+                        Check(litWired != null && litWired.SettingsView != null,
+                            "DEV-V4-06：真实启动的 LIT 模块持注入 view（点击读快照的数据源在位）");
                     }
                     finally
                     {
+                        BueFeatureStartRuntime.StopAll(FeatureStopReason.PluginStopping);
                         BetterUnturnedExperience.Plugin.BueSettingsRuntime.Clear();
                         try { if (Directory.Exists(settingsRoot)) Directory.Delete(settingsRoot, true); } catch (IOException) { }
                     }
@@ -9321,6 +9422,12 @@ namespace BetterUnturnedExperience.Plugin.Tests
                         WriteLegacyToggleDoc(root, biiFeature, "Enabled", false);
                         Check(migrationRuntime.CompleteRuntime(), "迁移 setup：目录冻结");
                         BueFeatureStartRuntime.StartCatalog(migrationRuntime, NewLoopbackNetwork(migrationRuntime.Catalog.CatalogRevision));
+                        // DEV-V4-06 回归锚：facet 回归后宿主 runtime 先于迁移加载
+                        // 同一文档——文件层不得把「缺新 schema 键」的 legacy 文档当
+                        // 损坏隔离，否则迁移读不到旧值，升级会静默丢停用偏好。
+                        var legacyDocPath = new BetterUnturnedExperience.Core.Settings.FileSettingsPersistence(root).GetPath(litFeature, SettingRevisionScope.ClientPreference);
+                        Check(File.Exists(legacyDocPath),
+                            "迁移窗口：legacy 文档在宿主 runtime 首读后原样在位（不被当损坏隔离）");
                         // LHT 在测试宿主上工厂/补丁不可用=启动期 Isolated（宿主局限，
                         // 与迁移无关）——「不改生命周期」的外显=迁移前后状态原样。
                         FeatureStatusView lhtBefore;
@@ -11059,10 +11166,20 @@ namespace BetterUnturnedExperience.Plugin.Tests
                             litEntry = entries[index];
                             hasLitEntry = true;
                         }
-                        // DEV-V4-04：legacy enabled facet 退役——LIT 条目仍在目录里
-                        // （身份路由不依赖装配参数），但不再有任何设置行/总开关。
-                        Check(hasLitEntry && litEntry.BueSettings.Count == 0,
-                            "目录路由：LIT 设置页不再暴露 enabled 总开关（facet 退役，面板零设置行）");
+                        // DEV-V4-06：LIT 设置 facet 以两条全局 Choice 回归
+                        // （mode/direction）；enabled 总开关保持退役（DEV-V4-04），
+                        // 不再以任何形状回到面板。
+                        Check(hasLitEntry && litEntry.BueSettings.Count == 2,
+                            "目录路由：LIT 设置页=两条全局 Choice（mode/direction），enabled 保持退役");
+                        var hasModeRow = false;
+                        var hasDirectionRow = false;
+                        for (var settingIndex = 0; settingIndex < litEntry.BueSettings.Count; settingIndex++)
+                        {
+                            if (litEntry.BueSettings[settingIndex].SettingId == "inventorytidy.mode") hasModeRow = true;
+                            if (litEntry.BueSettings[settingIndex].SettingId == "inventorytidy.direction") hasDirectionRow = true;
+                        }
+                        Check(hasModeRow && hasDirectionRow,
+                            "目录路由：LIT 两条 Choice 以冻结 SettingId 出现在目录条目上");
                         var edit = composition.ManagementPanel.Model.TryEditBueSetting(litFeature,
                             "inventorytidy.enabled", PluginConfigValue.BooleanValue(false));
                         Check(!edit.Accepted,
@@ -11187,10 +11304,11 @@ namespace BetterUnturnedExperience.Plugin.Tests
                             if (entries[index].StableId == biiFeature.Value) biiSettings = entries[index].BueSettings.Count;
                             if (entries[index].StableId == ecoFeature.Value) ecoSettings = entries[index].BueSettings.Count;
                         }
-                        // DEV-V4-04：官方 LIT 的 enabled facet 退役（零行）；并列
-                        // 可编辑锚改由官方 BII（组合路由，恰剩 AutoRotate）承担。
-                        Check(litSettings == 0 && ecoSettings == 1,
-                            "并列可见:官方 LIT 零设置行(facet 退役)与生态条目各按其事实投影(同一目录规则)");
+                        // DEV-V4-06：官方 LIT 的两条全局 Choice 行（facet 回归，
+                        // mode/direction）；并列可编辑锚仍由官方 BII（组合路由，
+                        // 恰剩 AutoRotate）承担。
+                        Check(litSettings == 2 && ecoSettings == 1,
+                            "并列可见:官方 LIT 两条全局 Choice 行(DEV-V4-06 facet 回归)与生态条目各按其事实投影(同一目录规则)");
                         Check(biiSettings == 1,
                             "并列可见:BII 设置页恰剩 AutoRotate 一行(Enabled 退役,仍是普通设置)");
                         var litEdit = composition.ManagementPanel.Model.TryEditBueSetting(litFeature,
@@ -11494,6 +11612,318 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     }
                     finally
                     {
+                        composition.Destroy();
+                        BueRuntimeHost.Bind(previousRuntime);
+                    }
+                });
+
+                // DEV-V4-06：LIT 标题栏与 mode/direction。手装模块助手：真实
+                // LIT 模块 + 宿主 bootstrap（假生命周期/假设置 view 可注入），
+                // 本地路径经 ServerRoleProbeForTests 走 RequestLocalTidy。
+                InventoryTidyModule StartLitModuleWith(FakeTidyLifetime lifetime, IScopedFeatureSettings settings)
+                {
+                    var lit = new FeatureId(LitRuntime.FeatureIdValue);
+                    var bus = new BetterUnturnedExperience.Core.Events.FeatureEventBus();
+                    var pair = BetterUnturnedExperience.Core.Network.LocalLoopbackTransport.CreatePair();
+                    var network = new BetterUnturnedExperience.Core.Network.BueNetworkRuntime(pair.First, new ContractVersion(2, 0), 2101UL);
+                    var litModule = new InventoryTidyModule(lit);
+                    litModule.ScopeDirectoryForTests = NewLitFaultDirectory();
+                    litModule.FaultContextForTests = () => new LitFaultScopeContext("TestMap", 1);
+                    var started = litModule.Start(new FeatureBootstrap(default(FeatureScopeIdentity), 9UL, settings,
+                        bus.Subscriber(lit), bus.Publisher(lit), bus.EventRegistry(lit), null, null, lifetime, network));
+                    Check(started.Started, "DEV-V4-06 setup：模块经宿主 bootstrap 启动");
+                    return litModule;
+                }
+
+                // 九态决定按钮存在性（Q55）：注入/拆除/暂留由生命周期事实
+                // （IFeatureLifetime.CurrentStatus）决定，不由 patch 私有布尔；
+                // 过渡态点击=安全回退、不报假成功；无生命周期事实=fail-closed。
+                Group("DEV-V4-06 九态决定按钮存在性", () =>
+                {
+                    Check(InventoryTidyModule.DecideTidyUiAction(FeatureState.Running) == InventoryTidyModule.TidyUiLifecycleAction.Inject,
+                        "九态：Running 新开页=注入");
+                    Check(InventoryTidyModule.DecideTidyUiAction(FeatureState.Disabled) == InventoryTidyModule.TidyUiLifecycleAction.RemoveExisting
+                        && InventoryTidyModule.DecideTidyUiAction(FeatureState.Stopped) == InventoryTidyModule.TidyUiLifecycleAction.RemoveExisting
+                        && InventoryTidyModule.DecideTidyUiAction(FeatureState.Isolated) == InventoryTidyModule.TidyUiLifecycleAction.RemoveExisting
+                        && InventoryTidyModule.DecideTidyUiAction(FeatureState.Incompatible) == InventoryTidyModule.TidyUiLifecycleAction.RemoveExisting,
+                        "九态：Disabled/Stopped/Isolated/Incompatible=拆除已有按钮");
+                    Check(InventoryTidyModule.DecideTidyUiAction(FeatureState.Starting) == InventoryTidyModule.TidyUiLifecycleAction.KeepWithoutNew
+                        && InventoryTidyModule.DecideTidyUiAction(FeatureState.Stopping) == InventoryTidyModule.TidyUiLifecycleAction.KeepWithoutNew
+                        && InventoryTidyModule.DecideTidyUiAction(FeatureState.Isolating) == InventoryTidyModule.TidyUiLifecycleAction.KeepWithoutNew
+                        && InventoryTidyModule.DecideTidyUiAction(FeatureState.Discovered) == InventoryTidyModule.TidyUiLifecycleAction.KeepWithoutNew,
+                        "九态：Starting/Stopping/Isolating/Discovered=不新增不拆除（过渡暂留）");
+
+                    var lifetime = new FakeTidyLifetime { State = FeatureState.Stopping };
+                    var servingView = new FakeTidySettingsView();
+                    servingView.SetEntry("inventorytidy.mode", SettingValue.Choice("同类"));
+                    servingView.SetEntry("inventorytidy.direction", SettingValue.Choice("降序"));
+                    var module = StartLitModuleWith(lifetime, servingView);
+                    LitTidyProductionAuthority.ServerRoleProbeForTests = () => true;
+                    try
+                    {
+                        MainThreadDispatcher.ResetForTests();
+                        Check(module.RequestTidyFromUiClick(3, allPages: false) == LitTidyRequestResult.NativeFallback,
+                            "九态：Stopping 点击=原生回退（不报假成功）");
+                        Check(MainThreadDispatcher.PendingCount == 0,
+                            "九态：Stopping 点击零派发");
+                        lifetime.State = FeatureState.Running;
+                        Check(module.RequestTidyFromUiClick(3, allPages: false) == LitTidyRequestResult.Dispatched,
+                            "九态：Running 点击=派发（同一模块代际，状态事实翻转即恢复服务）");
+                        Check(MainThreadDispatcher.PendingCount == 1,
+                            "九态：Running 点击恰一个工作项入队");
+                        MainThreadDispatcher.ResetForTests();
+
+                        var bareModule = StartLitModuleWith(null, new FakeTidySettingsView());
+                        Check(bareModule.RequestTidyFromUiClick(3, allPages: false) == LitTidyRequestResult.NativeFallback,
+                            "九态：无生命周期事实（view 缺席）点击=fail-closed 原生回退");
+                        MainThreadDispatcher.ResetForTests();
+
+                        // U3DS 不武装（T1 Q17）：headless 决策下补丁不装，诊断
+                        // 如实落 StartGateDiagnostics（决策门禁，非异常门禁）。
+                        BueRuntimeCompletionChain.HeadlessDecision = true;
+                        try
+                        {
+                            var headless = StartLitModuleWith(null, new FakeTidySettingsView());
+                            Check(!headless.PatchesInstalled && headless.StartGateDiagnostics == "headless-ui-not-armed",
+                                "九态：U3DS headless 不武装整理按钮补丁（决策门禁非异常门禁）");
+                        }
+                        finally { BueRuntimeCompletionChain.HeadlessDecision = false; }
+                    }
+                    finally { LitTidyProductionAuthority.ServerRoleProbeForTests = null; }
+                });
+
+                // 点击只读同一 revision 的已保存 ClientPreference 快照（Q59）：
+                // 一次 GetSnapshot 同时供出 mode+direction；未知档位/schema 缺项/
+                // view 缺席=诚实拒绝（禁止拼出从未存在过的组合）；每次点击现读
+                // 快照（保存后下一次点击即用新值，不要求重画标题栏）。
+                Group("DEV-V4-06 点击读同一 revision 快照", () =>
+                {
+                    var view = new FakeTidySettingsView();
+                    view.SetEntry("inventorytidy.mode", SettingValue.Choice("大件"));
+                    view.SetEntry("inventorytidy.direction", SettingValue.Choice("升序"));
+                    var lifetime = new FakeTidyLifetime { State = FeatureState.Running };
+                    var module = StartLitModuleWith(lifetime, view);
+                    LitTidyProductionAuthority.ServerRoleProbeForTests = () => true;
+                    try
+                    {
+                        Check(module.TryReadSavedTidyPreference(out var savedMode, out var savedDescending, out var savedRevision)
+                            && savedMode == TidyMode.FFD && !savedDescending && savedRevision == 7U,
+                            "快照：一次读取同时拿到 mode=大件(FFD)、direction=升序(false) 且携带 store revision");
+                        Check(view.GetSnapshotCalls == 1,
+                            "快照：同一 revision 规则=恰一次 GetSnapshot（两次读取拼装=违例）");
+                        MainThreadDispatcher.ResetForTests();
+                        Check(module.RequestTidyFromUiClick(3, allPages: false) == LitTidyRequestResult.Dispatched,
+                            "快照：点击派发成功（点击只读已保存快照，不读面板草稿）");
+                        Check(view.GetSnapshotCalls == 2 && MainThreadDispatcher.PendingCount == 1,
+                            "快照：每次点击现读快照（不缓存上一次点击，保存后下一次点击即新值）");
+                        MainThreadDispatcher.ResetForTests();
+
+                        view.SetEntry("inventorytidy.mode", SettingValue.Choice("从小到大"));
+                        Check(!module.TryReadSavedTidyPreference(out _, out _, out _),
+                            "快照：未知档位字面量=拒绝读取（不发明映射）");
+                        Check(module.RequestTidyFromUiClick(3, allPages: false) == LitTidyRequestResult.RejectedPreferenceUnavailable,
+                            "快照：未知档位点击=显式拒绝（RejectedPreferenceUnavailable），不假成功");
+                        MainThreadDispatcher.ResetForTests();
+
+                        var partialView = new FakeTidySettingsView();
+                        partialView.SetEntry("inventorytidy.mode", SettingValue.Choice("同类"));
+                        var partialModule = StartLitModuleWith(lifetime, partialView);
+                        Check(!partialModule.TryReadSavedTidyPreference(out _, out _, out _),
+                            "快照：方向条目缺席（schema 漂移）=拒绝读取，不落默认值拼装");
+                        Check(partialModule.RequestTidyFromUiClick(3, allPages: false) == LitTidyRequestResult.RejectedPreferenceUnavailable,
+                            "快照：schema 缺项点击=显式拒绝");
+                        MainThreadDispatcher.ResetForTests();
+
+                        var noViewModule = StartLitModuleWith(lifetime, null);
+                        Check(!noViewModule.TryReadSavedTidyPreference(out _, out _, out _),
+                            "快照：无注入 view=拒绝读取");
+                        Check(noViewModule.RequestTidyFromUiClick(3, allPages: false) == LitTidyRequestResult.RejectedPreferenceUnavailable,
+                            "快照：无 view 点击=显式拒绝（生命周期 Running 也不猜默认值）");
+                        MainThreadDispatcher.ResetForTests();
+                    }
+                    finally { LitTidyProductionAuthority.ServerRoleProbeForTests = null; }
+                });
+
+                // 接线级锚：点击→已保存快照→RequestTidy→真实协议→服务端权威。
+                // 服务端权威收到的 mode/desc 必须与快照一致（Q59 全链），且保存
+                // 新值后下一次点击即用新快照（不重画标题栏）。
+                Group("DEV-V4-06 点击经真实协议用已保存快照", () =>
+                {
+                    var view = new FakeTidySettingsView();
+                    view.SetEntry("inventorytidy.mode", SettingValue.Choice("大件"));
+                    view.SetEntry("inventorytidy.direction", SettingValue.Choice("升序"));
+                    var lifetime = new FakeTidyLifetime { State = FeatureState.Running };
+                    var harness = LitMultiplayerHarness.Create(NewLitFaultDirectory(), clientLifetime: lifetime);
+                    var client = harness.ClientModule;
+                    client.AttachSettingsView(view);
+                    harness.Handshake();
+                    harness.EstablishChallenge();
+                    Check(client.RequestTidyFromUiClick(3, allPages: false) == LitTidyRequestResult.Dispatched,
+                        "接线：点击=派发（快照 mode=大件/direction=升序）");
+                    var deadline = DateTime.UtcNow.AddSeconds(10);
+                    while (harness.ServerAuthority.ExecuteCount == 0 && DateTime.UtcNow < deadline)
+                    {
+                        harness.TickBoth();
+                        harness.Pump();
+                    }
+                    Check(harness.ServerAuthority.ExecuteCount == 1 && harness.ServerAuthority.LastPage == 3
+                        && harness.ServerAuthority.LastMode == TidyMode.FFD && !harness.ServerAuthority.LastSortDescending,
+                        "接线：服务端权威收到的整理参数=已保存快照值（page 3、大件/升序）");
+
+                    view.SetEntry("inventorytidy.mode", SettingValue.Choice("空间"));
+                    Check(client.RequestTidyFromUiClick(LitRuntime.AllPages, allPages: true) == LitTidyRequestResult.Dispatched,
+                        "接线：Ctrl 语义（allPages）派发，模式按保存后的新值");
+                    deadline = DateTime.UtcNow.AddSeconds(10);
+                    while (harness.ServerAuthority.ExecuteCount == 1 && DateTime.UtcNow < deadline)
+                    {
+                        harness.TickBoth();
+                        harness.Pump();
+                    }
+                    Check(harness.ServerAuthority.ExecuteCount == 2
+                        && harness.ServerAuthority.LastMode == TidyMode.MaxRects && !harness.ServerAuthority.LastSortDescending,
+                        "接线：下一次点击即用新保存快照（空间/升序），无需重画标题栏（Q59）");
+                });
+
+                // 停用/隔离拆除（Q55）：Stop 阶段 3 执行拆除（移除按钮对象+
+                // 解绑+清 patch 自持引用，幂等）；隔离走生命周期机不调 module.
+                // Stop——拆除挂在模块向 IFeatureLifetime.TryTrack 登记的销毁句柄
+                // 上，宿主撤回（Withdraw）即触发同一拆除路径。宿主无 Glazier，
+                // 移除操作经 RemoveChildForTests 注入缝观察（与模块的
+                // NetServiceFactoryForTests 同类宿主缝）。移除失败=引用保留+
+                // BUE-LIT-TEARDOWN 留痕+下次拆除重试（Q55 红线：不把停用伪装
+                // 成拆除成功）。
+                Group("DEV-V4-06 停用/隔离拆除已注入按钮", () =>
+                {
+                    var lifetime = new FakeTidyLifetime { State = FeatureState.Running };
+                    var module = StartLitModuleWith(lifetime, new FakeTidySettingsView());
+                    var removed = new List<byte>();
+                    var removeResult = true;
+                    InventoryTidyUiPatch.RemoveChildForTests = (header, button) =>
+                    {
+                        if (!removeResult) return false;
+                        removed.Add((byte)button);
+                        return true;
+                    };
+                    try
+                    {
+                        for (byte page = 2; page <= 6; page++)
+                            InventoryTidyUiPatch.TrackButtonForTests(page, page, null, null);
+                        Check(InventoryTidyUiPatch.HasTrackedButtons,
+                            "拆除 setup：五页按钮引用在册（headers[0..4]=page 2..6）");
+
+                        module.Stop(FeatureStopReason.UserDisabled);
+                        Check(removed.Count == 5,
+                            "拆除：Stop（UserDisabled）对每个在册按钮对象执行一次移除（页 2..6 各一）");
+                        Check(!InventoryTidyUiPatch.HasTrackedButtons,
+                            "拆除：Stop 后 patch 自持引用清空（停用不残留可点按钮状态）");
+                        InventoryTidyUiPatch.RemoveInjectedButtons();
+                        Check(removed.Count == 5,
+                            "拆除：重复拆除=空操作（幂等，不移除原生标题栏内容）");
+
+                        // 移除失败路径：引用保留（对象仍在 UI 树上），显式失败
+                        // 留痕，不静默清引用伪装成功；下次拆除重试成功后引用清空。
+                        for (byte page = 2; page <= 6; page++)
+                            InventoryTidyUiPatch.TrackButtonForTests(page, page, null, null);
+                        removeResult = false;
+                        InventoryTidyUiPatch.RemoveInjectedButtons();
+                        Check(removed.Count == 5 && InventoryTidyUiPatch.HasTrackedButtons,
+                            "拆除失败：引用保留不清空（对象仍在 UI 树，清引用=伪装拆除成功）");
+                        removeResult = true;
+                        InventoryTidyUiPatch.RemoveInjectedButtons();
+                        Check(removed.Count == 10 && !InventoryTidyUiPatch.HasTrackedButtons,
+                            "拆除失败：下一次拆除重试成功（同一拆除路径自愈，五页按钮全部移除）");
+
+                        for (byte page = 2; page <= 6; page++)
+                            InventoryTidyUiPatch.TrackButtonForTests(page, page, null, null);
+                        Check(InventoryTidyUiPatch.HasTrackedButtons && removed.Count == 10,
+                            "隔离 setup：按钮引用重新在册、撤回尚未发生");
+                        Check(lifetime.Tracked.Count >= 1,
+                            "隔离 setup：模块向生命周期缝登记了代际资源句柄");
+                        for (var index = 0; index < lifetime.Tracked.Count; index++)
+                            lifetime.Tracked[index].Dispose();
+                        Check(removed.Count == 15,
+                            "隔离：生命周期撤回（Dispose）触发同一拆除路径（机不调 Stop 也拆干净）");
+                        Check(!InventoryTidyUiPatch.HasTrackedButtons,
+                            "隔离：撤回后 patch 自持引用清空");
+                    }
+                    finally
+                    {
+                        InventoryTidyUiPatch.RemoveChildForTests = null;
+                        InventoryTidyUiPatch.RemoveInjectedButtons();
+                    }
+                });
+
+                // T1 检验点②（官方先行消费）：LIT 设置页真实消费两条 Choice——
+                // 真实注册、真实目录、真实组合根：两行 Cycle（档位/默认=冻结
+                // 值），草稿循环切换→保存→模块的注入 view（点击将读的同一权威
+                // 源）立刻读到新值；enabled 不在任何行里（与 DEV-V4-04 对拍）。
+                Group("DEV-V4-06 LIT 设置页真实消费两条 Choice（T1 检验点②）", () =>
+                {
+                    EnsureSettings();
+                    var previousRuntime = BueRuntimeHost.CurrentRuntime;
+                    var runtime = new FeatureRegistrationRuntime();
+                    BueRuntimeHost.Bind(runtime);
+                    runtime.OpenRegistration();
+                    Check(BueRuntimeHost.Register(InventoryTidyFeatureRegistration.CreateRegistration()).Accepted,
+                        "消费锚 setup：真实 LIT 注册受理（facet=两条 Choice）");
+                    Check(runtime.CompleteRuntime(), "消费锚 setup：目录冻结");
+                    BueFeatureStartRuntime.StartCatalog(runtime, NewLoopbackNetwork(3601UL));
+                    var composition = new BueClientUiCompositionRoot();
+                    try
+                    {
+                        composition.RefreshManagementPanel();
+                        var model = composition.ManagementPanel.Model;
+                        model.OpenDetail(litFeature.Value);
+                        var rows = model.GetSettingRows(litFeature.Value);
+                        Check(rows.Count == 2, "消费锚：LIT 详情页恰两行（enabled 退役不占行）");
+                        var hasEnabledRow = false;
+                        PanelSettingRowView modeRow = default(PanelSettingRowView);
+                        PanelSettingRowView directionRow = default(PanelSettingRowView);
+                        for (var rowIndex = 0; rowIndex < rows.Count; rowIndex++)
+                        {
+                            if (rows[rowIndex].SettingId == "inventorytidy.enabled") hasEnabledRow = true;
+                            if (rows[rowIndex].SettingId == "inventorytidy.mode") modeRow = rows[rowIndex];
+                            if (rows[rowIndex].SettingId == "inventorytidy.direction") directionRow = rows[rowIndex];
+                        }
+                        Check(!hasEnabledRow, "消费锚：enabled 不在行投影（退役总开关不复画）");
+                        Check(modeRow.DisplayName == "整理模式" && directionRow.DisplayName == "整理方向",
+                            "消费锚：显示名=Q56 冻结文案（整理模式/整理方向，不再暴露内部键名）");
+                        Check(modeRow.Description.Length == 0 && directionRow.Description.Length == 0,
+                            "消费锚：描述句子归 DEV-V4-07——本票描述键为空、行投影空不画（T3）");
+                        Check(modeRow.ControlKind == PanelSettingControlKind.Cycle && modeRow.Kind == SettingKind.Choice,
+                            "消费锚：整理模式行=Choice→Cycle 控件（02 行投影真实消费官方 Choice）");
+                        Check(directionRow.ControlKind == PanelSettingControlKind.Cycle && directionRow.Kind == SettingKind.Choice,
+                            "消费锚：整理方向行=Choice→Cycle 控件");
+                        Check(modeRow.AllowedValues.Count == 3 && modeRow.AllowedValues[0] == "同类"
+                            && modeRow.AllowedValues[1] == "空间" && modeRow.AllowedValues[2] == "大件",
+                            "消费锚：整理模式档位=同类/空间/大件（中文档位=机器值，Q56 冻结）");
+                        Check(directionRow.AllowedValues.Count == 2 && directionRow.AllowedValues[0] == "降序"
+                            && directionRow.AllowedValues[1] == "升序",
+                            "消费锚：整理方向档位=降序/升序（Q56 冻结）");
+                        Check(modeRow.EffectiveValue.Text == "同类" && directionRow.EffectiveValue.Text == "降序",
+                            "消费锚：默认值=同类+降序（快照生效值，空存储即默认）");
+                        Check(modeRow.Authority == SettingAuthority.ClientLocal && directionRow.Authority == SettingAuthority.ClientLocal,
+                            "消费锚：两条 Choice 作用域=ClientPreference（ClientLocal，不进 ServerAuthority）");
+
+                        Check(model.DraftCycleBueSetting("inventorytidy.mode", 1) && model.IsDirty,
+                            "消费锚：循环切换整理模式进草稿（同类→空间，不立即写入）");
+                        var save = model.SaveDraft();
+                        Check(save.Outcome == DraftSaveOutcome.Success,
+                            "消费锚：草稿保存受理（设置提交原子缝，整单成败）");
+                        var wired = InventoryTidyFeatureRegistration.WiredModule;
+                        Check(wired != null && wired.SettingsView != null,
+                            "消费锚 setup：WiredModule 持宿主注入 view");
+                        var afterSave = wired.SettingsView.GetSnapshot(SettingRevisionScope.ClientPreference);
+                        var savedMode = string.Empty;
+                        for (var entryIndex = 0; entryIndex < afterSave.Entries.Count; entryIndex++)
+                            if (afterSave.Entries[entryIndex].SettingId == "inventorytidy.mode")
+                                savedMode = afterSave.Entries[entryIndex].EffectiveValue.Text;
+                        Check(savedMode == "空间",
+                            "消费锚：保存后模块注入 view 读到新值（点击将用的同一权威源，revision 推进）");
+                    }
+                    finally
+                    {
+                        BueFeatureStartRuntime.StopAll(FeatureStopReason.PluginStopping);
                         composition.Destroy();
                         BueRuntimeHost.Bind(previousRuntime);
                     }
