@@ -129,6 +129,9 @@ namespace BetterUnturnedExperience.Lht
                 throw new ArgumentException("the host bootstrap must compose the event subscriber view and the network API (never null)", nameof(bootstrap));
             Network = bootstrap.Network;
             LifecycleGeneration = bootstrap.LifecycleGeneration;
+            // DEV-V4-09：Stop 解绑生产日志缝（插件卸载卫生），本代际 Start 重绑
+            // （与 Lit 同构——停用→再启用后模块诊断不得失明）。
+            BindProductionLog();
             // DEV-V3-06 official first consumption: the FULL stop switch
             // rides the host-injected scoped view (the tracking closure
             // reads Enabled from it — the single truth).

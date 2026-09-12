@@ -26,6 +26,7 @@ namespace BetterUnturnedExperience.ClientUi.Tests
             ExternalConfigWritesInStableOrder();
             DraftScopeExcludesReadOnlyAndServerAuthority();
             NoBackgroundAutoSaveSurvivesRefreshAndRemount();
+            SaveCommittedLifecycleIntentFlag();
         }
 
         private static void EditDoesNotWriteAuthoritativeSource()
@@ -315,6 +316,54 @@ namespace BetterUnturnedExperience.ClientUi.Tests
             // 闲置、退出再进也不写。
             model.OpenDetail(feature.Value);
             Assert(editor.BatchCalls == 0, "无后台自动保存");
+        }
+
+        private static void SaveCommittedLifecycleIntentFlag()
+        {
+            // DEV-V4-09 F2（实机缺陷）：启停意图提交成功=机器事实已变，但面板
+            // 目录条目的状态/开关投影建目录时缓存——保存后重渲染沿用旧条目，
+            // 开关与状态行回跳旧值（重进面板才见真状态）。报告必须声明「本次
+            // 保存提交过生命周期意图」，原生面板据此刷新机器事实后再渲染。
+            // 只有「提交成功」才声明：设置-only 保存与被生命周期机拒绝的意图
+            // 都不声明（机器事实未变，刷新无依据）。
+            var editor = new DraftableSettingsEditor();
+            var feature = new FeatureId("io.github.yu80rice.bue.draft12");
+            editor.Seed(feature, ToggleEntry("notify", true));
+            var toggles = new RecordingToggleHandler();
+            var model = NewModel(editor);
+            model.FeatureToggleHandler = toggles.Handle;
+            model.Refresh(new[] { Feature(feature, "甲", editor) }, new LoadedPluginDescriptor[0]);
+            model.OpenDetail(feature.Value);
+
+            model.DraftSetFeatureEnabled(false);
+            var report = model.SaveDraft();
+
+            Assert(report.Outcome == DraftSaveOutcome.Success, "启停提交 setup：保存成功");
+            Assert(report.CommittedLifecycleIntent, "启停提交成功=报告声明生命周期意图已提交");
+
+            var settingsOnly = new DraftableSettingsEditor();
+            var featureB = new FeatureId("io.github.yu80rice.bue.draft13");
+            settingsOnly.Seed(featureB, ToggleEntry("notify", true));
+            var modelB = NewModel(settingsOnly);
+            modelB.Refresh(new[] { Feature(featureB, "乙", settingsOnly) }, new LoadedPluginDescriptor[0]);
+            modelB.OpenDetail(featureB.Value);
+            modelB.DraftEditBueSetting("notify", PluginConfigValue.BooleanValue(false));
+            var reportB = modelB.SaveDraft();
+            Assert(reportB.Outcome == DraftSaveOutcome.Success && !reportB.CommittedLifecycleIntent,
+                "设置-only 保存不声明生命周期提交（机器事实未变）");
+
+            var rejectedEditor = new DraftableSettingsEditor();
+            var featureC = new FeatureId("io.github.yu80rice.bue.draft14");
+            rejectedEditor.Seed(featureC, ToggleEntry("notify", true));
+            var rejectedToggles = new RecordingToggleHandler { Result = false };
+            var modelC = NewModel(rejectedEditor);
+            modelC.FeatureToggleHandler = rejectedToggles.Handle;
+            modelC.Refresh(new[] { Feature(featureC, "丙", rejectedEditor) }, new LoadedPluginDescriptor[0]);
+            modelC.OpenDetail(featureC.Value);
+            modelC.DraftSetFeatureEnabled(false);
+            var reportC = modelC.SaveDraft();
+            Assert(reportC.Outcome == DraftSaveOutcome.PartialFailure && !reportC.CommittedLifecycleIntent,
+                "被生命周期机拒绝的意图不声明提交（机器事实未变）");
         }
 
         // ── helpers ──

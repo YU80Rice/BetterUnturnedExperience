@@ -250,6 +250,10 @@ namespace BetterUnturnedExperience.Lit
             if (bootstrap == null) throw new ArgumentNullException(nameof(bootstrap));
             if (bootstrap.OwnedEvents == null || bootstrap.Network == null)
                 throw new ArgumentException("the host bootstrap must compose the owned event publisher and the network API (never null)", nameof(bootstrap));
+            // DEV-V4-09 F1b（与 Lir/Lht 同构放置）：Start 开头即重绑生产日志缝——
+            // Stop 阶段 3 的解绑是插件卸载卫生语义，本代际从第一行日志起就必须
+            // 可见（InstallPatches 的武装诊断不得走已解绑的 sink）。
+            BindProductionLog();
             // DEV-V4-06: a Start IS a new module generation (the machine lands
             // it after Starting). The previous generation's stop boundary must
             // not leak in — otherwise the SAME wired instance could never
@@ -316,6 +320,11 @@ namespace BetterUnturnedExperience.Lit
             // facing Chinese line above stays on the human channel, the
             // machine-readable line only exists because the view is wired).
             if (Logger != null) Logger.Info("tidy-module-started", "BUE-LIT-START");
+            // DEV-V4-09 F1：对仍存活的仪表盘立即重注入。PlayerDashboardInventoryUI
+            // 构造函数整个会话只运行一次，停用拆除按钮后「再启用」等不到下一个
+            // 构造事件——不补这次调用，按钮永不复装（直到重启游戏）。门禁（仅
+            // Running）、在册去重、未武装不画死按钮都归 patch 侧同一实现。
+            InventoryTidyUiPatch.TryInjectIntoAliveDashboard(this);
             LitRuntime.LogInfo("[Tidy] 模块已启动（宿主 bootstrap：功能代际=" + bootstrap.LifecycleGeneration + "）");
             return new FeatureStartResult(true, FrameworkErrorCode.None, "BUE-LIT-START");
         }

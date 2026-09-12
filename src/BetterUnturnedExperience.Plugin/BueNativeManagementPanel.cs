@@ -1119,10 +1119,8 @@ namespace BetterUnturnedExperience.Plugin
                     {
                         PluginConfigValue value;
                         if (!TryConvertSetting(kind, raw, out value)) return false;
-                        if (!runtime.Model.DraftEditBueSetting(settingId, value)) return false;
-                        RenderDetails();
-                        return true;
-                    });
+                        return runtime.Model.DraftEditBueSetting(settingId, value);
+                    }, RenderDetails);
                     break;
                 default:
                     AddDetailLabel(ref y, "当前值：" + FormatSetting(row.EffectiveValue), ESleekFontSize.Small);
@@ -1215,11 +1213,7 @@ namespace BetterUnturnedExperience.Plugin
                     break;
                 case PanelSettingControlKind.TextEditor:
                     AddTextEditor(ref y, key, FormatPluginValue(row.Effective), raw =>
-                    {
-                        if (!runtime.Model.DraftEditPluginConfig(pluginGuid, key, raw)) return false;
-                        RenderDetails();
-                        return true;
-                    });
+                        runtime.Model.DraftEditPluginConfig(pluginGuid, key, raw), RenderDetails);
                     break;
                 default:
                     AddDetailLabel(ref y, "当前值：" + FormatPluginValue(row.Effective), ESleekFontSize.Small);
@@ -1290,11 +1284,16 @@ namespace BetterUnturnedExperience.Plugin
             {
                 // 取消, or 保存 where a source failed — stay on the current entry,
                 // the failed draft is preserved by the model.
+                // DEV-V4-09 F2：保存中启停意图提交成功（跨源部分失败）时机器事实
+                // 已变——本条留在原地也必须先刷条目再渲染，否则状态/开关回跳旧值。
+                if (report != null && report.CommittedLifecycleIntent && refreshModel != null) refreshModel();
                 RenderDetails();
                 RenderDraftReport(report);   // after re-render, so a platform notice can't wipe the banner (Q23/Q24)
                 return;
             }
-            if (wasRefresh && refreshModel != null) refreshModel();
+            // DEV-V4-09 F2：确认框「保存」提交启停意图后离开——离开前重建条目，
+            // 全部目录条目拿 fresh machine facts（刚启停过的条目再选中时如实显示）。
+            if ((wasRefresh || (report != null && report.CommittedLifecycleIntent)) && refreshModel != null) refreshModel();
             if (target == null) { Close(); return; }   // the navigation-away was a close
             selectedStableId = target;
             Render();
@@ -1317,6 +1316,11 @@ namespace BetterUnturnedExperience.Plugin
         {
             var report = runtime.Model.SaveDraft();
             TrackRestartBadge(report);
+            // DEV-V4-09 F2（实机缺陷）：启停意图提交成功=机器事实已变，而目录
+            // 条目的状态/开关投影建目录时缓存——先经组合根重建条目（fresh
+            // machine facts）再渲染，保存后立即如实显示新状态，不再回跳旧值。
+            // 非生命周期保存与 NoChanges 不刷新（机器事实未变，刷新无依据）。
+            if (report != null && report.CommittedLifecycleIntent && refreshModel != null) refreshModel();
             Render();                    // re-render first — RenderDetails may restore a platform notice…
             RenderDraftReport(report);   // …then publish the frozen save banner so it wins (Q30/Q23).
         }
@@ -1365,7 +1369,13 @@ namespace BetterUnturnedExperience.Plugin
             y += 38;
         }
 
-        private void AddTextEditor(ref int y, string key, string value, Func<string, bool> submit)
+        // DEV-V4-09 F3（实机缺陷）：文本框此前只在 Enter 提交——玩家输入后直接
+        // 点「保存配置」，草稿从未收到编辑（NoChanges「没有需要保存的修改。」），
+        // 表现为「无法修改」。现改为与 Toggle/Cycle 同一口径：逐键经 OnTextChanged
+        // 静默写入草稿（不重渲染、保持输入焦点），Enter=提交+重渲染、Esc=回到
+        // 本帧渲染值（同时回拨该键程的草稿）。submit=校验+写草稿（不渲染）；
+        // afterSubmit=提交受理后的重渲染。
+        private void AddTextEditor(ref int y, string key, string value, Func<string, bool> submit, System.Action afterSubmit)
         {
             var field = Glazier.Get().CreateStringField();
             field.PositionOffset_Y = y;
@@ -1374,11 +1384,23 @@ namespace BetterUnturnedExperience.Plugin
             field.SizeScale_X = 0f;
             field.Text = value ?? string.Empty;
             field.MaxLength = 4096;
+            field.OnTextChanged += delegate(ISleekField changed, string text)
+            {
+                submit(text == null ? string.Empty : text.Trim());
+            };
             field.OnTextSubmitted += delegate(ISleekField submitted)
             {
-                if (!submit(submitted.Text == null ? string.Empty : submitted.Text.Trim())) submitted.Text = value ?? string.Empty;
+                if (submit(submitted.Text == null ? string.Empty : submitted.Text.Trim()))
+                {
+                    if (afterSubmit != null) afterSubmit();
+                }
+                else submitted.Text = value ?? string.Empty;
             };
-            field.OnTextEscaped += delegate(ISleekField escaped) { escaped.Text = value ?? string.Empty; };
+            field.OnTextEscaped += delegate(ISleekField escaped)
+            {
+                escaped.Text = value ?? string.Empty;
+                submit(value ?? string.Empty);   // 回拨键程草稿（回到本帧渲染值）
+            };
             detailScroll.AddChild(field);
             y += 36;
         }

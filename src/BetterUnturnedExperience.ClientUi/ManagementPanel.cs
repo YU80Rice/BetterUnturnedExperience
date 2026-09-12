@@ -483,16 +483,22 @@ namespace BetterUnturnedExperience.ClientUi.Internal
         // Set only when a RequiresRestart external item was WRITTEN this save
         // (Q21: the badge means "saved, needs restart", never "unsaved").
         internal bool RequiresRestart { get; }
+        // DEV-V4-09 (实机缺陷修复)：本次保存把启用/停用意图提交进了生命周期机
+        // （TryToggleFeature 返回成功）。机器事实已变，而目录条目的状态/开关投
+        // 影建目录时缓存——原生面板据此刷新机器事实后再渲染，保存后立即如实显
+        // 示新状态（不再回跳旧值）。设置-only 保存与被机拒绝的意图都不声明。
+        internal bool CommittedLifecycleIntent { get; }
         internal string PrimaryMessage
         {
             get { return Messages != null && Messages.Count > 0 ? Messages[0] : string.Empty; }
         }
 
-        internal DraftSaveReport(DraftSaveOutcome outcome, IReadOnlyList<string> messages, bool requiresRestart)
+        internal DraftSaveReport(DraftSaveOutcome outcome, IReadOnlyList<string> messages, bool requiresRestart, bool committedLifecycleIntent = false)
         {
             Outcome = outcome;
             Messages = messages ?? new string[0];
             RequiresRestart = requiresRestart;
+            CommittedLifecycleIntent = committedLifecycleIntent;
         }
     }
 
@@ -1157,6 +1163,7 @@ namespace BetterUnturnedExperience.ClientUi.Internal
 
             var failures = 0;
             var requiresRestart = false;
+            var committedLifecycleIntent = false;
             var messages = new List<string>();
 
             if (draft.Kind == ManagementEntryKind.BueFeature && draft.SettingEdits.Count > 0)
@@ -1237,7 +1244,7 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             if (draft.Kind == ManagementEntryKind.BueFeature && draft.EnableEdit.HasValue && draft.EnableEdit.Value != draft.EnableIntentBaseline)
             {
                 var target = draft.EnableEdit.Value;
-                if (TryToggleFeature(draft.Feature, target)) { draft.EnableIntentBaseline = target; draft.EnableEdit = null; }
+                if (TryToggleFeature(draft.Feature, target)) { draft.EnableIntentBaseline = target; draft.EnableEdit = null; committedLifecycleIntent = true; }
                 else { failures++; messages.Add("未保存：功能启停失败。"); }
             }
 
@@ -1245,9 +1252,9 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             {
                 var badge = requiresRestart;
                 ClearDraftEdits();
-                return new DraftSaveReport(DraftSaveOutcome.Success, new[] { "配置已保存。" }, badge);
+                return new DraftSaveReport(DraftSaveOutcome.Success, new[] { "配置已保存。" }, badge, committedLifecycleIntent);
             }
-            return new DraftSaveReport(DraftSaveOutcome.PartialFailure, messages, requiresRestart);
+            return new DraftSaveReport(DraftSaveOutcome.PartialFailure, messages, requiresRestart, committedLifecycleIntent);
         }
 
         // DEV-V4-08 (V4-T7 Q70): the three frozen short-Chinese external-config

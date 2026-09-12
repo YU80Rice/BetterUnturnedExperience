@@ -11854,6 +11854,100 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     }
                 });
 
+                // DEV-V4-09 F1（实机缺陷）：PlayerDashboardInventoryUI 构造函数整个
+                // 会话只运行一次——停用拆除按钮+撤销补丁后，再启用永远等不到下一个
+                // 构造事件，按钮永不复装（实机：停用→保存→按钮消失 ✓；再启用→
+                // 保存→按钮不再出现 ✗，重启游戏才恢复）。修复语义：模块每次 Start
+                // 尾部对「仍存活」的仪表盘立即重注入——同一生命周期门禁（仅 Running）
+                // + 在册去重 + 未武装不画死按钮。宿主无 Glazier：headers 经
+                // HeadersForTests 缝提供、单按钮注入经 InjectButtonForTests 缝观察
+                // （与 RemoveChildForTests 同类宿主缝）。
+                Group("DEV-V4-09 停用→再启用对存活仪表盘立即重注入", () =>
+                {
+                    // 缝先于任何 Start 设置：宿主里游戏程序集可加载，若首 Start
+                    // 走生产反射路径会向真实 Glazier 注入——测试一律经缝观察。
+                    var injectedPages = new List<byte>();
+                    InventoryTidyUiPatch.HeadersForTests = () => new object[5] { new object(), new object(), new object(), new object(), new object() };
+                    InventoryTidyUiPatch.InjectButtonForTests = (page, header) => { injectedPages.Add(page); return true; };
+                    InventoryTidyUiPatch.RemoveChildForTests = (header, button) => true;
+                    var lifetime1 = new FakeTidyLifetime { State = FeatureState.Running };
+                    var module = StartLitModuleWith(lifetime1, new FakeTidySettingsView());
+                    try
+                    {
+                        Check(injectedPages.Count == 5 && injectedPages[0] == 2 && injectedPages[4] == 6,
+                            "重注入 setup：Start 对存活仪表盘立即注入五页（headers[0..4]→page 2..6）");
+                        Check(InventoryTidyUiPatch.HasTrackedButtons,
+                            "重注入 setup：按钮引用在册（拆除责任登记随注入恢复）");
+
+                        // 用户实机场景：停用（拆除+清册）→ 再启用 → 立即重注入五页。
+                        module.Stop(FeatureStopReason.UserDisabled);
+                        Check(!InventoryTidyUiPatch.HasTrackedButtons && injectedPages.Count == 5,
+                            "重注入 setup：停用拆除清册（不再新增注入）");
+                        injectedPages.Clear();
+
+                        var lit = new FeatureId(LitRuntime.FeatureIdValue);
+                        var bus = new BetterUnturnedExperience.Core.Events.FeatureEventBus();
+                        var pair = BetterUnturnedExperience.Core.Network.LocalLoopbackTransport.CreatePair();
+                        var network = new BetterUnturnedExperience.Core.Network.BueNetworkRuntime(pair.First, new ContractVersion(2, 0), 2202UL);
+                        var lifetime2 = new FakeTidyLifetime { State = FeatureState.Running };
+                        var restarted = module.Start(new FeatureBootstrap(default(FeatureScopeIdentity), 10UL, new FakeTidySettingsView(),
+                            bus.Subscriber(lit), bus.Publisher(lit), bus.EventRegistry(lit), null, null, lifetime2, network));
+                        Check(restarted.Started, "重注入 setup：同实例再启动成功（新代际 bootstrap）");
+                        Check(injectedPages.Count == 5 && injectedPages[0] == 2 && injectedPages[4] == 6,
+                            "重注入：停用后再启用立即重注入五页（不再等永不复跑的构造事件）");
+                        Check(InventoryTidyUiPatch.HasTrackedButtons,
+                            "重注入：按钮引用重新在册（拆除责任登记随注入恢复）");
+
+                        var beforeDedupe = injectedPages.Count;
+                        InventoryTidyUiPatch.TryInjectIntoAliveDashboard(module);
+                        Check(injectedPages.Count == beforeDedupe,
+                            "重注入：已在册页不重复注入（在册去重，不画双按钮）");
+
+                        injectedPages.Clear();
+                        var bus3 = new BetterUnturnedExperience.Core.Events.FeatureEventBus();
+                        var pair3 = BetterUnturnedExperience.Core.Network.LocalLoopbackTransport.CreatePair();
+                        var network3 = new BetterUnturnedExperience.Core.Network.BueNetworkRuntime(pair3.First, new ContractVersion(2, 0), 2203UL);
+                        var lifetime3 = new FakeTidyLifetime { State = FeatureState.Stopped };
+                        var stoppedStart = module.Start(new FeatureBootstrap(default(FeatureScopeIdentity), 11UL, new FakeTidySettingsView(),
+                            bus3.Subscriber(lit), bus3.Publisher(lit), bus3.EventRegistry(lit), null, null, lifetime3, network3));
+                        Check(stoppedStart.Started && injectedPages.Count == 0,
+                            "重注入：非 Running 生命周期事实不注入（同一九态门，不画死按钮）");
+                    }
+                    finally
+                    {
+                        InventoryTidyUiPatch.HeadersForTests = null;
+                        InventoryTidyUiPatch.InjectButtonForTests = null;
+                        InventoryTidyUiPatch.RemoveChildForTests = (header, button) => true;
+                        InventoryTidyUiPatch.RemoveInjectedButtons();
+                        InventoryTidyUiPatch.RemoveChildForTests = null;
+                        module.Stop(FeatureStopReason.PluginStopping);
+                    }
+                });
+
+                // DEV-V4-09 F1b（实机取证盲区）：Stop 阶段 3 解绑生产日志缝
+                // （LitRuntime.LogSink=null，插件卸载卫生语义），但 Start 从不重绑
+                // ——首次停用→再启用后 [Tidy]/[TidyUI]/注入诊断全部失明（实机
+                // gen8/gen9 重启零 [Tidy] 行，注入路径对取证不可见）。Start 必须
+                // 重绑；Stop 的解绑语义保持不变。
+                Group("DEV-V4-09 停止解绑日志缝后 Start 重绑", () =>
+                {
+                    LitRuntime.LogSink = null;
+                    LitRuntime.ErrorLogSink = null;
+                    var lifetime = new FakeTidyLifetime { State = FeatureState.Running };
+                    var module = StartLitModuleWith(lifetime, new FakeTidySettingsView());
+                    try
+                    {
+                        Check(LitRuntime.LogSink != null && LitRuntime.ErrorLogSink != null,
+                            "日志缝：Start 重绑生产日志缝（重启后 [Tidy]/[TidyUI] 诊断不失明）");
+                    }
+                    finally
+                    {
+                        module.Stop(FeatureStopReason.PluginStopping);
+                    }
+                    Check(LitRuntime.LogSink == null && LitRuntime.ErrorLogSink == null,
+                        "日志缝：Stop 仍解绑（插件卸载卫生语义不变）");
+                });
+
                 // T1 检验点②（官方先行消费）：LIT 设置页真实消费两条 Choice——
                 // 真实注册、真实目录、真实组合根：两行 Cycle（档位/默认=冻结
                 // 值），草稿循环切换→保存→模块的注入 view（点击将读的同一权威

@@ -125,6 +125,9 @@ namespace BetterUnturnedExperience.Lir
             Network = bootstrap.Network;
             LifecycleGeneration = bootstrap.LifecycleGeneration;
             MainThread = bootstrap.MainThread; // DEV-V3-04: nullable stage-baseline seam (see the property)
+            // DEV-V4-09：Stop 解绑生产日志缝（插件卸载卫生），本代际 Start 重绑
+            // （与 Lit 同构——停用→再启用后模块诊断不得失明）。
+            BindProductionLog();
             // DEV-V3-06 official first consumption: the enabled toggle rides
             // the host-injected scoped view before the patches arm.
             AttachSettingsView(bootstrap.Settings); // DEV-V3-06: bind + read BEFORE arming

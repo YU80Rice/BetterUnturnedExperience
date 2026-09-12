@@ -66,6 +66,18 @@ namespace BetterUnturnedExperience.Lit
         /// </summary>
         internal static Func<object, object, bool> RemoveChildForTests;
 
+        /// <summary>Host-test seam: provides the header array for the
+        /// alive-dashboard re-inject pass (the host has no SDG.Unturned
+        /// statics to read). Null = production static-field read.</summary>
+        internal static Func<Array> HeadersForTests;
+
+        /// <summary>Host-test seam: when set, the inject pass routes each
+        /// per-button creation through it (page, headerElement) → drawn?
+        /// Null = production reflection path (Glazier CreateButton). Same
+        /// family as RemoveChildForTests / the module's NetServiceFactory
+        /// ForTests seam.</summary>
+        internal static Func<byte, object, bool> InjectButtonForTests;
+
         /// <summary>Host-test seam: registers a button reference exactly as
         /// the Glazier Postfix would, so the teardown pass is observable
         /// in-host (which buttons are tracked, unbound, removed, cleared).</summary>
@@ -417,32 +429,76 @@ namespace BetterUnturnedExperience.Lit
             var module = ActiveModule;
             if (module == null || !module.ShouldInjectTidyButtonForNewPage) return;
 
-            WarmupReflection();
-            if (s_GlazierType == null || s_ISleekElementType == null || s_ISleekButtonType == null) return;
-            if (s_HeadersField == null || s_OnClicked == null) return;
+            var headers = ReadStaticHeaders();
+            if (headers == null)
+            {
+                LogError("headers 数组为 null！");
+                return;
+            }
+            LogInfo("headers 数组 OK (Length=" + headers.Length + ")");
+            InjectButtonsInto(headers);   // 长度门归 InjectButtonsInto 单点（DEV-V4-09 去重）
+        }
 
-            Array headers = s_HeadersField.GetValue(null) as Array;
+        // DEV-V4-09 F1（实机缺陷）：PlayerDashboardInventoryUI 构造函数整个会话
+        // 只运行一次——停用拆除按钮+撤销补丁后，再启用永远等不到下一个构造事件，
+        // 按钮永不复装（实机：停用→保存→按钮消失；再启用→保存→按钮不再出现，
+        // 重启游戏才恢复）。修复语义：模块每次 Start 尾部调用本方法，对「仍存活」
+        // 的仪表盘立即重注入——同一生命周期门禁（仅 Running）、同一在册去重、
+        // 未武装（环境闸）不画死按钮。仪表盘尚未构造时静态读失败/为 null=无事
+        // 可做（首个 ctor Postfix 会注入）。
+        internal static void TryInjectIntoAliveDashboard(InventoryTidyModule module)
+        {
+            if (module == null || !module.ShouldInjectTidyButtonForNewPage) return;
+            if (InjectButtonForTests == null && !module.PatchesInstalled) return;
+            Array headers = HeadersForTests != null ? HeadersForTests() : ReadStaticHeaders();
+            if (headers == null) return;
+            InjectButtonsInto(headers);
+        }
+
+        // 静态 headers 读（生产路径）。任何失败（宿主无游戏程序集 / 仪表盘未
+        // 构建）= null，调用方按「无存活页」处理，绝不抛。
+        private static Array ReadStaticHeaders()
+        {
+            try
+            {
+                WarmupReflection();
+                if (s_HeadersField == null) return null;
+                return s_HeadersField.GetValue(null) as Array;
+            }
+            catch (Exception) { return null; }
+        }
+
+        // 注入主体（ctor Postfix 与存活仪表盘重注入共用）：反射解析只走生产
+        // 路径（宿主经 InjectButtonForTests 缝绕过）；在册页去重不重画。
+        private static void InjectButtonsInto(Array headers)
+        {
             if (headers == null || headers.Length < HEADER_INJECT_COUNT)
             {
                 LogError($"headers 数组为 null 或长度 < {HEADER_INJECT_COUNT}！");
                 return;
             }
-            LogInfo("headers 数组 OK (Length=" + headers.Length + ")");
 
-            object glazier;
-            try { glazier = s_GlazierGet.Invoke(null, s_EmptyArgs); }
-            catch (Exception e) { LogError("Glazier.Get() 调用失败: " + e); return; }
-            if (glazier == null) { LogError("Glazier.Get() 返回 null！"); return; }
-            LogInfo("Glazier.Get() 单例 OK");
-
-            if (!s_CreateButtonResolved)
+            object glazier = null;
+            if (InjectButtonForTests == null)
             {
-                Type instanceType = glazier.GetType();
-                LogInfo("Glazier 实例运行时类型: " + instanceType.FullName);
-                s_CreateButton = AccessTools.Method(instanceType, "CreateButton", new Type[0]);
-                if (s_CreateButton == null) { LogError("无法在 " + instanceType.FullName + " 上定位 CreateButton()！"); return; }
-                s_CreateButtonResolved = true;
-                LogInfo("CreateButton OK (来自 " + instanceType.Name + ")");
+                WarmupReflection();
+                if (s_GlazierType == null || s_ISleekElementType == null || s_ISleekButtonType == null) return;
+                if (s_HeadersField == null || s_OnClicked == null) return;
+
+                try { glazier = s_GlazierGet.Invoke(null, s_EmptyArgs); }
+                catch (Exception e) { LogError("Glazier.Get() 调用失败: " + e); return; }
+                if (glazier == null) { LogError("Glazier.Get() 返回 null！"); return; }
+                LogInfo("Glazier.Get() 单例 OK");
+
+                if (!s_CreateButtonResolved)
+                {
+                    Type instanceType = glazier.GetType();
+                    LogInfo("Glazier 实例运行时类型: " + instanceType.FullName);
+                    s_CreateButton = AccessTools.Method(instanceType, "CreateButton", new Type[0]);
+                    if (s_CreateButton == null) { LogError("无法在 " + instanceType.FullName + " 上定位 CreateButton()！"); return; }
+                    s_CreateButtonResolved = true;
+                    LogInfo("CreateButton OK (来自 " + instanceType.Name + ")");
+                }
             }
 
             // 循环注入 5 颗按钮：headers[0..4] -> page 2..6（SLOTS..PANTS 服装页）
@@ -460,39 +516,51 @@ namespace BetterUnturnedExperience.Lit
                     continue;
                 }
 
+                // DEV-V4-09 重注入去重：在册页不重复画（含 Q55 移除失败页——
+                // 引用保留表示旧按钮仍在 UI 树，重画=双按钮；其拆除自愈仍走
+                // 下次拆除重试，与本去重正交）。
+                if (s_TidyButtons.ContainsKey(currentPage)) continue;
+
                 // ── 创建整理按钮 B：[整理]（唯一按钮）──
-                object tidyButton;
-                try { tidyButton = s_CreateButton.Invoke(glazier, s_EmptyArgs); }
-                catch (Exception e) { LogError($"headers[{i}] tidyButton CreateButton 失败: {e}"); continue; }
-                if (tidyButton == null) { LogError($"headers[{i}] tidyButton 返回 null"); continue; }
-
+                object tidyButton = null;
                 Delegate tidyHandler = null;
-                try
+                if (InjectButtonForTests != null)
                 {
-                    s_PosScaleX  .SetValue(tidyButton, 1f,                 null);
-                    s_PosOffsetX .SetValue(tidyButton, TIDY_POS_OFFSET_X,  null);
-                    s_SizeOffsetX.SetValue(tidyButton, TIDY_SIZE_X,        null);
-                    s_SizeOffsetY.SetValue(tidyButton, BTN_SIZE_Y,         null);
-                    s_Text       .SetValue(tidyButton, "整理",             null);
-                    s_TooltipText.SetValue(tidyButton, TOOLTIP_TIDY,       null);
+                    if (!InjectButtonForTests(currentPage, headerElement)) continue;
                 }
-                catch (Exception e) { LogError($"headers[{i}] tidyButton 属性设置失败: {e}"); }
+                else
+                {
+                    try { tidyButton = s_CreateButton.Invoke(glazier, s_EmptyArgs); }
+                    catch (Exception e) { LogError($"headers[{i}] tidyButton CreateButton 失败: {e}"); continue; }
+                    if (tidyButton == null) { LogError($"headers[{i}] tidyButton 返回 null"); continue; }
 
-                // 绑定整理按钮点击事件 -> HandleTidyClick(currentPage)
-                try
-                {
-                    tidyHandler = CreatePageDelegate(s_OnClicked.EventHandlerType, currentPage);
-                    s_OnClicked.AddEventHandler(tidyButton, tidyHandler);
-                }
-                catch (Exception e) { LogError($"headers[{i}] tidyButton 事件绑定失败: {e}"); }
+                    try
+                    {
+                        s_PosScaleX  .SetValue(tidyButton, 1f,                 null);
+                        s_PosOffsetX .SetValue(tidyButton, TIDY_POS_OFFSET_X,  null);
+                        s_SizeOffsetX.SetValue(tidyButton, TIDY_SIZE_X,        null);
+                        s_SizeOffsetY.SetValue(tidyButton, BTN_SIZE_Y,         null);
+                        s_Text       .SetValue(tidyButton, "整理",             null);
+                        s_TooltipText.SetValue(tidyButton, TOOLTIP_TIDY,       null);
+                    }
+                    catch (Exception e) { LogError($"headers[{i}] tidyButton 属性设置失败: {e}"); }
 
-                // ── AddChild 到 header ──
-                try
-                {
-                    s_OneArg[0] = tidyButton;
-                    s_AddChild.Invoke(headerElement, s_OneArg);
+                    // 绑定整理按钮点击事件 -> HandleTidyClick(currentPage)
+                    try
+                    {
+                        tidyHandler = CreatePageDelegate(s_OnClicked.EventHandlerType, currentPage);
+                        s_OnClicked.AddEventHandler(tidyButton, tidyHandler);
+                    }
+                    catch (Exception e) { LogError($"headers[{i}] tidyButton 事件绑定失败: {e}"); }
+
+                    // ── AddChild 到 header ──
+                    try
+                    {
+                        s_OneArg[0] = tidyButton;
+                        s_AddChild.Invoke(headerElement, s_OneArg);
+                    }
+                    catch (Exception e) { LogError($"headers[{i}] AddChild 失败: {e}"); }
                 }
-                catch (Exception e) { LogError($"headers[{i}] AddChild 失败: {e}"); }
 
                 // ── 在册（拆除责任登记：对象/回调/父容器）──
                 s_TidyButtons[currentPage] = tidyButton;
