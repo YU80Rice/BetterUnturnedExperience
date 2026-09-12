@@ -16,12 +16,13 @@ namespace BetterUnturnedExperience.ClientUi.Tests
                 Dev15CTests.Run();
                 Dev15DTests.Run();
                 Dev16BTests.Run();
-                Console.WriteLine("DEV-05/DEV-15A/DEV-15B/DEV-15C/DEV-15D/DEV-16B ClientUi tests: PASS");
+                Dev17UpmCompatTests.Run();
+                Console.WriteLine("DEV-05/DEV-15A/DEV-15B/DEV-15C/DEV-15D/DEV-16B/DEV-17 ClientUi tests: PASS");
                 return 0;
             }
             catch (Exception error)
             {
-                Console.WriteLine("DEV-05/DEV-15A/DEV-15B/DEV-15C/DEV-15D/DEV-16B ClientUi tests: FAIL");
+                Console.WriteLine("DEV-05/DEV-15A/DEV-15B/DEV-15C/DEV-15D/DEV-16B/DEV-17 ClientUi tests: FAIL");
                 Console.WriteLine(error.GetType().FullName);
                 Console.WriteLine(error.Message);
                 return 1;

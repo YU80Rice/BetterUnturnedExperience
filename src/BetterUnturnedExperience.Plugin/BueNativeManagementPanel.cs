@@ -115,6 +115,11 @@ namespace BetterUnturnedExperience.Plugin
         private int updateTickCount;
         private bool hostUiTickLogged;
         private string selectedStableId;
+        // Per-plugin category filter for the external config details area
+        // (UPM "Unturned.Category:<name>" tags, section fallback). Owner id
+        // resets the filter when the selection moves to another entry.
+        private string selectedPluginCategory;
+        private string categoryOwnerStableId;
         private static BueNativeManagementPanel activeInstance;
 
         internal static bool RequiresParentRebind(object boundParent, object currentParent)
@@ -974,10 +979,44 @@ namespace BetterUnturnedExperience.Plugin
             }
             else
             {
-                AddDetailLabel(ref y, "普通 BepInEx ConfigEntry", ESleekFontSize.Medium);
-                for (var index = 0; index < selected.PluginConfig.Count; index++)
+                AddDetailLabel(ref y, "插件配置（兼容 PluginManager 标签）", ESleekFontSize.Medium);
+                var categories = PluginConfigSupport.CollectCategories(selected.PluginConfig);
+                if (categoryOwnerStableId != selected.StableId)
                 {
-                    AddPluginConfigControl(ref y, selected, selected.PluginConfig[index]);
+                    categoryOwnerStableId = selected.StableId;
+                    selectedPluginCategory = null;
+                }
+                if (categories.Count > 1)
+                {
+                    var selectedKnown = false;
+                    for (var categoryIndex = 0; categoryIndex < categories.Count; categoryIndex++)
+                    {
+                        if (string.Equals(categories[categoryIndex], selectedPluginCategory, StringComparison.Ordinal))
+                        {
+                            selectedKnown = true;
+                            break;
+                        }
+                    }
+                    if (string.IsNullOrEmpty(selectedPluginCategory) || !selectedKnown)
+                    {
+                        selectedPluginCategory = categories[0];
+                    }
+                    y = RenderCategoryChips(y, categories);
+                    for (var index = 0; index < selected.PluginConfig.Count; index++)
+                    {
+                        var entry = selected.PluginConfig[index];
+                        var entryCategory = string.IsNullOrWhiteSpace(entry.Category) ? PluginConfigSupport.DefaultCategory : entry.Category;
+                        if (!string.Equals(entryCategory, selectedPluginCategory, StringComparison.Ordinal)) continue;
+                        AddPluginConfigControl(ref y, selected, entry);
+                    }
+                }
+                else
+                {
+                    selectedPluginCategory = null;
+                    for (var index = 0; index < selected.PluginConfig.Count; index++)
+                    {
+                        AddPluginConfigControl(ref y, selected, selected.PluginConfig[index]);
+                    }
                 }
             }
             detailScroll.ContentSizeOffset = new Vector2(0f, y + 10);
@@ -1053,7 +1092,16 @@ namespace BetterUnturnedExperience.Plugin
         private void AddPluginConfigControl(ref int y, ManagementEntryView row, PluginConfigEntryView entry)
         {
             AddDetailLabel(ref y, entry.DisplayName + " = " + FormatPluginValue(entry.Value) + (entry.RequiresRestart ? "（需要重启）" : string.Empty), ESleekFontSize.Small);
-            if (!entry.CanEdit) return;
+            var description = Truncate(entry.Description, 150);
+            if (description.Length > 0) AddDetailLabel(ref y, description, ESleekFontSize.Small);
+            if (!entry.CanEdit)
+            {
+                if (description.Length == 0) return;
+                // The description line already advanced y; keep the read-only
+                // row compact but not glued to the next one.
+                y += 4;
+                return;
+            }
             var pluginGuid = row.StableId;
             if (entry.Kind == PluginConfigValueKind.Boolean)
             {
@@ -1070,17 +1118,96 @@ namespace BetterUnturnedExperience.Plugin
                 };
                 detailScroll.AddChild(toggle);
                 y += 36;
+                return;
+            }
+            // UPM "Unturned.Cycle" tag: a stepper button, left click = next
+            // option, right click = previous one.
+            if (entry.Control == PluginConfigControlKind.Cycle && entry.CycleOptions != null && entry.CycleOptions.Count > 1)
+            {
+                var cycleButton = Glazier.Get().CreateButton();
+                cycleButton.PositionOffset_Y = y;
+                cycleButton.SizeOffset_X = 180f;
+                cycleButton.SizeOffset_Y = 30f;
+                cycleButton.Text = FormatPluginValue(entry.Value);
+                cycleButton.TooltipText = entry.ControlHint;
+                cycleButton.FontSize = ESleekFontSize.Medium;
+                cycleButton.OnClicked += delegate(ISleekElement ignored) { StepPluginCycle(pluginGuid, entry, cycleButton, 1); };
+                cycleButton.OnRightClicked += delegate(ISleekElement ignored) { StepPluginCycle(pluginGuid, entry, cycleButton, -1); };
+                detailScroll.AddChild(cycleButton);
+                y += 36;
+                return;
+            }
+            // UPM list tags render as the serialized text editor with a format
+            // hint; UPM's full pickers stay the richer editing surface.
+            if (entry.Control == PluginConfigControlKind.List && entry.ControlHint.Length > 0)
+            {
+                AddDetailLabel(ref y, entry.ControlHint, ESleekFontSize.Small);
+            }
+            AddTextEditor(ref y, entry.Key, FormatPluginValue(entry.Value), raw =>
+            {
+                var result = runtime.Model.TryEditPluginConfig(pluginGuid, entry.Key, raw);
+                SetStatus(result.Accepted ? "插件配置已保存。" : "插件配置保存失败。", !result.Accepted);
+                if (result.Accepted) Render();
+                return result.Accepted;
+            });
+        }
+
+        // Category chips for the external config details area. Fixed-size
+        // buttons flow left-to-right, three per row (matches the UPM category
+        // navigation, folded into the single detail column BUE uses).
+        private int RenderCategoryChips(int y, IReadOnlyList<string> categories)
+        {
+            const float chipWidth = 150f;
+            const float chipHeight = 28f;
+            const float chipGapX = 8f;
+            const int perRow = 3;
+            for (var index = 0; index < categories.Count; index++)
+            {
+                var row = index / perRow;
+                var column = index % perRow;
+                var category = categories[index];
+                var chip = Glazier.Get().CreateButton();
+                chip.PositionOffset_X = column * (chipWidth + chipGapX);
+                chip.PositionOffset_Y = y + row * (chipHeight + 6f);
+                chip.SizeOffset_X = chipWidth;
+                chip.SizeOffset_Y = chipHeight;
+                chip.Text = category;
+                chip.FontSize = ESleekFontSize.Small;
+                chip.BackgroundColor = string.Equals(category, selectedPluginCategory, StringComparison.Ordinal)
+                    ? new SleekColor(ESleekTint.BACKGROUND, 0.9f)
+                    : new SleekColor(ESleekTint.BACKGROUND, 0.25f);
+                chip.OnClicked += delegate(ISleekElement ignored)
+                {
+                    selectedPluginCategory = category;
+                    RenderDetails();
+                };
+                detailScroll.AddChild(chip);
+            }
+            var rows = (categories.Count + perRow - 1) / perRow;
+            return y + rows * (28 + 6) + 8;
+        }
+
+        private void StepPluginCycle(string pluginGuid, PluginConfigEntryView entry, ISleekButton button, int direction)
+        {
+            var next = PluginConfigSupport.NextCycleOption(entry.CycleOptions, FormatPluginValue(entry.Value), direction);
+            if (next == null) return;
+            var result = runtime.Model.TryEditPluginConfig(pluginGuid, entry.Key, next);
+            if (result.Accepted)
+            {
+                button.Text = next;
+                SetStatus("已切换: " + next, false);
             }
             else
             {
-                AddTextEditor(ref y, entry.Key, FormatPluginValue(entry.Value), raw =>
-                {
-                    var result = runtime.Model.TryEditPluginConfig(pluginGuid, entry.Key, raw);
-                    SetStatus(result.Accepted ? "插件配置已保存。" : "插件配置保存失败。", !result.Accepted);
-                    if (result.Accepted) Render();
-                    return result.Accepted;
-                });
+                SetStatus("插件配置保存失败。", true);
             }
+        }
+
+        private static string Truncate(string text, int maxLength)
+        {
+            if (string.IsNullOrEmpty(text)) return string.Empty;
+            if (text.Length <= maxLength) return text;
+            return text.Substring(0, maxLength) + "...";
         }
 
         private void AddTextEditor(ref int y, string key, string value, Func<string, bool> submit)
