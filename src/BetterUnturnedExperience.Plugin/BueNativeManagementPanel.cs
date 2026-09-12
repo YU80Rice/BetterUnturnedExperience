@@ -979,8 +979,37 @@ namespace BetterUnturnedExperience.Plugin
                 {
                     AddBueSettingRow(ref y, settings[index]);
                 }
-                AddDetailLabel(ref y, "功能状态：" + selected.FeatureState, ESleekFontSize.Small);
-                AddDetailLabel(ref y, "表现状态：" + selected.Presentation.State, ESleekFontSize.Small);
+                // DEV-V4-05: the lifecycle status surface — the read-only state
+                // line in player copy (Q46: never FeatureState.ToString()), the
+                // isolation reason only when it has a value (不占空位), the
+                // presentation state as its own line, and the 启用 toggle as
+                // the SAVED TARGET (Q44: draft-backed, 保存配置才交给生命周期
+                // 机；目标≠现状时提示待生效，不承诺一定成功). Entries without a
+                // stoppable lifecycle seam (Incompatible/unmapped) draw no
+                // toggle — the model refuses their draft target too.
+                var status = runtime.Model.GetFeatureStatusProjection(selected.StableId);
+                AddDetailLabel(ref y, "功能状态：" + status.StateText, ESleekFontSize.Small);
+                if (!string.IsNullOrEmpty(status.IsolationReason))
+                    AddDetailLabel(ref y, "隔离原因：" + status.IsolationReason, ESleekFontSize.Small);
+                AddDetailLabel(ref y, "表现状态：" + status.PresentationText, ESleekFontSize.Small);
+                if (status.ShowsEnableToggle)
+                {
+                    AddDetailLabel(ref y, "启用（保存后生效）", ESleekFontSize.Small);
+                    var enableToggle = Glazier.Get().CreateToggle();
+                    enableToggle.PositionOffset_Y = y;
+                    enableToggle.SizeOffset_X = 40f;
+                    enableToggle.SizeOffset_Y = 30f;
+                    enableToggle.Value = status.EnableToggleTarget;
+                    enableToggle.OnValueChanged += delegate(ISleekToggle ignored, bool value)
+                    {
+                        runtime.Model.DraftSetFeatureEnabled(value);
+                        RenderDetails();
+                    };
+                    detailScroll.AddChild(enableToggle);
+                    y += 36;
+                    if (!string.IsNullOrEmpty(status.PendingEffectText))
+                        AddDetailLabel(ref y, status.PendingEffectText, ESleekFontSize.Small);
+                }
                 // DEV-V2-06: the network module's card carries the takeover
                 // status, the no-op config migration line, and the reversible
                 // hand-back button while the takeover is active.

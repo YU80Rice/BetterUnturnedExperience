@@ -19,12 +19,13 @@ namespace BetterUnturnedExperience.ClientUi.Tests
                 DevV4DraftTests.Run();
                 DevV4PanelControlsTests.Run();
                 DevV4BiiRetireTests.Run();
-                Console.WriteLine("DEV-05/DEV-15A/DEV-15B/DEV-15C/DEV-15D/DEV-16B/DEV-V4-01/DEV-V4-02/DEV-V4-03/DEV-V4-04 ClientUi tests: PASS");
+                DevV4FeatureToggleSurfaceTests.Run();
+                Console.WriteLine("DEV-05/DEV-15A/DEV-15B/DEV-15C/DEV-15D/DEV-16B/DEV-V4-01/DEV-V4-02/DEV-V4-03/DEV-V4-04/DEV-V4-05 ClientUi tests: PASS");
                 return 0;
             }
             catch (Exception error)
             {
-                Console.WriteLine("DEV-05/DEV-15A/DEV-15B/DEV-15C/DEV-15D/DEV-16B/DEV-V4-01/DEV-V4-02/DEV-V4-03/DEV-V4-04 ClientUi tests: FAIL");
+                Console.WriteLine("DEV-05/DEV-15A/DEV-15B/DEV-15C/DEV-15D/DEV-16B/DEV-V4-01/DEV-V4-02/DEV-V4-03/DEV-V4-04/DEV-V4-05 ClientUi tests: FAIL");
                 Console.WriteLine(error.GetType().FullName);
                 Console.WriteLine(error.Message);
                 return 1;

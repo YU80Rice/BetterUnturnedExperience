@@ -11412,6 +11412,92 @@ namespace BetterUnturnedExperience.Plugin.Tests
                         BueRuntimeHost.Bind(previousRuntime);
                     }
                 });
+
+                // DEV-V4-05 官方先行消费锚（T1 检验点 ①）：组合根把宿主状态机
+                // 事实（State + StopReason + Diagnostic）喂给面板条目，面板模型
+                // 投影九态中文与启用开关目标。停用后面板条目=已停用（UserDisabled
+                // 随条目走），再启用=运行中；外部插件条目无开关由 ClientUi 组覆盖。
+                Group("功能级启停表面投影 05", () =>
+                {
+                    EnsureSettings();
+                    var surfaceFeature = new FeatureId("io.example.toggle-surface-probe");
+                    var previousRuntime = BueRuntimeHost.CurrentRuntime;
+                    var runtime = new FeatureRegistrationRuntime();
+                    BueRuntimeHost.Bind(runtime);
+                    runtime.OpenRegistration();
+                    var probe = new SettingsFacetProbeRegistration("io.example.toggle-surface-probe");
+                    Check(runtime.Register(probe).Accepted, "表面 setup：facet 探针受理");
+                    Check(runtime.CompleteRuntime(), "表面 setup：目录冻结");
+                    BueFeatureStartRuntime.StartCatalog(runtime, NewLoopbackNetwork(3501UL));
+                    var composition = new BueClientUiCompositionRoot();
+                    try
+                    {
+                        composition.RefreshManagementPanel();
+                        var model = composition.ManagementPanel.Model;
+                        var projection = model.GetFeatureStatusProjection(surfaceFeature.Value);
+                        Check(projection.ShowsEnableToggle,
+                            "表面投影：目录 BUE 功能条目有启用开关（官方先行消费锚①）");
+                        Check(projection.StateText == "运行中",
+                            "表面投影：Running=运行中（九态中文，面板不 FeatureState.ToString()）");
+                        Check(projection.PresentationText.Length > 0,
+                            "表面投影：表现状态独立一行有值");
+                        Check(model.TryToggleFeature(surfaceFeature, false),
+                            "表面 setup：面板停用受理（走 03 目标提交缝）");
+                        composition.RefreshManagementPanel();
+                        projection = model.GetFeatureStatusProjection(surfaceFeature.Value);
+                        Check(projection.StateText == "已停用",
+                            "表面投影：Stopped+UserDisabled=已停用（停用原因随条目走组合根）");
+                        Check(!projection.EnableToggleTarget && projection.PendingEffectText.Length == 0,
+                            "表面投影：停用条开关目标=关且无待生效提示");
+                        Check(model.TryToggleFeature(surfaceFeature, true),
+                            "表面 setup：面板再启用受理");
+                        composition.RefreshManagementPanel();
+                        projection = model.GetFeatureStatusProjection(surfaceFeature.Value);
+                        Check(projection.StateText == "运行中" && projection.EnableToggleTarget,
+                            "表面投影：再启用后条目=运行中且开关目标=开（同一投影链）");
+                    }
+                    finally
+                    {
+                        BueFeatureStartRuntime.StopAll(FeatureStopReason.PluginStopping);
+                        composition.Destroy();
+                        BueRuntimeHost.Bind(previousRuntime);
+                    }
+                });
+
+                // DEV-V4-05 F1（Round 2）：有开关 iff 机器当前跟踪（可停止 seam
+                // 所有权），不按状态枚举推断——登记进目录但从未 StartCatalog 的
+                // 条目即使组合根状态兜底 Running 也不得画出死端开关。
+                Group("无缝条目不开关 05", () =>
+                {
+                    EnsureSettings();
+                    var untrackedFeature = new FeatureId("io.example.toggle-untracked-probe");
+                    var previousRuntime = BueRuntimeHost.CurrentRuntime;
+                    var runtime = new FeatureRegistrationRuntime();
+                    BueRuntimeHost.Bind(runtime);
+                    runtime.OpenRegistration();
+                    var probe = new SettingsFacetProbeRegistration("io.example.toggle-untracked-probe");
+                    Check(runtime.Register(probe).Accepted, "无缝 setup：探针受理");
+                    Check(runtime.CompleteRuntime(), "无缝 setup：目录冻结（刻意不 StartCatalog）");
+                    var composition = new BueClientUiCompositionRoot();
+                    try
+                    {
+                        composition.RefreshManagementPanel();
+                        var model = composition.ManagementPanel.Model;
+                        var projection = model.GetFeatureStatusProjection(untrackedFeature.Value);
+                        Check(!projection.ShowsEnableToggle,
+                            "无缝条目：机器未跟踪的目录条目无启用开关（iff seam，不按状态推断）");
+                        Check(projection.StateText == "运行中",
+                            "无缝条目：状态行仍按九态映射显示组合根兜底状态（状态表与 seam 判据独立）");
+                        model.OpenDetail(untrackedFeature.Value);
+                        Check(!model.DraftSetFeatureEnabled(false),
+                            "无缝条目：模型拒绝启停意图（表面与模型同门禁）");
+                    }
+                    finally
+                    {
+                        composition.Destroy();
+                        BueRuntimeHost.Bind(previousRuntime);
+                    }
+                });
             }
             catch (Exception error) when (collectAllFailures)
             {

@@ -101,8 +101,17 @@ namespace BetterUnturnedExperience.Plugin
             var presentation = component == null
                 ? new FeaturePresentationView(feature, FeaturePresentationState.Available, string.Empty, 1)
                 : component.Lifecycle.Presentation;
+            // DEV-V4-05: the state line keeps its DEV-15D component source, but
+            // WHO stopped the feature is the machine's fact — the stop reason
+            // and diagnostic ride from BueFeatureStartRuntime so the projection
+            // can tell 已停用 from a non-user stop. No machine record → the
+            // safe copy AND no stoppable seam (Q45: the toggle is drawn only
+            // for entries the machine currently tracks).
+            FeatureStopReason stopReason;
+            string statusDiagnostic;
+            var hasStoppableSeam = TryReadMachineLifecycleFacts(feature, out _, out stopReason, out statusDiagnostic);
             return new BueFeatureManagementEntry(feature, "更好的物品交互", "1.0.0", state,
-                presentation, settingsState.GetSnapshot());
+                presentation, settingsState.GetSnapshot(), stopReason, statusDiagnostic, hasStoppableSeam);
         }
 
         // DEV-V3-06: every non-BII catalog entry is built the SAME way —
@@ -117,9 +126,16 @@ namespace BetterUnturnedExperience.Plugin
         {
             var feature = entry.Definition.Feature;
             if (feature.Value == BetterItemInteractionSettingsState.Feature.Value) return OfficialManagementEntry();
-            var state = FeatureState.Running;
-            FeatureStatusView projected;
-            if (BueFeatureStartRuntime.TryGetStatus(feature, out projected)) state = projected.State;
+            // DEV-V4-05: the machine's State/StopReason/DiagnosticId ride with
+            // the entry so the panel projection can separate 已停用 (UserDisabled)
+            // from a non-user stop, surface the isolation reason when set, and
+            // draw the toggle ONLY for entries the machine actually tracks
+            // (F1: a mapped state on an untracked entry is not a stoppable
+            // seam). TryReadMachineLifecycleFacts also keeps the DEV-V3-06
+            // Running display default for tracked-record-less features.
+            FeatureStopReason stopReason;
+            string statusDiagnostic;
+            var hasStoppableSeam = TryReadMachineLifecycleFacts(feature, out var state, out stopReason, out statusDiagnostic);
             var displayName = OfficialDisplayName(entry);
             FeaturePresentationView presentation;
             if (feature.Value == LhtRuntime.FeatureIdValue)
@@ -145,7 +161,31 @@ namespace BetterUnturnedExperience.Plugin
             {
                 presentation = new FeaturePresentationView(feature, FeaturePresentationState.Available, string.Empty, 1);
             }
-            return new BueFeatureManagementEntry(feature, displayName, "0.0.0", state, presentation, FacetSnapshot(entry));
+            return new BueFeatureManagementEntry(feature, displayName, "0.0.0", state, presentation, FacetSnapshot(entry),
+                stopReason, statusDiagnostic, hasStoppableSeam);
+        }
+
+        // DEV-V4-05: ONE read of the host machine's facts for a panel entry —
+        // the state, WHO stopped it (stop reason + diagnostic) and whether the
+        // machine tracks the feature at all (the stoppable-lifecycle seam
+        // ownership, Q45). Returns false when the start path never tracked the
+        // feature; the caller then keeps the DEV-V3-06 Running display default
+        // and the entry owns no stoppable seam.
+        private static bool TryReadMachineLifecycleFacts(FeatureId feature, out FeatureState state,
+            out FeatureStopReason stopReason, out string statusDiagnostic)
+        {
+            FeatureStatusView status;
+            if (BueFeatureStartRuntime.TryGetStatus(feature, out status))
+            {
+                state = status.State;
+                stopReason = status.StopReason;
+                statusDiagnostic = status.DiagnosticId;
+                return true;
+            }
+            state = FeatureState.Running;
+            stopReason = FeatureStopReason.None;
+            statusDiagnostic = null;
+            return false;
         }
 
         private static bool IsOfficialDirectPresentationFeature(string featureValue)

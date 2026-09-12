@@ -1,0 +1,7 @@
+ .../ManagementPanel.cs                             | 137 ++++++++++++++++++++-
+ .../BueNativeManagementPanel.cs                    |  33 ++++-
+ .../ClientUiCompositionRoot.cs                     |  30 ++++-
+ .../BetterUnturnedExperience.ClientUi.Tests.csproj |   1 +
+ .../Program.cs                                     |   5 +-
+ .../Program.cs                                     |  51 ++++++++
+ 6 files changed, 249 insertions(+), 8 deletions(-)

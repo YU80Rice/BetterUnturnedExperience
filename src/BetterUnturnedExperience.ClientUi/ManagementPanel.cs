@@ -28,9 +28,25 @@ namespace BetterUnturnedExperience.ClientUi.Internal
         internal FeatureState State { get; }
         internal FeaturePresentationView Presentation { get; }
         internal FeatureSettingsSnapshot Settings { get; }
+        // DEV-V4-05 (V4-T4 Q46): the machine's stop/isolation facts ride the
+        // entry so the status projection can separate UserDisabled from other
+        // stops (非 UserDisabled 的停止不得伪装成用户停用) and surface the
+        // isolation reason only when it has a value. The composition root
+        // feeds them from BueFeatureStartRuntime.TryGetStatus — the panel
+        // keeps no second truth about WHY a feature stopped.
+        internal FeatureStopReason StopReason { get; }
+        internal string StatusDiagnostic { get; }
+        // DEV-V4-05 F1 (Q45): owning a STOPPABLE lifecycle seam is an explicit
+        // fact fed by the composition root (the machine tracks the feature) —
+        // never inferred from the state enum. A mapped state on an untracked
+        // entry (e.g. the composition's Running fallback) draws NO toggle and
+        // accepts NO draft intent: the machine could not service the target.
+        internal bool HasStoppableLifecycle { get; }
 
         internal BueFeatureManagementEntry(FeatureId feature, string displayName, string version, FeatureState state,
-            FeaturePresentationView presentation, FeatureSettingsSnapshot settings)
+            FeaturePresentationView presentation, FeatureSettingsSnapshot settings,
+            FeatureStopReason stopReason = FeatureStopReason.None, string statusDiagnostic = null,
+            bool hasStoppableLifecycle = true)
         {
             Feature = feature;
             DisplayName = displayName ?? string.Empty;
@@ -38,6 +54,9 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             State = state;
             Presentation = presentation;
             Settings = settings;
+            StopReason = stopReason;
+            StatusDiagnostic = statusDiagnostic ?? string.Empty;
+            HasStoppableLifecycle = hasStoppableLifecycle;
         }
     }
 
@@ -196,6 +215,43 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             Effective = effective;
             IsDirty = isDirty;
             RequiresRestart = requiresRestart;
+        }
+    }
+
+    // DEV-V4-05 (V4-T4 Q44–Q46/Q50): the detail-page lifecycle status
+    // surface — one projection the native panel renders verbatim. The
+    // read-only state line never prints FeatureState.ToString() (Q46): the
+    // nine mapped states carry player copy (待启动 ≠ 启动中), Disabled/
+    // Stopped consult the stop reason so a non-user stop never masquerades
+    // as 已停用, and Incompatible/unmapped honestly reads 不可用 with NO
+    // toggle. The 启用 toggle is the SAVED TARGET (draft-backed, Q44) —
+    // EnableToggleTarget mirrors the draft intent, EnableTogglePending marks
+    // a difference from the current state, and PendingEffectText carries the
+    // ruling's contrast copy without promising success. The presentation
+    // state is its own line, and the isolation reason only exists when it
+    // has a value (不占空位). External plugins / the panel itself / core
+    // Host-Contracts own no stoppable lifecycle seam → ShowsEnableToggle
+    // false and no status lines (Q45).
+    internal readonly struct PanelFeatureStatusView
+    {
+        internal bool ShowsEnableToggle { get; }
+        internal bool EnableToggleTarget { get; }
+        internal bool EnableTogglePending { get; }
+        internal string PendingEffectText { get; }
+        internal string StateText { get; }
+        internal string PresentationText { get; }
+        internal string IsolationReason { get; }
+
+        internal PanelFeatureStatusView(bool showsEnableToggle, bool enableToggleTarget, bool enableTogglePending,
+            string pendingEffectText, string stateText, string presentationText, string isolationReason)
+        {
+            ShowsEnableToggle = showsEnableToggle;
+            EnableToggleTarget = enableToggleTarget;
+            EnableTogglePending = enableTogglePending;
+            PendingEffectText = pendingEffectText ?? string.Empty;
+            StateText = stateText ?? string.Empty;
+            PresentationText = presentationText ?? string.Empty;
+            IsolationReason = isolationReason ?? string.Empty;
         }
     }
 
@@ -764,6 +820,15 @@ namespace BetterUnturnedExperience.ClientUi.Internal
         {
             EnsurePreferencesLoaded();
             if (draft == null || draft.Kind != ManagementEntryKind.BueFeature) return false;
+            // DEV-V4-05 (Q45/Q46): the toggle exists iff the entry OWNS a
+            // stoppable lifecycle seam (fed by the composition root from the
+            // machine's tracking) AND its state is one of the nine mapped seam
+            // states — an Incompatible/unmapped state or an untracked entry
+            // has NO toggle, so the model refuses the draft target too (表面
+            // 与模型同一门禁，不画假控件也不收假意图).
+            BueFeatureManagementEntry entry;
+            if (!features.TryGetValue(draft.StableId, out entry) || !entry.HasStoppableLifecycle
+                || !StateHasEnableToggle(entry.State)) return false;
             if (enabled == draft.EnableIntentBaseline) draft.EnableEdit = null;
             else draft.EnableEdit = enabled;
             return true;
@@ -865,6 +930,88 @@ namespace BetterUnturnedExperience.ClientUi.Internal
                 for (var index = 0; index < plugin.ConfigEntries.Count; index++)
                     rows.Add(ProjectConfigRow(plugin.ConfigEntries[index], plugin.ConfigEntries[index].Value, false));
             return new ReadOnlyCollection<PanelConfigRowView>(rows);
+        }
+
+        // ── DEV-V4-05：功能级启停详情页表面（只读状态投影 + 启用开关目标）──
+        // 状态行=九态中文（面板不 FeatureState.ToString()），表现状态独立一行，
+        // 隔离原因有值才显示；启用开关=保存后的目标状态（草稿），有开关 iff
+        // 条目拥有可停止的 BUE 功能生命周期 seam。无草稿或草稿属于其他条目时
+        // 如实投影权威状态（目标=当前意图基线，不脏）。
+
+        internal PanelFeatureStatusView GetFeatureStatusProjection(string stableId)
+        {
+            EnsurePreferencesLoaded();
+            BueFeatureManagementEntry feature;
+            if (string.IsNullOrEmpty(stableId) || !features.TryGetValue(stableId, out feature))
+                return new PanelFeatureStatusView(false, false, false, string.Empty, string.Empty, string.Empty, string.Empty);
+            var stateText = ProjectFeatureStateText(feature.State, feature.StopReason);
+            var target = IsFeatureCurrentlyEnabled(feature.State);
+            var pending = false;
+            var pendingText = string.Empty;
+            if (draft != null && draft.Kind == ManagementEntryKind.BueFeature
+                && string.Equals(draft.StableId, stableId, StringComparison.Ordinal)
+                && draft.EnableEdit.HasValue)
+            {
+                // EnableEdit 仅在目标≠基线时有值（DraftSetFeatureEnabled 拨回即清）。
+                pending = true;
+                target = draft.EnableEdit.Value;
+                pendingText = PendingEffectText(stateText, feature.State, target);
+            }
+            var isolationReason = feature.State == FeatureState.Isolated ? feature.StatusDiagnostic : string.Empty;
+            return new PanelFeatureStatusView(feature.HasStoppableLifecycle && StateHasEnableToggle(feature.State),
+                target, pending, pendingText, stateText, ProjectPresentationText(feature.Presentation.State),
+                isolationReason);
+        }
+
+        // Q46/Q50 九态映射（待启动 ≠ 启动中）。Disabled/Stopped 须结合停用原因：
+        // UserDisabled=已停用；其余停止给安全文案「已停止」，不伪装成用户停用。
+        // Incompatible 与未映射=不可用（投影层不给开关，见 StateHasEnableToggle）。
+        private static string ProjectFeatureStateText(FeatureState state, FeatureStopReason stopReason)
+        {
+            switch (state)
+            {
+                case FeatureState.Discovered: return "待启动";
+                case FeatureState.Starting: return "启动中";
+                case FeatureState.Running: return "运行中";
+                case FeatureState.Stopping: return "停用中";
+                case FeatureState.Isolating: return "隔离处理中";
+                case FeatureState.Isolated: return "已隔离";
+                case FeatureState.Disabled:
+                case FeatureState.Stopped:
+                    return stopReason == FeatureStopReason.UserDisabled ? "已停用" : "已停止";
+                default:
+                    return "不可用";
+            }
+        }
+
+        // Q45：有开关 iff 拥有可停止生命周期 seam 的映射态；Incompatible 与
+        // 未映射不在其中。
+        private static bool StateHasEnableToggle(FeatureState state)
+        {
+            return state == FeatureState.Discovered || state == FeatureState.Starting || state == FeatureState.Running
+                || state == FeatureState.Stopping || state == FeatureState.Isolating || state == FeatureState.Isolated
+                || state == FeatureState.Disabled || state == FeatureState.Stopped;
+        }
+
+        private static string ProjectPresentationText(FeaturePresentationState state)
+        {
+            switch (state)
+            {
+                case FeaturePresentationState.NotApplicable: return "不适用";
+                case FeaturePresentationState.Available: return "可用";
+                case FeaturePresentationState.PresentationDegraded: return "表现降级";
+                case FeaturePresentationState.HeadlessOnly: return "仅主机端";
+                case FeaturePresentationState.Failed: return "失败";
+                default: return "未知";
+            }
+        }
+
+        // Q44：对照现状与保存后目标提示待生效，不承诺一定成功——「已隔离，
+        // 保存后将尝试启用」为裁决原文形（隔离恢复可能被生命周期机拒绝）。
+        private static string PendingEffectText(string stateText, FeatureState state, bool target)
+        {
+            if (target && state == FeatureState.Isolated) return stateText + "，保存后将尝试启用";
+            return stateText + (target ? "，保存后将启用" : "，保存后将停用");
         }
 
         private static PanelSettingRowView ProjectSettingRow(SettingEntryView entry, SettingDescriptor? descriptor, SettingValue effective, bool dirty)
