@@ -1106,9 +1106,16 @@ namespace BetterUnturnedExperience.Plugin
             revertButton.Text = "让我改回独立 LMN";
             revertButton.OnClicked += delegate(ISleekElement ignored)
             {
-                var result = runtime.Model.TryEditBueSetting(NetworkModuleAdapter.NetworkFeature, "network.enabled", PluginConfigValue.BooleanValue(false));
-                SetStatus(result.Accepted ? "BUE 网络模块已关闭，独立 LMN 恢复运行。" : "BUE 设置被拒绝。", !result.Accepted);
-                if (result.Accepted) RenderDetails();
+                // DEV-V4-04: the legacy network.enabled setting retired — the
+                // hand-back submits the disable TARGET through the machine
+                // seam (Q21: 独立行动命令，不进草稿), the machine records the
+                // durable UserDisabled intent, and the adapter refreshes so a
+                // recorded intent disarms the takeover in the same breath.
+                var accepted = runtime.Model.TryToggleFeature(NetworkModuleAdapter.NetworkFeature, false);
+                if (accepted && NetworkModuleFeatureRegistration.WiredAdapter != null)
+                    NetworkModuleFeatureRegistration.WiredAdapter.RefreshSwitches();
+                SetStatus(accepted ? "BUE 网络模块已关闭，独立 LMN 恢复运行。" : "BUE 设置被拒绝。", !accepted);
+                if (accepted) RenderDetails();
             };
             detailScroll.AddChild(revertButton);
             y += 40;

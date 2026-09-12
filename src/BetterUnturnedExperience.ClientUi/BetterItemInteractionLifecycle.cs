@@ -42,7 +42,9 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             {
                 return false;
             }
-            var nextEnabled = true;
+            // DEV-V4-04: the legacy Enabled entry is retired — a legacy
+            // snapshot (upgrades) may still carry the row, but it is no
+            // longer consumed; AutoRotate stays a normal setting.
             var nextAutoRotate = true;
             if (snapshot.Entries != null)
             {
@@ -50,11 +52,9 @@ namespace BetterUnturnedExperience.ClientUi.Internal
                 {
                     var entry = snapshot.Entries[index];
                     if (entry.Authority != SettingAuthority.ClientLocal || entry.EffectiveValue.Kind != SettingKind.Toggle) continue;
-                    if (string.Equals(entry.SettingId, "Enabled", StringComparison.OrdinalIgnoreCase)) nextEnabled = entry.EffectiveValue.Boolean;
-                    else if (string.Equals(entry.SettingId, "AutoRotate", StringComparison.OrdinalIgnoreCase)) nextAutoRotate = entry.EffectiveValue.Boolean;
+                    if (string.Equals(entry.SettingId, "AutoRotate", StringComparison.OrdinalIgnoreCase)) nextAutoRotate = entry.EffectiveValue.Boolean;
                 }
             }
-            enabled = nextEnabled;
             autoRotate = nextAutoRotate;
             revision = snapshot.Revision;
             hasSnapshot = true;
@@ -63,11 +63,11 @@ namespace BetterUnturnedExperience.ClientUi.Internal
 
         internal FeatureSettingsSnapshot GetSnapshot()
         {
+            // DEV-V4-04: the Enabled master switch is retired from the panel
+            // projection (schema retirement) — AutoRotate is the one row left.
             return new FeatureSettingsSnapshot(Feature, 1, SettingRevisionScope.ClientPreference, revision,
                 SettingSyncState.Ready, SettingSnapshotSource.LocalPersistent, new[]
                 {
-                    new SettingEntryView("Enabled", SettingAuthority.ClientLocal, new SettingValueOption(true, SettingValue.Toggle(enabled)), false,
-                        default(SettingPolicyView), SettingValue.Toggle(enabled), true, true),
                     new SettingEntryView("AutoRotate", SettingAuthority.ClientLocal, new SettingValueOption(true, SettingValue.Toggle(autoRotate)), false,
                         default(SettingPolicyView), SettingValue.Toggle(autoRotate), true, true)
                 });
@@ -101,22 +101,23 @@ namespace BetterUnturnedExperience.ClientUi.Internal
 
         // DEV-V4-01: the BII composition editor honours the batch seam with
         // the same all-or-nothing contract as SettingsRuntime — every mutation
-        // must be one of BII's two client toggles and the whole batch lands on
+        // must be one of BII's client toggles and the whole batch lands on
         // a single revision bump, so the draft's "保存配置" can never half-
-        // apply. An empty batch never advances the revision.
+        // apply. An empty batch never advances the revision. DEV-V4-04: the
+        // legacy Enabled master switch is retired — mutations for it fall to
+        // the unknown-setting rejection (退役不进草稿); AutoRotate stays
+        // editable.
         public SettingChangeResult ApplyBatch(FeatureId feature, uint expectedRevision, IReadOnlyList<SettingMutation> mutations)
         {
             if (!string.Equals(feature.Value, BetterItemInteractionSettingsState.Feature.Value, StringComparison.Ordinal))
                 return new SettingChangeResult(false, FrameworkErrorCode.SettingRejected, state.Revision, state.GetSnapshot());
             var list = mutations == null ? new SettingMutation[0] : System.Linq.Enumerable.ToArray(mutations);
-            var nextEnabled = state.Enabled;
             var nextAutoRotate = state.AutoRotate;
             foreach (var mutation in list)
             {
                 if (mutation.Value.Kind != SettingKind.Toggle)
                     return new SettingChangeResult(false, FrameworkErrorCode.SettingRejected, state.Revision, state.GetSnapshot());
-                if (string.Equals(mutation.SettingId, "Enabled", StringComparison.OrdinalIgnoreCase)) nextEnabled = mutation.Value.Boolean;
-                else if (string.Equals(mutation.SettingId, "AutoRotate", StringComparison.OrdinalIgnoreCase)) nextAutoRotate = mutation.Value.Boolean;
+                if (string.Equals(mutation.SettingId, "AutoRotate", StringComparison.OrdinalIgnoreCase)) nextAutoRotate = mutation.Value.Boolean;
                 else return new SettingChangeResult(false, FrameworkErrorCode.SettingRejected, state.Revision, state.GetSnapshot());
             }
             var snapshot = state.GetSnapshot();
@@ -124,8 +125,6 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             if (list.Length == 0) return new SettingChangeResult(true, FrameworkErrorCode.None, snapshot.Revision, snapshot);
             var entries = new[]
             {
-                new SettingEntryView("Enabled", SettingAuthority.ClientLocal, new SettingValueOption(true, SettingValue.Toggle(nextEnabled)), false,
-                    default(SettingPolicyView), SettingValue.Toggle(nextEnabled), true, true),
                 new SettingEntryView("AutoRotate", SettingAuthority.ClientLocal, new SettingValueOption(true, SettingValue.Toggle(nextAutoRotate)), false,
                     default(SettingPolicyView), SettingValue.Toggle(nextAutoRotate), true, true)
             };
@@ -282,14 +281,10 @@ namespace BetterUnturnedExperience.ClientUi.Internal
         internal void BeginDrag(uint dragGeneration)
         {
             activePolicy = settings.CaptureForDrag();
-            if (activePolicy.Enabled && lifecycle.State == FeatureState.Disabled)
-            {
-                lifecycle.Start(true, true);
-            }
-            else if (!activePolicy.Enabled && lifecycle.State == FeatureState.Running)
-            {
-                lifecycle.Disable();
-            }
+            // DEV-V4-04: the legacy Enabled auto start/disable legs retired —
+            // the lifecycle is the ONE switch (a user-disabled feature must
+            // not silently revive because a drag happened; the migration and
+            // the panel toggle own the transitions now).
             enhancedDragActive = lifecycle.CanRun && activePolicy.Enabled && !safeMode;
         }
 

@@ -221,18 +221,24 @@ namespace BetterUnturnedExperience.Plugin
                 if (state == FeatureState.Running)
                 {
                     StopEntry(entry, FeatureStopReason.UserDisabled);
+                    // DEV-V4-04：停用目标被机接受=UserDisabled 意图事实落盘
+                    // （跨重启的持久权威；未组合意图库的宿主测试保持无痕）。
+                    BueFeatureIntentRuntime.RecordUserDisabledOnDefault(feature);
                     BueRuntimeLog.Runtime("[BUE-V2HOST] event=feature-panel result=user-disabled feature=" + feature.Value);
                     return true;
                 }
                 if (state == FeatureState.Stopped || state == FeatureState.Disabled)
                 {
+                    BueFeatureIntentRuntime.RecordUserDisabledOnDefault(feature);
                     BueRuntimeLog.Runtime("[BUE-V2HOST] event=feature-panel result=disable-noop feature=" + feature.Value + " reason=already-stopped");
                     return true;
                 }
                 if (state == FeatureState.Isolated)
                 {
                     // 保持隔离：不走会失败的 disable，不新开代际（隔离不是
-                    // 面板分支能解释的状态，空操作成功由机裁决）。
+                    // 面板分支能解释的状态，空操作成功由机裁决）。停用意图
+                    // 照常落盘——良性隔离功能（如网络模块）的停用事实全靠它。
+                    BueFeatureIntentRuntime.RecordUserDisabledOnDefault(feature);
                     BueRuntimeLog.Runtime("[BUE-V2HOST] event=feature-panel result=disable-noop feature=" + feature.Value + " reason=isolated-kept");
                     return true;
                 }
@@ -312,6 +318,9 @@ namespace BetterUnturnedExperience.Plugin
                 entry.LifetimeView = bootstrap.Lifetime;
                 entry.Stopped = false;
             }
+            // DEV-V4-04：显式再启用成功=用户意图翻转，撤销持久停用事实
+            // （否则迁移/上次的停用会在下次启动把它再停回去）。
+            BueFeatureIntentRuntime.ClearUserDisabledOnDefault(feature);
             BueRuntimeLog.Runtime("[BUE-V2HOST] event=feature-panel result=user-enabled feature=" + feature.Value + " generation=" + generation);
             return true;
         }

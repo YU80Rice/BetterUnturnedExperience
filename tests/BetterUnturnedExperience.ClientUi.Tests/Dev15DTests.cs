@@ -9,7 +9,7 @@ namespace BetterUnturnedExperience.ClientUi.Tests
         internal static void Run()
         {
             SettingsDefaultToEnabledAndAutoRotate();
-            DisabledSettingsUseNativePassThroughAndReenableNextDrag();
+            DisabledLifecycleUsesNativePassThrough();
             SettingsChangedDuringDragApplyOnNextDragOnly();
             LifecycleExposesNineStatesWithMonotonicRevision();
             IsolationStopsCallbacksAndContinuesCleanupAfterFailure();
@@ -31,18 +31,20 @@ namespace BetterUnturnedExperience.ClientUi.Tests
             Assert(policy.Enabled && policy.AutoRotate, "DEV-15D defaults enable enhancement and auto-rotation");
         }
 
-        private static void DisabledSettingsUseNativePassThroughAndReenableNextDrag()
+        private static void DisabledLifecycleUsesNativePassThrough()
         {
+            // DEV-V4-04：Enabled 总开关退役——停用改走生命周期（迁移/面板
+            // seam），拖拽门如实让位原生直通；设置翻转不再驱动启停。
+            var lifecycle = new BetterItemInteractionLifecycle();
             var settings = new BetterItemInteractionSettingsState();
-            settings.ApplySnapshot(Snapshot(false, true, 1));
-            var runtime = new BetterItemInteractionRuntime(settings, new BetterItemInteractionLifecycle());
+            var runtime = new BetterItemInteractionRuntime(settings, lifecycle);
             runtime.Start(true, true);
+            lifecycle.Disable();
             runtime.BeginDrag(1);
             Assert(!runtime.EnhancedDragActive, "disabled feature does not activate enhanced drag");
             runtime.EndDrag();
-            settings.ApplySnapshot(Snapshot(true, true, 2));
             runtime.BeginDrag(2);
-            Assert(runtime.EnhancedDragActive, "re-enabled feature activates on next drag");
+            Assert(!runtime.EnhancedDragActive, "a drag no longer re-enables a disabled feature (the lifecycle owns the switch)");
         }
 
         private static void SettingsChangedDuringDragApplyOnNextDragOnly()
@@ -150,7 +152,8 @@ namespace BetterUnturnedExperience.ClientUi.Tests
                 new InventoryPreviewPresenter(new InventoryDragPresenter(new FixedEvaluator())),
                 new NativeInventoryInteractionAdapter(2, 8));
             component.OnUiInitialized(new Program.TestRoot());
-            component.ApplySettingsSnapshot(Snapshot(false, true, 3));
+            // DEV-V4-04：停用改走生命周期（快照 Enabled 腿退役）。
+            component.Lifecycle.Disable();
             component.OnDragStarted(30, ItemAssetIdentity.FromItemId(363), new ItemGridPosition(3, 0, 0, 0));
             var native = new NativeActions();
             var outcome = component.OnDragReleased(new NativeDragAdapterInput(true, 30,

@@ -5,7 +5,7 @@ using BetterUnturnedExperience.Contracts;
 using BetterUnturnedExperience.Contracts.BueNetwork;
 using BetterUnturnedExperience.Core.Diagnostics;
 using BetterUnturnedExperience.Core.Network;
-using BetterUnturnedExperience.Core.Settings;
+using BetterUnturnedExperience.Core.Registration;
 using HarmonyLib;
 
 namespace BetterUnturnedExperience.Plugin
@@ -79,13 +79,15 @@ namespace BetterUnturnedExperience.Plugin
         private readonly Func<Type> resolveModTransportType;
         private readonly Func<Type> resolveModRouterType;
         private readonly Action refreshPanel;
-        private readonly SettingsRuntime networkSettings;
-        private readonly SettingsRuntime v1CompatSettings;
         private readonly HarmonyLib.Harmony harmony = new HarmonyLib.Harmony("io.github.yu80rice.bue.network");
         private readonly Func<bool> isLmnNativeClientDispatchLive;
         private readonly Func<bool> isLmnNativeServerDispatchLive;
         private readonly BueEngineNetBinding engineBinding;
         private readonly Func<long> injectedMonotonicMilliseconds;
+        // DEV-V4-04: the root-keyed durable lifecycle intent store — the ONE
+        // authority behind networkEnabled/compatLayer.Enabled after the
+        // legacy enabled facet retirement.
+        private readonly FeatureLifecycleIntentStore lifecycleIntents;
         // DEV-V2-18: the engine-facing transport binding + the armed BUE
         // runtime it feeds. The runtime is created ONCE per adapter, at the
         // first engine tick where the role is decided (server = U3DS/listen
@@ -127,13 +129,12 @@ namespace BetterUnturnedExperience.Plugin
 
         internal NetworkModuleAdapter(string settingsRootPath, Func<bool> isStandaloneLmnLoaded, Func<Type> resolveModTransportType, Func<Type> resolveModRouterType, Action refreshPanel, Func<bool> isLmnNativeClientDispatchLive = null, Func<bool> isLmnNativeServerDispatchLive = null, BueEngineNetBinding engineBinding = null, Func<long> monotonicMilliseconds = null)
         {
-            // DEV-V3-06: the runtimes are resolved through the root-keyed
-            // registry — same root, same process, ONE runtime per feature
-            // (the start path and the panel share it; two live runtimes on
-            // one file would be a second source of truth).
-            var settingsRegistry = BueSettingsRuntime.RegistryFor(settingsRootPath);
-            networkSettings = settingsRegistry.GetOrCreateRuntime(NetworkFeature, CreateNetworkDescriptors());
-            v1CompatSettings = settingsRegistry.GetOrCreateRuntime(V1CompatFeature, CreateV1CompatDescriptors());
+            // DEV-V4-04: the legacy network.enabled/v1compat.enabled facet
+            // runtimes RETIRED — the durable disable intent lives in the
+            // root-keyed lifecycle intent store (the machine seam records it,
+            // the migration writes it from the legacy documents), and the
+            // adapter consults THAT one authority for its switches.
+            lifecycleIntents = BueFeatureIntentRuntime.StoreFor(settingsRootPath);
             compatRegistry = new LmnV1CompatRegistry();
             compatLayer = new LmnV1CompatLayer(compatRegistry);
             coordinator = new LmnTakeoverCoordinator(isStandaloneLmnLoaded ?? throw new ArgumentNullException(nameof(isStandaloneLmnLoaded)));
@@ -154,8 +155,6 @@ namespace BetterUnturnedExperience.Plugin
             UpdateTakeoverStatus();
         }
 
-        internal SettingsRuntime NetworkSettings { get { return networkSettings; } }
-        internal SettingsRuntime V1CompatSettings { get { return v1CompatSettings; } }
         internal bool TakeoverActive { get { return !isolated && networkEnabled && coordinator.TakeoverActive; } }
         internal string TakeoverStatus { get { return takeoverStatus; } }
         internal string ConfigMigrationStatus { get { return configMigrationStatus; } }
@@ -809,8 +808,12 @@ namespace BetterUnturnedExperience.Plugin
 
         private void ApplySwitchesFromSettings()
         {
-            networkEnabled = ReadToggle(networkSettings, NetworkSettingId);
-            compatLayer.Enabled = ReadToggle(v1CompatSettings, V1CompatSettingId);
+            // DEV-V4-04: the switch source is the durable lifecycle intent
+            // store (the retired facet runtimes are gone) — a recorded
+            // UserDisabled fact keeps the takeover disarmed across restarts,
+            // a cleared intent re-arms it through RefreshSwitches.
+            networkEnabled = lifecycleIntents == null || !lifecycleIntents.HasUserDisabled(NetworkFeature);
+            compatLayer.Enabled = lifecycleIntents == null || !lifecycleIntents.HasUserDisabled(V1CompatFeature);
         }
 
         private void UpdateTakeoverStatus()
@@ -841,12 +844,6 @@ namespace BetterUnturnedExperience.Plugin
             }
         }
 
-        private static bool ReadToggle(SettingsRuntime runtime, string settingId)
-        {
-            SettingValue value;
-            uint revision;
-            return runtime.TryGet(settingId, out value, out revision) ? value.Boolean : true;
-        }
 
         private static SettingDescriptor ToggleDescriptor(FeatureId feature, string settingId, int sortOrder)
         {

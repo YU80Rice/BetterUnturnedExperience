@@ -1,0 +1,16 @@
+DEV-V4-04 static gates 2026-09-12
+1) 模型文件 UI/native token 计数(必须 0):
+src/BetterUnturnedExperience.ClientUi/BetterItemInteractionLifecycle.cs:0
+src/BetterUnturnedExperience.ClientUi/ManagementPanel.cs:0
+2) 本票新增 diff 行中的 UI/native token(必须 0):
+0
+3) 生产面板/组合/注册类的退役 legacy 键残留(必须全 0):
+src/BetterUnturnedExperience.Plugin/BueNativeManagementPanel.cs:1
+src/BetterUnturnedExperience.Plugin/ClientUiCompositionRoot.cs:0
+src/BetterUnturnedExperience.ClientUi/ManagementPanel.cs:0
+src/BetterUnturnedExperience.Plugin/InventoryTidyFeatureRegistration.cs:0
+src/BetterUnturnedExperience.Plugin/InPlaceReloadFeatureRegistration.cs:0
+src/BetterUnturnedExperience.Plugin/HordeTrackerFeatureRegistration.cs:0
+src/BetterUnturnedExperience.Plugin/NetworkModuleFeatureRegistration.cs:0
+4) git diff --check exit:
+0

@@ -375,12 +375,10 @@ namespace BetterUnturnedExperience.ClientUi.Internal
 
         internal void ApplySettingsSnapshot(FeatureSettingsSnapshot snapshot)
         {
-            if (!settingsState.ApplySnapshot(snapshot)) return;
-            if (!runtime.EnhancedDragActive && !settingsState.Enabled)
-            {
-                lifecycle.Disable();
-                CleanupUiAndDrag();
-            }
+            // DEV-V4-04: the legacy Enabled leg retired — settings snapshots
+            // only carry AutoRotate now; lifecycle transitions belong to the
+            // migration adapter and the panel toggle seam, never to a drag.
+            settingsState.ApplySnapshot(snapshot);
         }
 
         internal void SetClientUiSatelliteAvailable(bool available, bool headless)

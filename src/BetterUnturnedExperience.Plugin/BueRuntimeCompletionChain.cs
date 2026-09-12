@@ -116,6 +116,10 @@ namespace BetterUnturnedExperience.Plugin
                     return;
                 }
                 BueFeatureStartRuntime.StartCatalog(BueRuntimeHost.CurrentRuntime, featureNetwork);
+                // DEV-V4-04：目录启动完成后跑官方 legacy enabled 迁移——机解释
+                // 停用目标（Running→停 / Isolated→空操作成功），意图事实落盘，
+                // 旧键退役。故障自隔离，绝不打穿完成链。
+                BueLegacyEnabledMigrationAdapter.RunProduction();
             }
             catch (Exception error)
             {

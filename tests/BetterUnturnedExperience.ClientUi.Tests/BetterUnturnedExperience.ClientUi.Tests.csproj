@@ -38,6 +38,7 @@
     <Compile Include="Dev16BTests.cs" />
     <Compile Include="DevV4DraftTests.cs" />
     <Compile Include="DevV4PanelControlsTests.cs" />
+    <Compile Include="DevV4BiiRetireTests.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>

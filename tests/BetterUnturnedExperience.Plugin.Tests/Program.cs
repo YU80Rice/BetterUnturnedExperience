@@ -2291,12 +2291,10 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 var adapterRoot = Path.Combine(Path.GetTempPath(), "bue-v2net-red-" + Guid.NewGuid().ToString("N"));
                 var dormant = new NetworkModuleAdapter(adapterRoot, () => false, () => null, () => null, () => { });
                 dormant.ActivateCore();
-                Assert(dormant.NetworkSettings.Feature.Value == NetworkModuleAdapter.NetworkFeature.Value
-                    && dormant.V1CompatSettings.Feature.Value == NetworkModuleAdapter.V1CompatFeature.Value,
-                    "migration: the adapter owns one settings runtime per official facet");
-                Assert(dormant.NetworkSettings.GetSnapshot(SettingRevisionScope.ClientPreference).Entries.Count == 1
-                    && dormant.V1CompatSettings.GetSnapshot(SettingRevisionScope.ClientPreference).Entries.Count == 1,
-                    "migration: each facet exposes exactly its own switch (no migrated entries exist)");
+                // DEV-V4-04：facet 退役后 adapter 不再持有每功能设置 runtime——总开关
+                // 的停用事实由生命周期意图库承载（下面各开关段改走意图记录/清除）。
+                Assert(BueFeatureIntentRuntime.StoreFor(adapterRoot) != null,
+                    "migration: the adapter resolves the lifecycle intent store for its settings root");
                 Assert(!string.IsNullOrEmpty(dormant.TakeoverStatus),
                     "migration: the takeover status line is always present for the panel");
                 Assert(dormant.ConfigMigrationStatus.Contains("无独立配置可迁移"),
@@ -2341,17 +2339,13 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 Assert(takeover.ShouldConsumeInbound(false, 0UL, v1Frame, 0, v1Frame.Length, null) && FakeLmnModTransport.ClientCalls == 1,
                     "takeover: the client-side receive routes to the mirrored client handler");
 
-                Assert(takeover.V1CompatSettings.Submit(new ScopedSettingChangeRequest(21UL, SettingRevisionScope.ClientPreference,
-                    takeover.V1CompatSettings.GetSnapshot(SettingRevisionScope.ClientPreference).Revision,
-                    new[] { new SettingMutation("v1compat.enabled", SettingValue.Toggle(false)) })).Accepted,
-                    "setup: the V1 compat switch is submitted through its facet runtime");
+                Assert(BueFeatureIntentRuntime.StoreFor(adapterRoot).RecordUserDisabled(NetworkModuleAdapter.V1CompatFeature),
+                    "setup: the V1 compat switch is disabled via the lifecycle intent record");
                 takeover.RefreshSwitches();
                 Assert(!takeover.ShouldConsumeInbound(true, 424242UL, v1Frame, 0, v1Frame.Length, null),
                     "takeover: v1compat off hands legacy frames back unconsumed");
-                Assert(takeover.V1CompatSettings.Submit(new ScopedSettingChangeRequest(22UL, SettingRevisionScope.ClientPreference,
-                    takeover.V1CompatSettings.GetSnapshot(SettingRevisionScope.ClientPreference).Revision,
-                    new[] { new SettingMutation("v1compat.enabled", SettingValue.Toggle(true)) })).Accepted,
-                    "setup: the V1 compat switch is re-enabled");
+                Assert(BueFeatureIntentRuntime.StoreFor(adapterRoot).Clear(NetworkModuleAdapter.V1CompatFeature),
+                    "setup: the V1 compat switch is re-enabled (intent cleared)");
                 takeover.RefreshSwitches();
                 Assert(takeover.ShouldConsumeInbound(true, 424242UL, v1Frame, 0, v1Frame.Length, null),
                     "takeover: v1compat on restores the legacy consumption path");
@@ -2388,19 +2382,15 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 Assert(broken.ShouldConsumeInbound(true, 424242UL, v1Frame, 0, v1Frame.Length, null),
                     "takeover: with no mirrored table the legacy frame is still consumed (unknown-channel drop, never a crash)");
 
-                Assert(takeover.NetworkSettings.Submit(new ScopedSettingChangeRequest(31UL, SettingRevisionScope.ClientPreference,
-                    takeover.NetworkSettings.GetSnapshot(SettingRevisionScope.ClientPreference).Revision,
-                    new[] { new SettingMutation("network.enabled", SettingValue.Toggle(false)) })).Accepted,
-                    "setup: the network module switch is turned off");
+                Assert(BueFeatureIntentRuntime.StoreFor(adapterRoot).RecordUserDisabled(NetworkModuleAdapter.NetworkFeature),
+                    "setup: the network module switch is turned off (lifecycle intent record)");
                 takeover.RefreshSwitches();
                 Assert(!takeover.ShouldConsumeInbound(true, 424242UL, v1Frame, 0, v1Frame.Length, null),
                     "recovery: network module off hands every legacy frame back (LMN resumes standalone)");
                 Assert(!takeover.ShouldConsumeInbound(false, 0UL, lmn2Frame, 0, lmn2Frame.Length, null),
                     "recovery: network module off passes LMN2 frames through");
-                Assert(takeover.NetworkSettings.Submit(new ScopedSettingChangeRequest(32UL, SettingRevisionScope.ClientPreference,
-                    takeover.NetworkSettings.GetSnapshot(SettingRevisionScope.ClientPreference).Revision,
-                    new[] { new SettingMutation("network.enabled", SettingValue.Toggle(true)) })).Accepted,
-                    "setup: the network module switch is re-enabled");
+                Assert(BueFeatureIntentRuntime.StoreFor(adapterRoot).Clear(NetworkModuleAdapter.NetworkFeature),
+                    "setup: the network module switch is re-enabled (intent cleared)");
                 takeover.RefreshSwitches();
                 FakeLmnModRouter.NextResult = true;
                 Assert(takeover.ShouldConsumeInbound(false, 0UL, lmn2Frame, 0, lmn2Frame.Length, null),
@@ -2747,12 +2737,19 @@ namespace BetterUnturnedExperience.Plugin.Tests
             NetworkModuleAdapter.DiagnosticLogSink = line => diagnostics.Add(line);
             try
             {
+                // DEV-V4-04：总开关退役后，网络模块的停用事实改由生命周期意图库承载
+                // （旧 network.enabled 文档键退役；facet 与设置页不再暴露该开关）。
                 var adapterRoot = Path.Combine(Path.GetTempPath(), "bue-v2net-red-" + Guid.NewGuid().ToString("N"));
-                var persisted = new NetworkModuleAdapter(adapterRoot, () => true, () => null, () => null, () => { });
-                Assert(persisted.NetworkSettings.Submit(new ScopedSettingChangeRequest(41UL, SettingRevisionScope.ClientPreference,
-                    persisted.NetworkSettings.GetSnapshot(SettingRevisionScope.ClientPreference).Revision,
-                    new[] { new SettingMutation("network.enabled", SettingValue.Toggle(false)) })).Accepted,
-                    "setup: the kill switch persists off");
+                BueFeatureIntentRuntime.EnsureCreated(adapterRoot, null);
+                var intents = BueFeatureIntentRuntime.StoreFor(adapterRoot);
+                var armed = new NetworkModuleAdapter(adapterRoot, () => true, () => null, () => null, () => { });
+                armed.ActivateCore();
+                Assert(armed.TakeoverActive,
+                    "kill switch setup: the takeover arms while no disable intent exists");
+                diagnostics.Clear(); // 基线自检行（含 mirror-deferred）不参与停用后的零反射判据
+
+                Assert(intents.RecordUserDisabled(NetworkModuleAdapter.NetworkFeature),
+                    "setup: the kill switch persists off (UserDisabled 意图事实)");
 
                 var off = new NetworkModuleAdapter(adapterRoot, () => true, () => null, () => null, () => { });
                 off.ActivateCore();
@@ -2765,10 +2762,8 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 Assert(!diagnostics.Exists(line => line.Contains("event=v1-table-mirror")),
                     "kill switch: the deferred retry stays inert while the module is off");
 
-                Assert(off.NetworkSettings.Submit(new ScopedSettingChangeRequest(42UL, SettingRevisionScope.ClientPreference,
-                    off.NetworkSettings.GetSnapshot(SettingRevisionScope.ClientPreference).Revision,
-                    new[] { new SettingMutation("network.enabled", SettingValue.Toggle(true)) })).Accepted,
-                    "setup: the kill switch is re-enabled");
+                Assert(intents.Clear(NetworkModuleAdapter.NetworkFeature),
+                    "setup: the kill switch is re-enabled (disable intent cleared)");
                 off.RefreshSwitches();
                 Assert(diagnostics.Exists(line => line.Contains("event=takeover-patch")),
                     "kill switch: re-enabling a startup-disabled module re-arms the takeover patches (handbook B6)");
@@ -5924,11 +5919,10 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     Check(adapter.NetworkApi.Sessions.Count == 1, "网络关闭：会话建立基线");
                     // 关闭：BUE 帧不消费（交还 vanilla）；同一开关移除 patch 并
                     // 停用运行时（测试宿主无法真装 patch，patch 移除的生产证据
-                    // 随实机验收 24；此处钉行为面）。
-                    Assert(adapter.NetworkSettings.Submit(new ScopedSettingChangeRequest(51UL, SettingRevisionScope.ClientPreference,
-                        adapter.NetworkSettings.GetSnapshot(SettingRevisionScope.ClientPreference).Revision,
-                        new[] { new SettingMutation("network.enabled", SettingValue.Toggle(false)) })).Accepted,
-                        "setup: the network switch is turned off");
+                    // 随实机验收 24；此处钉行为面）。DEV-V4-04：开关事实改由
+                    // 生命周期意图库承载（旧 network.enabled 文档键退役）。
+                    Assert(BueFeatureIntentRuntime.StoreFor(adapterRoot).RecordUserDisabled(NetworkModuleAdapter.NetworkFeature),
+                        "setup: the network switch is turned off (lifecycle intent record)");
                     adapter.RefreshSwitches();
                     var offFrame = BuildBue1Frame(bindingChannel.Value, 1001UL, new byte[] { 0x66 });
                     Check(!adapter.ShouldConsumeInbound(true, 1001UL, hello, 0, hello.Length, null)
@@ -5939,10 +5933,8 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     Check(adapter.NetworkApi.SendToServer(bindingChannel, new byte[] { 1 }, true) == NetworkSendResult.NoSession,
                         "网络关闭：发送显式 NoSession（不新增专用错误码）");
                     // 重开：消费恢复（可逆开关）
-                    Assert(adapter.NetworkSettings.Submit(new ScopedSettingChangeRequest(52UL, SettingRevisionScope.ClientPreference,
-                        adapter.NetworkSettings.GetSnapshot(SettingRevisionScope.ClientPreference).Revision,
-                        new[] { new SettingMutation("network.enabled", SettingValue.Toggle(true)) })).Accepted,
-                        "setup: the network switch is re-enabled");
+                    Assert(BueFeatureIntentRuntime.StoreFor(adapterRoot).Clear(NetworkModuleAdapter.NetworkFeature),
+                        "setup: the network switch is re-enabled (disable intent cleared)");
                     adapter.RefreshSwitches();
                     Check(adapter.ShouldConsumeInbound(true, 1001UL, hello, 0, hello.Length, null),
                         "网络关闭：重开后 BUE 帧消费恢复");
@@ -9253,6 +9245,335 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     Check(NoOpFeatureRegistration.LastProbe.ResourceDisposed,
                         "生态对照：停止边界 probe 资源被宿主释放（逆序清理对生态样例同权）");
                 });
+
+                // DEV-V4-04：官方 legacy enabled 迁移——facet 退役面（先红：现网
+                // 五个官方功能仍把 enabled 总开关声明成唯一 facet）。只断言外显缝：
+                // 目录条目 descriptor 与设置注册表 runtime（面板行投影的数据源）。
+                Group("legacy facet 退役", () =>
+                {
+                    var litFeature = new FeatureId(InventoryTidyFeatureRegistration.FeatureIdValue);
+                    var settingsRoot = Path.Combine(Path.GetTempPath(), "bue-v404-retire-" + Guid.NewGuid().ToString("N"));
+                    BetterUnturnedExperience.Plugin.BueSettingsRuntime.Clear();
+                    BetterUnturnedExperience.Plugin.BueSettingsRuntime.EnsureCreated(settingsRoot, () => true, null);
+                    try
+                    {
+                        InventoryTidyFeatureRegistration.WiredModule = null;
+                        var litRuntime = new FeatureRegistrationRuntime();
+                        litRuntime.OpenRegistration();
+                        Check(litRuntime.Register(InventoryTidyFeatureRegistration.CreateRegistration()).Accepted,
+                            "退役 setup：官方 LIT 登记");
+                        Check(litRuntime.CompleteRuntime(), "退役 setup：目录冻结");
+                        FeatureRegistrationEntry litEntry = null;
+                        var catalogEntries = litRuntime.Catalog.Entries;
+                        for (var i = 0; i < catalogEntries.Count; i++)
+                            if (catalogEntries[i].Definition.Feature.Value == litFeature.Value) litEntry = catalogEntries[i];
+                        Check(litEntry != null && litEntry.SettingDescriptors == null,
+                            "LIT facet 退役：目录条目不再声明 enabled 描述符（schema 退役→设置页无 enabled 行）");
+                        BueFeatureStartRuntime.StartCatalog(litRuntime, NewLoopbackNetwork(litRuntime.Catalog.CatalogRevision));
+                        Check(BueSettingsRuntime.Registry.TryGetRuntime(litFeature) == null,
+                            "LIT facet 退役：启动路径不再为它组装设置 runtime（旧总开关彻底退出 schema 与面板）");
+                    }
+                    finally
+                    {
+                        BetterUnturnedExperience.Plugin.BueSettingsRuntime.Clear();
+                        try { if (Directory.Exists(settingsRoot)) Directory.Delete(settingsRoot, true); } catch (IOException) { }
+                    }
+                });
+
+                // DEV-V4-04：官方 legacy enabled 迁移 e2e——五宿主功能走真实登记/目录/
+                // 目标提交（BII 的读源由组合层登记，这里以表内容锚定）。显式别名表，
+                // 不做字段名扫描；false→交 03 机解释；意图事实=持久权威。
+                Group("legacy 迁移六项", () =>
+                {
+                    var root = Path.Combine(Path.GetTempPath(), "bue-v404-migrate-" + Guid.NewGuid().ToString("N"));
+                    var previousHostRuntime = BueRuntimeHost.CurrentRuntime;
+                    Directory.CreateDirectory(root);
+                    BetterUnturnedExperience.Plugin.BueSettingsRuntime.Clear();
+                    BetterUnturnedExperience.Plugin.BueSettingsRuntime.EnsureCreated(root, () => true, null);
+                    BueFeatureIntentRuntime.Clear();
+                    BueFeatureIntentRuntime.EnsureCreated(root, null);
+                    try
+                    {
+                        var litFeature = new FeatureId(InventoryTidyFeatureRegistration.FeatureIdValue);
+                        var lirFeature = new FeatureId(InPlaceReloadFeatureRegistration.FeatureIdValue);
+                        var lhtFeature = new FeatureId(HordeTrackerFeatureRegistration.FeatureIdValue);
+                        WriteLegacyToggleDoc(root, litFeature, "inventorytidy.enabled", false);
+                        WriteLegacyToggleDoc(root, lirFeature, "inplacereload.enabled", false);
+                        WriteLegacyToggleDoc(root, NetworkModuleAdapter.NetworkFeature, "network.enabled", false);
+                        WriteLegacyToggleDoc(root, NetworkModuleAdapter.V1CompatFeature, "v1compat.enabled", true);
+                        // LHT 故意不给旧文档（不存在 → 不改生命周期）。
+
+                        var biiFeature = BetterItemInteractionSettingsState.Feature;
+                        InventoryTidyFeatureRegistration.WiredModule = null;
+                        InPlaceReloadFeatureRegistration.WiredModule = null;
+                        HordeTrackerFeatureRegistration.WiredModule = null;
+                        var migrationRuntime = new FeatureRegistrationRuntime();
+                        BueRuntimeHost.Bind(migrationRuntime);
+                        migrationRuntime.OpenRegistration();
+                        Check(migrationRuntime.Register(InventoryTidyFeatureRegistration.CreateRegistration()).Accepted, "迁移 setup：LIT 登记");
+                        Check(migrationRuntime.Register(InPlaceReloadFeatureRegistration.CreateRegistration()).Accepted, "迁移 setup：LIR 登记");
+                        Check(migrationRuntime.Register(HordeTrackerFeatureRegistration.CreateRegistration()).Accepted, "迁移 setup：LHT 登记");
+                        foreach (var registration in NetworkModuleFeatureRegistration.CreateOfficialRegistrations())
+                            Check(migrationRuntime.Register(registration).Accepted, "迁移 setup：network 双 facet 登记");
+                        // BII 登记进同一目录（宿主模块=良性隔离壳）：其旧 Enabled
+                        // 是磁盘文档事实，迁移路径与其余五项完全同构。
+                        Check(BetterItemInteractionFeatureRegistration.Register().Accepted, "迁移 setup：BII 经公共桥登记");
+                        WriteLegacyToggleDoc(root, biiFeature, "Enabled", false);
+                        Check(migrationRuntime.CompleteRuntime(), "迁移 setup：目录冻结");
+                        BueFeatureStartRuntime.StartCatalog(migrationRuntime, NewLoopbackNetwork(migrationRuntime.Catalog.CatalogRevision));
+                        // LHT 在测试宿主上工厂/补丁不可用=启动期 Isolated（宿主局限，
+                        // 与迁移无关）——「不改生命周期」的外显=迁移前后状态原样。
+                        FeatureStatusView lhtBefore;
+                        Check(BueFeatureStartRuntime.TryGetStatus(lhtFeature, out lhtBefore), "迁移 setup：LHT 状态可查");
+
+                        BueLegacyEnabledMigrationAdapter.Run(root, line => { });
+
+                        FeatureStatusView status;
+                        Check(BueFeatureStartRuntime.TryGetStatus(litFeature, out status) && status.State == FeatureState.Stopped
+                                && status.StopReason == FeatureStopReason.UserDisabled,
+                            "迁移：LIT 旧 enabled=false → 升级后用户停用（Stopped/UserDisabled，机解释 Running→停）");
+                        Check(BueFeatureStartRuntime.TryGetStatus(lirFeature, out status) && status.State == FeatureState.Stopped
+                                && status.StopReason == FeatureStopReason.UserDisabled,
+                            "迁移：LIR 旧 enabled=false → 升级后用户停用");
+                        Check(BueFeatureStartRuntime.TryGetStatus(NetworkModuleAdapter.NetworkFeature, out status)
+                                && status.State == FeatureState.Isolated,
+                            "迁移：network Isolated+停用提交=空操作成功（保持隔离不盲调，先例非回归）");
+                        Check(BueFeatureStartRuntime.TryGetStatus(biiFeature, out status)
+                                && status.State == FeatureState.Isolated,
+                            "迁移：BII Isolated+停用提交=空操作成功（良性隔离壳，先例非回归）");
+                        var intents = BueFeatureIntentRuntime.StoreFor(root);
+                        Check(intents.HasUserDisabled(litFeature) && intents.HasUserDisabled(lirFeature)
+                                && intents.HasUserDisabled(NetworkModuleAdapter.NetworkFeature)
+                                && intents.HasUserDisabled(biiFeature),
+                            "迁移：UserDisabled 意图事实持久落盘（LIT/LIR/network/BII=新权威）");
+                        Check(BueFeatureStartRuntime.TryGetStatus(lhtFeature, out status) && status.State == lhtBefore.State
+                                && status.StateRevision == lhtBefore.StateRevision,
+                            "迁移：LHT 无旧文档 → 不改生命周期（迁移前后状态/修订原样）");
+                        Check(!intents.HasUserDisabled(NetworkModuleAdapter.V1CompatFeature) && !intents.HasUserDisabled(lhtFeature),
+                            "迁移：v1compat 旧值 true / LHT 无文档 → 不落意图");
+                        bool legacyValue;
+                        Check(!LegacyDocHasToggle(root, litFeature, "inventorytidy.enabled", out legacyValue),
+                            "迁移：LIT 旧键退役（schema+面板已退役，文档层同步退役）");
+                        Check(!LegacyDocHasToggle(root, NetworkModuleAdapter.NetworkFeature, "network.enabled", out legacyValue),
+                            "迁移：network 旧键退役");
+                        Check(LegacyDocHasToggle(root, NetworkModuleAdapter.V1CompatFeature, "v1compat.enabled", out legacyValue) && legacyValue,
+                            "迁移：v1compat 旧值 true → 文档原样保留（不额外触碰）");
+                        Check(!LegacyDocHasToggle(root, biiFeature, "Enabled", out legacyValue),
+                            "迁移：BII 旧 Enabled=false → 意图落盘且旧键退役（与其余五项同构）");
+                    }
+                    finally
+                    {
+                        BueFeatureStartRuntime.StopAll(FeatureStopReason.PluginStopping);
+                        BueRuntimeHost.Bind(previousHostRuntime);
+                        BetterUnturnedExperience.Plugin.BueSettingsRuntime.Clear();
+                        BueFeatureIntentRuntime.Clear();
+                        try { if (Directory.Exists(root)) Directory.Delete(root, true); } catch (IOException) { }
+                    }
+                });
+
+                // DEV-V4-04：幂等（重复加载不重复代际/不重复退役）、未声明 enabled 不迁、
+                // 显式别名表恰六项（AutoRotate 与 noop.probe-toggle 不登记）。
+                Group("legacy 迁移幂等与未声明", () =>
+                {
+                    var root = Path.Combine(Path.GetTempPath(), "bue-v404-idem-" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(root);
+                    BetterUnturnedExperience.Plugin.BueSettingsRuntime.Clear();
+                    BetterUnturnedExperience.Plugin.BueSettingsRuntime.EnsureCreated(root, () => true, null);
+                    BueFeatureIntentRuntime.Clear();
+                    BueFeatureIntentRuntime.EnsureCreated(root, null);
+                    try
+                    {
+                        var litFeature = new FeatureId(InventoryTidyFeatureRegistration.FeatureIdValue);
+                        var lhtFeature = new FeatureId(HordeTrackerFeatureRegistration.FeatureIdValue);
+                        var strangerFeature = new FeatureId("io.example.ecosystem-legacy");
+                        WriteLegacyToggleDoc(root, litFeature, "inventorytidy.enabled", false);
+                        WriteLegacyToggleDoc(root, lhtFeature, "hordetracker.enabled", false);
+                        WriteLegacyToggleDoc(root, NetworkModuleAdapter.V1CompatFeature, "v1compat.enabled", false);
+                        WriteLegacyToggleDoc(root, strangerFeature, "myservice.enabled", false);
+
+                        InventoryTidyFeatureRegistration.WiredModule = null;
+                        HordeTrackerFeatureRegistration.WiredModule = null;
+                        var idemRuntime = new FeatureRegistrationRuntime();
+                        idemRuntime.OpenRegistration();
+                        Check(idemRuntime.Register(InventoryTidyFeatureRegistration.CreateRegistration()).Accepted, "幂等 setup：LIT 登记");
+                        Check(idemRuntime.Register(HordeTrackerFeatureRegistration.CreateRegistration()).Accepted, "幂等 setup：LHT 登记");
+                        foreach (var registration in NetworkModuleFeatureRegistration.CreateOfficialRegistrations())
+                            Check(idemRuntime.Register(registration).Accepted, "幂等 setup：network 双 facet 登记");
+                        Check(idemRuntime.CompleteRuntime(), "幂等 setup：目录冻结");
+                        BueFeatureStartRuntime.StartCatalog(idemRuntime, NewLoopbackNetwork(idemRuntime.Catalog.CatalogRevision));
+
+                        BueLegacyEnabledMigrationAdapter.Run(root, line => { });
+                        FeatureStatusView firstStatus;
+                        Check(BueFeatureStartRuntime.TryGetStatus(litFeature, out firstStatus)
+                                && firstStatus.State == FeatureState.Stopped && firstStatus.StopReason == FeatureStopReason.UserDisabled,
+                            "幂等 setup：首次迁移=用户停用");
+                        var wiredAfterFirst = InventoryTidyFeatureRegistration.WiredModule;
+
+                        BueLegacyEnabledMigrationAdapter.Run(root, line => { });
+                        FeatureStatusView secondStatus;
+                        Check(BueFeatureStartRuntime.TryGetStatus(litFeature, out secondStatus)
+                                && secondStatus.State == FeatureState.Stopped && secondStatus.StopReason == FeatureStopReason.UserDisabled
+                                && secondStatus.StateRevision == firstStatus.StateRevision,
+                            "幂等：重复加载=空操作成功（投影原样，不新开代际不重复迁移）");
+                        Check(ReferenceEquals(InventoryTidyFeatureRegistration.WiredModule, wiredAfterFirst),
+                            "幂等：重复加载不经工厂（模块实例不变，无新代际）");
+
+                        // 六项 false→UserDisabled 的真实 e2e 收口：LIT/LIR/network/BII
+                        // 在「迁移六项」组，LHT/v1compat 的 false 在此补齐（机解释
+                        // Isolated→空操作成功，意图落盘+旧键退役与其余四项同构）。
+                        var idemIntents = BueFeatureIntentRuntime.StoreFor(root);
+                        Check(idemIntents.HasUserDisabled(lhtFeature)
+                                && idemIntents.HasUserDisabled(NetworkModuleAdapter.V1CompatFeature),
+                            "六项收口：LHT/v1compat 旧值 false → UserDisabled 意图落盘（Isolated 空操作成功）");
+                        bool lhtLegacy;
+                        Check(!LegacyDocHasToggle(root, lhtFeature, "hordetracker.enabled", out lhtLegacy),
+                            "六项收口：LHT 旧键退役");
+                        Check(!LegacyDocHasToggle(root, NetworkModuleAdapter.V1CompatFeature, "v1compat.enabled", out lhtLegacy),
+                            "六项收口：v1compat 旧键退役");
+                        bool strangerValue;
+                        Check(!BueFeatureIntentRuntime.StoreFor(root).HasUserDisabled(strangerFeature),
+                            "幂等：未登记功能不迁（生态 enabled 命名不触发字段名扫描）");
+                        Check(LegacyDocHasToggle(root, strangerFeature, "myservice.enabled", out strangerValue) && !strangerValue,
+                            "幂等：未登记功能的旧文档原样保留");
+
+                        var aliases = BueLegacyEnabledMigrationAdapter.ComposeAliases(root);
+                        Check(aliases.Count == 6, "别名表：恰六项显式登记");
+                        Check(HasAlias(aliases, InventoryTidyFeatureRegistration.FeatureIdValue, "inventorytidy.enabled")
+                                && HasAlias(aliases, InPlaceReloadFeatureRegistration.FeatureIdValue, "inplacereload.enabled")
+                                && HasAlias(aliases, HordeTrackerFeatureRegistration.FeatureIdValue, "hordetracker.enabled")
+                                && HasAlias(aliases, NetworkModuleAdapter.NetworkFeature.Value, "network.enabled")
+                                && HasAlias(aliases, NetworkModuleAdapter.V1CompatFeature.Value, "v1compat.enabled")
+                                && HasAlias(aliases, BetterItemInteractionSettingsState.Feature.Value, "Enabled"),
+                            "别名表：五宿主旧 `*.enabled` + BII Enabled 显式登记");
+                        Check(NotRegistered(aliases, "AutoRotate") && NotRegistered(aliases, "noop.probe-toggle")
+                                && !HasAlias(aliases, "io.github.yu80rice.bue.noop", "noop.probe-toggle"),
+                            "别名表：BII AutoRotate 与 NoOp probe-toggle 不登记（仍是普通设置）");
+                    }
+                    finally
+                    {
+                        BueFeatureStartRuntime.StopAll(FeatureStopReason.PluginStopping);
+                        BetterUnturnedExperience.Plugin.BueSettingsRuntime.Clear();
+                        BueFeatureIntentRuntime.Clear();
+                        try { if (Directory.Exists(root)) Directory.Delete(root, true); } catch (IOException) { }
+                    }
+                });
+
+                // DEV-V4-04：「成功写入新权威前不得丢旧值」落在真实文档路径——
+                // 注入真实 FileSettingsPersistence 的一次性替换故障，意图落盘失败
+                // →机已停但旧键必须原样保留（自愈前提）；故障解除后下一次加载
+                // 自愈：空操作成功→意图落盘→旧键退役。
+                Group("legacy 迁移失败保留旧值（真实文档路径）", () =>
+                {
+                    var root = Path.Combine(Path.GetTempPath(), "bue-v404-failkeep-" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(root);
+                    var previousHostRuntime = BueRuntimeHost.CurrentRuntime;
+                    BetterUnturnedExperience.Plugin.BueSettingsRuntime.Clear();
+                    BetterUnturnedExperience.Plugin.BueSettingsRuntime.EnsureCreated(root, () => true, null);
+                    BueFeatureIntentRuntime.Clear();
+                    try
+                    {
+                        var litFeature = new FeatureId(InventoryTidyFeatureRegistration.FeatureIdValue);
+                        WriteLegacyToggleDoc(root, litFeature, "inventorytidy.enabled", false);
+                        InventoryTidyFeatureRegistration.WiredModule = null;
+                        var failRuntime = new FeatureRegistrationRuntime();
+                        BueRuntimeHost.Bind(failRuntime);
+                        failRuntime.OpenRegistration();
+                        Check(failRuntime.Register(InventoryTidyFeatureRegistration.CreateRegistration()).Accepted, "保留 setup：LIT 登记");
+                        Check(failRuntime.CompleteRuntime(), "保留 setup：目录冻结");
+                        BueFeatureStartRuntime.StartCatalog(failRuntime, NewLoopbackNetwork(failRuntime.Catalog.CatalogRevision));
+
+                        // 故障注入进组合根：Default（机钩）与 StoreFor（迁移）
+                        // 解析同一失败实例=生产拓扑，RecordUserDisabled 真实写败。
+                        var failLines = new List<string>();
+                        var failingPersistence = new FileSettingsPersistence(root);
+                        failingPersistence.FailNextReplace = true;
+                        Check(BueFeatureIntentRuntime.EnsureCreatedWith(root, failingPersistence, failLines.Add),
+                            "保留 setup：故障库经组合根装配");
+                        BueLegacyEnabledMigrationAdapter.Run(root, line => { });
+
+                        FeatureStatusView failStatus;
+                        Check(BueFeatureStartRuntime.TryGetStatus(litFeature, out failStatus)
+                                && failStatus.State == FeatureState.Stopped && failStatus.StopReason == FeatureStopReason.UserDisabled,
+                            "保留 setup：机已解释停用（Running→停）");
+                        Check(failLines.Exists(l => l.Contains("event=lifecycle-intent") && l.Contains("result=commit-failed")
+                                && l.Contains("diagnosticId=BUE-LIFE-INTENT")),
+                            "保留：意图写败有结构化留痕（不静默）");
+                        bool failValue;
+                        Check(LegacyDocHasToggle(root, litFeature, "inventorytidy.enabled", out failValue) && !failValue,
+                            "保留：意图落盘失败 → 旧键仍在文件里（成功前旧值不丢）");
+                        Check(!BueFeatureIntentRuntime.StoreFor(root).HasUserDisabled(litFeature),
+                            "保留：意图未落盘（无半份权威）");
+
+                        BueLegacyEnabledMigrationAdapter.Run(root, line => { });
+                        bool healedValue;
+                        Check(!LegacyDocHasToggle(root, litFeature, "inventorytidy.enabled", out healedValue)
+                                && BueFeatureIntentRuntime.StoreFor(root).HasUserDisabled(litFeature),
+                            "自愈：下次加载空操作成功 → 意图落盘且旧键退役（幂等不新开代际）");
+                    }
+                    finally
+                    {
+                        BueFeatureStartRuntime.StopAll(FeatureStopReason.PluginStopping);
+                        BueRuntimeHost.Bind(previousHostRuntime);
+                        BetterUnturnedExperience.Plugin.BueSettingsRuntime.Clear();
+                        BueFeatureIntentRuntime.Clear();
+                        try { if (Directory.Exists(root)) Directory.Delete(root, true); } catch (IOException) { }
+                    }
+                });
+
+                // DEV-V4-04：迁移「退役写」自身的失败也走真实文档路径——别名持久
+                // 注入 FailNextReplace：机停用成功、意图落盘成功，但旧键改写失败
+                // → 旧键必须原样保留（TryCommit 失败字节不动）；故障解除后 honor
+                // 路径再清一次（自愈幂等）。
+                Group("legacy 迁移退役失败保留旧值（真实文档路径）", () =>
+                {
+                    var root = Path.Combine(Path.GetTempPath(), "bue-v404-retirefail-" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(root);
+                    var previousHostRuntime = BueRuntimeHost.CurrentRuntime;
+                    BetterUnturnedExperience.Plugin.BueSettingsRuntime.Clear();
+                    BetterUnturnedExperience.Plugin.BueSettingsRuntime.EnsureCreated(root, () => true, null);
+                    BueFeatureIntentRuntime.Clear();
+                    BueFeatureIntentRuntime.EnsureCreated(root, null);
+                    try
+                    {
+                        var litFeature = new FeatureId(InventoryTidyFeatureRegistration.FeatureIdValue);
+                        WriteLegacyToggleDoc(root, litFeature, "inventorytidy.enabled", false);
+                        InventoryTidyFeatureRegistration.WiredModule = null;
+                        var retireRuntime = new FeatureRegistrationRuntime();
+                        BueRuntimeHost.Bind(retireRuntime);
+                        retireRuntime.OpenRegistration();
+                        Check(retireRuntime.Register(InventoryTidyFeatureRegistration.CreateRegistration()).Accepted, "退役失败 setup：LIT 登记");
+                        Check(retireRuntime.CompleteRuntime(), "退役失败 setup：目录冻结");
+                        BueFeatureStartRuntime.StartCatalog(retireRuntime, NewLoopbackNetwork(retireRuntime.Catalog.CatalogRevision));
+
+                        var failingAliasPersistence = new FileSettingsPersistence(root);
+                        failingAliasPersistence.FailNextReplace = true;
+                        BueLegacyEnabledMigrationAdapter.Run(root, line => { }, failingAliasPersistence);
+
+                        FeatureStatusView retireStatus;
+                        Check(BueFeatureStartRuntime.TryGetStatus(litFeature, out retireStatus)
+                                && retireStatus.State == FeatureState.Stopped && retireStatus.StopReason == FeatureStopReason.UserDisabled,
+                            "退役失败 setup：机已解释停用");
+                        Check(BueFeatureIntentRuntime.StoreFor(root).HasUserDisabled(litFeature),
+                            "退役失败：意图事实已落盘（新权威在库）");
+                        bool retireFailValue;
+                        Check(LegacyDocHasToggle(root, litFeature, "inventorytidy.enabled", out retireFailValue) && !retireFailValue,
+                            "退役失败：旧键改写失败 → 旧键仍在文件里（退役失败不丢旧值）");
+
+                        BueLegacyEnabledMigrationAdapter.Run(root, line => { });
+                        bool healedRetireValue;
+                        Check(!LegacyDocHasToggle(root, litFeature, "inventorytidy.enabled", out healedRetireValue)
+                                && BueFeatureIntentRuntime.StoreFor(root).HasUserDisabled(litFeature),
+                            "退役失败自愈：honor 路径再清一次 → 旧键退役（幂等）");
+                    }
+                    finally
+                    {
+                        BueFeatureStartRuntime.StopAll(FeatureStopReason.PluginStopping);
+                        BueRuntimeHost.Bind(previousHostRuntime);
+                        BetterUnturnedExperience.Plugin.BueSettingsRuntime.Clear();
+                        BueFeatureIntentRuntime.Clear();
+                        try { if (Directory.Exists(root)) Directory.Delete(root, true); } catch (IOException) { }
+                    }
+                });
             }
             catch (Exception error) when (collectAllFailures)
             {
@@ -9274,6 +9595,52 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 if (captured[i].IndexOf(token, StringComparison.Ordinal) >= 0) return true;
             }
             return false;
+        }
+
+        // DEV-V4-04：旧世界落盘形状——schema-1 ClientLocal toggle 文档（升级前
+        // 五个官方功能的唯一 facet）。迁移引擎的输入契约。
+        private static void WriteLegacyToggleDoc(string root, FeatureId feature, string settingId, bool value)
+        {
+            var descriptor = new SettingDescriptor(feature, settingId, settingId, settingId, SettingKind.Toggle,
+                SettingAuthority.ClientLocal, SettingValue.Toggle(true),
+                default(SettingValueOption), default(SettingValueOption), default(SettingValueOption),
+                new SettingValue[0], 0, string.Empty, 1, 0, string.Empty, string.Empty);
+            var runtime = new SettingsRuntime(feature, new[] { descriptor }, new FileSettingsPersistence(root));
+            // true 与默认值同形是不落盘的 no-op 提交——两段提交保证最终值落盘，
+            // 第二段以第一段返回的实际 revision 为基准（no-op 时 revision 不推进）。
+            var first = runtime.Submit(new ScopedSettingChangeRequest(1UL, SettingRevisionScope.ClientPreference, 0,
+                new[] { new SettingMutation(settingId, SettingValue.Toggle(!value)) }));
+            Assert(first.Accepted, "setup: legacy toggle doc write (stage 1) for " + feature.Value);
+            var result = runtime.Submit(new ScopedSettingChangeRequest(2UL, SettingRevisionScope.ClientPreference, first.Revision,
+                new[] { new SettingMutation(settingId, SettingValue.Toggle(value)) }));
+            Assert(result.Accepted, "setup: legacy toggle doc write for " + feature.Value + ":" + result.Error);
+        }
+
+        // DEV-V4-04：直接读旧文档（退役后 facet 不再声明该键，只有迁移 adapter 以
+        // 显式别名方式读它）——返回键是否存在 + 当前布尔值。
+        private static bool LegacyDocHasToggle(string root, FeatureId feature, string settingId, out bool value)
+        {
+            value = false;
+            var loaded = new FileSettingsPersistence(root).Load(feature, SettingRevisionScope.ClientPreference, 1, null);
+            if (!loaded.IsValid) return false;
+            SettingValue raw;
+            if (!loaded.Values.TryGetValue(settingId, out raw) || raw.Kind != SettingKind.Toggle) return false;
+            value = raw.Boolean;
+            return true;
+        }
+
+        private static bool HasAlias(IReadOnlyList<LegacyEnabledAlias> aliases, string featureValue, string settingId)
+        {
+            for (var i = 0; i < aliases.Count; i++)
+                if (aliases[i].Feature.Value == featureValue && aliases[i].LegacySettingId == settingId) return true;
+            return false;
+        }
+
+        private static bool NotRegistered(IReadOnlyList<LegacyEnabledAlias> aliases, string settingId)
+        {
+            for (var i = 0; i < aliases.Count; i++)
+                if (aliases[i].LegacySettingId == settingId) return false;
+            return true;
         }
 
         // DEV-V3-04: BueNetwork 传输规则与主线程投递。行为面冻结：平台每会话
@@ -10692,24 +11059,14 @@ namespace BetterUnturnedExperience.Plugin.Tests
                             litEntry = entries[index];
                             hasLitEntry = true;
                         }
-                        Check(hasLitEntry && litEntry.BueSettings.Count == 1
-                                && litEntry.BueSettings[0].SettingId == "inventorytidy.enabled",
-                            "目录路由：LIT 设置页来自注册目录（装配参数退役后仍恰见其一枚举开关）");
+                        // DEV-V4-04：legacy enabled facet 退役——LIT 条目仍在目录里
+                        // （身份路由不依赖装配参数），但不再有任何设置行/总开关。
+                        Check(hasLitEntry && litEntry.BueSettings.Count == 0,
+                            "目录路由：LIT 设置页不再暴露 enabled 总开关（facet 退役，面板零设置行）");
                         var edit = composition.ManagementPanel.Model.TryEditBueSetting(litFeature,
                             "inventorytidy.enabled", PluginConfigValue.BooleanValue(false));
-                        Check(edit.Accepted && edit.Revision == 1u,
-                            "目录路由：面板编辑经目录路由进 LIT 的宿主设置面（今天=BII 回退拒）");
-                        composition.RefreshManagementPanel();
-                        entries = composition.ManagementPanel.Model.GetEntries();
-                        var reflected = false;
-                        for (var index = 0; index < entries.Count; index++)
-                        {
-                            if (entries[index].StableId != litFeature.Value) continue;
-                            for (var s = 0; s < entries[index].BueSettings.Count; s++)
-                                if (entries[index].BueSettings[s].SettingId == "inventorytidy.enabled"
-                                    && !entries[index].BueSettings[s].EffectiveValue.Boolean) reflected = true;
-                        }
-                        Check(reflected, "面板=编辑 adapter：编辑后目录条目快照如实反映新值（单真相，非第二事实源）");
+                        Check(!edit.Accepted,
+                            "目录路由：退役总开关的编辑=显式拒绝（facet 已退役，编辑缝不再路由到 LIT 设置面）");
                     }
                     finally { composition.Destroy(); }
                     BueRuntimeHost.Bind(previousRuntime);
@@ -10819,28 +11176,47 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     try
                     {
                         composition.RefreshManagementPanel();
+                        var biiFeature = BetterItemInteractionSettingsState.Feature;
                         var litSettings = -1;
+                        var biiSettings = -1;
                         var ecoSettings = -1;
                         var entries = composition.ManagementPanel.Model.GetEntries();
                         for (var index = 0; index < entries.Count; index++)
                         {
                             if (entries[index].StableId == litFeature.Value) litSettings = entries[index].BueSettings.Count;
+                            if (entries[index].StableId == biiFeature.Value) biiSettings = entries[index].BueSettings.Count;
                             if (entries[index].StableId == ecoFeature.Value) ecoSettings = entries[index].BueSettings.Count;
                         }
-                        Check(litSettings == 1 && ecoSettings == 1,
-                            "并列可见:官方与生态条目在同一面板各见其 schema(同一目录规则)");
+                        // DEV-V4-04：官方 LIT 的 enabled facet 退役（零行）；并列
+                        // 可编辑锚改由官方 BII（组合路由，恰剩 AutoRotate）承担。
+                        Check(litSettings == 0 && ecoSettings == 1,
+                            "并列可见:官方 LIT 零设置行(facet 退役)与生态条目各按其事实投影(同一目录规则)");
+                        Check(biiSettings == 1,
+                            "并列可见:BII 设置页恰剩 AutoRotate 一行(Enabled 退役,仍是普通设置)");
                         var litEdit = composition.ManagementPanel.Model.TryEditBueSetting(litFeature,
                             "inventorytidy.enabled", PluginConfigValue.BooleanValue(false));
+                        var biiEdit = composition.ManagementPanel.Model.TryEditBueSetting(biiFeature,
+                            "AutoRotate", PluginConfigValue.BooleanValue(false));
                         var ecoEdit = composition.ManagementPanel.Model.TryEditBueSetting(ecoFeature,
                             "probe.enabled", PluginConfigValue.BooleanValue(false));
-                        Check(litEdit.Accepted && ecoEdit.Accepted && litEdit.Revision == 1u && ecoEdit.Revision == 1u,
-                            "并列可编辑:同一编辑 seam 双方各自受理,revision 独立推进(同权四条之②)");
+                        Check(!litEdit.Accepted && biiEdit.Accepted && ecoEdit.Accepted && biiEdit.Revision == 1u && ecoEdit.Revision == 1u,
+                            "并列可编辑:退役行显式拒,同一编辑 seam 官方(BII)与生态各自受理,revision 独立推进(同权四条之②)");
+                        composition.RefreshManagementPanel();
+                        entries = composition.ManagementPanel.Model.GetEntries();
+                        var biiReflected = false;
+                        for (var index = 0; index < entries.Count; index++)
+                        {
+                            if (entries[index].StableId != biiFeature.Value) continue;
+                            for (var s = 0; s < entries[index].BueSettings.Count; s++)
+                                if (entries[index].BueSettings[s].SettingId == "AutoRotate"
+                                    && !entries[index].BueSettings[s].EffectiveValue.Boolean) biiReflected = true;
+                        }
                         SettingValue ecoValue;
                         uint ecoRevision;
                         var ecoStore = BetterUnturnedExperience.Plugin.BueSettingsRuntime.Registry;
-                        Check(ecoStore.TryGetRuntime(ecoFeature).TryGet("probe.enabled", out ecoValue, out ecoRevision) && !ecoValue.Boolean
-                                && ecoStore.TryGetRuntime(litFeature).TryGet("inventorytidy.enabled", out ecoValue, out ecoRevision) && !ecoValue.Boolean,
-                            "并列可编辑:两功能的宿主 runtime 各自落地,互不越染(作用域隔离经同一面板)");
+                        Check(biiReflected
+                                && ecoStore.TryGetRuntime(ecoFeature).TryGet("probe.enabled", out ecoValue, out ecoRevision) && !ecoValue.Boolean,
+                            "并列可编辑:两功能的权威面各自落地,互不越染(作用域隔离经同一面板)");
                     }
                     finally
                     {
@@ -10852,17 +11228,21 @@ namespace BetterUnturnedExperience.Plugin.Tests
 
                 Group("官方先行消费锚：面板自身草稿→保存经真实宿主设置面", () =>
                 {
-                    // DEV-V4-01 验收③：至少一条官方 ClientPreference 走「未保存
+                    // DEV-V4-01 验收③：至少一条 ClientPreference 走「未保存
                     // 草稿→保存配置」——编辑只进内存、点保存才经一次原子 Submit
                     // 落宿主 runtime、revision 单次推进、保存后快照如实反映新值。
+                    // DEV-V4-04：LIT 的 enabled facet 退役——宿主设置面锚改挂
+                    // NoOp 样板（noop.probe-toggle，官方出货的生态接入样板，
+                    // 经同一公共桥+同一面板路由）。
                     EnsureSettings();
+                    var noopFeature = new FeatureId("io.github.yu80rice.bue.noop");
                     var previousRuntime = BueRuntimeHost.CurrentRuntime;
                     var runtime = new FeatureRegistrationRuntime();
                     BueRuntimeHost.Bind(runtime);
                     runtime.OpenRegistration();
                     BetterItemInteractionFeatureRegistration.Register();
-                    Check(runtime.Register(InventoryTidyFeatureRegistration.CreateRegistration()).Accepted,
-                        "草稿锚 setup：LIT facet 登记受理");
+                    Check(runtime.Register(NoOpFeatureRegistration.ProbeRegistration).Accepted,
+                        "草稿锚 setup：NoOp 样板 facet 登记受理");
                     Check(runtime.CompleteRuntime(), "草稿锚 setup：目录冻结");
                     var composition = new BueClientUiCompositionRoot();
                     try
@@ -10870,16 +11250,16 @@ namespace BetterUnturnedExperience.Plugin.Tests
                         composition.RefreshManagementPanel();
                         var store = BetterUnturnedExperience.Plugin.BueSettingsRuntime.Registry;
                         SettingValue before; uint beforeRevision;
-                        Check(store.TryGetRuntime(litFeature).TryGet("inventorytidy.enabled", out before, out beforeRevision),
-                            "草稿锚 setup：官方 ClientPreference（inventorytidy.enabled）经宿主 runtime 可读");
+                        Check(store.TryGetRuntime(noopFeature).TryGet("noop.probe-toggle", out before, out beforeRevision),
+                            "草稿锚 setup：ClientPreference（noop.probe-toggle）经宿主 runtime 可读");
                         var desired = !before.Boolean;
 
                         var model = composition.ManagementPanel.Model;
-                        model.OpenDetail(litFeature.Value);
-                        Check(model.DraftEditBueSetting("inventorytidy.enabled", PluginConfigValue.BooleanValue(desired)),
-                            "草稿锚：官方 ClientPreference 进草稿");
+                        model.OpenDetail(noopFeature.Value);
+                        Check(model.DraftEditBueSetting("noop.probe-toggle", PluginConfigValue.BooleanValue(desired)),
+                            "草稿锚：ClientPreference 进草稿");
                         SettingValue during; uint duringRevision;
-                        store.TryGetRuntime(litFeature).TryGet("inventorytidy.enabled", out during, out duringRevision);
+                        store.TryGetRuntime(noopFeature).TryGet("noop.probe-toggle", out during, out duringRevision);
                         Check(during.Boolean == before.Boolean && duringRevision == beforeRevision,
                             "草稿锚：改设置不立刻写权威源（宿主 runtime 值/revision 不动）");
                         Check(model.IsDirty, "草稿锚：改值即脏");
@@ -10888,7 +11268,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                         Check(report.Outcome == DraftSaveOutcome.Success && report.PrimaryMessage == "配置已保存。",
                             "草稿锚：保存成功文案");
                         SettingValue after; uint afterRevision;
-                        store.TryGetRuntime(litFeature).TryGet("inventorytidy.enabled", out after, out afterRevision);
+                        store.TryGetRuntime(noopFeature).TryGet("noop.probe-toggle", out after, out afterRevision);
                         Check(after.Boolean == desired && afterRevision == beforeRevision + 1,
                             "草稿锚：保存才经一次原子 Submit 落宿主 runtime（revision 单次推进）");
                         Check(!model.IsDirty, "草稿锚：全成功后草稿清空");
@@ -10897,9 +11277,9 @@ namespace BetterUnturnedExperience.Plugin.Tests
                         var reflected = false;
                         foreach (var row in model.GetEntries())
                         {
-                            if (row.StableId != litFeature.Value) continue;
+                            if (row.StableId != noopFeature.Value) continue;
                             foreach (var setting in row.BueSettings)
-                                if (setting.SettingId == "inventorytidy.enabled" && setting.EffectiveValue.Boolean == desired) reflected = true;
+                                if (setting.SettingId == "noop.probe-toggle" && setting.EffectiveValue.Boolean == desired) reflected = true;
                         }
                         Check(reflected, "草稿锚：保存后面板快照如实反映新值（面板=编辑 adapter，非第二事实源）");
                     }
@@ -10948,76 +11328,11 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     Check(applied, "目录 facet 投影：刷新钩子经目录可达（不反射不读路径）");
                 });
 
-                Group("官方先行消费锚真实 LIT 经注入 view", () =>
-                {
-                    // T7 ⑤ 全链：面板编辑→目录路由→宿主唯一 runtime→
-                    // OnSettingsApplied→模块经注入 view 读到新值。模块本体不
-                    // 再构造/持有 SettingsRuntime（内部控制面退役）。
-                    EnsureSettings();
-                    var previousRuntime = BueRuntimeHost.CurrentRuntime;
-                    var runtime = new FeatureRegistrationRuntime();
-                    BueRuntimeHost.Bind(runtime);
-                    runtime.OpenRegistration();
-                    BetterItemInteractionFeatureRegistration.Register();
-                    Check(runtime.Register(InventoryTidyFeatureRegistration.CreateRegistration()).Accepted,
-                        "官方锚 setup：官方 LIT 登记入探针运行时");
-                    Check(runtime.CompleteRuntime(), "官方锚 setup：目录冻结");
-                    BueFeatureStartRuntime.StartCatalog(runtime, NewLoopbackNetwork(3201UL));
-                    var litModule = InventoryTidyFeatureRegistration.WiredModule;
-                    Check(litModule != null && litModule.Enabled,
-                        "官方锚：真实 LIT 经工厂启动，初始 Enabled 经注入 view 读取（默认开）");
-                    Check(litModule.SettingsView != null
-                            && !(litModule.SettingsView is BetterUnturnedExperience.Core.Settings.SettingsRuntime),
-                        "官方锚：模块持有的是注入 scoped view（非自身 SettingsRuntime——内部控制面已退役）");
-                    var composition = new BueClientUiCompositionRoot();
-                    try
-                    {
-                        composition.RefreshManagementPanel();
-                        var edit = composition.ManagementPanel.Model.TryEditBueSetting(litFeature,
-                            "inventorytidy.enabled", PluginConfigValue.BooleanValue(false));
-                        Check(edit.Accepted && edit.Revision == 1u,
-                            "官方锚：面板编辑经注册目录路由进宿主唯一 runtime");
-                        Check(!litModule.Enabled,
-                            "官方锚：编辑生效经 OnSettingsApplied→RefreshSwitches 使模块经注入 view 读到新值（单真相全链）");
-                        SettingValue enabledValue;
-                        uint enabledRevision;
-                        Check(litModule.SettingsView.TryGet("inventorytidy.enabled", out enabledValue, out enabledRevision)
-                                && !enabledValue.Boolean && enabledRevision == 1u,
-                            "官方锚：注入 view 的 TryGet 如实反映提交后的真相");
-                    }
-                    finally { composition.Destroy(); }
-                    var stopLines = new List<string>();
-                    var previousRecorder = BueRuntimeLog.Recorder;
-                    BueRuntimeLog.Recorder = stopLines.Add;
-                    try
-                    {
-                        BueFeatureStartRuntime.StopAll(FeatureStopReason.PluginStopping);
-                        var staleWrite = litModule.SettingsView.Submit(new ScopedSettingChangeRequest(20,
-                            SettingRevisionScope.ClientPreference, 1,
-                            new[] { new SettingMutation("inventorytidy.enabled", SettingValue.Toggle(true)) }));
-                        Check(!staleWrite.Accepted
-                                && stopLines.Exists(l => l.Contains("diagnosticId=BUE-SET-001") && l.Contains("io.github.yu80rice.bue.inventory-tidy")),
-                            "停止边界：停止代际经捕获 view 写入=显式拒+BUE-SET-001 留痕");
-                        Check(litModule.SettingsView.GetSnapshot(SettingRevisionScope.ClientPreference).Revision == 1u,
-                            "停止边界：捕获 view 读仍如实（只读观察无突变面）");
-                    }
-                    finally { BueRuntimeLog.Recorder = previousRecorder; }
-                    InventoryTidyFeatureRegistration.WiredModule = null;
-                    Check(BueFeatureStartRuntime.SetFeatureEnabled(litFeature, true),
-                        "再启用：面板 seam 新代际重臂（官方同一缝）");
-                    var litModule2 = InventoryTidyFeatureRegistration.WiredModule;
-                    Check(litModule2 != null && litModule2.SettingsView != null
-                            && litModule2.SettingsView.GetSnapshot(SettingRevisionScope.ClientPreference).Revision == 1u,
-                        "再启用：新代际 view 延续同一持久真相（revision 不重置）");
-                    var revived = litModule2.SettingsView.Submit(new ScopedSettingChangeRequest(21,
-                        SettingRevisionScope.ClientPreference, 1,
-                        new[] { new SettingMutation("inventorytidy.enabled", SettingValue.Toggle(true)) }));
-                    Check(revived.Accepted && revived.Revision == 2u,
-                        "再启用：新代际写入可用且续用单调计数器（单源跨代际）");
-                    BueFeatureStartRuntime.StopAll(FeatureStopReason.PluginStopping);
-                    BueRuntimeHost.Bind(previousRuntime);
-                });
-
+                // DEV-V4-04 注记：DEV-V3-06 的「官方先行消费锚真实 LIT 经注入
+                // view」全链组随 enabled facet 退役而退役（LIT 不再有 facet，
+                // 面板行/OnSettingsApplied 路由不存在）；同缝由「生态对照 NoOp
+                // 设置支线」与 Settings.Tests 的 view/代际组继续覆盖，DEV-V4-06
+                // 将以 LIT mode/direction 重新落面板路由锚。
                 Group("生态对照 NoOp 设置支线", () =>
                 {
                     // 生态作者视角最小对照（全链 probe 归 08）：注册带 facet

@@ -83,13 +83,13 @@ namespace BetterUnturnedExperience.Plugin
                 payload);
         }
 
-        // DEV-V3-06: the settings facet (IFeatureSettingsRegistration) —
-        // the module's ONE toggle schema declared through the registration
-        // (功能拥有 Schema); the host composes the single runtime from it,
-        // routes the panel and injects the scoped view. OnSettingsApplied =
-        // the module's own refresh hook (feature-owned reaction, never a
-        // second source of truth).
-        private sealed class Registration : IFeatureRegistration, IFeatureSettingsRegistration
+        // DEV-V3-06 → DEV-V4-04: the settings facet existed as the module's
+        // ONE toggle schema; the legacy enabled master switch RETIRES with
+        // the V4 migration (spec「成功后旧字段从 schema 与面板退役」) — the
+        // registration declares NO facet now, the lifecycle is the only
+        // switch, and the panel has no enabled row to draw. (DEV-V4-06 will
+        // re-introduce LIT's mode/direction choices as the new facet.)
+        private sealed class Registration : IFeatureRegistration
         {
             private readonly InventoryTidyModule moduleForFactory;
 
@@ -105,17 +105,6 @@ namespace BetterUnturnedExperience.Plugin
             public IFeatureModuleFactory ModuleFactory { get { return new ModuleFactory(moduleForFactory); } }
 
             public IClientUiSatelliteRegistration ClientUi { get { return null; } }
-
-            public IReadOnlyList<SettingDescriptor> SettingDescriptors { get { return InventoryTidyModule.CreateSettingsDescriptors(new FeatureId(FeatureIdValue)); } }
-
-            public Action OnSettingsApplied
-            {
-                get
-                {
-                    var module = WiredModule ?? moduleForFactory;
-                    return module == null ? null : new Action(module.RefreshSwitches);
-                }
-            }
         }
 
         private sealed class ModuleFactory : IFeatureModuleFactory

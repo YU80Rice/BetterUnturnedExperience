@@ -5,6 +5,7 @@ using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using BetterUnturnedExperience.Contracts;
+using BetterUnturnedExperience.Core.Registration;
 using BetterUnturnedExperience.Core.Settings;
 
 namespace BetterUnturnedExperience.Settings.Tests
@@ -185,6 +186,7 @@ namespace BetterUnturnedExperience.Settings.Tests
 
             RunV3ScopedSettingsView();
             RunV4DraftSubmitAtomicity();
+            RunV4LegacyIntentAndMigration();
         }
 
         // DEV-V3-06: the host-owned settings registry + the scoped view
@@ -403,6 +405,114 @@ namespace BetterUnturnedExperience.Settings.Tests
             Assert(!stale.Accepted && stale.Error == FrameworkErrorCode.SettingRevisionConflict
                 && stale.Snapshot.Revision == 1,
                 "v4: a stale ExpectedRevision is refused with the current snapshot");
+        }
+
+        // DEV-V4-04：官方 legacy enabled 迁移的 Core 底座——UserDisabled 意图事实库
+        // 与显式别名迁移引擎。意图库=宿主自持文档（io.github.yu80rice.bue）里每功能
+        // 一条 Toggle 记录（先例=Settings.Tests 持久化组）；引擎=只迁移显式登记的别名，
+        // 旧值 false→交解释器（03 目标提交）解释是否实际停用，机成功且意图已落盘才
+        // 退役旧键（成功前旧值原样保留、失败自愈重试）；true/不存在不动生命周期；
+        // 已有意图则以新权威为准（honor 路径），未登记的一律不迁（不做字段名扫描）。
+        private static void RunV4LegacyIntentAndMigration()
+        {
+            var lines = new List<string>();
+            var memory = new InMemorySettingsPersistence();
+            var store = new FeatureLifecycleIntentStore(memory, lines.Add);
+            var intentFeature = new FeatureId("io.example.legacy-intent");
+
+            // ── 意图事实库：记录/查询/清除 幂等，且跨实例（=跨重启）持久。 ──
+            Assert(!store.HasUserDisabled(intentFeature), "意图库：初始无停用意图");
+            Assert(store.RecordUserDisabled(intentFeature), "意图库：记录 UserDisabled 意图成功");
+            Assert(store.HasUserDisabled(intentFeature), "意图库：记录后可查");
+            Assert(store.RecordUserDisabled(intentFeature), "意图库：重复记录幂等成功");
+            Assert(store.Clear(intentFeature), "意图库：清除意图成功");
+            Assert(!store.HasUserDisabled(intentFeature), "意图库：清除后不再可查");
+            Assert(store.Clear(intentFeature), "意图库：重复清除幂等成功");
+            Assert(store.RecordUserDisabled(intentFeature), "意图库 setup：再记录");
+            var reopened = new FeatureLifecycleIntentStore(memory, lines.Add);
+            Assert(reopened.HasUserDisabled(intentFeature), "意图库：新实例读到同一持久事实（跨重启存活）");
+            Assert(reopened.Clear(intentFeature), "意图库 setup：清除（文件实例）");
+            Assert(lines.Exists(l => l.Contains("diagnosticId=BUE-LIFE-INTENT")),
+                "意图库：记录/清除带结构化诊断行（BUE-LIFE-INTENT）");
+
+            var root = Path.Combine(Path.GetTempPath(), "BUE-V404-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(root);
+            try
+            {
+                var fileStore = new FeatureLifecycleIntentStore(new FileSettingsPersistence(root), lines.Add);
+                Assert(fileStore.RecordUserDisabled(intentFeature) && fileStore.Clear(intentFeature),
+                    "意图库：文件持久化实例走同一读写语义");
+
+                // ── 迁移引擎：stub 读源/退役动作 + 真实意图库，只测决策面。
+                //    文档级读写（FileSettingsPersistence 上的旧键读出与退役改写）
+                //    由 Plugin 侧六项别名组合的 e2e 锚定。 ──
+                var docFeature = new FeatureId("io.example.legacy-doc");
+                var fileStore2 = new FeatureLifecycleIntentStore(new InMemorySettingsPersistence(), null);
+                var interpreterCalls = new List<string>();
+                var retired = 0;
+                bool? legacyValue = false;
+                Func<FeatureId, bool> interpret = f =>
+                {
+                    interpreterCalls.Add(f.Value);
+                    return fileStore2.RecordUserDisabled(f); // 模拟 03 机：停用成功即落意图事实
+                };
+                var alias = new LegacyEnabledAlias(docFeature, "legacy.enabled", 1, () => legacyValue,
+                    () => { if (legacyValue != null) { retired++; legacyValue = null; } }); // 桩模拟真实退役动作的自守契约（键不在=无写）
+
+                LegacyEnabledMigration.Run(new[] { alias }, fileStore2, interpret, lines.Add);
+                Assert(interpreterCalls.Count == 1 && interpreterCalls[0] == docFeature.Value,
+                    "引擎：旧值 false 恰一次交给解释器（目标提交=03 机语义）");
+                Assert(fileStore2.HasUserDisabled(docFeature), "引擎：迁移后意图事实在库（新权威落盘）");
+                Assert(retired == 1, "引擎：机成功且意图落盘后才退役旧键（恰一次）");
+
+                // 幂等：重复加载不重复迁移——意图在库走 honor（再解释一次=空操作成功），
+                // 旧键已退役不再触碰。
+                legacyValue = null;
+                LegacyEnabledMigration.Run(new[] { alias }, fileStore2, interpret, lines.Add);
+                Assert(interpreterCalls.Count == 2, "引擎：honor 路径仍交解释器（重复加载不重复代际由机空操作保证）");
+                Assert(retired == 1, "引擎：旧键已退役，重复加载不再改写");
+
+                // true / 不存在 → 不额外改生命周期（静默：不解释、不落意图、不退役）。
+                var untouched = new FeatureId("io.example.legacy-untouched");
+                var untouchedStore = new FeatureLifecycleIntentStore(new InMemorySettingsPersistence(), null);
+                legacyValue = true;
+                LegacyEnabledMigration.Run(new[] { alias }, untouchedStore, interpret, lines.Add);
+                Assert(interpreterCalls.Count == 2 && !untouchedStore.HasUserDisabled(docFeature) && retired == 1,
+                    "引擎：旧值 true 不动生命周期");
+                legacyValue = null;
+                LegacyEnabledMigration.Run(new[] { alias }, untouchedStore, interpret, lines.Add);
+                Assert(interpreterCalls.Count == 2 && !untouchedStore.HasUserDisabled(docFeature),
+                    "引擎：旧值不存在不动生命周期");
+
+                // 解释器显式失败 → 旧值保留（不退役、不落意图），下次加载自愈重试。
+                legacyValue = false;
+                var retryStore = new FeatureLifecycleIntentStore(new InMemorySettingsPersistence(), null);
+                LegacyEnabledMigration.Run(new[] { alias }, retryStore, f => false, lines.Add);
+                Assert(!retryStore.HasUserDisabled(docFeature) && retired == 1,
+                    "引擎：解释器失败=旧值仍在（不丢旧值，不落半份权威）");
+
+                // 机成功但意图没落盘（持久故障模拟）→ 不退役，靠旧值下次自愈。
+                var lostStore = new FeatureLifecycleIntentStore(new InMemorySettingsPersistence(), null);
+                LegacyEnabledMigration.Run(new[] { alias }, lostStore, f => true, lines.Add);
+                Assert(retired == 1, "引擎：机成功而意图缺席=不退役旧键（自愈前提）");
+
+                // 已有新权威则以新为准：意图在库时旧值即使 true 也按停用解释。
+                var winsStore = new FeatureLifecycleIntentStore(new InMemorySettingsPersistence(), null);
+                winsStore.RecordUserDisabled(docFeature);
+                legacyValue = true;
+                var winsCalls = 0;
+                LegacyEnabledMigration.Run(new[] { alias }, winsStore, f => { winsCalls++; return true; }, lines.Add);
+                Assert(winsCalls == 1, "引擎：已有意图则以新权威为准（旧值 true 不翻案）");
+
+                // 未登记的一律不迁：引擎只迭代给定别名表，表外功能零接触。
+                var stranger = new FeatureId("io.example.ecosystem-legacy");
+                Assert(!fileStore2.HasUserDisabled(stranger) && interpreterCalls.All(c => c != stranger.Value),
+                    "引擎：未登记 enabled 不迁（不按字段名扫描，只认显式别名表）");
+            }
+            finally
+            {
+                if (Directory.Exists(root)) Directory.Delete(root, true);
+            }
         }
 
         private static void RewriteSchema(string path, uint schema)

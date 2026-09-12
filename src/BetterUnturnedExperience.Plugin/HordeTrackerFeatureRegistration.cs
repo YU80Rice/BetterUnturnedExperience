@@ -18,7 +18,7 @@ namespace BetterUnturnedExperience.Plugin
     {
         internal const string FeatureIdValue = LhtRuntime.FeatureIdValue;
 
-        internal static HordeTrackerModule WiredModule { get; private set; }
+        internal static HordeTrackerModule WiredModule { get; set; }
 
         internal static FeatureRegistrationResult Register()
         {
@@ -66,7 +66,7 @@ namespace BetterUnturnedExperience.Plugin
 
         // DEV-V3-06: settings facet — same discipline as the sibling
         // official registrations.
-        private sealed class Registration : IFeatureRegistration, IFeatureSettingsRegistration
+        private sealed class Registration : IFeatureRegistration
         {
             private readonly HordeTrackerModule moduleForFactory;
 
@@ -82,17 +82,6 @@ namespace BetterUnturnedExperience.Plugin
             public IFeatureModuleFactory ModuleFactory { get { return new ModuleFactory(moduleForFactory); } }
 
             public IClientUiSatelliteRegistration ClientUi { get { return null; } }
-
-            public IReadOnlyList<SettingDescriptor> SettingDescriptors { get { return HordeTrackerModule.CreateSettingsDescriptors(new FeatureId(FeatureIdValue)); } }
-
-            public Action OnSettingsApplied
-            {
-                get
-                {
-                    var module = WiredModule ?? moduleForFactory;
-                    return module == null ? null : new Action(module.RefreshSwitches);
-                }
-            }
         }
 
         private sealed class ModuleFactory : IFeatureModuleFactory

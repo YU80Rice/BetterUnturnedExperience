@@ -1,0 +1,19 @@
+ .../BetterItemInteractionLifecycle.cs              |  37 +-
+ .../ItemInteractionUiComponent.cs                  |  10 +-
+ .../BetterUnturnedExperience.Core.csproj           |   2 +-
+ .../BetterUnturnedExperience.Plugin.csproj         |   4 +-
+ .../BetterUnturnedExperiencePlugin.cs              |   4 +
+ .../BueFeatureStartRuntime.cs                      |  11 +-
+ .../BueNativeManagementPanel.cs                    |  13 +-
+ .../BueRuntimeCompletionChain.cs                   |   4 +
+ .../HordeTrackerFeatureRegistration.cs             |  15 +-
+ .../InPlaceReloadFeatureRegistration.cs            |  15 +-
+ .../InventoryTidyFeatureRegistration.cs            |  25 +-
+ .../NetworkModuleAdapter.cs                        |  37 +-
+ .../NetworkModuleFeatureRegistration.cs            |  16 +-
+ .../BetterUnturnedExperience.ClientUi.Tests.csproj |   1 +
+ .../Dev15DTests.cs                                 |  17 +-
+ .../Program.cs                                     |   5 +-
+ .../Program.cs                                     | 605 ++++++++++++++++-----
+ .../Program.cs                                     | 110 ++++
+ 18 files changed, 670 insertions(+), 261 deletions(-)

@@ -82,6 +82,10 @@ namespace BetterUnturnedExperience.Plugin
                 // views and the panel routing all resolve to this ONE default
                 // registry (single source of truth, per-feature runtime).
                 BueSettingsRuntime.EnsureCreated(BueSettingsRuntime.ProductionSettingsRoot);
+                // DEV-V4-04: compose the durable lifecycle intent store on the
+                // SAME root — the machine's disable/enable hooks and the legacy
+                // enabled migration all resolve this one store (first-wins).
+                BueFeatureIntentRuntime.EnsureCreated(BueSettingsRuntime.ProductionSettingsRoot);
                 var runtime = new FeatureRegistrationRuntime();
                 BueRuntimeHost.Bind(runtime);
                 runtime.OpenRegistration();

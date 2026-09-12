@@ -28,7 +28,7 @@
     <Compile Include="..\BetterUnturnedExperience.Core\Network\HostNetworkTransportAdapter.cs"><Link>EmbeddedCore\Network\HostNetworkTransportAdapter.cs</Link></Compile>
     <Compile Include="..\BetterUnturnedExperience.Core\Network\LmnV1TableMirror.cs"><Link>EmbeddedCore\Network\LmnV1TableMirror.cs</Link></Compile>
     <Compile Include="..\BetterUnturnedExperience.Core\Placement\PlacementCandidateEvaluator.cs"><Link>EmbeddedCore\Placement\PlacementCandidateEvaluator.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Core\Registration\FeatureRegistrationRuntime.cs"><Link>EmbeddedCore\Registration\FeatureRegistrationRuntime.cs</Link></Compile><Compile Include="..\BetterUnturnedExperience.Core\Registration\FeatureLifecycleRuntime.cs"><Link>EmbeddedCore\Registration\FeatureLifecycleRuntime.cs</Link></Compile><Compile Include="..\BetterUnturnedExperience.Core\Registration\FeatureBootstrap.cs"><Link>EmbeddedCore\Registration\FeatureBootstrap.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Core\Registration\FeatureRegistrationRuntime.cs"><Link>EmbeddedCore\Registration\FeatureRegistrationRuntime.cs</Link></Compile><Compile Include="..\BetterUnturnedExperience.Core\Registration\FeatureLifecycleRuntime.cs"><Link>EmbeddedCore\Registration\FeatureLifecycleRuntime.cs</Link></Compile><Compile Include="..\BetterUnturnedExperience.Core\Registration\FeatureBootstrap.cs"><Link>EmbeddedCore\Registration\FeatureBootstrap.cs</Link></Compile><Compile Include="..\BetterUnturnedExperience.Core\Registration\FeatureLifecycleIntentStore.cs"><Link>EmbeddedCore\Registration\FeatureLifecycleIntentStore.cs</Link></Compile><Compile Include="..\BetterUnturnedExperience.Core\Registration\LegacyEnabledMigration.cs"><Link>EmbeddedCore\Registration\LegacyEnabledMigration.cs</Link></Compile>
     <Compile Include="..\BetterUnturnedExperience.Core\Settings\SettingsRuntime.cs"><Link>EmbeddedCore\Settings\SettingsRuntime.cs</Link></Compile>
     <Compile Include="..\BetterUnturnedExperience.Core\Settings\FeatureSettingsRegistry.cs"><Link>EmbeddedCore\Settings\FeatureSettingsRegistry.cs</Link></Compile>
     <Compile Include="..\BetterUnturnedExperience.Core\Events\FeatureEventBus.cs"><Link>EmbeddedCore\Events\FeatureEventBus.cs</Link></Compile>
@@ -43,7 +43,7 @@
     <Compile Include="NetworkModuleFeatureRegistration.cs" />
     <Compile Include="NetworkSettingsEditor.cs" />
     <Compile Include="BetterUnturnedExperiencePlugin.cs" />
-    <Compile Include="BueRuntimePump.cs" />
+    <Compile Include="BueRuntimePump.cs" /><Compile Include="BueFeatureIntentRuntime.cs" /><Compile Include="BueLegacyEnabledMigrationAdapter.cs" />
     <Compile Include="BueRuntimeCompletionChain.cs" />
     <!-- DEV-16A: embed the pure-C# ClientUi seam into the single runtime assembly. -->
     <Compile Include="..\BetterUnturnedExperience.ClientUi\ClientUiTypes.cs"><Link>EmbeddedClientUi\ClientUiTypes.cs</Link></Compile>

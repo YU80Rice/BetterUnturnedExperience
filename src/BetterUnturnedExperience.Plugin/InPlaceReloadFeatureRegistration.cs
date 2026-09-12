@@ -18,7 +18,7 @@ namespace BetterUnturnedExperience.Plugin
     {
         internal const string FeatureIdValue = LirRuntime.FeatureIdValue;
 
-        internal static InPlaceReloadModule WiredModule { get; private set; }
+        internal static InPlaceReloadModule WiredModule { get; set; }
 
         internal static FeatureRegistrationResult Register()
         {
@@ -67,7 +67,7 @@ namespace BetterUnturnedExperience.Plugin
         // DEV-V3-06: settings facet — same discipline as the sibling
         // official registrations (schema on the registration, panel routed
         // by the catalog, refresh hook feature-owned).
-        private sealed class Registration : IFeatureRegistration, IFeatureSettingsRegistration
+        private sealed class Registration : IFeatureRegistration
         {
             private readonly InPlaceReloadModule moduleForFactory;
 
@@ -83,17 +83,6 @@ namespace BetterUnturnedExperience.Plugin
             public IFeatureModuleFactory ModuleFactory { get { return new ModuleFactory(moduleForFactory); } }
 
             public IClientUiSatelliteRegistration ClientUi { get { return null; } }
-
-            public IReadOnlyList<SettingDescriptor> SettingDescriptors { get { return InPlaceReloadModule.CreateSettingsDescriptors(new FeatureId(FeatureIdValue)); } }
-
-            public Action OnSettingsApplied
-            {
-                get
-                {
-                    var module = WiredModule ?? moduleForFactory;
-                    return module == null ? null : new Action(module.RefreshSwitches);
-                }
-            }
         }
 
         private sealed class ModuleFactory : IFeatureModuleFactory

@@ -1,0 +1,9 @@
+DEV-V4-04 全套 7 工程（Release 重建后直跑，2026-09-12，修复轮后）
+BetterUnturnedExperience.Contracts.Tests: DEV-10 registration runtime tests: PASS
+BetterUnturnedExperience.Network.Tests: DEV-06 network tests: PASS
+BetterUnturnedExperience.Placement.Tests: DEV-04 placement evaluator tests: PASS
+BetterUnturnedExperience.Release.Tests: DEV-15E qualification evidence tests: PASS
+BetterUnturnedExperience.Settings.Tests: DEV-03 settings runtime tests: PASS
+BetterUnturnedExperience.ClientUi.Tests: DEV-05/DEV-15A/DEV-15B/DEV-15C/DEV-15D/DEV-16B/DEV-V4-01/DEV-V4-02/DEV-V4-03/DEV-V4-04 ClientUi tests: PASS
+BetterUnturnedExperience.Plugin.Tests: DEV-14/DEV-16B plugin runtime tests: PASS
+整解决方案 Rebuild：0 error / 0 warning（见 final-build-console.txt）
