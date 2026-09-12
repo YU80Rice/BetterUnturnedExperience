@@ -11636,6 +11636,12 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     return litModule;
                 }
 
+                // DEV-V4-09：泵助手——跨过 16 拍节流窗（首拍即试，20 拍必触）。
+                void PumpTidyModule(InventoryTidyModule module)
+                {
+                    for (var tick = 0; tick < 20; tick++) module.Tick();
+                }
+
                 // 九态决定按钮存在性（Q55）：注入/拆除/暂留由生命周期事实
                 // （IFeatureLifetime.CurrentStatus）决定，不由 patch 私有布尔；
                 // 过渡态点击=安全回退、不报假成功；无生命周期事实=fail-closed。
@@ -11862,10 +11868,15 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 // + 在册去重 + 未武装不画死按钮。宿主无 Glazier：headers 经
                 // HeadersForTests 缝提供、单按钮注入经 InjectButtonForTests 缝观察
                 // （与 RemoveChildForTests 同类宿主缝）。
-                Group("DEV-V4-09 停用→再启用对存活仪表盘立即重注入", () =>
+                // DEV-V4-09 F1 实机二轮（修复 v2 无效的取证）：Start 运行在机器
+                // Starting 态，九态门（过渡不新增）必然拒绝 Start 期补注入——v2 的
+                // Start 尾部重注入在真实机器时序下永远被自己的门禁拒绝（实机
+                // 194456 包：gen8 启动后零 [TidyUI] 注入行）。修复=注入尝试挂模块
+                // 每 tick 泵（16 拍节流首拍即试）：重启用落地 Running 后按钮自动
+                // 复装，背包开着也当场出现。缝先行设置（宿主游戏程序集可加载，
+                // 不设缝会走生产反射路径向真实 Glazier 注入）。
+                Group("DEV-V4-09 停用→再启用经模块泵实时重注入", () =>
                 {
-                    // 缝先于任何 Start 设置：宿主里游戏程序集可加载，若首 Start
-                    // 走生产反射路径会向真实 Glazier 注入——测试一律经缝观察。
                     var injectedPages = new List<byte>();
                     InventoryTidyUiPatch.HeadersForTests = () => new object[5] { new object(), new object(), new object(), new object(), new object() };
                     InventoryTidyUiPatch.InjectButtonForTests = (page, header) => { injectedPages.Add(page); return true; };
@@ -11874,15 +11885,18 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     var module = StartLitModuleWith(lifetime1, new FakeTidySettingsView());
                     try
                     {
+                        Check(injectedPages.Count == 0,
+                            "实时注入：Start 期不注入（真实机器 Starting 态门禁会拒；注入归模块泵）");
+                        PumpTidyModule(module);
                         Check(injectedPages.Count == 5 && injectedPages[0] == 2 && injectedPages[4] == 6,
-                            "重注入 setup：Start 对存活仪表盘立即注入五页（headers[0..4]→page 2..6）");
+                            "实时注入：Running 事实下模块泵对存活仪表盘注入五页（headers[0..4]→page 2..6）");
                         Check(InventoryTidyUiPatch.HasTrackedButtons,
-                            "重注入 setup：按钮引用在册（拆除责任登记随注入恢复）");
+                            "实时注入：按钮引用在册（拆除责任登记随注入恢复）");
 
-                        // 用户实机场景：停用（拆除+清册）→ 再启用 → 立即重注入五页。
+                        // 用户实机场景：停用（拆除+清册）→ 再启用 → 泵立即重注入。
                         module.Stop(FeatureStopReason.UserDisabled);
                         Check(!InventoryTidyUiPatch.HasTrackedButtons && injectedPages.Count == 5,
-                            "重注入 setup：停用拆除清册（不再新增注入）");
+                            "实时注入 setup：停用拆除清册（不再新增注入）");
                         injectedPages.Clear();
 
                         var lit = new FeatureId(LitRuntime.FeatureIdValue);
@@ -11892,16 +11906,18 @@ namespace BetterUnturnedExperience.Plugin.Tests
                         var lifetime2 = new FakeTidyLifetime { State = FeatureState.Running };
                         var restarted = module.Start(new FeatureBootstrap(default(FeatureScopeIdentity), 10UL, new FakeTidySettingsView(),
                             bus.Subscriber(lit), bus.Publisher(lit), bus.EventRegistry(lit), null, null, lifetime2, network));
-                        Check(restarted.Started, "重注入 setup：同实例再启动成功（新代际 bootstrap）");
+                        Check(restarted.Started && injectedPages.Count == 0,
+                            "实时注入 setup：同实例再启动成功且 Start 期不注入");
+                        PumpTidyModule(module);
                         Check(injectedPages.Count == 5 && injectedPages[0] == 2 && injectedPages[4] == 6,
-                            "重注入：停用后再启用立即重注入五页（不再等永不复跑的构造事件）");
+                            "实时注入：停用后再启用由模块泵立即重注入五页（不再等永不复跑的构造事件）");
                         Check(InventoryTidyUiPatch.HasTrackedButtons,
-                            "重注入：按钮引用重新在册（拆除责任登记随注入恢复）");
+                            "实时注入：按钮引用重新在册（拆除责任登记随注入恢复）");
 
                         var beforeDedupe = injectedPages.Count;
-                        InventoryTidyUiPatch.TryInjectIntoAliveDashboard(module);
+                        for (var dedupeTick = 0; dedupeTick < 4; dedupeTick++) module.Tick();
                         Check(injectedPages.Count == beforeDedupe,
-                            "重注入：已在册页不重复注入（在册去重，不画双按钮）");
+                            "实时注入：已在册页不重复注入（在册去重，不画双按钮）");
 
                         injectedPages.Clear();
                         var bus3 = new BetterUnturnedExperience.Core.Events.FeatureEventBus();
@@ -11910,8 +11926,9 @@ namespace BetterUnturnedExperience.Plugin.Tests
                         var lifetime3 = new FakeTidyLifetime { State = FeatureState.Stopped };
                         var stoppedStart = module.Start(new FeatureBootstrap(default(FeatureScopeIdentity), 11UL, new FakeTidySettingsView(),
                             bus3.Subscriber(lit), bus3.Publisher(lit), bus3.EventRegistry(lit), null, null, lifetime3, network3));
+                        PumpTidyModule(module);
                         Check(stoppedStart.Started && injectedPages.Count == 0,
-                            "重注入：非 Running 生命周期事实不注入（同一九态门，不画死按钮）");
+                            "实时注入：非 Running 生命周期事实泵不注入（同一九态门，不画死按钮）");
                     }
                     finally
                     {

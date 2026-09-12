@@ -320,11 +320,9 @@ namespace BetterUnturnedExperience.Lit
             // facing Chinese line above stays on the human channel, the
             // machine-readable line only exists because the view is wired).
             if (Logger != null) Logger.Info("tidy-module-started", "BUE-LIT-START");
-            // DEV-V4-09 F1：对仍存活的仪表盘立即重注入。PlayerDashboardInventoryUI
-            // 构造函数整个会话只运行一次，停用拆除按钮后「再启用」等不到下一个
-            // 构造事件——不补这次调用，按钮永不复装（直到重启游戏）。门禁（仅
-            // Running）、在册去重、未武装不画死按钮都归 patch 侧同一实现。
-            InventoryTidyUiPatch.TryInjectIntoAliveDashboard(this);
+            // DEV-V4-09 F1 实机二轮：Start 期**不**做存活仪表盘补注入——Start 运行
+            // 在机器 Starting 态（九态门=过渡不新增，必然自我拒绝；实机 194456 包
+            // gen8 启动后零注入行）。注入归 Tick 泵（见 Tick 注释）。
             LitRuntime.LogInfo("[Tidy] 模块已启动（宿主 bootstrap：功能代际=" + bootstrap.LifecycleGeneration + "）");
             return new FeatureStartResult(true, FrameworkErrorCode.None, "BUE-LIT-START");
         }
@@ -560,6 +558,12 @@ namespace BetterUnturnedExperience.Lit
             return service.RequestTidy(page, mode, sortDescending);
         }
 
+        /// <summary>Tick 节拍计数（实时注入节流；uint 回绕无害）。</summary>
+        private uint injectTickCounter;
+
+        /// <summary>实时注入节流窗：16 拍（60fps 下 ~0.27s；首拍即试，按位与取模）。</summary>
+        private const uint InjectTickPeriodMask = 0xF;
+
         /// <summary>Main-thread pump for the dispatcher queue (driven by the plugin update tick).</summary>
         internal void Tick()
         {
@@ -568,6 +572,13 @@ namespace BetterUnturnedExperience.Lit
             // established session found here receives its challenge/scope
             // even when the module started after the handshake.
             NetService?.Tick();
+            // DEV-V4-09 F1（实机二轮，用户裁定「实时注入」）：重启用落地 Running
+            // 后按钮由本泵复装——PlayerDashboardInventoryUI ctor 一次会话只跑一次，
+            // 等构造事件=等不到；Start 期又必然处于 Starting 态被九态门拒绝。门禁
+            // 不变（仅 Running+在册去重+未武装不画死按钮，全在
+            // TryInjectIntoAliveDashboard）；成功后在册非空即短路，节流 16 拍。
+            if ((injectTickCounter++ & InjectTickPeriodMask) == 0)
+                InventoryTidyUiPatch.TryInjectIntoAliveDashboard(this);
         }
 
         /// <summary>The feature-private fault persistence root (BUE/inventory-tidy/fault_scopes).</summary>

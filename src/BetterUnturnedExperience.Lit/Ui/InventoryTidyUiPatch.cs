@@ -436,23 +436,23 @@ namespace BetterUnturnedExperience.Lit
                 return;
             }
             LogInfo("headers 数组 OK (Length=" + headers.Length + ")");
-            InjectButtonsInto(headers);   // 长度门归 InjectButtonsInto 单点（DEV-V4-09 去重）
+            // ctor=新仪表盘：旧行为=覆盖在册（不去重）——仪表盘重建时旧按钮随旧
+            // headers 丢弃，新页必须重画（DEV-V4-09 泵路径才去重）。
+            InjectButtonsInto(headers, skipTrackedPages: false);
         }
 
-        // DEV-V4-09 F1（实机缺陷）：PlayerDashboardInventoryUI 构造函数整个会话
-        // 只运行一次——停用拆除按钮+撤销补丁后，再启用永远等不到下一个构造事件，
-        // 按钮永不复装（实机：停用→保存→按钮消失；再启用→保存→按钮不再出现，
-        // 重启游戏才恢复）。修复语义：模块每次 Start 尾部调用本方法，对「仍存活」
-        // 的仪表盘立即重注入——同一生命周期门禁（仅 Running）、同一在册去重、
-        // 未武装（环境闸）不画死按钮。仪表盘尚未构造时静态读失败/为 null=无事
-        // 可做（首个 ctor Postfix 会注入）。
+        // DEV-V4-09 F1（实机二轮=实时注入）：由模块 Tick 泵每 16 拍调用一次——
+        // Start 运行在机器 Starting 态（九态门必然拒绝），重启用落地 Running 后
+        // 由泵补注入；仪表盘未构造时静态读失败/为 null=无事可做（首个 ctor
+        // Postfix 会注入）。与 ctor 路径的差异：在册去重（同一存活的 headers，
+        // 重画=双按钮；Q55 移除失败页引用保留→跳过→下次拆除重试）。
         internal static void TryInjectIntoAliveDashboard(InventoryTidyModule module)
         {
             if (module == null || !module.ShouldInjectTidyButtonForNewPage) return;
             if (InjectButtonForTests == null && !module.PatchesInstalled) return;
             Array headers = HeadersForTests != null ? HeadersForTests() : ReadStaticHeaders();
             if (headers == null) return;
-            InjectButtonsInto(headers);
+            InjectButtonsInto(headers, skipTrackedPages: true);
         }
 
         // 静态 headers 读（生产路径）。任何失败（宿主无游戏程序集 / 仪表盘未
@@ -468,9 +468,10 @@ namespace BetterUnturnedExperience.Lit
             catch (Exception) { return null; }
         }
 
-        // 注入主体（ctor Postfix 与存活仪表盘重注入共用）：反射解析只走生产
-        // 路径（宿主经 InjectButtonForTests 缝绕过）；在册页去重不重画。
-        private static void InjectButtonsInto(Array headers)
+        // 注入主体（ctor Postfix 与实时注入泵共用）：反射解析只走生产路径（宿主
+        // 经 InjectButtonForTests 缝绕过）；skipTrackedPages=泵路径在册去重
+        // （同一存活 headers 不重画），ctor 路径传 false（新仪表盘覆盖在册）。
+        private static void InjectButtonsInto(Array headers, bool skipTrackedPages)
         {
             if (headers == null || headers.Length < HEADER_INJECT_COUNT)
             {
@@ -516,10 +517,11 @@ namespace BetterUnturnedExperience.Lit
                     continue;
                 }
 
-                // DEV-V4-09 重注入去重：在册页不重复画（含 Q55 移除失败页——
-                // 引用保留表示旧按钮仍在 UI 树，重画=双按钮；其拆除自愈仍走
-                // 下次拆除重试，与本去重正交）。
-                if (s_TidyButtons.ContainsKey(currentPage)) continue;
+                // DEV-V4-09 泵路径在册去重（skipTrackedPages=true）：已登记页不
+                // 重复画（双按钮）；Q55 移除失败页引用保留=旧按钮仍在 UI 树，
+                // 跳过正确、其拆除自愈仍走下次拆除重试。ctor 路径不去重（新
+                // 仪表盘覆盖在册=旧行为）。
+                if (skipTrackedPages && s_TidyButtons.ContainsKey(currentPage)) continue;
 
                 // ── 创建整理按钮 B：[整理]（唯一按钮）──
                 object tidyButton = null;
