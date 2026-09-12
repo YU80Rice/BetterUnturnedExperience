@@ -78,6 +78,18 @@ namespace BetterUnturnedExperience.ClientUi.Internal
         internal static PluginConfigValue UnsupportedValue() { return new PluginConfigValue(PluginConfigValueKind.Unsupported, false, 0, 0f, string.Empty); }
     }
 
+    // Row widget selector for external-plugin config entries, resolved by the
+    // catalog adapter from the UnturnedPluginManager (UPM) compatibility tags
+    // ("Unturned.Cycle" / "Unturned.ItemList" / "Unturned.BlueprintList" /
+    // "Unturned.CreatureList"). Field is the plain text editor fallback.
+    internal enum PluginConfigControlKind : byte
+    {
+        Field,
+        Toggle,
+        Cycle,
+        List
+    }
+
     internal readonly struct PluginConfigEntryView
     {
         internal string Key { get; }
@@ -90,8 +102,19 @@ namespace BetterUnturnedExperience.ClientUi.Internal
         internal double? Maximum { get; }
         internal int MaximumLength { get; }
 
+        // UPM compatibility surface: description text and the category group
+        // ("Unturned.Category:<name>" tag, falling back to the config section)
+        // drive the details rendering; CycleOptions feeds the cycle stepper.
+        internal string Description { get; }
+        internal string Category { get; }
+        internal PluginConfigControlKind Control { get; }
+        internal IReadOnlyList<string> CycleOptions { get; }
+        internal string ControlHint { get; }
+
         internal PluginConfigEntryView(string key, string displayName, PluginConfigValueKind kind, PluginConfigValue value,
-            bool requiresRestart, bool canEdit, double? minimum = null, double? maximum = null, int maximumLength = 4096)
+            bool requiresRestart, bool canEdit, double? minimum = null, double? maximum = null, int maximumLength = 4096,
+            string description = null, string category = null, PluginConfigControlKind control = PluginConfigControlKind.Field,
+            IReadOnlyList<string> cycleOptions = null, string controlHint = null)
         {
             Key = key ?? string.Empty;
             DisplayName = displayName ?? string.Empty;
@@ -102,6 +125,54 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             Minimum = minimum;
             Maximum = maximum;
             MaximumLength = maximumLength;
+            Description = description ?? string.Empty;
+            Category = category ?? string.Empty;
+            Control = control;
+            CycleOptions = cycleOptions;
+            ControlHint = controlHint ?? string.Empty;
+        }
+    }
+
+    // Pure-C# support for the UPM compatibility tags so the model and the
+    // native panel share one implementation and the tests can exercise it
+    // without the host config API or the game assemblies.
+    internal static class PluginConfigSupport
+    {
+        // direction > 0 steps to the next option, direction < 0 to the
+        // previous one, both wrapping around. An unknown current value lands
+        // on the first option stepping forward and on the last stepping back.
+        internal static string NextCycleOption(IReadOnlyList<string> options, string current, int direction)
+        {
+            if (options == null || options.Count == 0) return null;
+            var step = direction < 0 ? -1 : 1;
+            var index = -1;
+            for (var i = 0; i < options.Count; i++)
+            {
+                if (string.Equals(options[i], current, StringComparison.Ordinal))
+                {
+                    index = i;
+                    break;
+                }
+            }
+            if (index < 0) return step > 0 ? options[0] : options[options.Count - 1];
+            index = (index + step + options.Count) % options.Count;
+            return options[index];
+        }
+
+        // Distinct categories in first-seen order; empty categories collapse
+        // into the shared default group so they still render a usable chip.
+        internal const string DefaultCategory = "通用";
+
+        internal static IReadOnlyList<string> CollectCategories(IReadOnlyList<PluginConfigEntryView> entries)
+        {
+            var result = new List<string>();
+            if (entries == null) return result;
+            for (var index = 0; index < entries.Count; index++)
+            {
+                var category = string.IsNullOrWhiteSpace(entries[index].Category) ? DefaultCategory : entries[index].Category;
+                if (!result.Contains(category)) result.Add(category);
+            }
+            return result;
         }
     }
 
@@ -433,7 +504,8 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             if (!TryParse(entry.Kind, rawValue, out value)) return new PluginConfigEditResult(false, entry.RequiresRestart, PluginConfigEditRejection.InvalidValue);
             if (!WithinBounds(entry, value)) return new PluginConfigEditResult(false, entry.RequiresRestart, PluginConfigEditRejection.InvalidValue);
             if (!pluginConfigEditor.TrySet(pluginGuid, key, value)) return new PluginConfigEditResult(false, entry.RequiresRestart, PluginConfigEditRejection.PersistenceFailed);
-            entries[index] = new PluginConfigEntryView(entry.Key, entry.DisplayName, entry.Kind, value, entry.RequiresRestart, entry.CanEdit, entry.Minimum, entry.Maximum, entry.MaximumLength);
+            entries[index] = new PluginConfigEntryView(entry.Key, entry.DisplayName, entry.Kind, value, entry.RequiresRestart, entry.CanEdit,
+                entry.Minimum, entry.Maximum, entry.MaximumLength, entry.Description, entry.Category, entry.Control, entry.CycleOptions, entry.ControlHint);
             plugins[pluginGuid] = new LoadedPluginDescriptor(plugin.Guid, plugin.DisplayName, plugin.Version, entries);
             return new PluginConfigEditResult(true, entry.RequiresRestart, PluginConfigEditRejection.None);
         }

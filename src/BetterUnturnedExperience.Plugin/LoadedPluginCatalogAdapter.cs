@@ -37,14 +37,40 @@ namespace BetterUnturnedExperience.Plugin
                         {
                             var definition = entry == null ? null : entry.Definition;
                             if (definition == null || entry == null) continue;
-                            var value = HasDiscreteConstraint(entry) ? PluginConfigValue.UnsupportedValue() : ToValue(entry.SettingType, entry.BoxedValue);
+                            // UPM compatibility tags first: they select the row
+                            // widget and can lift a discrete-constrained entry
+                            // out of the read-only bucket.
+                            string[] cycleOptions;
+                            var control = ResolveControl(entry, out cycleOptions);
+                            var controlHint = ResolveControlHint(entry, control);
+                            var value = ToValue(entry.SettingType, entry.BoxedValue);
+                            if (HasDiscreteConstraint(entry))
+                            {
+                                if (control == PluginConfigControlKind.Cycle)
+                                {
+                                    // The cycle stepper owns the value; keep it typed.
+                                }
+                                else if (entry.SettingType == typeof(string))
+                                {
+                                    // AcceptableValueList<string> without a cycle tag:
+                                    // editable as text, the serializer rejects invalid values.
+                                    value = PluginConfigValue.StringValue(entry.GetSerializedValue());
+                                }
+                                else
+                                {
+                                    value = PluginConfigValue.UnsupportedValue();
+                                }
+                            }
                             double? minimum;
                             double? maximum;
                             GetBounds(entry, out minimum, out maximum);
                             var maximumLength = entry.SettingType == typeof(string) ? 4096 : 0;
+                            string category;
+                            GetCategory(entry, out category);
+                            if (category.Length == 0) category = PluginConfigSupport.DefaultCategory;
                             entries.Add(new PluginConfigEntryView(definition.Key, definition.Key, value.Kind,
                                 value, RequiresRestart(entry), value.Kind != PluginConfigValueKind.Unsupported && !config.IsReadOnly,
-                                minimum, maximum, maximumLength));
+                                minimum, maximum, maximumLength, GetDescription(entry), category, control, cycleOptions, controlHint));
                         }
                     }
                     var version = info.Metadata.Version == null ? string.Empty : info.Metadata.Version.ToString();
@@ -165,6 +191,115 @@ namespace BetterUnturnedExperience.Plugin
         {
             var acceptable = entry == null || entry.Description == null ? null : entry.Description.AcceptableValues;
             return acceptable != null && acceptable.GetType().Name.IndexOf("AcceptableValueList", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        // ===== UnturnedPluginManager (UPM) compatibility tags =====
+        // Mirrors the tag surface UPM renders in-game so plugins authored for
+        // UPM keep their specialized controls inside the BUE panel:
+        //   Unturned.ItemList / Unturned.BlueprintList / Unturned.CreatureList
+        //   Unturned.Cycle[:opt1|opt2|...]  (inline options, else AcceptableValueList<string>)
+        //   Unturned.Category:<name>        (grouping, else the config section)
+
+        private const string ItemListTag = "Unturned.ItemList";
+        private const string BlueprintListTag = "Unturned.BlueprintList";
+        private const string CreatureListTag = "Unturned.CreatureList";
+        private const string CycleTag = "Unturned.Cycle";
+        private const string CategoryTagPrefix = "Unturned.Category:";
+
+        // Widget precedence follows UPM: list tags first, then the cycle tag.
+        // A cycle tag without resolvable options is ignored (falls back to Field).
+        private static PluginConfigControlKind ResolveControl(ConfigEntryBase entry, out string[] cycleOptions)
+        {
+            cycleOptions = null;
+            var tags = entry.Description == null ? null : entry.Description.Tags;
+            if (HasTag(tags, ItemListTag)) return PluginConfigControlKind.List;
+            if (HasTag(tags, BlueprintListTag)) return PluginConfigControlKind.List;
+            if (HasTag(tags, CreatureListTag)) return PluginConfigControlKind.List;
+            cycleOptions = GetCycleOptions(entry);
+            return cycleOptions != null ? PluginConfigControlKind.Cycle : PluginConfigControlKind.Field;
+        }
+
+        private static string ResolveControlHint(ConfigEntryBase entry, PluginConfigControlKind control)
+        {
+            var tags = entry.Description == null ? null : entry.Description.Tags;
+            if (control == PluginConfigControlKind.List)
+            {
+                if (HasTag(tags, BlueprintListTag)) return "值格式：所属物品ID:配方编号, ...";
+                if (HasTag(tags, CreatureListTag)) return "值格式：Z:僵尸类型 或 A:动物资产ID, ...";
+                return "值格式：物品ID, 物品ID, ...";
+            }
+            if (control == PluginConfigControlKind.Cycle) return "左键：下一档；右键：上一档";
+            return string.Empty;
+        }
+
+        private static string GetDescription(ConfigEntryBase entry)
+        {
+            return entry.Description == null ? string.Empty : entry.Description.Description ?? string.Empty;
+        }
+
+        private static bool HasTag(object[] tags, string tag)
+        {
+            if (tags == null) return false;
+            for (var index = 0; index < tags.Length; index++)
+            {
+                var text = tags[index] as string;
+                if (text != null && string.Equals(text, tag, StringComparison.Ordinal)) return true;
+            }
+            return false;
+        }
+
+        // Cycle options: inline tag payload ("Unturned.Cycle:A|B|C") wins over
+        // the entry's AcceptableValueList<string>, same as UPM.
+        private static string[] GetCycleOptions(ConfigEntryBase entry)
+        {
+            var tags = entry.Description == null ? null : entry.Description.Tags;
+            if (tags != null)
+            {
+                for (var index = 0; index < tags.Length; index++)
+                {
+                    var tag = tags[index] as string;
+                    if (tag == null || !tag.StartsWith(CycleTag, StringComparison.Ordinal)) continue;
+                    var colon = tag.IndexOf(':');
+                    if (colon >= 0 && colon < tag.Length - 1)
+                    {
+                        var parts = tag.Substring(colon + 1).Split('|');
+                        var clean = new List<string>();
+                        for (var partIndex = 0; partIndex < parts.Length; partIndex++)
+                        {
+                            var trimmed = parts[partIndex] != null ? parts[partIndex].Trim() : string.Empty;
+                            if (trimmed.Length > 0) clean.Add(trimmed);
+                        }
+                        if (clean.Count >= 2) return clean.ToArray();
+                    }
+                    break;
+                }
+            }
+            var list = entry.Description == null ? null : entry.Description.AcceptableValues as AcceptableValueList<string>;
+            if (list != null && list.AcceptableValues != null && list.AcceptableValues.Length >= 2) return list.AcceptableValues;
+            return null;
+        }
+
+        // Category: "Unturned.Category:<name>" tag, falling back to the config
+        // section (same fallback UPM uses).
+        private static void GetCategory(ConfigEntryBase entry, out string category)
+        {
+            var tags = entry.Description == null ? null : entry.Description.Tags;
+            if (tags != null)
+            {
+                for (var index = 0; index < tags.Length; index++)
+                {
+                    var tag = tags[index] as string;
+                    if (tag == null || !tag.StartsWith(CategoryTagPrefix, StringComparison.Ordinal)) continue;
+                    var name = tag.Substring(CategoryTagPrefix.Length).Trim();
+                    if (name.Length > 0)
+                    {
+                        category = name;
+                        return;
+                    }
+                }
+            }
+            category = entry.Definition != null ? entry.Definition.Section : string.Empty;
+            if (category == null) category = string.Empty;
         }
     }
 }
