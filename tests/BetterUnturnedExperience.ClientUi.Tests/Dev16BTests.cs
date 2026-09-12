@@ -231,7 +231,12 @@ namespace BetterUnturnedExperience.ClientUi.Tests
         private sealed class FakePluginConfigEditor : IPluginConfigEditor
         {
             internal PluginConfigValue LastValue { get; private set; }
-            public bool TrySet(string pluginGuid, string key, PluginConfigValue value) { LastValue = value; return true; }
+            // DEV-V4-08：结构化写入结果——接受并如实申报无重启项。
+            public PluginConfigEditResult TrySet(string pluginGuid, string key, PluginConfigValue value)
+            {
+                LastValue = value;
+                return new PluginConfigEditResult(true, false, PluginConfigEditRejection.None);
+            }
         }
 
         private sealed class RecordingMount : IManagementPanelMount

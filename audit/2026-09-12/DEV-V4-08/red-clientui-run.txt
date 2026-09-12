@@ -1,0 +1,3 @@
+DEV-05/DEV-15A/DEV-15B/DEV-15C/DEV-15D/DEV-16B/DEV-V4-01/DEV-V4-02/DEV-V4-03/DEV-V4-04/DEV-V4-05/DEV-V4-07/DEV-V4-08 ClientUi tests: FAIL
+System.InvalidOperationException
+PluginNotFound → 插件已卸载（Q70）：文案=「未保存：插件已卸载。」逐字

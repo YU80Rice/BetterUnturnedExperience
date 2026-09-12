@@ -384,7 +384,13 @@ namespace BetterUnturnedExperience.ClientUi.Tests
         {
             internal int SetCalls;
             internal readonly List<string> WrittenKeys = new List<string>();
-            public bool TrySet(string pluginGuid, string key, PluginConfigValue value) { SetCalls++; WrittenKeys.Add(key); return true; }
+            // DEV-V4-08：结构化写入结果——接受并如实申报无重启项。
+            public PluginConfigEditResult TrySet(string pluginGuid, string key, PluginConfigValue value)
+            {
+                SetCalls++;
+                WrittenKeys.Add(key);
+                return new PluginConfigEditResult(true, false, PluginConfigEditRejection.None);
+            }
         }
 
         // A model-side settings authority: single-truth value store + revision +

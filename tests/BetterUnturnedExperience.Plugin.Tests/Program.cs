@@ -482,6 +482,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 AssertBueV3SettingsWiringAndPanelRouting();
                 AssertBueV3DiagnosticsWiringAndSummary();
                 AssertBueV3EcosystemUnifiedProbe();
+                DevV4ExternalConfigParityTests.Run();
                 // F-E: pure truth tables, no host state — runs before F-D.
                 AssertBueV2FeEnginePeerIdentity();
                 // F-D: runs last — it replaces the bound runtime and clears the

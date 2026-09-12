@@ -78,8 +78,20 @@ namespace BetterUnturnedExperience.ClientUi.Internal
         internal long Integer64 { get; }
         internal double Float64 { get; }
         internal string Text { get; }
+        // DEV-V4-08: the numeric domain is full 64-bit — Integer64 carries
+        // signed values, Unsigned64 the unsigned ones beyond long range (a
+        // ulong ConfigEntry stays an editable 数字 per ADR-0002 #9); IsUnsigned
+        // picks the carrying field.
+        internal bool IsUnsigned { get; }
+        internal ulong Unsigned64 { get; }
 
         private PluginConfigValue(PluginConfigValueKind kind, bool boolean, long integer, double @float, string text)
+            : this(kind, boolean, integer, @float, text, false, 0UL)
+        {
+        }
+
+        private PluginConfigValue(PluginConfigValueKind kind, bool boolean, long integer, double @float, string text,
+            bool isUnsigned, ulong unsigned64)
         {
             Kind = kind;
             Boolean = boolean;
@@ -88,10 +100,13 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             Integer64 = integer;
             Float64 = @float;
             Text = text ?? string.Empty;
+            IsUnsigned = isUnsigned;
+            Unsigned64 = unsigned64;
         }
 
         internal static PluginConfigValue BooleanValue(bool value) { return new PluginConfigValue(PluginConfigValueKind.Boolean, value, 0, 0f, string.Empty); }
         internal static PluginConfigValue IntegerValue(long value) { return new PluginConfigValue(PluginConfigValueKind.Integer, false, value, 0f, string.Empty); }
+        internal static PluginConfigValue ULongValue(ulong value) { return new PluginConfigValue(PluginConfigValueKind.Integer, false, 0, 0f, string.Empty, true, value); }
         internal static PluginConfigValue FloatValue(double value) { return new PluginConfigValue(PluginConfigValueKind.Float, false, 0, value, string.Empty); }
         internal static PluginConfigValue StringValue(string value) { return new PluginConfigValue(PluginConfigValueKind.String, false, 0, 0f, value); }
         internal static PluginConfigValue UnsupportedValue() { return new PluginConfigValue(PluginConfigValueKind.Unsupported, false, 0, 0f, string.Empty); }
@@ -413,7 +428,9 @@ namespace BetterUnturnedExperience.ClientUi.Internal
 
     internal interface IPluginConfigEditor
     {
-        bool TrySet(string pluginGuid, string key, PluginConfigValue value);
+        // DEV-V4-08 (V4-T7 Q70): the failure class rides the result — the
+        // panel renders frozen copy from it and never matches exception text.
+        PluginConfigEditResult TrySet(string pluginGuid, string key, PluginConfigValue value);
     }
 
     internal enum PluginConfigEditRejection : byte
@@ -643,7 +660,8 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             PluginConfigValue value;
             if (!TryParse(entry.Kind, rawValue, out value)) return new PluginConfigEditResult(false, entry.RequiresRestart, PluginConfigEditRejection.InvalidValue);
             if (!WithinBounds(entry, value)) return new PluginConfigEditResult(false, entry.RequiresRestart, PluginConfigEditRejection.InvalidValue);
-            if (!pluginConfigEditor.TrySet(pluginGuid, key, value)) return new PluginConfigEditResult(false, entry.RequiresRestart, PluginConfigEditRejection.PersistenceFailed);
+            var editorResult = pluginConfigEditor.TrySet(pluginGuid, key, value);
+            if (!editorResult.Accepted) return new PluginConfigEditResult(false, entry.RequiresRestart, editorResult.Reason);
             entries[index] = new PluginConfigEntryView(entry.Key, entry.DisplayName, entry.Kind, value, entry.RequiresRestart, entry.CanEdit, entry.Minimum, entry.Maximum, entry.MaximumLength,
                 entry.Description, entry.AllowedChoices);
             plugins[pluginGuid] = new LoadedPluginDescriptor(plugin.Guid, plugin.DisplayName, plugin.Version, entries);
@@ -782,8 +800,50 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             if (!draft.BaselineConfig.TryGetValue(key, out entry)) return false;
             if (entry.AllowedChoices == null || entry.AllowedChoices.Count == 0) return false;
             var current = EffectivePluginConfigValue(key);
-            var next = entry.AllowedChoices[NextCycleIndex(entry.AllowedChoices, current.Text, step)];
+            // DEV-V4-08: the current level's index among the entry's candidates.
+            // PluginConfigValue.Text is only populated for strings, so typed
+            // rows match by value: bool rows compare the PARSED level (the
+            // canonical "True" must find a "true" candidate), numeric rows use
+            // the invariant text the adapter emits for its candidates. An
+            // unmapped current falls to first (left) / last (right).
+            var next = entry.AllowedChoices[NextPluginCycleIndex(entry.AllowedChoices, current, step)];
             return DraftEditPluginConfig(pluginGuid, key, next);
+        }
+
+        private static string CurrentLevelText(PluginConfigValue value)
+        {
+            switch (value.Kind)
+            {
+                case PluginConfigValueKind.Integer: return value.IsUnsigned ? value.Unsigned64.ToString(CultureInfo.InvariantCulture) : value.Integer64.ToString(CultureInfo.InvariantCulture);
+                case PluginConfigValueKind.Float: return value.Float64.ToString(CultureInfo.InvariantCulture);
+                default: return value.Text ?? string.Empty;
+            }
+        }
+
+        private static int NextPluginCycleIndex(IReadOnlyList<string> levels, PluginConfigValue current, int step)
+        {
+            var matched = -1;
+            if (current.Kind == PluginConfigValueKind.Boolean)
+            {
+                for (var position = 0; position < levels.Count; position++)
+                {
+                    bool parsed;
+                    if (bool.TryParse(levels[position], out parsed) && parsed == current.Boolean) { matched = position; break; }
+                }
+            }
+            else
+            {
+                var text = CurrentLevelText(current);
+                for (var position = 0; position < levels.Count; position++)
+                    if (string.Equals(levels[position], text, StringComparison.Ordinal)) { matched = position; break; }
+            }
+            return WrappedIndex(levels.Count, matched, step);
+        }
+
+        private static int WrappedIndex(int count, int matchedIndex, int step)
+        {
+            if (matchedIndex < 0) return step >= 0 ? 0 : count - 1;
+            return ((matchedIndex + step) % count + count) % count;
         }
 
         private static int NextCycleIndex(IReadOnlyList<string> levels, string current, int step)
@@ -792,8 +852,7 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             var index = -1;
             for (var position = 0; position < count; position++)
                 if (string.Equals(levels[position], current ?? string.Empty, StringComparison.Ordinal)) { index = position; break; }
-            if (index < 0) return step >= 0 ? 0 : count - 1;
-            return ((index + step) % count + count) % count;
+            return WrappedIndex(count, index, step);
         }
 
         private static SettingDescriptor? DraftDescriptor(DetailDraft currentDraft, string settingId)
@@ -1142,7 +1201,11 @@ namespace BetterUnturnedExperience.ClientUi.Internal
                         var entry = entries[position];
                         PluginConfigValue pending;
                         if (!draft.ConfigEdits.TryGetValue(entry.Key, out pending)) continue;
-                        if (pluginConfigEditor != null && pluginConfigEditor.TrySet(draft.StableId, entry.Key, pending))
+                        // Q70: frozen short-Chinese line from the failure class.
+                        var result = pluginConfigEditor == null
+                            ? new PluginConfigEditResult(false, entry.RequiresRestart, PluginConfigEditRejection.PersistenceFailed)
+                            : pluginConfigEditor.TrySet(draft.StableId, entry.Key, pending);
+                        if (result.Accepted)
                         {
                             entries[position] = new PluginConfigEntryView(entry.Key, entry.DisplayName, entry.Kind, pending,
                                 entry.RequiresRestart, entry.CanEdit, entry.Minimum, entry.Maximum, entry.MaximumLength,
@@ -1150,7 +1213,7 @@ namespace BetterUnturnedExperience.ClientUi.Internal
                             if (entry.RequiresRestart) requiresRestart = true;
                             committed.Add(entry.Key);
                         }
-                        else { failures++; messages.Add("未保存：外部配置写入失败。"); }
+                        else { failures++; messages.Add(ExternalSaveFailureText(result.Reason)); }
                     }
                     plugins[draft.StableId] = new LoadedPluginDescriptor(plugin.Guid, plugin.DisplayName, plugin.Version, entries);
                     foreach (var key in committed)
@@ -1164,9 +1227,10 @@ namespace BetterUnturnedExperience.ClientUi.Internal
                 {
                     // The plugin vanished between open and save (Q25): its
                     // ConfigEntry edits cannot be written — fail that source,
-                    // keep the draft, never report a false success.
+                    // keep the draft, never report a false success. Same frozen
+                    // class as the adapter's PluginNotFound/EntryNotFound.
                     failures++;
-                    messages.Add("未保存：插件已卸载。");
+                    messages.Add(ExternalSaveFailureText(PluginConfigEditRejection.PluginNotFound));
                 }
             }
 
@@ -1184,6 +1248,26 @@ namespace BetterUnturnedExperience.ClientUi.Internal
                 return new DraftSaveReport(DraftSaveOutcome.Success, new[] { "配置已保存。" }, badge);
             }
             return new DraftSaveReport(DraftSaveOutcome.PartialFailure, messages, requiresRestart);
+        }
+
+        // DEV-V4-08 (V4-T7 Q70): the three frozen short-Chinese external-config
+        // failure lines, classified from the STRUCTURED adapter result — never
+        // by matching exception text, never with a stack trace. 插件卸载或条目
+        // 失效 → 插件已卸载；文件/权限/锁定/adapter 写入失败 → 配置文件无法写入；
+        // ConfigEntry 校验、转换或值域失败 → 值不合法。
+        private static string ExternalSaveFailureText(PluginConfigEditRejection reason)
+        {
+            switch (reason)
+            {
+                case PluginConfigEditRejection.PluginNotFound:
+                case PluginConfigEditRejection.EntryNotFound:
+                    return "未保存：插件已卸载。";
+                case PluginConfigEditRejection.InvalidValue:
+                case PluginConfigEditRejection.UnsupportedType:
+                    return "未保存：值不合法。";
+                default:
+                    return "未保存：配置文件无法写入。";
+            }
         }
 
         /// <summary>不保存：丢掉当前条草稿、不写任何源（V4-T2 Q22）。</summary>
@@ -1266,11 +1350,24 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             switch (left.Kind)
             {
                 case PluginConfigValueKind.Boolean: return left.Boolean != right.Boolean;
-                case PluginConfigValueKind.Integer: return left.Integer64 != right.Integer64;
+                case PluginConfigValueKind.Integer: return !Integer64Equals(left, right);
                 case PluginConfigValueKind.Float: return left.Float64 != right.Float64;
                 case PluginConfigValueKind.String: return !string.Equals(left.Text ?? string.Empty, right.Text ?? string.Empty, StringComparison.Ordinal);
                 default: return true;
             }
+        }
+
+        // Numeric equality across the two 64-bit integer carriers — a parsed
+        // "5" takes the signed carrier while a captured ulong row stores the
+        // unsigned one; numerically equal values must not read as dirty.
+        private static bool Integer64Equals(PluginConfigValue left, PluginConfigValue right)
+        {
+            if (left.IsUnsigned != right.IsUnsigned)
+            {
+                if (left.IsUnsigned) return right.Integer64 >= 0 && left.Unsigned64 == (ulong)right.Integer64;
+                return left.Integer64 >= 0 && right.Unsigned64 == (ulong)left.Integer64;
+            }
+            return left.IsUnsigned ? left.Unsigned64 == right.Unsigned64 : left.Integer64 == right.Integer64;
         }
 
         private static bool IsFeatureCurrentlyEnabled(FeatureState state)
@@ -1364,9 +1461,18 @@ namespace BetterUnturnedExperience.ClientUi.Internal
                     return true;
                 case PluginConfigValueKind.Integer:
                     long integer;
-                    if (!long.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out integer)) return false;
-                    value = PluginConfigValue.IntegerValue(integer);
-                    return true;
+                    if (long.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out integer))
+                    {
+                        value = PluginConfigValue.IntegerValue(integer);
+                        return true;
+                    }
+                    ulong unsigned;
+                    if (ulong.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out unsigned))
+                    {
+                        value = PluginConfigValue.ULongValue(unsigned);
+                        return true;
+                    }
+                    return false;
                 case PluginConfigValueKind.Float:
                     double @float;
                     if (!double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out @float) || double.IsNaN(@float) || double.IsInfinity(@float)) return false;
@@ -1383,7 +1489,9 @@ namespace BetterUnturnedExperience.ClientUi.Internal
         private static bool WithinBounds(PluginConfigEntryView entry, PluginConfigValue value)
         {
             if (value.Kind == PluginConfigValueKind.String) return (value.Text ?? string.Empty).Length <= entry.MaximumLength;
-            var number = value.Kind == PluginConfigValueKind.Integer ? (double)value.Integer64 : value.Kind == PluginConfigValueKind.Float ? value.Float64 : double.NaN;
+            var number = value.Kind == PluginConfigValueKind.Integer
+                ? (value.IsUnsigned ? (double)value.Unsigned64 : (double)value.Integer64)
+                : value.Kind == PluginConfigValueKind.Float ? value.Float64 : double.NaN;
             if (!double.IsNaN(number) && entry.Minimum.HasValue && number < entry.Minimum.Value) return false;
             if (!double.IsNaN(number) && entry.Maximum.HasValue && number > entry.Maximum.Value) return false;
             return true;

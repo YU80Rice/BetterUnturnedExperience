@@ -1,0 +1,5 @@
+git diff --check exit: 0（LF/CRLF 归一化提示非空白错误）
+Verify-NoUiTokens.ps1 -SourceRoot src/BetterUnturnedExperience.Core: PASS (30 C# files)
+模型文件 UI/native token 扫描: ManagementPanel.cs=0 / PanelChromeCopy.cs=0 / BetterItemInteractionLifecycle.cs=0 / LoadedPluginCatalogAdapter.cs=0
+ClientUi 全目录 UI token 命中: ItemInteractionUiComponent.cs（既有 UI 组件，08 未改动）
+契约面: git status 显示 src/BetterUnturnedExperience.Contracts 零文件入 diff（契约仍 2.1）

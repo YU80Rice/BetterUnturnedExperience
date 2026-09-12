@@ -123,6 +123,9 @@ namespace BetterUnturnedExperience.Plugin
         // silently dropping the draft.
         private string pendingNavigation;   // null = none; "" = pending close; else target stableId
         private bool pendingRefresh;         // reload the model after leaving the current draft
+        // DEV-V4-08 (V4-T7 Q67): the top「需要重启」badge — scoped to the entry
+        // whose last attempted save wrote a RequiresRestart item successfully.
+        private string restartBadgeStableId;
         private static BueNativeManagementPanel activeInstance;
 
         internal static bool RequiresParentRebind(object boundParent, object currentParent)
@@ -968,6 +971,10 @@ namespace BetterUnturnedExperience.Plugin
             };
             detailScroll.AddChild(favoriteButton);
             y += 40;
+            // Q67: lit only when the last attempted save wrote a
+            // RequiresRestart item successfully; row markers point at the items.
+            if (string.Equals(restartBadgeStableId, selected.StableId, StringComparison.Ordinal))
+                AddDetailLabel(ref y, "需要重启", ESleekFontSize.Small);
             if (selected.Kind == ManagementEntryKind.BueFeature)
             {
                 // DEV-V4-07 (V4-T6 Q60): the feature-level one-liner from the
@@ -1274,6 +1281,7 @@ namespace BetterUnturnedExperience.Plugin
             var wasRefresh = pendingRefresh;
             DraftSaveReport report;
             var leaving = runtime.Model.TryLeaveDetail(target, choice, out report);
+            TrackRestartBadge(report);   // badge belongs to the entry just saved (before any navigation)
             pendingNavigation = null;
             pendingRefresh = false;
             // The confirm's 保存 reuses 保存配置's report verbatim (Q22 = 等同保存
@@ -1308,8 +1316,20 @@ namespace BetterUnturnedExperience.Plugin
         private void CommitDraftAndStatus()
         {
             var report = runtime.Model.SaveDraft();
+            TrackRestartBadge(report);
             Render();                    // re-render first — RenderDetails may restore a platform notice…
             RenderDraftReport(report);   // …then publish the frozen save banner so it wins (Q30/Q23).
+        }
+
+        // Q67: the badge mirrors the entry's last save that ATTEMPTED writes —
+        // lit iff that save successfully wrote a RequiresRestart item, cleared
+        // when that save wrote none (the row-level（需要重启）markers stay as
+        // the intrinsic, save-independent pointer). A NoChanges click and a
+        // null report（取消/不保存）attempt nothing: the previous badge stands.
+        private void TrackRestartBadge(DraftSaveReport report)
+        {
+            if (report == null || report.Outcome == DraftSaveOutcome.NoChanges) return;
+            restartBadgeStableId = report.RequiresRestart ? selectedStableId : null;
         }
 
         // The one place the draft-save outcome becomes the top banner, so the
@@ -1393,7 +1413,7 @@ namespace BetterUnturnedExperience.Plugin
             switch (value.Kind)
             {
                 case PluginConfigValueKind.Boolean: return value.Boolean ? "true" : "false";
-                case PluginConfigValueKind.Integer: return value.Integer64.ToString();
+                case PluginConfigValueKind.Integer: return value.IsUnsigned ? value.Unsigned64.ToString() : value.Integer64.ToString();
                 case PluginConfigValueKind.Float: return value.Float64.ToString("0.###");
                 default: return value.Text ?? string.Empty;
             }

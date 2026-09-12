@@ -399,7 +399,13 @@ namespace BetterUnturnedExperience.ClientUi.Tests
         {
             internal int SetCalls;
             internal readonly List<string> WrittenKeys = new List<string>();
-            public bool TrySet(string pluginGuid, string key, PluginConfigValue value) { SetCalls++; WrittenKeys.Add(key); return true; }
+            // DEV-V4-08：结构化写入结果——接受并如实申报无重启项。
+            public PluginConfigEditResult TrySet(string pluginGuid, string key, PluginConfigValue value)
+            {
+                SetCalls++;
+                WrittenKeys.Add(key);
+                return new PluginConfigEditResult(true, false, PluginConfigEditRejection.None);
+            }
         }
 
         // 面板控件缝的权威源假件：值库 + revision + 描述符表（DEV-V4-02 的投影输入），
