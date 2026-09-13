@@ -14,7 +14,8 @@
 - 红-2（防回归门禁）：新增 `eng/Verify-TestFixturesTracked.ps1`——扫全部 csproj 的 `CopyToOutputDirectory` `None` 项，断言 ①盘上存在 ②未被 gitignore 吞（`git check-ignore`）③已被 git 跟踪（`git ls-files`）。修复前跑红 4 violations（两文件 × ignored+untracked），证据 `red-gate-run.txt`。
 - 实现（票选「优先改后缀」）：两份夹具改名 `.log.txt`（audit 证据同族后缀，`*.txt` 入库惯例）；`Plugin.Tests.csproj` 两条 `None Include` 同步；`Program.cs:501/513` 文件名同步+一处边界注释；`.gitignore` 仅加两行注释（`*.log` 规则原样零放宽）；夹具 `git add` 入库。测试语义零改动（红/绿断言逻辑不动，仅文件路径字符串）。
 - 绿：门禁 PASS 2 项（`green-gate-run.txt`）；全套 `-t:Rebuild` exit=0、真实告警/错误 0、MSB3030=0、输出目录含两份 `.log.txt`（`green-rebuild-summary.txt`；全量 flp 盘上 `green-rebuild-sln.log` 不入库）；7 exe 全绿（`green-fullsuite-*-run.txt`，PASS 行数与 DEV-V4-09 基线逐组一致）。
-- 关单前终验（见下轮补充）：干净克隆从修复提交重构建+跑 Plugin.Tests。
+- 关单前终验（干净克隆，HEAD `32c88e6` worktree）：克隆含两份 `.log.txt` 真实内容；全解 `-t:Rebuild` exit=0、夹具复制到克隆 bin；门禁在克隆上 PASS 2 项；按开发环境从 `../Libs` 名录制宿主 DLL 后，克隆 bin 的 7 exe 全绿（含夹具断言 `AssertDev16D*`）。证据 `clone-green-summary.txt`/`clone-gate-run.txt`/`clone-fullsuite-*-run.txt`。
+- 终验顺带抓出**范围外既有缺口**并具名另票：未配宿主 DLL 时克隆 Plugin.Tests 在 `AssertSingleDllAssemblyClosure` 抛 BepInEx 加载失败（`Private=False` 不拷贝 + 工作区 bin 的历史 Libs 拷贝从不入库）→ 票 08（干净克隆测试运行器宿主程序集 provisioning）。本票验收（构建可解析复制+全套 7/7）不受影响：构建面克隆直接绿，运行面依赖与主工作区同源的 Libs 拷贝环境。
 
 ## 双轴（Fresh-instance）
 

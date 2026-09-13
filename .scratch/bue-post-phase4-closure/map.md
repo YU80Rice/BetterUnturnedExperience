@@ -16,12 +16,13 @@ Parent: Phase-4 关单 `b04c4ab` / RELEASES 行 12 / 当前发布物 v5
 | 票 | 类别 | 状态 | 阻塞 |
 |---|---|---|---|
 | [网络模块隔离投影误导](issues/01-network-isolation-projection.md) | bug | resolved | 无 |
-| [Plugin.Tests log fixture 未跟踪](issues/02-plugin-tests-log-fixtures.md) | bug | ready-for-agent | 无 |
+| [Plugin.Tests log fixture 未跟踪](issues/02-plugin-tests-log-fixtures.md) | bug | resolved | 无 |
 | [收藏星与重启徽章单键](issues/03-favorite-restart-dual-key.md) | bug | ready-for-agent | 无 |
 | [UPM 分类导航与列表文本路径](issues/04-upm-category-list-text.md) | enhancement | ready-for-agent | 无（**禁止 merge GitHub PR #1**） |
 | [显式种类无条目不回落红测](issues/05-kind-no-fallback-red-test.md) | enhancement | ready-for-agent | 无 |
 | [V4-R9 并入规格正文](issues/06-v4-r9-spec-ingest.md) | enhancement | ready-for-agent | 无 |
 | [refreshModel 三处复制](issues/07-refresh-model-dedup.md) | enhancement | ready-for-agent | 无 |
+| [测试运行器宿主 DLL 随克隆可用](issues/08-test-runner-host-dlls.md) | bug | ready-for-agent | 无（02 终验顺带抓出） |
 
 ## 本批明确不立票
 
@@ -33,7 +34,8 @@ Parent: Phase-4 关单 `b04c4ab` / RELEASES 行 12 / 当前发布物 v5
 ## Decisions-so-far
 
 - 01 网络模块隔离投影：面板对 `bue.network` Isolated 改「可继续通信」、关开关、拒草稿；真正故障 Q44 不变；不改生命周期机。审计 `audit/2026-09-13/POST-P4-01/review-loop.md`。
+- 02 Plugin.Tests 夹具入库：改后缀 `.log.txt` 路线（非 `git add -f`），csproj/Program.cs 同步、`*.log` 规则零放宽；新通用门禁 `eng/Verify-TestFixturesTracked.ps1`；干净克隆构建+全套 7/7 双向实证（提交 `32c88e6`）。终验抓出运行器宿主 DLL provisioning 独立缺口 → 08。审计 `audit/2026-09-13/POST-P4-02/review-loop.md`。
 
 ## 下一站
 
-每票独立会话 `/implement`（红测先行 + 双轴 CLEAN）。建议顺序：02（可并行）→ 03 → 04。05–07 不挡玩家，可穿插。本批全 resolved 后再开第五阶段 `/wayfinder`。
+每票独立会话 `/implement`（红测先行 + 双轴 CLEAN）。建议顺序：03 → 04 → 08（08 由 02 终验顺带抓出=克隆即可跑测试面）。05–07 不挡玩家，可穿插。本批全 resolved 后再开第五阶段 `/wayfinder`。

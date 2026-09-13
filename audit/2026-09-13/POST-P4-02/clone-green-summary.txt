@@ -1,0 +1,7 @@
+== green clean-clone final verification (POST-P4-02, 2026-09-13) ==
+clone = git worktree --detach at fix commit 32c88e6 (fresh checkout: no workspace-only files; same sibling depth so ..\..\..\Libs resolves like dev env)
+1) clone ships fixtures: Fixtures/dev16d-fixed-preview.log.txt + dev16d-r36-no-preview.log.txt present with real content (tracked in 32c88e6)
+2) full-sln -t:Rebuild on clone exit=0 (console clone-green-build-console.txt; flp green-clone-rebuild.log kept on clone disk per *.log policy); bin/Release/Fixtures copy verified
+3) fixture-tracked gate on clone: PASS 2 items (clone-gate-run.txt)
+4) 7 exe from clone bin: 7/7 PASS (clone-fullsuite-*-run.txt; Plugin run includes fixture-based assertions AssertDev16D*)
+NOTE: before step 4 the clone bins were provisioned with host DLLs copied from ../Libs by name (same bytes dev workspace carries); first unprovisioned attempt failed Plugin.Tests on BepInEx assembly load = SEPARATE pre-existing clean-clone gap (Private=False + bin DLLs never in git), named as follow-up ticket 08, transcript in clone-plugin-firstattempt-fail.txt. Out of ticket-02 scope (fixture tracking only).
