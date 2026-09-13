@@ -1,0 +1,3 @@
+DEV-05/DEV-15A/DEV-15B/DEV-15C/DEV-15D/DEV-16B/DEV-V4-01/DEV-V4-02/DEV-V4-03/DEV-V4-04/DEV-V4-05/DEV-V4-07/DEV-V4-08 ClientUi tests: FAIL
+System.InvalidOperationException
+插件唯一行+显式功能种类=如实无草稿（不回落插件命名空间）

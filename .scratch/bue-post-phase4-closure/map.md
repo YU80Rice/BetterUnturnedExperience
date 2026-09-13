@@ -19,7 +19,7 @@ Parent: Phase-4 关单 `b04c4ab` / RELEASES 行 12 / 当前发布物 v5
 | [Plugin.Tests log fixture 未跟踪](issues/02-plugin-tests-log-fixtures.md) | bug | resolved | 无 |
 | [收藏星与重启徽章双键](issues/03-favorite-restart-dual-key.md) | bug | resolved | 无 |
 | [UPM 分类导航与列表文本路径](issues/04-upm-category-list-text.md) | enhancement | resolved | 无（**禁止 merge GitHub PR #1**·已保持） |
-| [显式种类无条目不回落红测](issues/05-kind-no-fallback-red-test.md) | enhancement | ready-for-agent | 无 |
+| [显式种类无条目不回落红测](issues/05-kind-no-fallback-red-test.md) | enhancement | resolved | 无 |
 | [V4-R9 并入规格正文](issues/06-v4-r9-spec-ingest.md) | enhancement | ready-for-agent | 无 |
 | [refreshModel 三处复制](issues/07-refresh-model-dedup.md) | enhancement | ready-for-agent | 无 |
 | [测试运行器宿主 DLL 随克隆可用](issues/08-test-runner-host-dlls.md) | bug | ready-for-agent | 无（02 终验顺带抓出） |
@@ -39,6 +39,8 @@ Parent: Phase-4 关单 `b04c4ab` / RELEASES 行 12 / 当前发布物 v5
 - 03 收藏星/重启徽章双键：模型 seam（`ManagementPanelModel`，不碰 Glazier）双键化——收藏键=（种类, StableId），盘上 `feature:`/`plugin:` 前缀桶；旧单键记录按票面第二方案**一次性分桶迁移**并持久化（碰撞=功能优先，否则贴插件行），不随目录漂移。顶栏「需要重启」徽章上移模型 `ShowsRestartBadge`（随最近一次尝试写入的种类+id，NoChanges 不动=继承 Q67），原生面板删本地徽章态。红测 5 案+编译/断言双红实录；双轴 R1→修复→R2 全 CLEAN（Standards 3 气味具名递延）。契约仍 2.1、不授候选。审计 `audit/2026-09-13/POST-P4-03/review-loop.md`。
 
 - 04 UPM 分类导航与列表文本路径：Category 标签解析（trim/空名回落节）+模型分类集合（去重/首现序/空归「通用」）+按类过滤投影双缝；三列表标签（裸/冒号两式，Item>Blueprint>Creature）=逐字格式提示的字符串文本行进草稿，列表压过 Cycle/AcceptableValueList；未识别列表标签不整行只读；重建透传。原生 chips 仅多分类画、换插件复位。红=双层编译红实录，绿=全套 7/7+fixture 门禁；双轴 R1 全 CLEAN（2 条测试侧气味具名递延）。PR #1 保持不合并（非祖先实证）。实现 `633a8be`，审计 `audit/2026-09-13/POST-P4-04/review-loop.md`。
+
+- 05 显式种类无条目不回落红测：纯测试票，src/ 零改动。DevV4DraftTests 碰撞组尾部四段常跑锚（只插件行×功能种类/只功能行×插件种类→如实无草稿+编辑拒+NoChanges 零写；单参 features-first 对照钉；TryLeaveDetail 目标种类无条目→离开后无草稿）。生产已满足→绿钉，用两处临时突变证「曾能失败」（M1 删功能种类不回落守卫→第 1 段红实录；M2 插件早退漏给 features-first→第 2 段红实录），突变均还原、终态 0/0+7/7+fixture 门禁 PASS。双轴 R1 全新实例全 CLEAN（Standards 2 条测试侧气味具名递延=断言不对称/计数器跨段累计注释）。契约仍 2.1、不授候选。审计 `audit/2026-09-13/POST-P4-05/review-loop.md`。
 
 ## 下一站
 

@@ -32,6 +32,7 @@ namespace BetterUnturnedExperience.ClientUi.Tests
             LegacyBareFavoriteBindsFeatureRowOnly();
             LegacyBareFavoriteForPluginOnlyGuidStaysOnPluginRow();
             RestartBadgeDoesNotCrossKind();
+            ExplicitKindWithoutMatchingRowOpensNoDraft();
         }
 
         private static void CollisionFeatureAndPluginShareStableIdRoutesByKind()
@@ -213,6 +214,67 @@ namespace BetterUnturnedExperience.ClientUi.Tests
             model.OpenDetail(shared, ManagementEntryKind.BueFeature);
             var featureRows = model.GetSettingRows(shared);
             Assert(featureRows.Count == 1 && featureRows[0].SettingId == "probe", "功能页不消费插件配置行");
+        }
+
+        private static void ExplicitKindWithoutMatchingRowOpensNoDraft()
+        {
+            // POST-P4-05（F4 Standards R6 红测补钉）：按种类打开详情时，该种类下
+            // 没有对应条目就如实无草稿，不得回落到另一种类的同 StableId 行。
+            // 正路两行碰撞路由已由 CollisionFeatureAndPluginShareStableIdRoutesByKind
+            // 钉住；本案钉「显式种类+该种类无条目」的单行形态：无草稿会话、
+            // 一切草稿编辑拒绝、权威源零写。原生面板详情页按草稿渲染
+            // （BueNativeManagementPanel 以行 (StableId, Kind) 调 OpenDetail），
+            // 无草稿=无详情页，另一行的设置自然不渲染。
+            var editor = new DraftableSettingsEditor();
+            var configEditor = new RecordingPluginEditor();
+            var featureOnly = "io.github.yu80rice.bue.solo";
+            var pluginOnly = "com.example.solo.plugin";
+            editor.Seed(new FeatureId(featureOnly), ToggleEntry("probe", true));
+            var model = NewModel(editor, configEditor);
+
+            // 1) 目录只有插件行：显式功能种类打开→如实无草稿，不回落插件命名空间。
+            model.Refresh(new BueFeatureManagementEntry[0], new[]
+            {
+                new LoadedPluginDescriptor(pluginOnly, "唯一插件", "1.0.0", new[]
+                {
+                    new PluginConfigEntryView("K", "K", PluginConfigValueKind.Integer, PluginConfigValue.IntegerValue(1), false, true, 0, 100),
+                })
+            });
+            model.OpenDetail(pluginOnly, ManagementEntryKind.BueFeature);
+            Assert(!model.HasOpenDetail, "插件唯一行+显式功能种类=如实无草稿（不回落插件命名空间）");
+            Assert(model.OpenStableId == null, "不回落不得留下半张开着的详情");
+            Assert(!model.DraftEditBueSetting("probe", PluginConfigValue.BooleanValue(false)), "无草稿拒功能编辑");
+            Assert(!model.DraftEditPluginConfig(pluginOnly, "K", "5"), "无草稿拒外部编辑");
+            Assert(!model.IsDirty, "无草稿=不脏");
+            var emptySave = model.SaveDraft();
+            Assert(emptySave.Outcome == DraftSaveOutcome.NoChanges && editor.BatchCalls == 0 && configEditor.SetCalls == 0,
+                "无草稿保存=NoChanges 且权威源零写");
+
+            // 2) 目录只有功能行：显式插件种类打开→如实无草稿，不回落功能命名空间。
+            model.Refresh(new[] { Feature(new FeatureId(featureOnly), "唯一功能", editor) }, new LoadedPluginDescriptor[0]);
+            model.OpenDetail(featureOnly, ManagementEntryKind.ExternalPlugin);
+            Assert(!model.HasOpenDetail, "功能唯一行+显式插件种类=如实无草稿（不回落功能命名空间）");
+            Assert(!model.DraftEditBueSetting("probe", PluginConfigValue.BooleanValue(false)), "回落草稿不存在→功能编辑拒");
+            Assert(!model.DraftEditPluginConfig(featureOnly, "K", "1"), "同 id 也不得借插件编辑通道");
+
+            // 3) 对照锚：同 id 用单参重载打开仍按旧 features-first 语义成稿——
+            // 证明 1)/2) 的无草稿是「拒绝回落」而非「拒绝打开详情」，
+            // F4 未改变单参生产语义。
+            model.OpenDetail(featureOnly);
+            Assert(model.HasOpenDetail && model.DraftEditBueSetting("probe", PluginConfigValue.BooleanValue(false)),
+                "单参=features-first 旧语义保持（种类未给定时）");
+            model.DiscardDraft();
+
+            // 4) 确认导航带目标种类：目标行没有该种类条目→离开后如实无草稿，
+            // 不得回落到单参（null 种类）会打开的同 id 功能页。
+            model.OpenDetail(featureOnly, ManagementEntryKind.BueFeature);
+            Assert(model.DraftEditBueSetting("probe", PluginConfigValue.BooleanValue(false)), "导航前功能草稿脏");
+            DraftSaveReport leaveReport;
+            Assert(model.TryLeaveDetail(featureOnly, ManagementEntryKind.ExternalPlugin, PanelConfirmChoice.Save, out leaveReport)
+                    && leaveReport.Outcome == DraftSaveOutcome.Success,
+                "脏功能草稿保存并导航到不存在的插件种类行=受理");
+            Assert(editor.BatchCalls == 1 && configEditor.SetCalls == 0, "该次离开只写功能源");
+            Assert(!model.HasOpenDetail, "目标种类无条目=离开后如实无草稿（不回落到同 id 功能页）");
         }
 
         private static void EditDoesNotWriteAuthoritativeSource()
