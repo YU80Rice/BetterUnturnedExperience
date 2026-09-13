@@ -22,7 +22,7 @@ Parent: Phase-4 关单 `b04c4ab` / RELEASES 行 12 / 当前发布物 v5
 | [显式种类无条目不回落红测](issues/05-kind-no-fallback-red-test.md) | enhancement | resolved | 无 |
 | [V4-R9 并入规格正文](issues/06-v4-r9-spec-ingest.md) | enhancement | resolved | 无 |
 | [refreshModel 三处复制](issues/07-refresh-model-dedup.md) | enhancement | resolved | 无 |
-| [测试运行器宿主 DLL 随克隆可用](issues/08-test-runner-host-dlls.md) | bug | ready-for-agent | 无（02 终验顺带抓出） |
+| [测试运行器宿主 DLL 随克隆可用](issues/08-test-runner-host-dlls.md) | bug | resolved | 无（02 终验顺带抓出） |
 
 ## 本批明确不立票
 
@@ -46,6 +46,8 @@ Parent: Phase-4 关单 `b04c4ab` / RELEASES 行 12 / 当前发布物 v5
 
 - 07 refreshModel 三处复制：F2 保存钮/确认留页/确认离开（脏刷新 `wasRefresh` 含）收成单一入口 `RefreshCatalogThenPaintCurrentDetail`（`forceRefresh || CommittedLifecycleIntent` 才重建目录，再按 Full/Details/None 画，banner 最后；关面板离开先刷目录不画帧）。Open / 干净刷新未抽（非 F2 门）；插件草稿填充两段同构未升格。红测缝=新 eng 门禁 `eng/Verify-RefreshModelDeduped.ps1`（方法切片区域绑定），红 7 违例→绿，M1–M4 四突变各证红。tests/ 零改动，F2 行为仍由 ClientUi `SaveCommittedLifecycleIntentFlag` 钉。契约仍 2.1、不授候选。双轴 R1 全新实例全 CLEAN 无递延项。终态 Rebuild 0/0+7/7+fixture 门禁 PASS。审计 `audit/2026-09-13/POST-P4-07/review-loop.md`。
 
+- 08 测试运行器宿主 DLL 随克隆可用：`Plugin.Tests.csproj` 对仓库外 `..\..\..\Libs` 的 7 个宿主 `<Reference>` 由 `Private=False`→`Private=True`，RAR CopyLocal 连传递依赖一次拷齐、构建期把 runner 输出做成自足，克隆零手工拷贝即跑全套；不引入 `<None CopyToOutputDirectory>`（仓库外路径会被夹具门禁判未跟踪）、`*.dll` 禁令不变零入库；候选 `src/Plugin`、`NoOpFixture` 宿主引用刻意留 `Private=False`（发布 DLL 禁携宿主 DLL）不受触。副作用：`AssertSingleDllAssemblyClosure` 只核 plugin 程序集引用名、与 bin 文件数无关，装满的闭包不破坏语义。红测缝=新 eng 门禁 `Verify-TestRunnerHostDllsProvisioned.ps1`（tests/ 内仓库外 HintPath 引用须 CopyLocal），红 7→绿、M1 单引用回退证逐引用粒度。工作区 Rebuild 0/0+7/7+双门禁绿；worktree 同层克隆构建前 bin DLL=0→Rebuild exit 0 自足 27 DLL→7 exe 全绿（Plugin 含 DEV-14/DEV-16B runtime PASS）。双轴 R1 Standards CLEAN（4 判断气味具名递延）+ Spec 1 证据 gap（缺工作区夹具门禁 transcript）→补证→R2 双轴全新实例全 CLEAN。实现提交 `b5ce0af`·契约仍 2.1·不授候选·审计 `audit/2026-09-13/POST-P4-08/review-loop.md`。
+
 ## 下一站
 
-每票独立会话 `/implement`（红测先行 + 双轴 CLEAN）。余票=08（测试运行器宿主 DLL，02 终验顺带抓出）。本批全 resolved 后再开第五阶段 `/wayfinder`。
+每票独立会话 `/implement`（红测先行 + 双轴 CLEAN）。**本批 01–08 全 resolved**（08=克隆运行器宿主 DLL provisioning，实现 `b5ce0af`）。下一站=开第五阶段 `/wayfinder`（锁定页、Item/Blueprint/Creature 可视化选择器、路径调试、i18n、统一色板、O-LIT-1、BueUi 等本批明确不立票项）。

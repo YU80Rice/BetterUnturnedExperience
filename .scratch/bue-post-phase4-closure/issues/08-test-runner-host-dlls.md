@@ -1,7 +1,7 @@
 # 08: 干净克隆缺测试运行器宿主程序集（bin 依赖工作区历史拷贝）
 
 Type: task
-Status: ready-for-agent
+Status: resolved
 Category: bug
 Blocked by: 无（可立即开始；由 POST-P4-02 关单终验顺带抓出）
 Parent: [map.md](../map.md)
@@ -29,10 +29,10 @@ Parent: [map.md](../map.md)
 - `Program.AssertSingleDllAssemblyClosure`（版本 5.4.23.5 钉死？升级面）
 
 **验收标准：**
-- [ ] 干净克隆（worktree 法）构建后不做任何手工拷贝，7 exe 全绿
-- [ ] `git status` 无新增 DLL 入库；`*.dll`/`*.log` 规则零放宽
-- [ ] 全套 7/7 在工作区同样成立；门禁 eng/Verify-TestFixturesTracked.ps1 若适配 CopyToOutput 新写法则同步跑绿
-- [ ] 双轴 CLEAN
+- [x] 干净克隆（worktree 法）构建后不做任何手工拷贝，7 exe 全绿
+- [x] `git status` 无新增 DLL 入库；`*.dll`/`*.log` 规则零放宽
+- [x] 全套 7/7 在工作区同样成立；门禁 eng/Verify-TestFixturesTracked.ps1 若适配 CopyToOutput 新写法则同步跑绿
+- [x] 双轴 CLEAN
 
 **不在范围内：**
 - CI 基础设施；Libs 内容版本升级（BepInEx 换版另票）
@@ -40,3 +40,13 @@ Parent: [map.md](../map.md)
 ## Comments
 
 - 2026-09-13 POST-P4-02 关单终验顺带抓出（票 02 范围=夹具入库，已闭环；运行器宿主 provisioning 独立成票）。
+
+## Answer
+
+- **根因**：`Plugin.Tests.csproj` 对仓库外 `..\..\..\Libs\` 的 7 个宿主 `<Reference>`（BepInEx/0Harmony/Assembly-CSharp/SDG.NetTransport/SDG.Glazier.Runtime/UnityEngine/UnityEngine.CoreModule）全是 `Private=False`（CopyLocal 关）——编译期解析但不进 `bin`；主工作区可跑纯靠历史逐字节拷贝，克隆 fresh bin 缺宿主 DLL，运行期在 `AssertSingleDllAssemblyClosure` 首抛 `FileNotFoundException:BepInEx`。
+- **修复**：7 引用改 `Private=True`。RAR CopyLocal 连 `Libs` 内传递依赖一次拷齐，构建期把 runner 输出目录做成自足，克隆零手工拷贝即跑。刻意不引入 `<None CopyToOutputDirectory>`（仓库外路径会被夹具门禁判未跟踪），`*.dll` 全局禁令不变、零 DLL 入库。候选 `src/Plugin`、`NoOpFixture` 宿主引用保持 `Private=False`（发布 DLL 禁携宿主 DLL），未受触碰。
+- **红测缝**：新门禁 `eng/Verify-TestRunnerHostDllsProvisioned.ps1`——`tests/` 内 HintPath 解析到仓库外的 `<Reference>` 须 CopyLocal。红 7 违例→绿 7 CopyLocal；M1 单引用回退 exit=1 恰 1 违例（逐引用粒度）。
+- **副作用（票面点名）**：`AssertSingleDllAssemblyClosure` 只核 plugin 程序集 `GetReferencedAssemblies()` 的引用名，与输出目录文件数无关；装满的 bin 不破坏闭包语义（工作区+克隆 Plugin.Tests 皆证）。
+- **实证**：工作区 Rebuild 0/0 + 7 exe 全绿 + 夹具/新门禁双绿；干净克隆（worktree `bue-p4-08-clone` 同层解析 `Libs`）构建前 bin DLL=0 → Rebuild exit 0 自足 27 DLL → 7 exe 全绿（含 Plugin `DEV-14/DEV-16B` runtime PASS）→ 双门禁绿 → `git status` 零 DLL。
+- **范围外**：CI 基础设施、`Libs`/BepInEx 版本升级（5.4.23.5 钉未动）。
+- 双轴两轮：R1 Standards CLEAN（4 判断气味具名递延）+ Spec 1 证据 gap→补工作区夹具门禁 transcript→R2 双轴全 CLEAN（全新实例）。实现提交 `b5ce0af`。审计 `audit/2026-09-13/POST-P4-08/review-loop.md`。契约仍 2.1，不授候选。

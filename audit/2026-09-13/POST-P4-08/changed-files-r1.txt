@@ -1,0 +1,2 @@
+tests/BetterUnturnedExperience.Plugin.Tests/BetterUnturnedExperience.Plugin.Tests.csproj
+eng/Verify-TestRunnerHostDllsProvisioned.ps1
