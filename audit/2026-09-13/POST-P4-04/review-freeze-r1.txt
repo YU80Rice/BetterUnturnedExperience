@@ -1,0 +1,795 @@
+diff --git a/src/BetterUnturnedExperience.ClientUi/ManagementPanel.cs b/src/BetterUnturnedExperience.ClientUi/ManagementPanel.cs
+index abf73f6..3295316 100644
+--- a/src/BetterUnturnedExperience.ClientUi/ManagementPanel.cs
++++ b/src/BetterUnturnedExperience.ClientUi/ManagementPanel.cs
+@@ -134,9 +134,21 @@ namespace BetterUnturnedExperience.ClientUi.Internal
+         internal string Description { get; }
+         internal IReadOnlyList<string> AllowedChoices { get; }
+ 
++        // POST-P4-04: the UPM 分类导航与列表文本路径 surface carried per row —
++        // Category is "Unturned.Category:<名>" (else the config section; blank
++        // collapses into the default group only at the collection/filter seam),
++        // and ControlHint is the list rows' 逐字格式提示 (ItemList/BlueprintList/
++        // CreatureList). A list row stays a plain String TextEditor: the tag
++        // grants NO AllowedChoices, so the cycle control never appears where a
++        // format-hinted text box belongs. Empty defaults keep every existing
++        // producer behaviour unchanged.
++        internal string Category { get; }
++        internal string ControlHint { get; }
++
+         internal PluginConfigEntryView(string key, string displayName, PluginConfigValueKind kind, PluginConfigValue value,
+             bool requiresRestart, bool canEdit, double? minimum = null, double? maximum = null, int maximumLength = 4096,
+-            string description = null, IReadOnlyList<string> allowedChoices = null)
++            string description = null, IReadOnlyList<string> allowedChoices = null,
++            string category = null, string controlHint = null)
+         {
+             Key = key ?? string.Empty;
+             DisplayName = displayName ?? string.Empty;
+@@ -149,6 +161,8 @@ namespace BetterUnturnedExperience.ClientUi.Internal
+             MaximumLength = maximumLength;
+             Description = description ?? string.Empty;
+             AllowedChoices = allowedChoices ?? new string[0];
++            Category = category ?? string.Empty;
++            ControlHint = controlHint ?? string.Empty;
+         }
+     }
+ 
+@@ -216,10 +230,16 @@ namespace BetterUnturnedExperience.ClientUi.Internal
+         internal PluginConfigValue Effective { get; }
+         internal bool IsDirty { get; }
+         internal bool RequiresRestart { get; }
++        // POST-P4-04: the row keeps its 分类 (drives the navigation chips and the
++        // category filter) and its 列表格式提示 (drawn above the text editor).
++        // Both are passthrough projections — truncation/join discipline follows
++        // the description line above (空不画 by the renderer).
++        internal string Category { get; }
++        internal string ControlHint { get; }
+ 
+         internal PanelConfigRowView(string key, string displayName, string description, PluginConfigValueKind kind,
+             IReadOnlyList<string> allowedChoices, PanelSettingControlKind controlKind, PluginConfigValue effective,
+-            bool isDirty, bool requiresRestart)
++            bool isDirty, bool requiresRestart, string category = null, string controlHint = null)
+         {
+             Key = key ?? string.Empty;
+             DisplayName = displayName ?? string.Empty;
+@@ -230,6 +250,8 @@ namespace BetterUnturnedExperience.ClientUi.Internal
+             Effective = effective;
+             IsDirty = isDirty;
+             RequiresRestart = requiresRestart;
++            Category = category ?? string.Empty;
++            ControlHint = controlHint ?? string.Empty;
+         }
+     }
+ 
+@@ -706,7 +728,7 @@ namespace BetterUnturnedExperience.ClientUi.Internal
+             var editorResult = pluginConfigEditor.TrySet(pluginGuid, key, value);
+             if (!editorResult.Accepted) return new PluginConfigEditResult(false, entry.RequiresRestart, editorResult.Reason);
+             entries[index] = new PluginConfigEntryView(entry.Key, entry.DisplayName, entry.Kind, value, entry.RequiresRestart, entry.CanEdit, entry.Minimum, entry.Maximum, entry.MaximumLength,
+-                entry.Description, entry.AllowedChoices);
++                entry.Description, entry.AllowedChoices, entry.Category, entry.ControlHint);
+             plugins[pluginGuid] = new LoadedPluginDescriptor(plugin.Guid, plugin.DisplayName, plugin.Version, entries);
+             return new PluginConfigEditResult(true, entry.RequiresRestart, PluginConfigEditRejection.None);
+         }
+@@ -1064,6 +1086,45 @@ namespace BetterUnturnedExperience.ClientUi.Internal
+             return new ReadOnlyCollection<PanelConfigRowView>(rows);
+         }
+ 
++        // ── POST-P4-04：UPM 分类导航（去重集合 + 按类过滤）─────────────────
++        // 分类集合=去重、首现序、空/空白分类归「通用」；单分类（Count==1）是渲染层
++        // 「不画多余导航」的判定根据；未注册 stableId 如实空集（不造假导航）。过滤
++        // 走同一投影：category 为空白=全量行（既有语义不变），否则只回归一化后
++        // 同类的行（草稿生效值/脏标记照常，见单参 GetPluginConfigRows）。
++
++        internal const string DefaultCategory = "通用";
++
++        internal IReadOnlyList<string> GetPluginConfigCategories(string stableId)
++        {
++            EnsurePreferencesLoaded();
++            var categories = new List<string>();
++            LoadedPluginDescriptor plugin;
++            if (string.IsNullOrEmpty(stableId) || !plugins.TryGetValue(stableId, out plugin))
++                return new ReadOnlyCollection<string>(categories);
++            for (var index = 0; index < plugin.ConfigEntries.Count; index++)
++            {
++                var category = NormalizeCategory(plugin.ConfigEntries[index].Category);
++                if (!categories.Contains(category)) categories.Add(category);
++            }
++            return new ReadOnlyCollection<string>(categories);
++        }
++
++        internal IReadOnlyList<PanelConfigRowView> GetPluginConfigRows(string stableId, string category)
++        {
++            var all = GetPluginConfigRows(stableId);
++            if (string.IsNullOrWhiteSpace(category)) return all;
++            var wanted = NormalizeCategory(category);
++            var rows = new List<PanelConfigRowView>();
++            for (var index = 0; index < all.Count; index++)
++                if (string.Equals(NormalizeCategory(all[index].Category), wanted, StringComparison.Ordinal)) rows.Add(all[index]);
++            return new ReadOnlyCollection<PanelConfigRowView>(rows);
++        }
++
++        private static string NormalizeCategory(string category)
++        {
++            return string.IsNullOrWhiteSpace(category) ? DefaultCategory : category;
++        }
++
+         // ── DEV-V4-05：功能级启停详情页表面（只读状态投影 + 启用开关目标）──
+         // 状态行=九态中文（面板不 FeatureState.ToString()），表现状态独立一行，
+         // 隔离原因有值才显示；启用开关=保存后的目标状态（草稿），有开关 iff
+@@ -1188,7 +1249,8 @@ namespace BetterUnturnedExperience.ClientUi.Internal
+             else if (entry.Kind == PluginConfigValueKind.Boolean) control = PanelSettingControlKind.Toggle;
+             else control = PanelSettingControlKind.TextEditor;
+             return new PanelConfigRowView(entry.Key, entry.DisplayName, TruncateDescription(entry.Description), entry.Kind,
+-                entry.AllowedChoices ?? new string[0], control, effective, dirty, entry.RequiresRestart);
++                entry.AllowedChoices ?? new string[0], control, effective, dirty, entry.RequiresRestart,
++                entry.Category, entry.ControlHint);
+         }
+ 
+         private static PanelSettingControlKind ControlKindForSetting(SettingKind kind, IReadOnlyList<string> levels, bool editable)
+@@ -1289,7 +1351,7 @@ namespace BetterUnturnedExperience.ClientUi.Internal
+                         {
+                             entries[position] = new PluginConfigEntryView(entry.Key, entry.DisplayName, entry.Kind, pending,
+                                 entry.RequiresRestart, entry.CanEdit, entry.Minimum, entry.Maximum, entry.MaximumLength,
+-                                entry.Description, entry.AllowedChoices);
++                                entry.Description, entry.AllowedChoices, entry.Category, entry.ControlHint);
+                             if (entry.RequiresRestart) requiresRestart = true;
+                             committed.Add(entry.Key);
+                         }
+diff --git a/src/BetterUnturnedExperience.Plugin/BueNativeManagementPanel.cs b/src/BetterUnturnedExperience.Plugin/BueNativeManagementPanel.cs
+index b3cac9f..bac622f 100644
+--- a/src/BetterUnturnedExperience.Plugin/BueNativeManagementPanel.cs
++++ b/src/BetterUnturnedExperience.Plugin/BueNativeManagementPanel.cs
+@@ -119,6 +119,12 @@ namespace BetterUnturnedExperience.Plugin
+         // StableId 单独不再唯一标识一行——选中态必须携带行种类，路由按
+         // (种类, StableId) 双键解析，功能页不再被同键插件行遮蔽。
+         private ManagementEntryKind selectedKind;
++        // POST-P4-04: 外部配置详情区的分类导航筛选态（UPM Unturned.Category 标签）。
++        // 归属键=选中的 StableId——换插件即复位；同插件的失效分类另由重绘时的
++        // 存在性校验兜底。纯渲染状态，模型侧过滤/集合经 GetPluginConfigRows/
++        // GetPluginConfigCategories 两个投影缝。
++        private string selectedPluginCategory;
++        private string categoryOwnerStableId;
+         // DEV-V4-01: unsaved-draft navigation. The immediate-write path is
+         // retired — a settings/config edit lands in the model draft and only
+         // "保存配置" reaches the authoritative source. When a dirty draft is
+@@ -1044,7 +1050,29 @@ namespace BetterUnturnedExperience.Plugin
+                 AddDetailLabel(ref y, "普通 BepInEx ConfigEntry", ESleekFontSize.Medium);
+                 // DEV-V4-02: external rows go through the same projection and
+                 // the same 显示名→描述→控件 structure (同权).
+-                var configRows = runtime.Model.GetPluginConfigRows(selected.StableId);
++                // POST-P4-04: 多分类才画 chips 导航（单分类=「不画多余导航」）；
++                // 筛选态换插件复位，失效分类回落首条。
++                var categories = runtime.Model.GetPluginConfigCategories(selected.StableId);
++                if (categoryOwnerStableId != selected.StableId)
++                {
++                    categoryOwnerStableId = selected.StableId;
++                    selectedPluginCategory = null;
++                }
++                IReadOnlyList<PanelConfigRowView> configRows;
++                if (categories.Count > 1)
++                {
++                    var known = false;
++                    for (var categoryIndex = 0; categoryIndex < categories.Count; categoryIndex++)
++                        if (string.Equals(categories[categoryIndex], selectedPluginCategory, StringComparison.Ordinal)) known = true;
++                    if (string.IsNullOrEmpty(selectedPluginCategory) || !known) selectedPluginCategory = categories[0];
++                    y = RenderCategoryChips(y, categories);
++                    configRows = runtime.Model.GetPluginConfigRows(selected.StableId, selectedPluginCategory);
++                }
++                else
++                {
++                    selectedPluginCategory = null;
++                    configRows = runtime.Model.GetPluginConfigRows(selected.StableId);
++                }
+                 for (var index = 0; index < configRows.Count; index++)
+                 {
+                     AddPluginConfigRow(ref y, selected.StableId, configRows[index]);
+@@ -1222,6 +1250,9 @@ namespace BetterUnturnedExperience.Plugin
+                     y += 36;
+                     break;
+                 case PanelSettingControlKind.TextEditor:
++                    // POST-P4-04: UPM 列表行在文本框上方画逐字格式提示（空=不画
++                    // 不占位，与描述行同纪律）；编辑仍是进草稿的普通文本框。
++                    if (!string.IsNullOrEmpty(row.ControlHint)) AddDetailLabel(ref y, row.ControlHint, ESleekFontSize.Small);
+                     AddTextEditor(ref y, key, FormatPluginValue(row.Effective), raw =>
+                         runtime.Model.DraftEditPluginConfig(pluginGuid, key, raw), RenderDetails);
+                     break;
+@@ -1231,6 +1262,40 @@ namespace BetterUnturnedExperience.Plugin
+             }
+         }
+ 
++        // POST-P4-04: 分类 chips——固定宽按钮从左到右流式排布（每行 3 个），高亮
++        // 当前分类；点击只切筛选、重绘详情区，不动草稿与会话。
++        private int RenderCategoryChips(int y, IReadOnlyList<string> categories)
++        {
++            const float chipWidth = 150f;
++            const float chipHeight = 28f;
++            const float chipGapX = 8f;
++            const int perRow = 3;
++            for (var index = 0; index < categories.Count; index++)
++            {
++                var row = index / perRow;
++                var column = index % perRow;
++                var category = categories[index];
++                var chip = Glazier.Get().CreateButton();
++                chip.PositionOffset_X = column * (chipWidth + chipGapX);
++                chip.PositionOffset_Y = y + row * (chipHeight + 6f);
++                chip.SizeOffset_X = chipWidth;
++                chip.SizeOffset_Y = chipHeight;
++                chip.Text = category;
++                chip.FontSize = ESleekFontSize.Small;
++                chip.BackgroundColor = string.Equals(category, selectedPluginCategory, StringComparison.Ordinal)
++                    ? new SleekColor(ESleekTint.BACKGROUND, 0.9f)
++                    : new SleekColor(ESleekTint.BACKGROUND, 0.25f);
++                chip.OnClicked += delegate(ISleekElement ignored)
++                {
++                    selectedPluginCategory = category;
++                    RenderDetails();
++                };
++                detailScroll.AddChild(chip);
++            }
++            var rows = (categories.Count + perRow - 1) / perRow;
++            return y + (int)(rows * (chipHeight + 6f)) + 8;
++        }
++
+         // ── DEV-V4-01 draft navigation (保存 / 放弃 / 确认 command surface) ──
+ 
+         // Switching the selected entry while a dirty draft is open arms the
+diff --git a/src/BetterUnturnedExperience.Plugin/LoadedPluginCatalogAdapter.cs b/src/BetterUnturnedExperience.Plugin/LoadedPluginCatalogAdapter.cs
+index f74ca69..41f55d9 100644
+--- a/src/BetterUnturnedExperience.Plugin/LoadedPluginCatalogAdapter.cs
++++ b/src/BetterUnturnedExperience.Plugin/LoadedPluginCatalogAdapter.cs
+@@ -17,6 +17,9 @@ namespace BetterUnturnedExperience.Plugin
+     /// candidates (Unturned.Cycle tag / AcceptableValueList) for supported base
+     /// types, classifies write failures structurally (Q70), and leaves
+     /// unrecognized discrete constraints as plain editable controls (Q66).
++    /// POST-P4-04 (票 04): also captures the UPM category tag ("Unturned.Category:")
++    /// and renders ItemList/BlueprintList/CreatureList as format-hinted string
++    /// text rows — list tags outrank the cycle sources, no visual picker.
+     /// </summary>
+     internal sealed class LoadedPluginCatalogAdapter : IPluginConfigEditor
+     {
+@@ -65,9 +68,14 @@ namespace BetterUnturnedExperience.Plugin
+                 GetBounds(entry, out minimum, out maximum);
+                 var maximumLength = entry.SettingType == typeof(string) ? 4096 : 0;
+                 var canEdit = value.Kind != PluginConfigValueKind.Unsupported && !config.IsReadOnly;
++                // POST-P4-04: a recognized UPM list tag makes the row a plain
++                // format-hinted String text row — precedence mirrors UPM, so
++                // the Cycle tag / AcceptableValueList grant it NO choices.
++                var listHint = ListFormatHint(entry);
++                var allowedChoices = listHint.Length > 0 ? new string[0] : CycleCandidates(entry, value.Kind);
+                 entries.Add(new PluginConfigEntryView(definition.Key, definition.Key, value.Kind,
+                     value, RequiresRestart(entry), canEdit, minimum, maximum, maximumLength,
+-                    DescriptionOf(entry), CycleCandidates(entry, value.Kind)));
++                    DescriptionOf(entry), allowedChoices, CategoryOf(entry), listHint));
+             }
+             return entries;
+         }
+@@ -259,6 +267,61 @@ namespace BetterUnturnedExperience.Plugin
+             return candidates;
+         }
+ 
++        // ===== POST-P4-04: UnturnedPluginManager (UPM) 分类与列表标签 =====
++        // "Unturned.Category:<名>" selects the row's category (trailing/leading
++        // blanks trimmed; an empty name falls back to the config section, and a
++        // tagless entry groups by section too — 空分类归「通用」是投影侧规则).
++        // ItemList / BlueprintList / CreatureList — bare or colon-suffixed —
++        // turn the row into a format-hinted String TEXT row (值仍是字符串、编辑
++        // 走草稿), never an icon/search picker. An unrecognized list-like tag
++        // stays silently ignored (Q69): the string base keeps the row editable
++        // and no hint is invented for it.
++
++        private const string ItemListTag = "Unturned.ItemList";
++        private const string BlueprintListTag = "Unturned.BlueprintList";
++        private const string CreatureListTag = "Unturned.CreatureList";
++        private const string CategoryTagPrefix = "Unturned.Category:";
++
++        private const string ItemListHint = "值格式：物品ID, 物品ID, ...";
++        private const string BlueprintListHint = "值格式：所属物品ID:配方编号, ...";
++        private const string CreatureListHint = "值格式：Z:僵尸类型 或 A:动物资产ID, ...";
++
++        // Fixed Item > Blueprint > Creature precedence (UPM's check order),
++        // independent of the order the tags appear on one entry.
++        private static string ListFormatHint(ConfigEntryBase entry)
++        {
++            if (HasListTag(entry, ItemListTag)) return ItemListHint;
++            if (HasListTag(entry, BlueprintListTag)) return BlueprintListHint;
++            if (HasListTag(entry, CreatureListTag)) return CreatureListHint;
++            return string.Empty;
++        }
++
++        private static bool HasListTag(ConfigEntryBase entry, string tag)
++        {
++            var tags = entry.Description == null ? null : entry.Description.Tags;
++            if (tags == null) return false;
++            for (var index = 0; index < tags.Length; index++)
++            {
++                var text = tags[index] == null ? null : Convert.ToString(tags[index], CultureInfo.InvariantCulture);
++                if (text == null) continue;
++                if (string.Equals(text, tag, StringComparison.Ordinal)) return true;
++                if (text.Length > tag.Length + 1 && text[tag.Length] == ':' && text.StartsWith(tag, StringComparison.Ordinal)) return true;
++            }
++            return false;
++        }
++
++        private static string CategoryOf(ConfigEntryBase entry)
++        {
++            var tag = FindTag(entry, CategoryTagPrefix);
++            if (tag != null)
++            {
++                var name = tag.Substring(CategoryTagPrefix.Length).Trim();
++                if (name.Length > 0) return name;
++            }
++            var section = entry.Definition.Section;
++            return section ?? string.Empty;
++        }
++
+         private static string FindTag(ConfigEntryBase entry, string prefix)
+         {
+             var tags = entry.Description == null ? null : entry.Description.Tags;
+diff --git a/tests/BetterUnturnedExperience.ClientUi.Tests/BetterUnturnedExperience.ClientUi.Tests.csproj b/tests/BetterUnturnedExperience.ClientUi.Tests/BetterUnturnedExperience.ClientUi.Tests.csproj
+index 1041b77..377e1bf 100644
+--- a/tests/BetterUnturnedExperience.ClientUi.Tests/BetterUnturnedExperience.ClientUi.Tests.csproj
++++ b/tests/BetterUnturnedExperience.ClientUi.Tests/BetterUnturnedExperience.ClientUi.Tests.csproj
+@@ -42,6 +42,7 @@
+     <Compile Include="DevV4FeatureToggleSurfaceTests.cs" />
+     <Compile Include="DevV4OfficialCopyTests.cs" />
+     <Compile Include="DevV4ExternalConfigParityTests.cs" />
++    <Compile Include="DevTicket04UpmCategoryListTests.cs" />
+   </ItemGroup>
+   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+ </Project>
+diff --git a/tests/BetterUnturnedExperience.ClientUi.Tests/DevTicket04UpmCategoryListTests.cs b/tests/BetterUnturnedExperience.ClientUi.Tests/DevTicket04UpmCategoryListTests.cs
+new file mode 100644
+index 0000000..947e522
+--- /dev/null
++++ b/tests/BetterUnturnedExperience.ClientUi.Tests/DevTicket04UpmCategoryListTests.cs
+@@ -0,0 +1,251 @@
++using System;
++using System.Collections.Generic;
++using BetterUnturnedExperience.ClientUi.Internal;
++using BetterUnturnedExperience.Contracts;
++
++namespace BetterUnturnedExperience.ClientUi.Tests
++{
++    // POST-P4-04：UPM 分类导航与列表配置文本路径——面板模型组。判据全部走模型投影缝：
++    // 分类集合去重/首现序/空分类归「通用」、单分类只有一条（导航缺席由渲染层按 >1 判定）、
++    // 分类过滤行投影、列表行=带格式提示的文本框且编辑只进草稿、保存/直写重建保留
++    // 分类与提示。标签→分类/提示的采集判据在 Plugin.Tests（DevTicket04UpmTagParsingTests）。
++    internal static class DevTicket04UpmCategoryListTests
++    {
++        private const string ItemHint = "值格式：物品ID, 物品ID, ...";
++
++        internal static void Run()
++        {
++            CategoryCollectionDedupedFirstSeenWithDefaultGroup();
++            SingleCategoryProducesExactlyOneEntry();
++            CategoryFilterSelectsRowsInOrder();
++            ListItemRowIsHintedTextEditorEnteringDraft();
++            RowProjectionsPreserveCategoryAndHintThroughWrites();
++            CycleRowShapeUnaffectedByCategorySeam();
++            Console.WriteLine("POST-P4-04 ClientUi category/list tests: PASS");
++        }
++
++        // 分类集合：去重、首现序、空分类归「通用」；未注册 stableId 如实空集。
++        private static void CategoryCollectionDedupedFirstSeenWithDefaultGroup()
++        {
++            var model = NewModel();
++            model.Refresh(new BueFeatureManagementEntry[0], new[]
++            {
++                Plugin("com.example.cats",
++                    Entry("a", String("v"), category: "战斗"),
++                    Entry("b", String("v")),
++                    Entry("c", String("v"), category: "战斗"),
++                    Entry("d", String("v"), category: "   "),
++                    Entry("e", String("v"), category: "外观")),
++            });
++
++            var categories = model.GetPluginConfigCategories("com.example.cats");
++            Assert(categories.Count == 3, "分类集合去重后只剩三条");
++            Assert(categories[0] == "战斗" && categories[1] == "通用" && categories[2] == "外观",
++                "分类按首现序排列，空/空白分类归「通用」且只占一位");
++            Assert(model.GetPluginConfigCategories("missing.plugin").Count == 0, "未注册插件=空分类集（不造假导航）");
++        }
++
++        // 单分类不画多余导航的模型侧根据：整组同分类或全无分类都只产出一条。
++        private static void SingleCategoryProducesExactlyOneEntry()
++        {
++            var model = NewModel();
++            model.Refresh(new BueFeatureManagementEntry[0], new[]
++            {
++                Plugin("com.example.all.one",
++                    Entry("x", String("v"), category: "回收"),
++                    Entry("y", String("v"), category: "回收")),
++                Plugin("com.example.all.none",
++                    Entry("p", String("v")),
++                    Entry("q", String("v"))),
++            });
++
++            Assert(model.GetPluginConfigCategories("com.example.all.one").Count == 1, "整组同分类=单分类");
++            var none = model.GetPluginConfigCategories("com.example.all.none");
++            Assert(none.Count == 1 && none[0] == "通用", "全无分类=单条「通用」");
++        }
++
++        // 分类过滤：命中分类只回该组行、保持条目序；null=全量；无行分类如实空。
++        private static void CategoryFilterSelectsRowsInOrder()
++        {
++            var model = NewModel();
++            model.Refresh(new BueFeatureManagementEntry[0], new[]
++            {
++                Plugin("com.example.filter",
++                    Entry("fight1", String("v"), category: "战斗"),
++                    Entry("fight2", String("v"), category: "战斗", controlHint: ItemHint),
++                    Entry("look", String("v"), category: "外观"),
++                    Entry("plain", String("v"))),
++            });
++
++            Assert(model.GetPluginConfigRows("com.example.filter").Count == 4, "无分类过滤=全量行");
++            var fight = model.GetPluginConfigRows("com.example.filter", "战斗");
++            Assert(fight.Count == 2 && fight[0].Key == "fight1" && fight[1].Key == "fight2", "分类过滤保条目序");
++            var general = model.GetPluginConfigRows("com.example.filter", "通用");
++            Assert(general.Count == 1 && general[0].Key == "plain", "空分类行经「通用」命中");
++            Assert(model.GetPluginConfigRows("com.example.filter", "不存在的分类").Count == 0, "无行分类如实空集");
++        }
++
++        // 列表行=带格式提示的文本框：改值进草稿不立刻 Save；保存才写权威并更新行。
++        private static void ListItemRowIsHintedTextEditorEnteringDraft()
++        {
++            var editor = new AcceptedPluginEditor();
++            var model = NewModel(editor);
++            model.Refresh(new BueFeatureManagementEntry[0], new[]
++            {
++                Plugin("com.example.list",
++                    Entry("Items", String("34"), category: "战斗", controlHint: ItemHint)),
++            });
++
++            var row = configRow(model.GetPluginConfigRows("com.example.list"), "Items");
++            Assert(row.ControlKind == PanelSettingControlKind.TextEditor, "列表行是文本框（非 Cycle、非选择器）");
++            Assert(row.ControlHint == ItemHint, "行携带逐字格式提示");
++            Assert(row.Category == "战斗", "行携带分类");
++
++            model.OpenDetail("com.example.list");
++            Assert(model.DraftEditPluginConfig("com.example.list", "Items", "34, 45"), "列表值编辑进草稿受理");
++            Assert(editor.SetCalls == 0, "改列表值不立刻写权威源（同一草稿纪律）");
++            Assert(model.IsDirty && model.IsPluginConfigDirty("Items"), "草稿改列表值即脏");
++            row = configRow(model.GetPluginConfigRows("com.example.list"), "Items");
++            Assert(row.Effective.Text == "34, 45" && row.IsDirty, "行显示草稿生效值并标未保存");
++
++            var report = model.SaveDraft();
++            Assert(report.Outcome == DraftSaveOutcome.Success && editor.SetCalls == 1, "保存才写权威（逐条一次）");
++            row = configRow(model.GetPluginConfigRows("com.example.list"), "Items");
++            Assert(row.Effective.Text == "34, 45" && !row.IsDirty && !model.IsDirty, "保存后权威更新、不再脏");
++        }
++
++        // 分类/提示/描述/重启旗标穿过草稿保存与 legacy 直写两条重建路径不漂移。
++        private static void RowProjectionsPreserveCategoryAndHintThroughWrites()
++        {
++            var editor = new AcceptedPluginEditor();
++            var model = NewModel(editor);
++            model.Refresh(new BueFeatureManagementEntry[0], new[]
++            {
++                Plugin("com.example.preserve",
++                    Entry("Items", String("34"), requiresRestart: true, description: "白名单物品。",
++                        category: "战斗", controlHint: ItemHint)),
++            });
++            model.OpenDetail("com.example.preserve");
++            Assert(model.DraftEditPluginConfig("com.example.preserve", "Items", "55"), "编辑进草稿");
++            var report = model.SaveDraft();
++            Assert(report.Outcome == DraftSaveOutcome.Success && report.RequiresRestart, "RequiresRestart 项保存成功点亮重启语义");
++            var saved = configRow(model.GetPluginConfigRows("com.example.preserve", "战斗"), "Items");
++            Assert(saved.Category == "战斗" && saved.ControlHint == ItemHint && saved.Description == "白名单物品。",
++                "保存重建保留分类/提示/描述（过滤仍命中）");
++            Assert(saved.RequiresRestart && saved.Effective.Text == "55", "行级重启旗标与新值保留");
++
++            var legacy = NewModel(new AcceptedPluginEditor());
++            legacy.Refresh(new BueFeatureManagementEntry[0], new[]
++            {
++                Plugin("com.example.preserve2",
++                    Entry("Mode", String("OFF"), description: "模式。",
++                        allowedChoices: new[] { "OFF", "1" }, category: "战斗", controlHint: "左键：下一档")),
++            });
++            var write = legacy.TryEditPluginConfig("com.example.preserve2", "Mode", "1");
++            Assert(write.Accepted, "legacy 直写缝保持可用（回归）");
++            var entry = legacy.GetEntries()[0].PluginConfig[0];
++            Assert(entry.Category == "战斗" && entry.ControlHint == "左键：下一档" && entry.Description == "模式。",
++                "直写重建保留分类/提示/描述");
++            Assert(entry.AllowedChoices.Count == 2 && entry.AllowedChoices[1] == "1", "直写重建保留档位（Cycle 不回退）");
++        }
++
++        // 分类缝不动 Cycle 形状（DEV-V4-08 已交付项不重做）：有档位仍 Cycle，过滤照常命中。
++        private static void CycleRowShapeUnaffectedByCategorySeam()
++        {
++            var editor = new AcceptedPluginEditor();
++            var model = NewModel(editor);
++            model.Refresh(new BueFeatureManagementEntry[0], new[]
++            {
++                Plugin("com.example.cycle.keep",
++                    Entry("Mode", String("OFF"), allowedChoices: new[] { "OFF", "1" }, category: "战斗")),
++            });
++
++            var row = configRow(model.GetPluginConfigRows("com.example.cycle.keep", "战斗"), "Mode");
++            Assert(row.ControlKind == PanelSettingControlKind.Cycle, "档位行仍 Cycle（分类缝不改变形状）");
++            Assert(row.ControlHint.Length == 0, "未带提示的 Cycle 行不造假提示");
++            model.OpenDetail("com.example.cycle.keep");
++            Assert(model.DraftCyclePluginConfig("com.example.cycle.keep", "Mode", 1)
++                && model.EffectivePluginConfigValue("Mode").Text == "1", "Cycle 草稿缝回归保持");
++            Assert(editor.SetCalls == 0, "Cycle 仍只进草稿");
++        }
++
++        // ── helpers ──
++
++        private static ManagementPanelModel NewModel(IPluginConfigEditor configEditor = null)
++        {
++            return new ManagementPanelModel(new MemoryStore(), new NoSchemaEditor(), configEditor ?? new AcceptedPluginEditor());
++        }
++
++        private static PluginConfigEntryView Entry(string key, PluginConfigValue value, bool requiresRestart = false,
++            bool canEdit = true, string description = null, IReadOnlyList<string> allowedChoices = null,
++            string category = null, string controlHint = null)
++        {
++            return new PluginConfigEntryView(key, key, value.Kind, value, requiresRestart, canEdit,
++                null, null, 4096, description, allowedChoices, category, controlHint);
++        }
++
++        private static PluginConfigValue String(string value)
++        {
++            return PluginConfigValue.StringValue(value);
++        }
++
++        private static LoadedPluginDescriptor Plugin(string guid, params PluginConfigEntryView[] entries)
++        {
++            return new LoadedPluginDescriptor(guid, guid, "1.0.0", entries);
++        }
++
++        private static PanelConfigRowView configRow(IReadOnlyList<PanelConfigRowView> rows, string key)
++        {
++            for (var index = 0; index < rows.Count; index++)
++                if (string.Equals(rows[index].Key, key, StringComparison.Ordinal)) return rows[index];
++            throw new InvalidOperationException("config row not found: " + key);
++        }
++
++        private static void Assert(bool condition, string message)
++        {
++            if (!condition) throw new InvalidOperationException(message);
++        }
++
++        private sealed class MemoryStore : IManagementPanelPreferencesStore
++        {
++            private ManagementPanelPreferences preferences = ManagementPanelPreferences.Empty;
++            public ManagementPanelPreferences Load() { return preferences; }
++            public void Save(ManagementPanelPreferences value) { preferences = value; }
++        }
++
++        // 本组全部走外部插件分支，BUE 设置源零触碰。
++        private sealed class NoSchemaEditor : IBueSettingsEditor
++        {
++            public FeatureSettingsSnapshot GetSnapshot(FeatureId feature)
++            {
++                return new FeatureSettingsSnapshot(feature, 0, SettingRevisionScope.ClientPreference, 0,
++                    SettingSyncState.Ready, SettingSnapshotSource.LocalPersistent, new SettingEntryView[0]);
++            }
++
++            public SettingChangeResult Apply(FeatureId feature, uint expectedRevision, SettingMutation mutation)
++            {
++                return new SettingChangeResult(false, FrameworkErrorCode.SettingUnknown, expectedRevision, GetSnapshot(feature));
++            }
++
++            public SettingChangeResult ApplyBatch(FeatureId feature, uint expectedRevision, IReadOnlyList<SettingMutation> mutations)
++            {
++                return new SettingChangeResult(false, FrameworkErrorCode.SettingUnknown, expectedRevision, GetSnapshot(feature));
++            }
++
++            public IReadOnlyList<SettingDescriptor> GetDescriptors(FeatureId feature)
++            {
++                return new SettingDescriptor[0];
++            }
++        }
++
++        private sealed class AcceptedPluginEditor : IPluginConfigEditor
++        {
++            internal int SetCalls;
++            public PluginConfigEditResult TrySet(string pluginGuid, string key, PluginConfigValue value)
++            {
++                SetCalls++;
++                return new PluginConfigEditResult(true, false, PluginConfigEditRejection.None);
++            }
++        }
++    }
++}
+diff --git a/tests/BetterUnturnedExperience.ClientUi.Tests/Program.cs b/tests/BetterUnturnedExperience.ClientUi.Tests/Program.cs
+index fbbcaae..270b456 100644
+--- a/tests/BetterUnturnedExperience.ClientUi.Tests/Program.cs
++++ b/tests/BetterUnturnedExperience.ClientUi.Tests/Program.cs
+@@ -22,7 +22,8 @@ namespace BetterUnturnedExperience.ClientUi.Tests
+                 DevV4FeatureToggleSurfaceTests.Run();
+                 DevV4OfficialCopyTests.Run();
+                 DevV4ExternalConfigParityTests.Run();
+-                Console.WriteLine("DEV-05/DEV-15A/DEV-15B/DEV-15C/DEV-15D/DEV-16B/DEV-V4-01/DEV-V4-02/DEV-V4-03/DEV-V4-04/DEV-V4-05/DEV-V4-07/DEV-V4-08 ClientUi tests: PASS");
++                DevTicket04UpmCategoryListTests.Run();
++                Console.WriteLine("DEV-05/DEV-15A/DEV-15B/DEV-15C/DEV-15D/DEV-16B/DEV-V4-01/DEV-V4-02/DEV-V4-03/DEV-V4-04/DEV-V4-05/DEV-V4-07/DEV-V4-08/POST-P4-04 ClientUi tests: PASS");
+                 return 0;
+             }
+             catch (Exception error)
+diff --git a/tests/BetterUnturnedExperience.Plugin.Tests/BetterUnturnedExperience.Plugin.Tests.csproj b/tests/BetterUnturnedExperience.Plugin.Tests/BetterUnturnedExperience.Plugin.Tests.csproj
+index c52f605..ef976ac 100644
+--- a/tests/BetterUnturnedExperience.Plugin.Tests/BetterUnturnedExperience.Plugin.Tests.csproj
++++ b/tests/BetterUnturnedExperience.Plugin.Tests/BetterUnturnedExperience.Plugin.Tests.csproj
+@@ -4,6 +4,6 @@
+     <ProjectGuid>{4E2A7B6C-4AA2-4F84-B7C0-0A0000000001}</ProjectGuid><OutputType>Exe</OutputType><RootNamespace>BetterUnturnedExperience.Plugin.Tests</RootNamespace><AssemblyName>BetterUnturnedExperience.Plugin.Tests</AssemblyName><TargetFrameworkVersion>v4.7.2</TargetFrameworkVersion><LangVersion>10.0</LangVersion><Deterministic>true</Deterministic><OutputPath>bin\Release\</OutputPath><Optimize>true</Optimize><DebugType>none</DebugType><WarningLevel>4</WarningLevel><TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+   </PropertyGroup>
+   <ItemGroup><Reference Include="System" /><Reference Include="BepInEx"><HintPath>..\..\..\Libs\BepInEx.dll</HintPath><Private>False</Private></Reference><Reference Include="HarmonyLib"><HintPath>..\..\..\Libs\0Harmony.dll</HintPath><Private>False</Private></Reference><Reference Include="Assembly-CSharp"><HintPath>..\..\..\Libs\Assembly-CSharp.dll</HintPath><Private>False</Private></Reference><Reference Include="SDG.NetTransport"><HintPath>..\..\..\Libs\SDG.NetTransport.dll</HintPath><Private>False</Private></Reference><Reference Include="SDG.Glazier.Runtime"><HintPath>..\..\..\Libs\SDG.Glazier.Runtime.dll</HintPath><Private>False</Private></Reference><Reference Include="UnityEngine"><HintPath>..\..\..\Libs\UnityEngine.dll</HintPath><Private>False</Private></Reference><Reference Include="UnityEngine.CoreModule"><HintPath>..\..\..\Libs\UnityEngine.CoreModule.dll</HintPath><Private>False</Private></Reference><ProjectReference Include="..\..\src\BetterUnturnedExperience.Plugin\BetterUnturnedExperience.Plugin.csproj"><Project>{D2A52D07-B5A5-4F1F-8D80-5F48FBD4D5D7}</Project><Name>BetterUnturnedExperience.Plugin</Name></ProjectReference><ProjectReference Include="..\..\src\BetterUnturnedExperience.NoOpFixture\BetterUnturnedExperience.NoOpFixture.csproj"><Project>{4E2A7B6C-4AA2-4F84-B7C0-0B0000000001}</Project><Name>BetterUnturnedExperience.NoOpFixture</Name></ProjectReference></ItemGroup>
+-  <ItemGroup><Compile Include="Program.cs" /><Compile Include="DevV4ExternalConfigParityTests.cs" /><None Include="Fixtures\dev16d-r36-no-preview.log.txt" CopyToOutputDirectory="PreserveNewest" /><None Include="Fixtures\dev16d-fixed-preview.log.txt" CopyToOutputDirectory="PreserveNewest" /></ItemGroup>
++  <ItemGroup><Compile Include="Program.cs" /><Compile Include="DevV4ExternalConfigParityTests.cs" /><Compile Include="DevTicket04UpmTagParsingTests.cs" /><None Include="Fixtures\dev16d-r36-no-preview.log.txt" CopyToOutputDirectory="PreserveNewest" /><None Include="Fixtures\dev16d-fixed-preview.log.txt" CopyToOutputDirectory="PreserveNewest" /></ItemGroup>
+   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+ </Project>
+diff --git a/tests/BetterUnturnedExperience.Plugin.Tests/DevTicket04UpmTagParsingTests.cs b/tests/BetterUnturnedExperience.Plugin.Tests/DevTicket04UpmTagParsingTests.cs
+new file mode 100644
+index 0000000..c1d7465
+--- /dev/null
++++ b/tests/BetterUnturnedExperience.Plugin.Tests/DevTicket04UpmTagParsingTests.cs
+@@ -0,0 +1,154 @@
++using System;
++using System.Collections.Generic;
++using System.IO;
++using BepInEx.Configuration;
++using BetterUnturnedExperience.ClientUi.Internal;
++
++namespace BetterUnturnedExperience.Plugin.Tests
++{
++    // POST-P4-04：UPM 分类导航与列表配置文本路径——LoadedPluginCatalogAdapter 采集组。
++    // 判据走真实 BepInEx ConfigFile（Bind 构造、真实序列化往返），不打桩：
++    // Unturned.Category:<名> 解析（trim、空名/无标签回落配置节）；ItemList/BlueprintList/
++    // CreatureList（裸标签与冒号后缀两式）→ 带逐字格式提示的字符串文本行、不投影档位、
++    // 不是选择器；列表标签优先于 Cycle 标签与 AcceptableValueList；未识别的 XxxList 标签
++    // 底层仍是字符串 → 普通可编文本行、不整行只读。面板投影/草稿侧判据在 ClientUi.Tests
++    // （DevTicket04UpmCategoryListTests）。
++    internal static class DevTicket04UpmTagParsingTests
++    {
++        private const string ItemHint = "值格式：物品ID, 物品ID, ...";
++        private const string BlueprintHint = "值格式：所属物品ID:配方编号, ...";
++        private const string CreatureHint = "值格式：Z:僵尸类型 或 A:动物资产ID, ...";
++
++        private static readonly List<string> TempPaths = new List<string>();
++
++        internal static void Run()
++        {
++            try
++            {
++                CategoryTagParsesNameOtherwiseFallsBackToSection();
++                ListTagsBecomeHintedTextRowsNotPickers();
++                ListTagWinsOverCycleAndDiscreteConstraint();
++                UnrecognizedListLikeTagStaysPlainEditableText();
++                Console.WriteLine("POST-P4-04 Plugin.Tests UPM tag parsing tests: PASS");
++            }
++            finally
++            {
++                Cleanup();
++            }
++        }
++
++        // Category 标签=分类；空名/无标签回落配置节；与其它标签共存互不干扰。
++        private static void CategoryTagParsesNameOtherwiseFallsBackToSection()
++        {
++            var adapter = new LoadedPluginCatalogAdapter();
++            var config = NewConfig();
++            config.Bind("Combat", "Tagged", "x", new ConfigDescription("甲。", null, new object[] { "Unturned.Category:战斗" }));
++            config.Bind("Combat", "Padded", "y", new ConfigDescription("乙。", null, new object[] { "Unturned.Category:  自动回收  " }));
++            config.Bind("Combat", "EmptyName", "z", new ConfigDescription("丙。", null, new object[] { "Unturned.Category:" }));
++            config.Bind("外观", "NoTag", "w", new ConfigDescription("丁。", null, null));
++            config.Bind("Game", "Together", "v", new ConfigDescription("戊。", null, new object[] { "Unturned.Category:名字", "RequiresRestart" }));
++            var entries = adapter.CaptureConfigEntries("com.example.p4-04.cat", config);
++
++            Assert(Find(entries, "Tagged").Category == "战斗", "Unturned.Category:<名> 解析为分类");
++            Assert(Find(entries, "Padded").Category == "自动回收", "分类名两侧空白被 trim");
++            Assert(Find(entries, "EmptyName").Category == "Combat", "空分类名回落配置节");
++            Assert(Find(entries, "NoTag").Category == "外观", "无 Category 标签按配置节分组");
++            var together = Find(entries, "Together");
++            Assert(together.Category == "名字" && together.RequiresRestart, "Category 与 RequiresRestart 标签共存");
++        }
++
++        // 三类列表标签 → 字符串文本行 + 逐字格式提示；不投影档位（非选择器）；值照常可写回。
++        private static void ListTagsBecomeHintedTextRowsNotPickers()
++        {
++            var adapter = new LoadedPluginCatalogAdapter();
++            var config = NewConfig();
++            config.Bind("Game", "Items", "34,45", new ConfigDescription("物品表。", null, new object[] { "Unturned.ItemList" }));
++            config.Bind("Game", "Blueprints", "34:8", new ConfigDescription("配方表。", null, new object[] { "Unturned.BlueprintList" }));
++            config.Bind("Game", "Creatures", "Z:6201", new ConfigDescription("生物表。", null, new object[] { "Unturned.CreatureList" }));
++            config.Bind("Game", "ColonForm", "i_sword", new ConfigDescription("冒号式。", null, new object[] { "Unturned.ItemList:i_sword|i_plank" }));
++            var entries = adapter.CaptureConfigEntries("com.example.p4-04.lists", config);
++
++            var items = Find(entries, "Items");
++            Assert(items.Kind == PluginConfigValueKind.String && items.CanEdit, "ItemList 值仍是字符串、可编");
++            Assert(items.ControlHint == ItemHint, "ItemList 提示=物品格式逐字");
++            var blueprints = Find(entries, "Blueprints");
++            Assert(blueprints.ControlHint == BlueprintHint, "BlueprintList 提示=配方格式逐字");
++            var creatures = Find(entries, "Creatures");
++            Assert(creatures.ControlHint == CreatureHint, "CreatureList 提示=生物格式逐字");
++            Assert(items.AllowedChoices.Count == 0 && blueprints.AllowedChoices.Count == 0
++                && creatures.AllowedChoices.Count == 0, "列表行不投影档位（不是选择器/Cycle）");
++            Assert(Find(entries, "ColonForm").ControlHint == ItemHint && Find(entries, "ColonForm").CanEdit,
++                "冒号后缀式标签同样识别为列表文本行");
++
++            Assert(adapter.TrySet("com.example.p4-04.lists", "Items", PluginConfigValue.StringValue("7, 8")).Accepted,
++                "列表值经普通字符串写回");
++            Assert(Find(adapter.CaptureConfigEntries("com.example.p4-04.lists", config), "Items").Value.Text == "7, 8",
++                "写回真实落盘生效");
++        }
++
++        // 优先级镜像 UPM：列表标签先于 Cycle；带列表标签即便挂 AcceptableValueList 也不变选择器。
++        private static void ListTagWinsOverCycleAndDiscreteConstraint()
++        {
++            var adapter = new LoadedPluginCatalogAdapter();
++            var config = NewConfig();
++            config.Bind("Game", "Mixed", "a", new ConfigDescription("混合。", new AcceptableValueList<string>("a", "b"),
++                new object[] { "Unturned.ItemList", "Unturned.Cycle:x|y" }));
++            var mixed = Find(adapter.CaptureConfigEntries("com.example.p4-04.priority", config), "Mixed");
++            Assert(mixed.AllowedChoices.Count == 0, "列表标签压过 Cycle 标签与 AcceptableValueList：不投影档位");
++            Assert(mixed.ControlHint == ItemHint, "列表标签决定行=带物品格式提示的文本行");
++            Assert(mixed.Kind == PluginConfigValueKind.String && mixed.CanEdit, "类型层与可编性不受标签影响");
++        }
++
++        // 未识别的列表样式标签（如 QuestList）：底层是字符串 → 仍是普通可编文本行，
++        // 不整行只读、不造假提示（Q69 静默忽略纪律在列表族上的延伸）。
++        private static void UnrecognizedListLikeTagStaysPlainEditableText()
++        {
++            var adapter = new LoadedPluginCatalogAdapter();
++            var config = NewConfig();
++            config.Bind("Game", "Quests", "q1", new ConfigDescription("任务表。", null, new object[] { "Unturned.QuestList" }));
++            var quests = Find(adapter.CaptureConfigEntries("com.example.p4-04.unknown", config), "Quests");
++            Assert(quests.Kind == PluginConfigValueKind.String && quests.CanEdit, "未识别列表标签+字符串底层=仍可编");
++            Assert(quests.ControlHint.Length == 0, "未识别标签不造假格式提示");
++            Assert(quests.AllowedChoices.Count == 0, "未识别标签不投影档位");
++            Assert(adapter.TrySet("com.example.p4-04.unknown", "Quests", PluginConfigValue.StringValue("q2")).Accepted,
++                "普通文本写回不受未识别标签阻碍");
++        }
++
++        // ── helpers ──
++
++        private static ConfigFile NewConfig()
++        {
++            var path = TempConfigPath();
++            return new ConfigFile(path, false);
++        }
++
++        private static string TempConfigPath()
++        {
++            var path = Path.Combine(Path.GetTempPath(), "bue-p4-04-" + Guid.NewGuid().ToString("N") + ".cfg");
++            TempPaths.Add(path);
++            return path;
++        }
++
++        private static void Cleanup()
++        {
++            for (var index = 0; index < TempPaths.Count; index++)
++            {
++                try { if (File.Exists(TempPaths[index])) File.Delete(TempPaths[index]); }
++                catch (IOException) { }
++            }
++            TempPaths.Clear();
++        }
++
++        private static PluginConfigEntryView Find(IReadOnlyList<PluginConfigEntryView> entries, string key)
++        {
++            for (var index = 0; index < entries.Count; index++)
++                if (string.Equals(entries[index].Key, key, StringComparison.Ordinal)) return entries[index];
++            throw new InvalidOperationException("config entry not found: " + key);
++        }
++
++        private static void Assert(bool condition, string message)
++        {
++            if (!condition) throw new InvalidOperationException(message);
++        }
++    }
++}
+diff --git a/tests/BetterUnturnedExperience.Plugin.Tests/Program.cs b/tests/BetterUnturnedExperience.Plugin.Tests/Program.cs
+index df6656a..a0d8471 100644
+--- a/tests/BetterUnturnedExperience.Plugin.Tests/Program.cs
++++ b/tests/BetterUnturnedExperience.Plugin.Tests/Program.cs
+@@ -483,6 +483,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
+                 AssertBueV3DiagnosticsWiringAndSummary();
+                 AssertBueV3EcosystemUnifiedProbe();
+                 DevV4ExternalConfigParityTests.Run();
++                DevTicket04UpmTagParsingTests.Run();
+                 // F-E: pure truth tables, no host state — runs before F-D.
+                 AssertBueV2FeEnginePeerIdentity();
+                 // F-D: runs last — it replaces the bound runtime and clears the
