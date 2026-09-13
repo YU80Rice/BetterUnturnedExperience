@@ -119,6 +119,12 @@ namespace BetterUnturnedExperience.Plugin
         // StableId 单独不再唯一标识一行——选中态必须携带行种类，路由按
         // (种类, StableId) 双键解析，功能页不再被同键插件行遮蔽。
         private ManagementEntryKind selectedKind;
+        // POST-P4-04: 外部配置详情区的分类导航筛选态（UPM Unturned.Category 标签）。
+        // 归属键=选中的 StableId——换插件即复位；同插件的失效分类另由重绘时的
+        // 存在性校验兜底。纯渲染状态，模型侧过滤/集合经 GetPluginConfigRows/
+        // GetPluginConfigCategories 两个投影缝。
+        private string selectedPluginCategory;
+        private string categoryOwnerStableId;
         // DEV-V4-01: unsaved-draft navigation. The immediate-write path is
         // retired — a settings/config edit lands in the model draft and only
         // "保存配置" reaches the authoritative source. When a dirty draft is
@@ -1044,7 +1050,29 @@ namespace BetterUnturnedExperience.Plugin
                 AddDetailLabel(ref y, "普通 BepInEx ConfigEntry", ESleekFontSize.Medium);
                 // DEV-V4-02: external rows go through the same projection and
                 // the same 显示名→描述→控件 structure (同权).
-                var configRows = runtime.Model.GetPluginConfigRows(selected.StableId);
+                // POST-P4-04: 多分类才画 chips 导航（单分类=「不画多余导航」）；
+                // 筛选态换插件复位，失效分类回落首条。
+                var categories = runtime.Model.GetPluginConfigCategories(selected.StableId);
+                if (categoryOwnerStableId != selected.StableId)
+                {
+                    categoryOwnerStableId = selected.StableId;
+                    selectedPluginCategory = null;
+                }
+                IReadOnlyList<PanelConfigRowView> configRows;
+                if (categories.Count > 1)
+                {
+                    var known = false;
+                    for (var categoryIndex = 0; categoryIndex < categories.Count; categoryIndex++)
+                        if (string.Equals(categories[categoryIndex], selectedPluginCategory, StringComparison.Ordinal)) known = true;
+                    if (string.IsNullOrEmpty(selectedPluginCategory) || !known) selectedPluginCategory = categories[0];
+                    y = RenderCategoryChips(y, categories);
+                    configRows = runtime.Model.GetPluginConfigRows(selected.StableId, selectedPluginCategory);
+                }
+                else
+                {
+                    selectedPluginCategory = null;
+                    configRows = runtime.Model.GetPluginConfigRows(selected.StableId);
+                }
                 for (var index = 0; index < configRows.Count; index++)
                 {
                     AddPluginConfigRow(ref y, selected.StableId, configRows[index]);
@@ -1222,6 +1250,9 @@ namespace BetterUnturnedExperience.Plugin
                     y += 36;
                     break;
                 case PanelSettingControlKind.TextEditor:
+                    // POST-P4-04: UPM 列表行在文本框上方画逐字格式提示（空=不画
+                    // 不占位，与描述行同纪律）；编辑仍是进草稿的普通文本框。
+                    if (!string.IsNullOrEmpty(row.ControlHint)) AddDetailLabel(ref y, row.ControlHint, ESleekFontSize.Small);
                     AddTextEditor(ref y, key, FormatPluginValue(row.Effective), raw =>
                         runtime.Model.DraftEditPluginConfig(pluginGuid, key, raw), RenderDetails);
                     break;
@@ -1229,6 +1260,40 @@ namespace BetterUnturnedExperience.Plugin
                     AddDetailLabel(ref y, "当前值：" + FormatPluginValue(row.Effective), ESleekFontSize.Small);
                     break;
             }
+        }
+
+        // POST-P4-04: 分类 chips——固定宽按钮从左到右流式排布（每行 3 个），高亮
+        // 当前分类；点击只切筛选、重绘详情区，不动草稿与会话。
+        private int RenderCategoryChips(int y, IReadOnlyList<string> categories)
+        {
+            const float chipWidth = 150f;
+            const float chipHeight = 28f;
+            const float chipGapX = 8f;
+            const int perRow = 3;
+            for (var index = 0; index < categories.Count; index++)
+            {
+                var row = index / perRow;
+                var column = index % perRow;
+                var category = categories[index];
+                var chip = Glazier.Get().CreateButton();
+                chip.PositionOffset_X = column * (chipWidth + chipGapX);
+                chip.PositionOffset_Y = y + row * (chipHeight + 6f);
+                chip.SizeOffset_X = chipWidth;
+                chip.SizeOffset_Y = chipHeight;
+                chip.Text = category;
+                chip.FontSize = ESleekFontSize.Small;
+                chip.BackgroundColor = string.Equals(category, selectedPluginCategory, StringComparison.Ordinal)
+                    ? new SleekColor(ESleekTint.BACKGROUND, 0.9f)
+                    : new SleekColor(ESleekTint.BACKGROUND, 0.25f);
+                chip.OnClicked += delegate(ISleekElement ignored)
+                {
+                    selectedPluginCategory = category;
+                    RenderDetails();
+                };
+                detailScroll.AddChild(chip);
+            }
+            var rows = (categories.Count + perRow - 1) / perRow;
+            return y + (int)(rows * (chipHeight + 6f)) + 8;
         }
 
         // ── DEV-V4-01 draft navigation (保存 / 放弃 / 确认 command surface) ──

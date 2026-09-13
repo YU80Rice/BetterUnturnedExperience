@@ -22,7 +22,8 @@ namespace BetterUnturnedExperience.ClientUi.Tests
                 DevV4FeatureToggleSurfaceTests.Run();
                 DevV4OfficialCopyTests.Run();
                 DevV4ExternalConfigParityTests.Run();
-                Console.WriteLine("DEV-05/DEV-15A/DEV-15B/DEV-15C/DEV-15D/DEV-16B/DEV-V4-01/DEV-V4-02/DEV-V4-03/DEV-V4-04/DEV-V4-05/DEV-V4-07/DEV-V4-08 ClientUi tests: PASS");
+                DevTicket04UpmCategoryListTests.Run();
+                Console.WriteLine("DEV-05/DEV-15A/DEV-15B/DEV-15C/DEV-15D/DEV-16B/DEV-V4-01/DEV-V4-02/DEV-V4-03/DEV-V4-04/DEV-V4-05/DEV-V4-07/DEV-V4-08/POST-P4-04 ClientUi tests: PASS");
                 return 0;
             }
             catch (Exception error)

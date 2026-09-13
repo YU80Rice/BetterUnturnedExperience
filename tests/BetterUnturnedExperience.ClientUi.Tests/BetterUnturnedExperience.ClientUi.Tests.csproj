@@ -42,6 +42,7 @@
     <Compile Include="DevV4FeatureToggleSurfaceTests.cs" />
     <Compile Include="DevV4OfficialCopyTests.cs" />
     <Compile Include="DevV4ExternalConfigParityTests.cs" />
+    <Compile Include="DevTicket04UpmCategoryListTests.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>

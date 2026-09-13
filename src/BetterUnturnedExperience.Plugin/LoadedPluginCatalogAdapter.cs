@@ -17,6 +17,9 @@ namespace BetterUnturnedExperience.Plugin
     /// candidates (Unturned.Cycle tag / AcceptableValueList) for supported base
     /// types, classifies write failures structurally (Q70), and leaves
     /// unrecognized discrete constraints as plain editable controls (Q66).
+    /// POST-P4-04 (票 04): also captures the UPM category tag ("Unturned.Category:")
+    /// and renders ItemList/BlueprintList/CreatureList as format-hinted string
+    /// text rows — list tags outrank the cycle sources, no visual picker.
     /// </summary>
     internal sealed class LoadedPluginCatalogAdapter : IPluginConfigEditor
     {
@@ -65,9 +68,14 @@ namespace BetterUnturnedExperience.Plugin
                 GetBounds(entry, out minimum, out maximum);
                 var maximumLength = entry.SettingType == typeof(string) ? 4096 : 0;
                 var canEdit = value.Kind != PluginConfigValueKind.Unsupported && !config.IsReadOnly;
+                // POST-P4-04: a recognized UPM list tag makes the row a plain
+                // format-hinted String text row — precedence mirrors UPM, so
+                // the Cycle tag / AcceptableValueList grant it NO choices.
+                var listHint = ListFormatHint(entry);
+                var allowedChoices = listHint.Length > 0 ? new string[0] : CycleCandidates(entry, value.Kind);
                 entries.Add(new PluginConfigEntryView(definition.Key, definition.Key, value.Kind,
                     value, RequiresRestart(entry), canEdit, minimum, maximum, maximumLength,
-                    DescriptionOf(entry), CycleCandidates(entry, value.Kind)));
+                    DescriptionOf(entry), allowedChoices, CategoryOf(entry), listHint));
             }
             return entries;
         }
@@ -257,6 +265,61 @@ namespace BetterUnturnedExperience.Plugin
                 candidates.Add(Convert.ToString(value, CultureInfo.InvariantCulture));
             }
             return candidates;
+        }
+
+        // ===== POST-P4-04: UnturnedPluginManager (UPM) 分类与列表标签 =====
+        // "Unturned.Category:<名>" selects the row's category (trailing/leading
+        // blanks trimmed; an empty name falls back to the config section, and a
+        // tagless entry groups by section too — 空分类归「通用」是投影侧规则).
+        // ItemList / BlueprintList / CreatureList — bare or colon-suffixed —
+        // turn the row into a format-hinted String TEXT row (值仍是字符串、编辑
+        // 走草稿), never an icon/search picker. An unrecognized list-like tag
+        // stays silently ignored (Q69): the string base keeps the row editable
+        // and no hint is invented for it.
+
+        private const string ItemListTag = "Unturned.ItemList";
+        private const string BlueprintListTag = "Unturned.BlueprintList";
+        private const string CreatureListTag = "Unturned.CreatureList";
+        private const string CategoryTagPrefix = "Unturned.Category:";
+
+        private const string ItemListHint = "值格式：物品ID, 物品ID, ...";
+        private const string BlueprintListHint = "值格式：所属物品ID:配方编号, ...";
+        private const string CreatureListHint = "值格式：Z:僵尸类型 或 A:动物资产ID, ...";
+
+        // Fixed Item > Blueprint > Creature precedence (UPM's check order),
+        // independent of the order the tags appear on one entry.
+        private static string ListFormatHint(ConfigEntryBase entry)
+        {
+            if (HasListTag(entry, ItemListTag)) return ItemListHint;
+            if (HasListTag(entry, BlueprintListTag)) return BlueprintListHint;
+            if (HasListTag(entry, CreatureListTag)) return CreatureListHint;
+            return string.Empty;
+        }
+
+        private static bool HasListTag(ConfigEntryBase entry, string tag)
+        {
+            var tags = entry.Description == null ? null : entry.Description.Tags;
+            if (tags == null) return false;
+            for (var index = 0; index < tags.Length; index++)
+            {
+                var text = tags[index] == null ? null : Convert.ToString(tags[index], CultureInfo.InvariantCulture);
+                if (text == null) continue;
+                if (string.Equals(text, tag, StringComparison.Ordinal)) return true;
+                if (text.Length > tag.Length + 1 && text[tag.Length] == ':' && text.StartsWith(tag, StringComparison.Ordinal)) return true;
+            }
+            return false;
+        }
+
+        private static string CategoryOf(ConfigEntryBase entry)
+        {
+            var tag = FindTag(entry, CategoryTagPrefix);
+            if (tag != null)
+            {
+                var name = tag.Substring(CategoryTagPrefix.Length).Trim();
+                if (name.Length > 0) return name;
+            }
+            var section = entry.Definition.Section;
+            return section ?? string.Empty;
         }
 
         private static string FindTag(ConfigEntryBase entry, string prefix)

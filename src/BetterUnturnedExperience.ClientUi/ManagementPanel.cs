@@ -134,9 +134,21 @@ namespace BetterUnturnedExperience.ClientUi.Internal
         internal string Description { get; }
         internal IReadOnlyList<string> AllowedChoices { get; }
 
+        // POST-P4-04: the UPM 分类导航与列表文本路径 surface carried per row —
+        // Category is "Unturned.Category:<名>" (else the config section; blank
+        // collapses into the default group only at the collection/filter seam),
+        // and ControlHint is the list rows' 逐字格式提示 (ItemList/BlueprintList/
+        // CreatureList). A list row stays a plain String TextEditor: the tag
+        // grants NO AllowedChoices, so the cycle control never appears where a
+        // format-hinted text box belongs. Empty defaults keep every existing
+        // producer behaviour unchanged.
+        internal string Category { get; }
+        internal string ControlHint { get; }
+
         internal PluginConfigEntryView(string key, string displayName, PluginConfigValueKind kind, PluginConfigValue value,
             bool requiresRestart, bool canEdit, double? minimum = null, double? maximum = null, int maximumLength = 4096,
-            string description = null, IReadOnlyList<string> allowedChoices = null)
+            string description = null, IReadOnlyList<string> allowedChoices = null,
+            string category = null, string controlHint = null)
         {
             Key = key ?? string.Empty;
             DisplayName = displayName ?? string.Empty;
@@ -149,6 +161,8 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             MaximumLength = maximumLength;
             Description = description ?? string.Empty;
             AllowedChoices = allowedChoices ?? new string[0];
+            Category = category ?? string.Empty;
+            ControlHint = controlHint ?? string.Empty;
         }
     }
 
@@ -216,10 +230,16 @@ namespace BetterUnturnedExperience.ClientUi.Internal
         internal PluginConfigValue Effective { get; }
         internal bool IsDirty { get; }
         internal bool RequiresRestart { get; }
+        // POST-P4-04: the row keeps its 分类 (drives the navigation chips and the
+        // category filter) and its 列表格式提示 (drawn above the text editor).
+        // Both are passthrough projections — truncation/join discipline follows
+        // the description line above (空不画 by the renderer).
+        internal string Category { get; }
+        internal string ControlHint { get; }
 
         internal PanelConfigRowView(string key, string displayName, string description, PluginConfigValueKind kind,
             IReadOnlyList<string> allowedChoices, PanelSettingControlKind controlKind, PluginConfigValue effective,
-            bool isDirty, bool requiresRestart)
+            bool isDirty, bool requiresRestart, string category = null, string controlHint = null)
         {
             Key = key ?? string.Empty;
             DisplayName = displayName ?? string.Empty;
@@ -230,6 +250,8 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             Effective = effective;
             IsDirty = isDirty;
             RequiresRestart = requiresRestart;
+            Category = category ?? string.Empty;
+            ControlHint = controlHint ?? string.Empty;
         }
     }
 
@@ -706,7 +728,7 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             var editorResult = pluginConfigEditor.TrySet(pluginGuid, key, value);
             if (!editorResult.Accepted) return new PluginConfigEditResult(false, entry.RequiresRestart, editorResult.Reason);
             entries[index] = new PluginConfigEntryView(entry.Key, entry.DisplayName, entry.Kind, value, entry.RequiresRestart, entry.CanEdit, entry.Minimum, entry.Maximum, entry.MaximumLength,
-                entry.Description, entry.AllowedChoices);
+                entry.Description, entry.AllowedChoices, entry.Category, entry.ControlHint);
             plugins[pluginGuid] = new LoadedPluginDescriptor(plugin.Guid, plugin.DisplayName, plugin.Version, entries);
             return new PluginConfigEditResult(true, entry.RequiresRestart, PluginConfigEditRejection.None);
         }
@@ -1064,6 +1086,45 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             return new ReadOnlyCollection<PanelConfigRowView>(rows);
         }
 
+        // ── POST-P4-04：UPM 分类导航（去重集合 + 按类过滤）─────────────────
+        // 分类集合=去重、首现序、空/空白分类归「通用」；单分类（Count==1）是渲染层
+        // 「不画多余导航」的判定根据；未注册 stableId 如实空集（不造假导航）。过滤
+        // 走同一投影：category 为空白=全量行（既有语义不变），否则只回归一化后
+        // 同类的行（草稿生效值/脏标记照常，见单参 GetPluginConfigRows）。
+
+        internal const string DefaultCategory = "通用";
+
+        internal IReadOnlyList<string> GetPluginConfigCategories(string stableId)
+        {
+            EnsurePreferencesLoaded();
+            var categories = new List<string>();
+            LoadedPluginDescriptor plugin;
+            if (string.IsNullOrEmpty(stableId) || !plugins.TryGetValue(stableId, out plugin))
+                return new ReadOnlyCollection<string>(categories);
+            for (var index = 0; index < plugin.ConfigEntries.Count; index++)
+            {
+                var category = NormalizeCategory(plugin.ConfigEntries[index].Category);
+                if (!categories.Contains(category)) categories.Add(category);
+            }
+            return new ReadOnlyCollection<string>(categories);
+        }
+
+        internal IReadOnlyList<PanelConfigRowView> GetPluginConfigRows(string stableId, string category)
+        {
+            var all = GetPluginConfigRows(stableId);
+            if (string.IsNullOrWhiteSpace(category)) return all;
+            var wanted = NormalizeCategory(category);
+            var rows = new List<PanelConfigRowView>();
+            for (var index = 0; index < all.Count; index++)
+                if (string.Equals(NormalizeCategory(all[index].Category), wanted, StringComparison.Ordinal)) rows.Add(all[index]);
+            return new ReadOnlyCollection<PanelConfigRowView>(rows);
+        }
+
+        private static string NormalizeCategory(string category)
+        {
+            return string.IsNullOrWhiteSpace(category) ? DefaultCategory : category;
+        }
+
         // ── DEV-V4-05：功能级启停详情页表面（只读状态投影 + 启用开关目标）──
         // 状态行=九态中文（面板不 FeatureState.ToString()），表现状态独立一行，
         // 隔离原因有值才显示；启用开关=保存后的目标状态（草稿），有开关 iff
@@ -1188,7 +1249,8 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             else if (entry.Kind == PluginConfigValueKind.Boolean) control = PanelSettingControlKind.Toggle;
             else control = PanelSettingControlKind.TextEditor;
             return new PanelConfigRowView(entry.Key, entry.DisplayName, TruncateDescription(entry.Description), entry.Kind,
-                entry.AllowedChoices ?? new string[0], control, effective, dirty, entry.RequiresRestart);
+                entry.AllowedChoices ?? new string[0], control, effective, dirty, entry.RequiresRestart,
+                entry.Category, entry.ControlHint);
         }
 
         private static PanelSettingControlKind ControlKindForSetting(SettingKind kind, IReadOnlyList<string> levels, bool editable)
@@ -1289,7 +1351,7 @@ namespace BetterUnturnedExperience.ClientUi.Internal
                         {
                             entries[position] = new PluginConfigEntryView(entry.Key, entry.DisplayName, entry.Kind, pending,
                                 entry.RequiresRestart, entry.CanEdit, entry.Minimum, entry.Maximum, entry.MaximumLength,
-                                entry.Description, entry.AllowedChoices);
+                                entry.Description, entry.AllowedChoices, entry.Category, entry.ControlHint);
                             if (entry.RequiresRestart) requiresRestart = true;
                             committed.Add(entry.Key);
                         }
