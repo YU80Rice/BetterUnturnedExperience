@@ -1,0 +1,7 @@
+DEV-14 official registration parity tests: FAIL
+System.InvalidOperationException: 重注入：Start 对存活仪表盘立即注入五页（headers[0..4]→page 2..6）实际=0 序=[] PatchesInstalled=True
+   在 BetterUnturnedExperience.Plugin.Tests.Program.<>c__DisplayClass231_0.<AssertBueV3SettingsWiringAndPanelRouting>g__Check|0(Boolean condition, String message)
+   在 BetterUnturnedExperience.Plugin.Tests.Program.<>c__DisplayClass231_0.<AssertBueV3SettingsWiringAndPanelRouting>b__18()
+   在 BetterUnturnedExperience.Plugin.Tests.Program.<>c__DisplayClass231_0.<AssertBueV3SettingsWiringAndPanelRouting>g__Group|1(String name, Action body)
+   在 BetterUnturnedExperience.Plugin.Tests.Program.AssertBueV3SettingsWiringAndPanelRouting(Boolean collectAllFailures)
+   在 BetterUnturnedExperience.Plugin.Tests.Program.Main()

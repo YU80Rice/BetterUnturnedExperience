@@ -1,0 +1,7 @@
+DEV-14 official registration parity tests: FAIL
+System.InvalidOperationException: 实时注入：全页在册后泵静默短路（稳态零 [TidyUI] 日志行，真做事才打日志）
+   在 BetterUnturnedExperience.Plugin.Tests.Program.<>c__DisplayClass231_0.<AssertBueV3SettingsWiringAndPanelRouting>g__Check|0(Boolean condition, String message)
+   在 BetterUnturnedExperience.Plugin.Tests.Program.<>c__DisplayClass231_0.<AssertBueV3SettingsWiringAndPanelRouting>b__19()
+   在 BetterUnturnedExperience.Plugin.Tests.Program.<>c__DisplayClass231_0.<AssertBueV3SettingsWiringAndPanelRouting>g__Group|1(String name, Action body)
+   在 BetterUnturnedExperience.Plugin.Tests.Program.AssertBueV3SettingsWiringAndPanelRouting(Boolean collectAllFailures)
+   在 BetterUnturnedExperience.Plugin.Tests.Program.Main()

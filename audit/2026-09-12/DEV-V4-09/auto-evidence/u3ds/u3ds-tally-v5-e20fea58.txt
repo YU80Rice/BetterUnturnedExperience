@@ -1,0 +1,11 @@
+lines=102
+identity_e20fea58=1
+accepted_true=5
+bue_error=0
+unhandled=0
+tidy_ui=0
+runtime_gate_headless=1
+lit_to_running=1
+posted=0
+heartbeat=2
+bue_settings_written=0

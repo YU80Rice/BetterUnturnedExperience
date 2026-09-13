@@ -1,0 +1,14 @@
+lines=103
+identity_c57c666c=1
+accepted_true=5
+bue_error=0
+bue_fatal=0
+unhandled=0
+panel_construct=2
+lit_inject=6
+posted=0
+isolate=3
+diagnostic_summary=11
+heartbeat=3
+module_started=3
+module_notstarted=3

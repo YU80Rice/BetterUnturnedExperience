@@ -1,0 +1,2 @@
+DEV-V4-08 Plugin.Tests adapter tests: PASS
+DEV-14/DEV-16B plugin runtime tests: PASS

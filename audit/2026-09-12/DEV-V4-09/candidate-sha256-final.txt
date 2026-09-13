@@ -1,0 +1,7 @@
+DEV-V4-09 唯一候选（v5，F4 修复后重建；v1 c57c666c/v2 e8687de5/v3 4ec05965/v4 e3d199cd 全部作废留档）
+SHA-256 = E20FEA58FFD888FC127CB7ECBAA47B12ECE8370957E84CDA5E16BB70B605AEEE
+字节   = 636416
+确定性 = 3× -t:Rebuild Release 逐字节一致（exit 0，0 警 0 错×3），源基线 d6f3fe2
+CaseId = DEV-V4-09-CANDIDATE-20260912
+部署   = SP E:\Steam\steamapps\common\Unturned\BepInEx\plugins\ + U3DS E:\Steam\steamapps\common\U3DS\BepInEx\plugins\（certutil 双端=e20fea58…）
+U3DS   = v5 headless 负面重验 PASS（u3ds-tally-v5-e20fea58.txt）

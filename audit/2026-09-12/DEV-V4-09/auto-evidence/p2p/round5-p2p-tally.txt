@@ -1,0 +1,29 @@
+DEV-V4-09 P2P 跨端点验收 tally（2026-09-13，主机包 120321 / 客机包 120223，候选 v5）
+双端 identity sha256=E20FEA58FFD888FC127CB7ECBAA47B12ECE8370957E84CDA5E16BB70B605AEEE（=v5）✓
+
+[PASS] 跨端整理实锤（判据核心）
+  - 主机 [TidyNet] -> 客机 TidyCommitted(reqId=1/2, result=Committed) ×2：
+    客机整理请求经 BUE 命名频道送达主机并被代执行。
+  - 客机：频道注册双方向处理器 + runtime-arm result=armed + 整理按钮补丁安装。
+  - 用户目视：「客机整理是可用的」。
+
+[PASS] 网络模块隔离态不牵连整理（原「停用不牵连」判据的更强形式）
+  - 主机 bue.network/v1compat 开局 module-start not-started → Isolated
+    （stage=start-result error=ModuleStartFailed）——与 v7/v8/2.1 基线逐字同型
+    （V3-09 §4c 已甄别=既有通用良性投影，功能经 runtime-armed 照常联网，
+    本局 TidyCommitted×2 即实锤）。模块处于生命周期最重状态，整理照常=爆炸
+    半径边界成立；显式停用动作（Running→UserDisabled）已在 SP 侧 LIT（F1）
+    与 NoOp（四轮红利）验证，无需重复。
+
+[PASS] 启用尝试的诚实失败面（Q44/05 表面，非缺陷）
+  - 用户 5 次「启用→保存」= 5 次真实重启尝试：feature-panel result=enable-failed
+    stage=start ×5 → 每次 Starting→Isolating→Isolated 干净复位（隔离原因=
+    启动时序 transport 未就绪，非用户停用；再启动仍不满足=必然再失败）。
+  - 面板逐字「未保存：功能启停失败。」+草稿保留+unhandled=0+零崩溃。
+  - 「功能实际在线时显示隔离」误导=V3-09 §6 具名后续项（澄清文案/改判据，
+    另票），非 Phase-4 范围、非 v5 回归。
+
+[Error 甄别] 主机 BUE [Error=15：14× LIT page3 重叠功能级拒绝（基线同型）
+  +1× noop 设计内负探针；客机 BUE [Error=1：noop 负探针。零新缺陷签名。
+
+结论：P2P 画面判据 PASS。SP+P2P+U3DS 全环境闭环，停等人工发布批准。

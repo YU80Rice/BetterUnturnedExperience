@@ -1,0 +1,24 @@
+DEV-V4-09 SP 四轮实机 tally（包=UMM-诊断包_20260913_114109，F4 修复后 v5 复测⑨）
+候选身份：assembly-identity sha256=E20FEA58FFD888FC127CB7ECBAA47B12ECE8370957E84CDA5E16BB70B605AEEE（=v5 唯一候选）✓
+
+[PASS] ⑨ NoOp 生态功能同权（F4 修复后功能页可达）
+  - 用户目视原话：「你说的功能页和负例均可实现」= 功能行（io.github.yu80rice.bue.noop）
+    详情页可见探针开关(Toggle)+探针档位(Cycle 甲/乙)并可操作保存；
+    插件行（BUE No-op Feature Fixture）=空页正确负例。
+  - 磁盘实锤：io.github.yu80rice.bue.noop.ClientPreference.bue-settings
+    mtime=2026-09-13 11:40:48（本会话保存落盘），revision=10，
+    两键（noop.probe-choice/noop.probe-toggle）base64 键名与夹具声明逐一对应。
+  - 日志面：noop accepted=True、descriptors=2 schema=1、Running（gen7）。
+
+[PASS(红利)] 生态功能启停面（05 表面在第三方功能上成立）
+  - noop to=Stopping/Stopped reason=UserDisabled（gen7 rev3/4）→
+    to=Starting/Running（gen8 rev5/6）：用户在功能页拨启用开关→保存→停用→再启用，
+    MT/SET owner-invalidated+generation-opened=干净拆重装。
+
+[Error 甄别] BUE [Error 共 2 行 = noop-probe-error×2 = 夹具设计内负探针
+  （每次 Start 恰一发，gen7+gen8=2，与代际数吻合）；unhandled=0；零崩溃。
+
+[静默短路续证] [TidyUI]=20 行 = 预热突发+一次注入 5/5+一次拆除 removed=5，
+  无周期性刷行。
+
+结论：SP 侧全部画面案例（①..⑨+F1/F2/F3/F4 复验）闭环。剩余=P2P 跨端点（v5）。
