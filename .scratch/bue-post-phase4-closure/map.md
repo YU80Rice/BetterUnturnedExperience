@@ -1,7 +1,7 @@
 # Phase-4 关单后待闭环（分类批次）
 
 Type: task
-Status: open
+Status: **completed（2026-09-13：01–08 全 resolved；关单提交 `40a085c`；本批不授候选、不动 RELEASES 行 12；下一站=第五阶段 `/wayfinder`）**
 Label: triage-batch
 Parent: Phase-4 关单 `b04c4ab` / RELEASES 行 12 / 当前发布物 v5
 
