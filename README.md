@@ -10,19 +10,19 @@
 | 功能 | 说明 |
 |---|---|
 | 更好的物品交互（BII） | 背包内直接拖拽物品，拖拽预览与保活由 BUE 接管 |
-| 背包整理（LIT） | 整理按钮 / Ctrl+点击一键整理全身 / 同类·空间·大件三种模式 |
+| 背包整理（LIT） | 标题栏「整理」按钮；Ctrl+点击按已保存的全局模式与方向整理全身（不含仓储栏）；模式（同类/空间/大件）与方向在管理面板里改 |
 | 更好的换弹体验（LIR） | 持枪双击换弹键一键压弹（toast 显示压入发数），整理后自动压弹 |
 | 更好的尸潮播报（LHT） | 服务器管理员 `/horde` 启动尸潮，全体玩家 HUD 实时显示爆发地点与剩余数 |
 
-- 管理面板（G）四功能中文名条目、逐功能开关；
+- 管理面板：官方功能中文名与一句话说明、未保存草稿（改完点「保存配置」）、循环切换、功能级启停、外部插件配置同等编辑；
 - 与独立 LMN（LaunchMultiplayerNet）可共存，兼容依赖 V1 数字频道的旧插件（**裸 BUE 下 V1 数字频道旧插件不收发=已承认边界**，详见玩家手册）；
 - 防双装：标准 BepInEx 装载路径由引擎按程序集身份折叠副本；非标准装载路径进来的副本触发 `BUE-PLATFORM-001` 警示（只提示、永不改文件）。
 
 ## 当前版本
 
-- **v8 —— V2 第二阶段正式交付版**（2026-09-09，阶段工单 14..25 全部闭环）
-- `BetterUnturnedExperience.dll` SHA-256：`F7B7513C569B8D2830CCDBF7BB4AB0C9E0B6ABDED88B2708E0A9F3B8303DF569`（548352 字节，三轮确定性重建逐字节一致）
-- 身份与门禁台账：[`audit/RELEASES.md`](audit/RELEASES.md) 行 10；正式交付包：[`publish/第2阶段-正式交付版本/`](publish/第2阶段-正式交付版本/)
+- **Phase-4 可视化体验正式交付版**（2026-09-13，阶段工单 DEV-V4-01..09 全部闭环；对外契约仍为 **2.1**）
+- `BetterUnturnedExperience.dll` SHA-256：`E20FEA58FFD888FC127CB7ECBAA47B12ECE8370957E84CDA5E16BB70B605AEEE`（636416 字节，三轮确定性重建逐字节一致）
+- 身份与门禁台账：[`audit/RELEASES.md`](audit/RELEASES.md) 行 12；正式交付包：[`publish/第4阶段-正式交付版本/`](publish/第4阶段-正式交付版本/)
 
 ## 快速开始
 
@@ -38,7 +38,7 @@ BUE 的功能分两层：**官方功能**（上表四件）是源码模块，构
 
 - **开发者契约（唯一事实源）**：[`docs/sdk/BetterUnturnedExperience-SDK-Assembly-Identity.md`](docs/sdk/BetterUnturnedExperience-SDK-Assembly-Identity.md)——程序集身份冻结面与三段式承诺、编译期引用规则（引用主 DLL、`CopyLocal=false`、禁止捆绑）、防双装处置、公开注册桥 `BueRuntimeHost.Register` 用法、契约版本演化登记；
 - **生态活样板**：[`src/BetterUnturnedExperience.NoOpFixture/`](src/BetterUnturnedExperience.NoOpFixture/)（独立 GUID + HardDependency 前置 + 经公开桥注册，被宿主测试长期验证）；
-- **平台 API 面**：`BueNetworkApi`（方向订阅/会话/定向与会话驱动组播）、功能事件（`TidyCompleted`）、宿主时钟（`HostTick`）、设置、诊断与隔离缝。
+- **平台 API 面**：`BueNetworkApi`（方向订阅/会话/定向与会话驱动组播）、功能事件（`TidyCompleted`）、宿主时钟（`HostTick`）、设置、诊断与隔离缝。Phase-4 未新增公开契约成员；生态模块继续按 2.1 接入。
 
 ## 仓库结构
 
