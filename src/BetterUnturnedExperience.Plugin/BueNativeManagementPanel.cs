@@ -115,6 +115,10 @@ namespace BetterUnturnedExperience.Plugin
         private int updateTickCount;
         private bool hostUiTickLogged;
         private string selectedStableId;
+        // DEV-V4-09 F4（实机发现）：插件 GUID 与功能 id 可同串（NoOp 样板），
+        // StableId 单独不再唯一标识一行——选中态必须携带行种类，路由按
+        // (种类, StableId) 双键解析，功能页不再被同键插件行遮蔽。
+        private ManagementEntryKind selectedKind;
         // DEV-V4-01: unsaved-draft navigation. The immediate-write path is
         // retired — a settings/config edit lands in the model draft and only
         // "保存配置" reaches the authoritative source. When a dirty draft is
@@ -122,6 +126,7 @@ namespace BetterUnturnedExperience.Plugin
         // 保存，要保存吗？" confirm (model command TryLeaveDetail), never
         // silently dropping the draft.
         private string pendingNavigation;   // null = none; "" = pending close; else target stableId
+        private ManagementEntryKind? pendingNavigationKind;   // F4: the clicked row's kind (null = legacy)
         private bool pendingRefresh;         // reload the model after leaving the current draft
         // DEV-V4-08 (V4-T7 Q67): the top「需要重启」badge — scoped to the entry
         // whose last attempted save wrote a RequiresRestart item successfully.
@@ -892,6 +897,7 @@ namespace BetterUnturnedExperience.Plugin
             {
                 var row = rows[index];
                 var capturedId = row.StableId;
+                var capturedKind = row.Kind;
                 var button = Glazier.Get().CreateButton();
                 button.PositionOffset_Y = y;
                 button.SizeOffset_X = -8f;
@@ -901,7 +907,7 @@ namespace BetterUnturnedExperience.Plugin
                 button.TooltipText = row.StableId + "\n版本: " + row.Version;
                 button.OnClicked += delegate(ISleekElement ignored)
                 {
-                    SelectEntry(capturedId);
+                    SelectEntry(capturedId, capturedKind);
                 };
                 listScroll.AddChild(button);
                 y += 42;
@@ -930,7 +936,9 @@ namespace BetterUnturnedExperience.Plugin
             var found = false;
             for (var index = 0; index < rows.Count; index++)
             {
-                if (string.Equals(rows[index].StableId, selectedStableId, StringComparison.Ordinal))
+                // F4：(种类, StableId) 双键匹配——同键的功能行/插件行是两个页面。
+                if (string.Equals(rows[index].StableId, selectedStableId, StringComparison.Ordinal)
+                    && rows[index].Kind == selectedKind)
                 {
                     selected = rows[index];
                     found = true;
@@ -941,6 +949,7 @@ namespace BetterUnturnedExperience.Plugin
             {
                 selected = rows[0];
                 selectedStableId = selected.StableId;
+                selectedKind = selected.Kind;
                 found = true;
             }
             var y = 0;
@@ -953,7 +962,7 @@ namespace BetterUnturnedExperience.Plugin
             }
             // Align the model's logical panel session with what is displayed.
             // Re-opening the current entry keeps the in-memory draft (重挂不丢).
-            runtime.Model.OpenDetail(selected.StableId);
+            runtime.Model.OpenDetail(selected.StableId, selected.Kind);
             AddDetailLabel(ref y, selected.DisplayName, ESleekFontSize.Large);
             AddDetailLabel(ref y, "身份：" + selected.StableId, ESleekFontSize.Small);
             AddDetailLabel(ref y, "版本：" + selected.Version, ESleekFontSize.Small);
@@ -1225,18 +1234,23 @@ namespace BetterUnturnedExperience.Plugin
 
         // Switching the selected entry while a dirty draft is open arms the
         // confirm instead of silently dropping the edits (V4-T2 Q22).
-        private void SelectEntry(string stableId)
+        private void SelectEntry(string stableId, ManagementEntryKind kind)
         {
-            if (runtime.Model.IsDirty && !string.Equals(stableId, selectedStableId, StringComparison.Ordinal))
+            // F4：同 StableId 换种类=换页——脏草稿同样武装确认，不静默丢编辑。
+            var sameRow = string.Equals(stableId, selectedStableId, StringComparison.Ordinal) && kind == selectedKind;
+            if (runtime.Model.IsDirty && !sameRow)
             {
                 pendingRefresh = false;
                 pendingNavigation = stableId;
+                pendingNavigationKind = kind;
                 RenderDetails();
                 return;
             }
             pendingNavigation = null;
+            pendingNavigationKind = null;
             selectedStableId = stableId;
-            runtime.Model.OpenDetail(stableId);
+            selectedKind = kind;
+            runtime.Model.OpenDetail(stableId, kind);
             RenderDetails();
         }
 
@@ -1245,11 +1259,13 @@ namespace BetterUnturnedExperience.Plugin
             if (runtime.Model.IsDirty)
             {
                 pendingNavigation = selectedStableId ?? string.Empty;
+                pendingNavigationKind = selectedStableId == null ? (ManagementEntryKind?)null : selectedKind;
                 pendingRefresh = true;
                 RenderDetails();
                 return;
             }
             pendingNavigation = null;
+            pendingNavigationKind = null;
             pendingRefresh = false;
             if (refreshModel != null) refreshModel();
             Render();
@@ -1260,11 +1276,13 @@ namespace BetterUnturnedExperience.Plugin
             if (runtime.Model.IsDirty)
             {
                 pendingNavigation = string.Empty;   // "" = the navigation-away is a close
+                pendingNavigationKind = null;       // close has no target row
                 pendingRefresh = false;
                 RenderDetails();
                 return;
             }
             pendingNavigation = null;
+            pendingNavigationKind = null;
             pendingRefresh = false;
             Close();
         }
@@ -1272,11 +1290,13 @@ namespace BetterUnturnedExperience.Plugin
         private void ResolveConfirm(PanelConfirmChoice choice)
         {
             var target = pendingNavigation == string.Empty ? null : pendingNavigation;
+            var targetKind = pendingNavigationKind;   // F4: the clicked row's kind travels with the navigation
             var wasRefresh = pendingRefresh;
             DraftSaveReport report;
-            var leaving = runtime.Model.TryLeaveDetail(target, choice, out report);
+            var leaving = runtime.Model.TryLeaveDetail(target, targetKind, choice, out report);
             TrackRestartBadge(report);   // badge belongs to the entry just saved (before any navigation)
             pendingNavigation = null;
+            pendingNavigationKind = null;
             pendingRefresh = false;
             // The confirm's 保存 reuses 保存配置's report verbatim (Q22 = 等同保存
             // 配置); 取消/不保存 carry no report (no write attempted).
@@ -1296,6 +1316,7 @@ namespace BetterUnturnedExperience.Plugin
             if ((wasRefresh || (report != null && report.CommittedLifecycleIntent)) && refreshModel != null) refreshModel();
             if (target == null) { Close(); return; }   // the navigation-away was a close
             selectedStableId = target;
+            selectedKind = targetKind ?? selectedKind;
             Render();
             RenderDraftReport(report);   // frozen save banner wins over any notice (Q30)
         }

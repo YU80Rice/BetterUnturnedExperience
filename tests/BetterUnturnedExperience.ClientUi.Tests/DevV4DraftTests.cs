@@ -27,6 +27,69 @@ namespace BetterUnturnedExperience.ClientUi.Tests
             DraftScopeExcludesReadOnlyAndServerAuthority();
             NoBackgroundAutoSaveSurvivesRefreshAndRemount();
             SaveCommittedLifecycleIntentFlag();
+            CollisionFeatureAndPluginShareStableIdRoutesByKind();
+        }
+
+        private static void CollisionFeatureAndPluginShareStableIdRoutesByKind()
+        {
+            // DEV-V4-09 F4（实机发现）：生态标准形态=插件 GUID 与功能 id 同为
+            // io.github.yu80rice.bue.noop（NoOp 样板），侧栏两行共享同一 StableId。
+            // 模型必须能按行种类开正确草稿、同 StableId 换种类=换草稿（旧保留
+            // 判定只看 StableId=缺陷形态）；单参重载保持 features-first 旧语义。
+            var editor = new DraftableSettingsEditor();
+            var configEditor = new RecordingPluginEditor();
+            var shared = "io.github.yu80rice.bue.noop";
+            var feature = new FeatureId(shared);
+            editor.Seed(feature, ToggleEntry("probe", true));
+            var model = NewModel(editor, configEditor);
+            model.Refresh(new[] { Feature(feature, "样板功能", editor) }, new[]
+            {
+                new LoadedPluginDescriptor(shared, "样板插件", "0.0.0", new[]
+                {
+                    new PluginConfigEntryView("ButtonText", "ButtonText", PluginConfigValueKind.String, PluginConfigValue.StringValue("插件管理"), false, true),
+                })
+            });
+
+            // 1) 按插件种类开：外部编辑受理、功能编辑被拒，保存只写外部源。
+            model.OpenDetail(shared, ManagementEntryKind.ExternalPlugin);
+            Assert(model.DraftEditPluginConfig(shared, "ButtonText", "插件"), "冲突：插件种类草稿受理外部编辑");
+            Assert(model.IsDirty, "冲突：插件草稿脏");
+            Assert(!model.DraftEditBueSetting("probe", PluginConfigValue.BooleanValue(false)), "冲突：插件种类草稿拒功能编辑");
+            var pluginReport = model.SaveDraft();
+            Assert(pluginReport.Outcome == DraftSaveOutcome.Success && configEditor.SetCalls == 1 && editor.BatchCalls == 0,
+                "冲突：插件草稿保存只触外部源（功能源零写）");
+
+            // 2) 按功能种类开：功能编辑受理、外部编辑被拒，保存只写功能源。
+            model.OpenDetail(shared, ManagementEntryKind.BueFeature);
+            Assert(model.DraftEditBueSetting("probe", PluginConfigValue.BooleanValue(false)), "冲突：功能种类草稿受理功能编辑");
+            Assert(!model.DraftEditPluginConfig(shared, "ButtonText", "x"), "冲突：功能种类草稿拒外部编辑");
+            var featureReport = model.SaveDraft();
+            Assert(featureReport.Outcome == DraftSaveOutcome.Success && editor.BatchCalls == 1 && configEditor.SetCalls == 1,
+                "冲突：功能草稿保存只触功能源（外部源零写）");
+
+            // 3) 同 StableId 换种类=重置草稿（不携带旧种类的脏）。权威值此刻
+            // probe=false（第 2 段已保存），改成 true 才算脏。
+            model.OpenDetail(shared, ManagementEntryKind.BueFeature);
+            model.DraftEditBueSetting("probe", PluginConfigValue.BooleanValue(true));
+            Assert(model.IsDirty, "冲突：功能草稿脏");
+            model.OpenDetail(shared, ManagementEntryKind.ExternalPlugin);
+            Assert(!model.IsDirty, "冲突：换种类重置草稿（功能脏不带入插件页）");
+
+            // 4) 确认框导航带目标种类：脏功能草稿→保存并离开到插件种类行。
+            model.OpenDetail(shared, ManagementEntryKind.BueFeature);
+            model.DraftEditBueSetting("probe", PluginConfigValue.BooleanValue(true));
+            DraftSaveReport leaveReport;
+            Assert(model.TryLeaveDetail(shared, ManagementEntryKind.ExternalPlugin, PanelConfirmChoice.Save, out leaveReport)
+                    && leaveReport.Outcome == DraftSaveOutcome.Success,
+                "冲突：确认保存受理（功能源单写）");
+            Assert(editor.BatchCalls == 2 && configEditor.SetCalls == 1, "冲突：确认保存只写功能源");
+            Assert(model.DraftEditPluginConfig(shared, "ButtonText", "管理"), "冲突：导航后落在插件种类草稿");
+            Assert(!model.DraftEditBueSetting("probe", PluginConfigValue.BooleanValue(true)), "冲突：导航后不再是功能草稿");
+
+            // 5) 单参重载=旧语义（features-first），既有调用方/测试不受影响。
+            model.DiscardDraft();
+            model.OpenDetail(shared);
+            Assert(model.DraftEditBueSetting("probe", PluginConfigValue.BooleanValue(false)), "兼容：单参 OpenDetail=功能优先");
         }
 
         private static void EditDoesNotWriteAuthoritativeSource()

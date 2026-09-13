@@ -681,13 +681,39 @@ namespace BetterUnturnedExperience.ClientUi.Internal
 
         /// <summary>打开（或重进）某条详情的草稿——逻辑面板会话。重开同条保留
         /// 既有草稿（UI 重挂 ≠ 会话结束）；开新条或 null 起一份从当前权威
-        /// 快照捕获的新草稿。永不写盘。</summary>
+        /// 快照捕获的新草稿。永不写盘。种类未知时保持旧语义：功能优先。</summary>
         internal void OpenDetail(string stableId)
         {
+            OpenDetail(stableId, null);
+        }
+
+        /// <summary>DEV-V4-09 F4（实机发现）：生态标准形态下插件 GUID 与功能 id
+        /// 可以是同一字符串（NoOp 样板），侧栏两行共享 StableId。面板按被点行的
+        /// 种类开草稿：kind 给定时只解析该种类（换种类=换草稿，脏不跨页携带；
+        /// 该种类无条目则如实无草稿，不回落到另一命名空间）；kind 为 null 保持
+        /// features-first 旧语义（既有调用方不受影响）。</summary>
+        internal void OpenDetail(string stableId, ManagementEntryKind? kind)
+        {
             EnsurePreferencesLoaded();
-            if (draft != null && string.Equals(draft.StableId, stableId, StringComparison.Ordinal)) return;
+            if (draft != null && string.Equals(draft.StableId, stableId, StringComparison.Ordinal)
+                && (!kind.HasValue || draft.Kind == kind.Value)) return;
             draft = null;
             if (string.IsNullOrEmpty(stableId)) return;
+            if (kind == ManagementEntryKind.ExternalPlugin)
+            {
+                LoadedPluginDescriptor pluginOnly;
+                if (plugins.TryGetValue(stableId, out pluginOnly))
+                {
+                    var pluginDraft = new DetailDraft { StableId = stableId, Kind = ManagementEntryKind.ExternalPlugin };
+                    foreach (var entry in pluginOnly.ConfigEntries)
+                    {
+                        pluginDraft.BaselineConfig[entry.Key] = entry;
+                        pluginDraft.ConfigOrder.Add(entry.Key);
+                    }
+                    draft = pluginDraft;
+                }
+                return;
+            }
             BueFeatureManagementEntry feature;
             if (features.TryGetValue(stableId, out feature))
             {
@@ -712,6 +738,8 @@ namespace BetterUnturnedExperience.ClientUi.Internal
                 draft = opened;
                 return;
             }
+            // 显式功能种类而目录无此功能=如实无草稿，绝不回落插件命名空间（F4）。
+            if (kind == ManagementEntryKind.BueFeature) return;
             LoadedPluginDescriptor plugin;
             if (plugins.TryGetValue(stableId, out plugin))
             {
@@ -1290,11 +1318,18 @@ namespace BetterUnturnedExperience.ClientUi.Internal
         /// （等同「保存配置」，Q22）——面板据此渲染顶栏，不得另造文案。</summary>
         internal bool TryLeaveDetail(string targetStableId, PanelConfirmChoice choice, out DraftSaveReport report)
         {
+            return TryLeaveDetail(targetStableId, null, choice, out report);
+        }
+
+        /// <summary>DEV-V4-09 F4：目标行的种类随导航传递（同 StableId 的功能行与
+        /// 插件行是两个页面）；null=旧语义（features-first）。</summary>
+        internal bool TryLeaveDetail(string targetStableId, ManagementEntryKind? targetKind, PanelConfirmChoice choice, out DraftSaveReport report)
+        {
             EnsurePreferencesLoaded();
             report = null;
             if (draft == null || !IsDirty)
             {
-                OpenDetail(targetStableId);
+                OpenDetail(targetStableId, targetKind);
                 return true;
             }
             switch (choice)
@@ -1303,13 +1338,13 @@ namespace BetterUnturnedExperience.ClientUi.Internal
                     return false;
                 case PanelConfirmChoice.Discard:
                     draft = null;
-                    OpenDetail(targetStableId);
+                    OpenDetail(targetStableId, targetKind);
                     return true;
                 case PanelConfirmChoice.Save:
                     report = SaveDraft();
                     if (report.Outcome == DraftSaveOutcome.PartialFailure) return false;
                     draft = null;
-                    OpenDetail(targetStableId);
+                    OpenDetail(targetStableId, targetKind);
                     return true;
                 default:
                     return false;
