@@ -1,0 +1,2 @@
+VIOLATION: .scratch/bue-v2-phase4-visual-experience/spec.md: Testing §6 anchor missing inside Testing Decisions: DEV-V4-09 停用→再启用经模块泵实时重注入
+Spec-V4R9-ingest gate FAIL: 1 violation(s)

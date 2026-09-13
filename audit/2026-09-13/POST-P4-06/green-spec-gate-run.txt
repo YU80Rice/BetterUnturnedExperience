@@ -1,0 +1,1 @@
+Spec-V4R9-ingest gate PASS: spec body carries V4-R9 clauses, map points at spec, pump-path tests anchored

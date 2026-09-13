@@ -1,0 +1,2 @@
+VIOLATION: .scratch/bue-v2-phase4-visual-experience/map.md: V4-R9 decision line lacks pointer anchor: 「LIT 标题栏与全局模式/方向
+Spec-V4R9-ingest gate FAIL: 1 violation(s)

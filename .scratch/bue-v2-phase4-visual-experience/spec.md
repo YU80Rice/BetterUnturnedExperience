@@ -99,6 +99,11 @@ Status: ready-for-agent
 
 - 仅注入 headers[0..4]（Hands/Backpack/Vest/Shirt/Pants），不注入仓储栏。一颗 60×60「整理」，PositionOffset_X=-130。左键当前栏，Ctrl+左键全身（不含仓储栏）。不登记 ClientUi satellite。不留锁定空位。
 - 九态决定注入/拆除：仅 Running 新开页注入；Disabled/Stopped/Isolated/Incompatible 拆除已有按钮；过渡态不新增，已有则点击安全回退、不报假成功。可用性由生命周期事实决定，不由 patch 私有布尔。
+- **V4-R9 实时注入（DEV-V4-09 实机二轮裁决，2026-09-13 由地图并入正文，行为已在 v5 在产）**：上条九态门表零改动，但「仅 Running 注入」自此有两处并存的落地路径：
+  - **构造路径**：ctor 注入只覆盖**新构造**的仪表盘——新页直接覆盖在册、不去重（仪表盘重建时旧按钮随旧标题栏一起丢弃，新页必须重画）。构造事件整个会话只跑一次，它不是存活仪表盘的注入来源。
+  - **泵路径**：Running 态的 LIT 模块经**既有 Tick 泵**（宿主更新时钟驱动，非自建泵；16 拍节流、首拍即试）对已构造且仍存活的仪表盘执行**幂等补注入**（在册去重）。该补注入视为「Running 注入」的生命周期补偿，非 Running 态不得新增按钮；Start 期不做补注入——Start 运行在 Starting 态，过渡态不新增使 Start 期尝试必然被自家门禁拒绝（结构性死路，实机 gen8 零注入行取证），重启用落地 Running 后由泵复装。
+  - **与拆除的咬合**：移除失败页引用保留（不得把停用伪装成成功），泵对这类页按在册跳过（旧按钮仍在 UI 树，重画=双按钮），其自愈仍走下次拆除重试。
+  - **全页在册时补注入静默短路**：不解析 Glazier、不打注入完成日志——节流窗稳态刷行是小时万行级噪音（Phase-3 F1 日志风暴同类零容忍）；部分在册（个别页创建失败）仍走到注入=重试自愈，真做事才打日志。
 - 两条 ClientPreference Choice：`inventorytidy.mode`（同类/空间/大件，默认同类）、`inventorytidy.direction`（降序/升序，默认降序=大件优先）。旧每页内存丢弃。点击只读同一 revision 的已保存 ClientPreference 快照，不读面板草稿。
 - 坐标与 tooltip 是 LIT 实现约束，不升格为全局 UI 契约。
 
@@ -140,7 +145,7 @@ Status: ready-for-agent
   3. 生命周期目标提交：空操作成功（已 Running 再启用、已 UserDisabled 再停用、Isolated 且目标停用）；启用已隔离 → 新代际。先例=Plugin.Tests SetFeatureEnabled 组（现网失败码须先红后改）。
   4. legacy alias：六项官方 false→UserDisabled 幂等；未声明 enabled 不迁；成功前旧值仍在。先例=Settings.Tests 持久化组。
   5. 启停表面：有开关 iff 可停止生命周期 seam；状态投影九态中文；草稿目标与只读状态分离。先例=ManagementPanel TryToggleFeature 组。
-  6. LIT：仅 Running 注入；停用后拆除；mode/direction 两条 Choice；点击读同一 revision 快照。先例=LIT 模块测试 + InventoryTidyUiPatch 现状锚。
+  6. LIT：仅 Running 注入；停用后拆除；mode/direction 两条 Choice；点击读同一 revision 快照。V4-R9 泵路径五锚（常跑）：Start 期不注入、Running 泵对存活仪表盘补注入、在册去重、全页在册静默短路（稳态零日志行）、非 Running 泵不注入。先例=LIT 模块测试 + InventoryTidyUiPatch 现状锚 + Plugin.Tests「DEV-V4-09 停用→再启用经模块泵实时重注入」组。
   7. 文案与 NoOp：对照表七句；LIT/BII 显示名；`noop.probe-choice` 甲/乙。先例=NoOpFixture 契约 probe。
   8. 外部配置：描述采集；Cycle 可写回才画 Cycle；失败三类短中文；UPM GUID 仍可编 cfg。先例=LoadedPluginCatalogAdapter 组。
   9. 画面验收：SP 完整面板+草稿+启停+整理按钮；P2P 跨端点（停网络不影响整理）；U3DS 不画不抛不留草稿。证据=落盘截图绑 CaseId/环境/SHA-256 + UMM LogOutput；聊天贴图不是唯一证据。

@@ -1,0 +1,2 @@
+VIOLATION: .scratch/bue-v2-phase4-visual-experience/spec.md: V4-R9 clause missing INSIDE the LIT-section block: ¾²Ä¬¶ÌÂ·
+Spec-V4R9-ingest gate FAIL: 1 violation(s)
