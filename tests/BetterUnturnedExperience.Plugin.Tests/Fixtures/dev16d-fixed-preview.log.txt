@@ -1,0 +1,4 @@
+[Info] [BUE-DRAG] event=hooks-installed targets=updateDraggedItem diagnosticId=BUE-DRAG-001
+[Info] [BUE-DRAG] event=drag-started generation=1 enhanced=True canRun=True sinkBound=True diagnosticId=BUE-DRAG-001
+[Info] [BUE-DRAG] GPT-WATERMARK event=preview-input-readout generation=1 pointerScreen=640,360 uiScale=1 uiCoordinates=640,360 viewportOrigin=0,330 pointerGrid=12.8,0.6 grabOffset=0.5,1 placementReason=OutsideGrid state=Hidden diagnosticId=BUE-DRAG-001
+[Info] [BUE-DRAG] GPT-WATERMARK event=preview-visible generation=1 state=Candidate diagnosticId=BUE-DRAG-001

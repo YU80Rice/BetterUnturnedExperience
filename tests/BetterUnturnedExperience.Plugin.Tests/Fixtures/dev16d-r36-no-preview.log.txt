@@ -1,0 +1,4 @@
+[Info] [BUE-DRAG] event=hooks-installed targets=updateDraggedItem diagnosticId=BUE-DRAG-001
+[Info] [BUE-DRAG] event=drag-started generation=1 enhanced=True canRun=True sinkBound=True diagnosticId=BUE-DRAG-001
+[Info] [BUE-DRAG] event=placement-passthrough reason=preview-stale previewGen=0 dragGen=1 diagnosticId=BUE-DRAG-001
+[Info] [BUE-DRAG] event=drag-cancelled diagnosticId=BUE-DRAG-001

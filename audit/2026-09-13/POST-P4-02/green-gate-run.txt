@@ -1,0 +1,1 @@
+Fixture-tracked gate PASS: 2 CopyToOutput fixture item(s) exist on disk and are tracked by git

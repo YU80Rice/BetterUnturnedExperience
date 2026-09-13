@@ -1,0 +1,8 @@
+== green Rebuild summary (POST-P4-02) ==
+cmd: MSBuild BetterUnturnedExperience.sln -t:Rebuild -p:Configuration=Release -v:q -nologo (full flp: green-rebuild-sln.log, kept on disk; *.log ignored by repo policy by design)
+exit=0
+real diagnostics (': warning|: error' format): 0
+MSB3030 fixture-copy failures: 0
+output bin fixtures: dev16d-fixed-preview.log.txt + dev16d-r36-no-preview.log.txt copied (see ls below)
+dev16d-fixed-preview.log.txt
+dev16d-r36-no-preview.log.txt

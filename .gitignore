@@ -27,6 +27,8 @@ audit/**/*.zip
 audit/**/*.diff
 
 # ---- 日志(全局;V1 时代已跟踪的历史 audit log 保持原状)----
+# 边界:测试夹具须随 Clone 入库时改用 .log.txt 等不被本规则吞掉的后缀(POST-P4-02);
+#      兜底门禁=eng/Verify-TestFixturesTracked.ps1(CopyToOutput 夹具必须存在+未被忽略+已跟踪)。
 *.log
 
 # ---- IDE ----

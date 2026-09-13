@@ -497,7 +497,8 @@ namespace BetterUnturnedExperience.Plugin.Tests
         // projection reaches the visual sink. Intentionally red until fixed.
         private static void AssertDev16DRealLogMustContainVisiblePreviewProjection(bool preFix = false)
         {
-            var fixture = System.IO.Path.Combine(AppContext.BaseDirectory, "Fixtures", preFix ? "dev16d-r36-no-preview.log" : "dev16d-fixed-preview.log");
+            // Tracked-safe .log.txt suffix: the global *.log gitignore ban would leave .log fixtures out of clean clones (POST-P4-02).
+            var fixture = System.IO.Path.Combine(AppContext.BaseDirectory, "Fixtures", preFix ? "dev16d-r36-no-preview.log.txt" : "dev16d-fixed-preview.log.txt");
             var text = System.IO.File.ReadAllText(fixture);
             Assert(text.Contains("event=hooks-installed"), "diagnostic replay contains installed drag hook");
             Assert(text.Contains("event=drag-started"), "diagnostic replay contains drag start");
@@ -509,7 +510,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
         // an OutsideGrid result instead of reporting only state=Hidden.
         private static void AssertDev16DPreviewDiagnosticContainsCoordinateReadout()
         {
-            var fixture = System.IO.Path.Combine(AppContext.BaseDirectory, "Fixtures", "dev16d-fixed-preview.log");
+            var fixture = System.IO.Path.Combine(AppContext.BaseDirectory, "Fixtures", "dev16d-fixed-preview.log.txt");
             var text = System.IO.File.ReadAllText(fixture);
             Assert(text.Contains("event=preview-input-readout"), "preview diagnostic readout event is present");
             Assert(text.Contains("pointerScreen="), "readout includes pointerScreen");
