@@ -1,0 +1,463 @@
+diff --git a/.scratch/bue-post-phase4-closure/map.md b/.scratch/bue-post-phase4-closure/map.md
+index e18b0d7..887cb36 100644
+--- a/.scratch/bue-post-phase4-closure/map.md
++++ b/.scratch/bue-post-phase4-closure/map.md
+@@ -17,7 +17,7 @@ Parent: Phase-4 关单 `b04c4ab` / RELEASES 行 12 / 当前发布物 v5
+ |---|---|---|---|
+ | [网络模块隔离投影误导](issues/01-network-isolation-projection.md) | bug | resolved | 无 |
+ | [Plugin.Tests log fixture 未跟踪](issues/02-plugin-tests-log-fixtures.md) | bug | resolved | 无 |
+-| [收藏星与重启徽章单键](issues/03-favorite-restart-dual-key.md) | bug | ready-for-agent | 无 |
++| [收藏星与重启徽章单键](issues/03-favorite-restart-dual-key.md) | bug | claimed | 无 |
+ | [UPM 分类导航与列表文本路径](issues/04-upm-category-list-text.md) | enhancement | ready-for-agent | 无（**禁止 merge GitHub PR #1**） |
+ | [显式种类无条目不回落红测](issues/05-kind-no-fallback-red-test.md) | enhancement | ready-for-agent | 无 |
+ | [V4-R9 并入规格正文](issues/06-v4-r9-spec-ingest.md) | enhancement | ready-for-agent | 无 |
+diff --git a/src/BetterUnturnedExperience.ClientUi/ManagementPanel.cs b/src/BetterUnturnedExperience.ClientUi/ManagementPanel.cs
+index 57b3af1..abf73f6 100644
+--- a/src/BetterUnturnedExperience.ClientUi/ManagementPanel.cs
++++ b/src/BetterUnturnedExperience.ClientUi/ManagementPanel.cs
+@@ -519,6 +519,9 @@ namespace BetterUnturnedExperience.ClientUi.Internal
+         // survives a UI-tree re-mount, and is the ONLY thing the edit commands
+         // touch until "保存配置" hands values to the authoritative sources.
+         private DetailDraft draft;
++        // POST-P4-03：顶栏「需要重启」跟最近一次尝试写入的详情走。NoChanges 不动。
++        private string restartBadgeStableId;
++        private ManagementEntryKind? restartBadgeKind;
+ 
+         internal ManagementPanelModel(IManagementPanelPreferencesStore preferencesStore, IBueSettingsEditor bueSettingsEditor,
+             IPluginConfigEditor pluginConfigEditor = null)
+@@ -565,6 +568,10 @@ namespace BetterUnturnedExperience.ClientUi.Internal
+                 if (plugin == null) continue;
+                 plugins[plugin.Guid] = plugin;
+             }
++            // POST-P4-03 票面「按种类分桶迁移」：旧盘裸 id 在目录就绪时归桶一次
++            // （功能优先=票面「旧单键记录只贴功能行」的碰撞裁决），改写成前缀键后
++            // 持久化。归桶结果从此确定，不随后续功能注册/注销漂移。
++            MigrateLegacyFavoriteKeys();
+             PruneFavorites();
+         }
+ 
+@@ -576,19 +583,18 @@ namespace BetterUnturnedExperience.ClientUi.Internal
+             {
+                 all.Add(new ManagementEntryView(ManagementEntryKind.BueFeature, feature.Feature.Value, feature.DisplayName,
+                     feature.Version, feature.State, feature.Presentation, VisibleSettings(feature.Settings), null,
+-                    favoriteIds.Contains(feature.Feature.Value, StringComparer.Ordinal)));
++                    IsEntryFavorite(ManagementEntryKind.BueFeature, feature.Feature.Value)));
+             }
+             foreach (var plugin in plugins.Values)
+             {
+                 all.Add(new ManagementEntryView(ManagementEntryKind.ExternalPlugin, plugin.Guid, plugin.DisplayName,
+                     plugin.Version, default(FeatureState), default(FeaturePresentationView), null, plugin.ConfigEntries,
+-                    favoriteIds.Contains(plugin.Guid, StringComparer.Ordinal)));
++                    IsEntryFavorite(ManagementEntryKind.ExternalPlugin, plugin.Guid)));
+             }
+ 
+-            var favoriteSet = new HashSet<string>(favoriteIds, StringComparer.Ordinal);
+-            var orderedFavorites = all.Where(x => favoriteSet.Contains(x.StableId))
+-                .OrderBy(x => favoriteIds.IndexOf(x.StableId)).ToList();
+-            var others = all.Where(x => !favoriteSet.Contains(x.StableId));
++            var orderedFavorites = all.Where(x => IsEntryFavorite(x.Kind, x.StableId))
++                .OrderBy(x => FavoriteOrderIndex(x.Kind, x.StableId)).ToList();
++            var others = all.Where(x => !IsEntryFavorite(x.Kind, x.StableId));
+             others = sortOrder == ManagementSortOrder.NameAscending
+                 ? others.OrderBy(x => x.DisplayName, StringComparer.OrdinalIgnoreCase).ThenBy(x => x.StableId, StringComparer.Ordinal)
+                 : others.OrderByDescending(x => x.DisplayName, StringComparer.OrdinalIgnoreCase).ThenBy(x => x.StableId, StringComparer.Ordinal);
+@@ -596,15 +602,46 @@ namespace BetterUnturnedExperience.ClientUi.Internal
+             return new ReadOnlyCollection<ManagementEntryView>(orderedFavorites);
+         }
+ 
++        /// <summary>单参重载=features-first：目录有该功能则只拨功能行，否则才拨插件行。
++        /// 同 id 两行并存时不得两行一起亮（POST-P4-03）。</summary>
+         internal bool ToggleFavorite(string stableId)
+         {
+             EnsurePreferencesLoaded();
+-            if (!ContainsStableId(stableId)) return false;
+-            var index = favoriteIds.IndexOf(stableId);
+-            if (index >= 0) favoriteIds.RemoveAt(index);
+-            else favoriteIds.Add(stableId);
+-            SavePreferences();
+-            return true;
++            if (string.IsNullOrWhiteSpace(stableId)) return false;
++            if (features.ContainsKey(stableId)) return ToggleFavorite(stableId, ManagementEntryKind.BueFeature);
++            if (plugins.ContainsKey(stableId)) return ToggleFavorite(stableId, ManagementEntryKind.ExternalPlugin);
++            return false;
++        }
++
++        /// <summary>POST-P4-03：按行种类收藏。键=（种类, StableId）——盘上分别写成
++        /// feature: / plugin: 前缀，同串 id 的功能行与插件行不再共用一颗星。</summary>
++        internal bool ToggleFavorite(string stableId, ManagementEntryKind kind)
++        {
++            EnsurePreferencesLoaded();
++            if (string.IsNullOrWhiteSpace(stableId)) return false;
++            if (kind == ManagementEntryKind.BueFeature)
++            {
++                if (!features.ContainsKey(stableId)) return false;
++                return ToggleFavoriteKey(FeatureFavoriteKey(stableId));
++            }
++            if (kind == ManagementEntryKind.ExternalPlugin)
++            {
++                if (!plugins.ContainsKey(stableId)) return false;
++                return ToggleFavoriteKey(PluginFavoriteKey(stableId));
++            }
++            return false;
++        }
++
++        /// <summary>当前打开的详情是否点亮顶栏「需要重启」。徽章跟最近一次
++        /// 尝试写入的 (种类, StableId) 绑定；切到同 id 另一行不得串台（POST-P4-03）。</summary>
++        internal bool ShowsRestartBadge
++        {
++            get
++            {
++                if (draft == null || !restartBadgeKind.HasValue || string.IsNullOrEmpty(restartBadgeStableId)) return false;
++                return draft.Kind == restartBadgeKind.Value
++                    && string.Equals(draft.StableId, restartBadgeStableId, StringComparison.Ordinal);
++            }
+         }
+ 
+         internal void SetSortOrder(ManagementSortOrder value)
+@@ -1287,9 +1324,11 @@ namespace BetterUnturnedExperience.ClientUi.Internal
+             if (failures == 0)
+             {
+                 var badge = requiresRestart;
++                RememberRestartBadge(badge);
+                 ClearDraftEdits();
+                 return new DraftSaveReport(DraftSaveOutcome.Success, new[] { "配置已保存。" }, badge, committedLifecycleIntent);
+             }
++            RememberRestartBadge(requiresRestart);
+             return new DraftSaveReport(DraftSaveOutcome.PartialFailure, messages, requiresRestart, committedLifecycleIntent);
+         }
+ 
+@@ -1375,6 +1414,21 @@ namespace BetterUnturnedExperience.ClientUi.Internal
+             draft.EnableEdit = null;
+         }
+ 
++        private void RememberRestartBadge(bool requiresRestart)
++        {
++            if (draft == null) return;
++            if (requiresRestart)
++            {
++                restartBadgeStableId = draft.StableId;
++                restartBadgeKind = draft.Kind;
++            }
++            else
++            {
++                restartBadgeStableId = null;
++                restartBadgeKind = null;
++            }
++        }
++
+         private static bool SettingEditDiffers(DetailDraft currentDraft, string settingId, SettingValue edited)
+         {
+             SettingEntryView baseline;
+@@ -1474,7 +1528,7 @@ namespace BetterUnturnedExperience.ClientUi.Internal
+         {
+             for (var index = favoriteIds.Count - 1; index >= 0; index--)
+             {
+-                if (!ContainsStableId(favoriteIds[index])) favoriteIds.RemoveAt(index);
++                if (!FavoriteKeyStillPresent(favoriteIds[index])) favoriteIds.RemoveAt(index);
+             }
+             SavePreferences();
+         }
+@@ -1484,6 +1538,76 @@ namespace BetterUnturnedExperience.ClientUi.Internal
+             return !string.IsNullOrWhiteSpace(id) && (features.ContainsKey(id) || plugins.ContainsKey(id));
+         }
+ 
++        // POST-P4-03：收藏按（种类, StableId）分桶。盘上键恒带前缀——feature: 归
++        // 功能行、plugin: 归插件行，同串 id 的两行不再共用一颗星。旧盘的裸 id 在
++        // 目录就绪时由 MigrateLegacyFavoriteKeys 归桶一次：功能优先（票面「旧单键
++        // 记录只贴功能行」的碰撞裁决），否则贴插件行（保住独有 GUID 收藏）；
++        // 归桶即持久化，此后不随功能注册/注销漂移（票面「拆分须确定且可测」）。
++        // 前缀是本模型自有的保留命名空间；BepInEx GUID/FeatureId 为反向 DNS，不含冒号。
++        private const string FeatureFavoritePrefix = "feature:";
++        private const string PluginFavoritePrefix = "plugin:";
++
++        private static string FeatureFavoriteKey(string stableId)
++        {
++            return FeatureFavoritePrefix + stableId;
++        }
++
++        private static string PluginFavoriteKey(string stableId)
++        {
++            return PluginFavoritePrefix + stableId;
++        }
++
++        private static string FavoriteKey(ManagementEntryKind kind, string stableId)
++        {
++            return kind == ManagementEntryKind.ExternalPlugin ? PluginFavoriteKey(stableId) : FeatureFavoriteKey(stableId);
++        }
++
++        private void MigrateLegacyFavoriteKeys()
++        {
++            var changed = false;
++            for (var index = 0; index < favoriteIds.Count; index++)
++            {
++                var stored = favoriteIds[index];
++                if (string.IsNullOrEmpty(stored)
++                    || stored.StartsWith(FeatureFavoritePrefix, StringComparison.Ordinal)
++                    || stored.StartsWith(PluginFavoritePrefix, StringComparison.Ordinal)) continue;
++                if (features.ContainsKey(stored)) favoriteIds[index] = FeatureFavoriteKey(stored);
++                else if (plugins.ContainsKey(stored)) favoriteIds[index] = PluginFavoriteKey(stored);
++                else continue;   // 两桶皆无此 id=陈旧条目，交给 PruneFavorites 摘除
++                changed = true;
++            }
++            if (changed) SavePreferences();
++        }
++
++        private bool ToggleFavoriteKey(string key)
++        {
++            var index = favoriteIds.IndexOf(key);
++            if (index >= 0) favoriteIds.RemoveAt(index);
++            else favoriteIds.Add(key);
++            SavePreferences();
++            return true;
++        }
++
++        private bool IsEntryFavorite(ManagementEntryKind kind, string stableId)
++        {
++            return favoriteIds.Contains(FavoriteKey(kind, stableId), StringComparer.Ordinal);
++        }
++
++        private int FavoriteOrderIndex(ManagementEntryKind kind, string stableId)
++        {
++            return favoriteIds.IndexOf(FavoriteKey(kind, stableId));
++        }
++
++        private bool FavoriteKeyStillPresent(string stored)
++        {
++            if (string.IsNullOrEmpty(stored)) return false;
++            if (stored.StartsWith(PluginFavoritePrefix, StringComparison.Ordinal))
++                return plugins.ContainsKey(stored.Substring(PluginFavoritePrefix.Length));
++            if (stored.StartsWith(FeatureFavoritePrefix, StringComparison.Ordinal))
++                return features.ContainsKey(stored.Substring(FeatureFavoritePrefix.Length));
++            return ContainsStableId(stored);
++        }
++
+         private static IReadOnlyList<SettingEntryView> VisibleSettings(FeatureSettingsSnapshot snapshot)
+         {
+             if (snapshot.Entries == null) return new ReadOnlyCollection<SettingEntryView>(new SettingEntryView[0]);
+diff --git a/src/BetterUnturnedExperience.Plugin/BueNativeManagementPanel.cs b/src/BetterUnturnedExperience.Plugin/BueNativeManagementPanel.cs
+index 226b04c..b3cac9f 100644
+--- a/src/BetterUnturnedExperience.Plugin/BueNativeManagementPanel.cs
++++ b/src/BetterUnturnedExperience.Plugin/BueNativeManagementPanel.cs
+@@ -128,9 +128,9 @@ namespace BetterUnturnedExperience.Plugin
+         private string pendingNavigation;   // null = none; "" = pending close; else target stableId
+         private ManagementEntryKind? pendingNavigationKind;   // F4: the clicked row's kind (null = legacy)
+         private bool pendingRefresh;         // reload the model after leaving the current draft
+-        // DEV-V4-08 (V4-T7 Q67): the top「需要重启」badge — scoped to the entry
+-        // whose last attempted save wrote a RequiresRestart item successfully.
+-        private string restartBadgeStableId;
++        // DEV-V4-08 (V4-T7 Q67) / POST-P4-03: the top「需要重启」badge lives on the
++        // model (ShowsRestartBadge), keyed by (种类, StableId) of the last save
++        // that attempted writes. Native chrome only reads it.
+         private static BueNativeManagementPanel activeInstance;
+ 
+         internal static bool RequiresParentRebind(object boundParent, object currentParent)
+@@ -973,16 +973,17 @@ namespace BetterUnturnedExperience.Plugin
+             favoriteButton.SizeOffset_Y = 32f;
+             favoriteButton.Text = selected.IsFavorite ? "取消收藏" : "加入收藏";
+             var favoriteId = selected.StableId;
++            var favoriteKind = selected.Kind;
+             favoriteButton.OnClicked += delegate(ISleekElement ignored)
+             {
+-                runtime.Model.ToggleFavorite(favoriteId);
++                runtime.Model.ToggleFavorite(favoriteId, favoriteKind);
+                 Render();
+             };
+             detailScroll.AddChild(favoriteButton);
+             y += 40;
+             // Q67: lit only when the last attempted save wrote a
+             // RequiresRestart item successfully; row markers point at the items.
+-            if (string.Equals(restartBadgeStableId, selected.StableId, StringComparison.Ordinal))
++            if (runtime.Model.ShowsRestartBadge)
+                 AddDetailLabel(ref y, "需要重启", ESleekFontSize.Small);
+             if (selected.Kind == ManagementEntryKind.BueFeature)
+             {
+@@ -1294,7 +1295,6 @@ namespace BetterUnturnedExperience.Plugin
+             var wasRefresh = pendingRefresh;
+             DraftSaveReport report;
+             var leaving = runtime.Model.TryLeaveDetail(target, targetKind, choice, out report);
+-            TrackRestartBadge(report);   // badge belongs to the entry just saved (before any navigation)
+             pendingNavigation = null;
+             pendingNavigationKind = null;
+             pendingRefresh = false;
+@@ -1336,7 +1336,6 @@ namespace BetterUnturnedExperience.Plugin
+         private void CommitDraftAndStatus()
+         {
+             var report = runtime.Model.SaveDraft();
+-            TrackRestartBadge(report);
+             // DEV-V4-09 F2（实机缺陷）：启停意图提交成功=机器事实已变，而目录
+             // 条目的状态/开关投影建目录时缓存——先经组合根重建条目（fresh
+             // machine facts）再渲染，保存后立即如实显示新状态，不再回跳旧值。
+@@ -1346,17 +1345,6 @@ namespace BetterUnturnedExperience.Plugin
+             RenderDraftReport(report);   // …then publish the frozen save banner so it wins (Q30/Q23).
+         }
+ 
+-        // Q67: the badge mirrors the entry's last save that ATTEMPTED writes —
+-        // lit iff that save successfully wrote a RequiresRestart item, cleared
+-        // when that save wrote none (the row-level（需要重启）markers stay as
+-        // the intrinsic, save-independent pointer). A NoChanges click and a
+-        // null report（取消/不保存）attempt nothing: the previous badge stands.
+-        private void TrackRestartBadge(DraftSaveReport report)
+-        {
+-            if (report == null || report.Outcome == DraftSaveOutcome.NoChanges) return;
+-            restartBadgeStableId = report.RequiresRestart ? selectedStableId : null;
+-        }
+-
+         // The one place the draft-save outcome becomes the top banner, so the
+         // 保存配置 button and the confirm's 保存 render identical frozen text
+         // (Q23/Q24/Q30). Success and NoChanges use the verbatim PrimaryMessage
+diff --git a/tests/BetterUnturnedExperience.ClientUi.Tests/DevV4DraftTests.cs b/tests/BetterUnturnedExperience.ClientUi.Tests/DevV4DraftTests.cs
+index a8cbf14..484189f 100644
+--- a/tests/BetterUnturnedExperience.ClientUi.Tests/DevV4DraftTests.cs
++++ b/tests/BetterUnturnedExperience.ClientUi.Tests/DevV4DraftTests.cs
+@@ -28,6 +28,10 @@ namespace BetterUnturnedExperience.ClientUi.Tests
+             NoBackgroundAutoSaveSurvivesRefreshAndRemount();
+             SaveCommittedLifecycleIntentFlag();
+             CollisionFeatureAndPluginShareStableIdRoutesByKind();
++            CollisionFavoriteStarDoesNotCrossKind();
++            LegacyBareFavoriteBindsFeatureRowOnly();
++            LegacyBareFavoriteForPluginOnlyGuidStaysOnPluginRow();
++            RestartBadgeDoesNotCrossKind();
+         }
+ 
+         private static void CollisionFeatureAndPluginShareStableIdRoutesByKind()
+@@ -92,6 +96,125 @@ namespace BetterUnturnedExperience.ClientUi.Tests
+             Assert(model.DraftEditBueSetting("probe", PluginConfigValue.BooleanValue(false)), "兼容：单参 OpenDetail=功能优先");
+         }
+ 
++        private static void CollisionFavoriteStarDoesNotCrossKind()
++        {
++            // POST-P4-03：NoOp 同 id 两行不得共用一颗星。种类+稳定 id 双键；
++            // 单参 ToggleFavorite 保持 features-first，不得倒退成两行一起亮。
++            var editor = new DraftableSettingsEditor();
++            var shared = "io.github.yu80rice.bue.noop";
++            var feature = new FeatureId(shared);
++            editor.Seed(feature, ToggleEntry("probe", true));
++            var model = NewModel(editor);
++            model.Refresh(new[] { Feature(feature, "样板功能", editor) }, new[]
++            {
++                new LoadedPluginDescriptor(shared, "样板插件", "0.0.0", new PluginConfigEntryView[0])
++            });
++
++            Assert(model.ToggleFavorite(shared, ManagementEntryKind.BueFeature), "收藏功能行受理");
++            Assert(entry(model, shared, ManagementEntryKind.BueFeature).IsFavorite, "功能行已收藏");
++            Assert(!entry(model, shared, ManagementEntryKind.ExternalPlugin).IsFavorite, "同 id 插件行不得跟亮");
++
++            Assert(model.ToggleFavorite(shared, ManagementEntryKind.ExternalPlugin), "收藏插件行受理");
++            Assert(entry(model, shared, ManagementEntryKind.BueFeature).IsFavorite, "功能行收藏仍在");
++            Assert(entry(model, shared, ManagementEntryKind.ExternalPlugin).IsFavorite, "插件行独立收藏");
++
++            Assert(model.ToggleFavorite(shared, ManagementEntryKind.BueFeature), "取消功能行收藏");
++            Assert(!entry(model, shared, ManagementEntryKind.BueFeature).IsFavorite, "功能行已取消");
++            Assert(entry(model, shared, ManagementEntryKind.ExternalPlugin).IsFavorite, "取消功能行不得摘掉插件星");
++
++            var fresh = NewModel(editor);
++            fresh.Refresh(new[] { Feature(feature, "样板功能", editor) }, new[]
++            {
++                new LoadedPluginDescriptor(shared, "样板插件", "0.0.0", new PluginConfigEntryView[0])
++            });
++            Assert(fresh.ToggleFavorite(shared), "单参 ToggleFavorite 受理");
++            Assert(entry(fresh, shared, ManagementEntryKind.BueFeature).IsFavorite, "单参=功能优先，功能行亮星");
++            Assert(!entry(fresh, shared, ManagementEntryKind.ExternalPlugin).IsFavorite, "单参不得把同 id 插件行一起收藏");
++        }
++
++        private static void LegacyBareFavoriteBindsFeatureRowOnly()
++        {
++            // POST-P4-03：磁盘旧单键 favorite=<id> 只贴功能行；同 id 插件行默认未收藏。
++            var editor = new DraftableSettingsEditor();
++            var shared = "io.github.yu80rice.bue.noop";
++            var feature = new FeatureId(shared);
++            editor.Seed(feature, ToggleEntry("probe", true));
++            var store = new MemoryStore();
++            store.Save(new ManagementPanelPreferences(ManagementSortOrder.NameAscending, new[] { shared }));
++            var model = new ManagementPanelModel(store, editor);
++            model.Refresh(new[] { Feature(feature, "样板功能", editor) }, new[]
++            {
++                new LoadedPluginDescriptor(shared, "样板插件", "0.0.0", new PluginConfigEntryView[0])
++            });
++            Assert(entry(model, shared, ManagementEntryKind.BueFeature).IsFavorite, "旧单键记录贴功能行");
++            Assert(!entry(model, shared, ManagementEntryKind.ExternalPlugin).IsFavorite, "旧单键记录不贴同 id 插件行");
++        }
++
++        private static void LegacyBareFavoriteForPluginOnlyGuidStaysOnPluginRow()
++        {
++            // POST-P4-03（Spec R1#1）：插件独有 GUID 的旧裸 id 归桶后不得再漂到功能行。
++            var editor = new DraftableSettingsEditor();
++            var guid = "com.example.solo";
++            var store = new MemoryStore();
++            store.Save(new ManagementPanelPreferences(ManagementSortOrder.NameAscending, new[] { guid }));
++            var model = new ManagementPanelModel(store, editor);
++            model.Refresh(new BueFeatureManagementEntry[0], new[]
++            {
++                new LoadedPluginDescriptor(guid, "独有插件", "1.0.0", new PluginConfigEntryView[0])
++            });
++            Assert(entry(model, guid, ManagementEntryKind.ExternalPlugin).IsFavorite, "裸 id 首次刷新归插件桶");
++
++            // 归桶结果写回 store（含 plugin: 前缀），功能行后注册不抢星。
++            var prefs = store.Load();
++            Assert(prefs.FavoriteIds.Count == 1 && prefs.FavoriteIds[0] == "plugin:" + guid,
++                "迁移把裸 id 改写成 plugin: 前缀并持久化");
++            editor.Seed(new FeatureId(guid), ToggleEntry("probe", true));
++            model.Refresh(new[] { Feature(new FeatureId(guid), "同名功能", editor) }, new[]
++            {
++                new LoadedPluginDescriptor(guid, "独有插件", "1.0.0", new PluginConfigEntryView[0])
++            });
++            Assert(!entry(model, guid, ManagementEntryKind.BueFeature).IsFavorite, "后注册同名功能不得抢星");
++            Assert(entry(model, guid, ManagementEntryKind.ExternalPlugin).IsFavorite, "插件星不漂走");
++        }
++
++        private static void RestartBadgeDoesNotCrossKind()
++        {
++            // POST-P4-03：RequiresRestart 顶栏徽章跟当前详情种类走，不串到同 id 另一行。
++            var editor = new DraftableSettingsEditor();
++            var configEditor = new RecordingPluginEditor();
++            var shared = "io.github.yu80rice.bue.noop";
++            var feature = new FeatureId(shared);
++            editor.Seed(feature, ToggleEntry("probe", true));
++            var model = NewModel(editor, configEditor);
++            model.Refresh(new[] { Feature(feature, "样板功能", editor) }, new[]
++            {
++                new LoadedPluginDescriptor(shared, "样板插件", "0.0.0", new[]
++                {
++                    new PluginConfigEntryView("Threads", "线程数", PluginConfigValueKind.Integer, PluginConfigValue.IntegerValue(2), true, true, 1, 16),
++                })
++            });
++
++            model.OpenDetail(shared, ManagementEntryKind.ExternalPlugin);
++            Assert(model.DraftEditPluginConfig(shared, "Threads", "8"), "插件页重启项进草稿");
++            var report = model.SaveDraft();
++            Assert(report.Outcome == DraftSaveOutcome.Success && report.RequiresRestart, "插件页写入重启项");
++            Assert(model.ShowsRestartBadge, "当前插件详情点亮需要重启");
++
++            model.OpenDetail(shared, ManagementEntryKind.BueFeature);
++            Assert(!model.ShowsRestartBadge, "切到同 id 功能页不得点亮需要重启");
++
++            model.OpenDetail(shared, ManagementEntryKind.ExternalPlugin);
++            Assert(model.ShowsRestartBadge, "回到写入过重启项的插件页仍点亮");
++
++            // 行级（需要重启）标记只存在于插件配置投影：功能页的行集里不得出现
++            // 插件行的重启标记（Spec R1#2 补全「顶栏/行级」两面的种类范围）。
++            var pluginRows = model.GetPluginConfigRows(shared);
++            Assert(pluginRows.Count == 1 && pluginRows[0].RequiresRestart, "插件页行级（需要重启）如实标记");
++            model.OpenDetail(shared, ManagementEntryKind.BueFeature);
++            var featureRows = model.GetSettingRows(shared);
++            Assert(featureRows.Count == 1 && featureRows[0].SettingId == "probe", "功能页不消费插件配置行");
++        }
++
+         private static void EditDoesNotWriteAuthoritativeSource()
+         {
+             var editor = new DraftableSettingsEditor();
+@@ -444,6 +567,14 @@ namespace BetterUnturnedExperience.ClientUi.Tests
+             throw new InvalidOperationException("entry not found: " + stableId);
+         }
+ 
++        private static ManagementEntryView entry(ManagementPanelModel model, string stableId, ManagementEntryKind kind)
++        {
++            var rows = model.GetEntries();
++            for (var index = 0; index < rows.Count; index++)
++                if (rows[index].StableId == stableId && rows[index].Kind == kind) return rows[index];
++            throw new InvalidOperationException("entry not found: " + kind + "/" + stableId);
++        }
++
+         private static bool ContainsMessage(DraftSaveReport report, string text)
+         {
+             if (report == null || report.Messages == null) return false;

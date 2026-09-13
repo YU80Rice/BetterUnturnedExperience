@@ -128,9 +128,9 @@ namespace BetterUnturnedExperience.Plugin
         private string pendingNavigation;   // null = none; "" = pending close; else target stableId
         private ManagementEntryKind? pendingNavigationKind;   // F4: the clicked row's kind (null = legacy)
         private bool pendingRefresh;         // reload the model after leaving the current draft
-        // DEV-V4-08 (V4-T7 Q67): the top「需要重启」badge — scoped to the entry
-        // whose last attempted save wrote a RequiresRestart item successfully.
-        private string restartBadgeStableId;
+        // DEV-V4-08 (V4-T7 Q67) / POST-P4-03: the top「需要重启」badge lives on the
+        // model (ShowsRestartBadge), keyed by (种类, StableId) of the last save
+        // that attempted writes. Native chrome only reads it.
         private static BueNativeManagementPanel activeInstance;
 
         internal static bool RequiresParentRebind(object boundParent, object currentParent)
@@ -973,16 +973,17 @@ namespace BetterUnturnedExperience.Plugin
             favoriteButton.SizeOffset_Y = 32f;
             favoriteButton.Text = selected.IsFavorite ? "取消收藏" : "加入收藏";
             var favoriteId = selected.StableId;
+            var favoriteKind = selected.Kind;
             favoriteButton.OnClicked += delegate(ISleekElement ignored)
             {
-                runtime.Model.ToggleFavorite(favoriteId);
+                runtime.Model.ToggleFavorite(favoriteId, favoriteKind);
                 Render();
             };
             detailScroll.AddChild(favoriteButton);
             y += 40;
             // Q67: lit only when the last attempted save wrote a
             // RequiresRestart item successfully; row markers point at the items.
-            if (string.Equals(restartBadgeStableId, selected.StableId, StringComparison.Ordinal))
+            if (runtime.Model.ShowsRestartBadge)
                 AddDetailLabel(ref y, "需要重启", ESleekFontSize.Small);
             if (selected.Kind == ManagementEntryKind.BueFeature)
             {
@@ -1294,7 +1295,6 @@ namespace BetterUnturnedExperience.Plugin
             var wasRefresh = pendingRefresh;
             DraftSaveReport report;
             var leaving = runtime.Model.TryLeaveDetail(target, targetKind, choice, out report);
-            TrackRestartBadge(report);   // badge belongs to the entry just saved (before any navigation)
             pendingNavigation = null;
             pendingNavigationKind = null;
             pendingRefresh = false;
@@ -1336,7 +1336,6 @@ namespace BetterUnturnedExperience.Plugin
         private void CommitDraftAndStatus()
         {
             var report = runtime.Model.SaveDraft();
-            TrackRestartBadge(report);
             // DEV-V4-09 F2（实机缺陷）：启停意图提交成功=机器事实已变，而目录
             // 条目的状态/开关投影建目录时缓存——先经组合根重建条目（fresh
             // machine facts）再渲染，保存后立即如实显示新状态，不再回跳旧值。
@@ -1344,17 +1343,6 @@ namespace BetterUnturnedExperience.Plugin
             if (report != null && report.CommittedLifecycleIntent && refreshModel != null) refreshModel();
             Render();                    // re-render first — RenderDetails may restore a platform notice…
             RenderDraftReport(report);   // …then publish the frozen save banner so it wins (Q30/Q23).
-        }
-
-        // Q67: the badge mirrors the entry's last save that ATTEMPTED writes —
-        // lit iff that save successfully wrote a RequiresRestart item, cleared
-        // when that save wrote none (the row-level（需要重启）markers stay as
-        // the intrinsic, save-independent pointer). A NoChanges click and a
-        // null report（取消/不保存）attempt nothing: the previous badge stands.
-        private void TrackRestartBadge(DraftSaveReport report)
-        {
-            if (report == null || report.Outcome == DraftSaveOutcome.NoChanges) return;
-            restartBadgeStableId = report.RequiresRestart ? selectedStableId : null;
         }
 
         // The one place the draft-save outcome becomes the top banner, so the

@@ -28,6 +28,10 @@ namespace BetterUnturnedExperience.ClientUi.Tests
             NoBackgroundAutoSaveSurvivesRefreshAndRemount();
             SaveCommittedLifecycleIntentFlag();
             CollisionFeatureAndPluginShareStableIdRoutesByKind();
+            CollisionFavoriteStarDoesNotCrossKind();
+            LegacyBareFavoriteBindsFeatureRowOnly();
+            LegacyBareFavoriteForPluginOnlyGuidStaysOnPluginRow();
+            RestartBadgeDoesNotCrossKind();
         }
 
         private static void CollisionFeatureAndPluginShareStableIdRoutesByKind()
@@ -90,6 +94,125 @@ namespace BetterUnturnedExperience.ClientUi.Tests
             model.DiscardDraft();
             model.OpenDetail(shared);
             Assert(model.DraftEditBueSetting("probe", PluginConfigValue.BooleanValue(false)), "兼容：单参 OpenDetail=功能优先");
+        }
+
+        private static void CollisionFavoriteStarDoesNotCrossKind()
+        {
+            // POST-P4-03：NoOp 同 id 两行不得共用一颗星。种类+稳定 id 双键；
+            // 单参 ToggleFavorite 保持 features-first，不得倒退成两行一起亮。
+            var editor = new DraftableSettingsEditor();
+            var shared = "io.github.yu80rice.bue.noop";
+            var feature = new FeatureId(shared);
+            editor.Seed(feature, ToggleEntry("probe", true));
+            var model = NewModel(editor);
+            model.Refresh(new[] { Feature(feature, "样板功能", editor) }, new[]
+            {
+                new LoadedPluginDescriptor(shared, "样板插件", "0.0.0", new PluginConfigEntryView[0])
+            });
+
+            Assert(model.ToggleFavorite(shared, ManagementEntryKind.BueFeature), "收藏功能行受理");
+            Assert(entry(model, shared, ManagementEntryKind.BueFeature).IsFavorite, "功能行已收藏");
+            Assert(!entry(model, shared, ManagementEntryKind.ExternalPlugin).IsFavorite, "同 id 插件行不得跟亮");
+
+            Assert(model.ToggleFavorite(shared, ManagementEntryKind.ExternalPlugin), "收藏插件行受理");
+            Assert(entry(model, shared, ManagementEntryKind.BueFeature).IsFavorite, "功能行收藏仍在");
+            Assert(entry(model, shared, ManagementEntryKind.ExternalPlugin).IsFavorite, "插件行独立收藏");
+
+            Assert(model.ToggleFavorite(shared, ManagementEntryKind.BueFeature), "取消功能行收藏");
+            Assert(!entry(model, shared, ManagementEntryKind.BueFeature).IsFavorite, "功能行已取消");
+            Assert(entry(model, shared, ManagementEntryKind.ExternalPlugin).IsFavorite, "取消功能行不得摘掉插件星");
+
+            var fresh = NewModel(editor);
+            fresh.Refresh(new[] { Feature(feature, "样板功能", editor) }, new[]
+            {
+                new LoadedPluginDescriptor(shared, "样板插件", "0.0.0", new PluginConfigEntryView[0])
+            });
+            Assert(fresh.ToggleFavorite(shared), "单参 ToggleFavorite 受理");
+            Assert(entry(fresh, shared, ManagementEntryKind.BueFeature).IsFavorite, "单参=功能优先，功能行亮星");
+            Assert(!entry(fresh, shared, ManagementEntryKind.ExternalPlugin).IsFavorite, "单参不得把同 id 插件行一起收藏");
+        }
+
+        private static void LegacyBareFavoriteBindsFeatureRowOnly()
+        {
+            // POST-P4-03：磁盘旧单键 favorite=<id> 只贴功能行；同 id 插件行默认未收藏。
+            var editor = new DraftableSettingsEditor();
+            var shared = "io.github.yu80rice.bue.noop";
+            var feature = new FeatureId(shared);
+            editor.Seed(feature, ToggleEntry("probe", true));
+            var store = new MemoryStore();
+            store.Save(new ManagementPanelPreferences(ManagementSortOrder.NameAscending, new[] { shared }));
+            var model = new ManagementPanelModel(store, editor);
+            model.Refresh(new[] { Feature(feature, "样板功能", editor) }, new[]
+            {
+                new LoadedPluginDescriptor(shared, "样板插件", "0.0.0", new PluginConfigEntryView[0])
+            });
+            Assert(entry(model, shared, ManagementEntryKind.BueFeature).IsFavorite, "旧单键记录贴功能行");
+            Assert(!entry(model, shared, ManagementEntryKind.ExternalPlugin).IsFavorite, "旧单键记录不贴同 id 插件行");
+        }
+
+        private static void LegacyBareFavoriteForPluginOnlyGuidStaysOnPluginRow()
+        {
+            // POST-P4-03（Spec R1#1）：插件独有 GUID 的旧裸 id 归桶后不得再漂到功能行。
+            var editor = new DraftableSettingsEditor();
+            var guid = "com.example.solo";
+            var store = new MemoryStore();
+            store.Save(new ManagementPanelPreferences(ManagementSortOrder.NameAscending, new[] { guid }));
+            var model = new ManagementPanelModel(store, editor);
+            model.Refresh(new BueFeatureManagementEntry[0], new[]
+            {
+                new LoadedPluginDescriptor(guid, "独有插件", "1.0.0", new PluginConfigEntryView[0])
+            });
+            Assert(entry(model, guid, ManagementEntryKind.ExternalPlugin).IsFavorite, "裸 id 首次刷新归插件桶");
+
+            // 归桶结果写回 store（含 plugin: 前缀），功能行后注册不抢星。
+            var prefs = store.Load();
+            Assert(prefs.FavoriteIds.Count == 1 && prefs.FavoriteIds[0] == "plugin:" + guid,
+                "迁移把裸 id 改写成 plugin: 前缀并持久化");
+            editor.Seed(new FeatureId(guid), ToggleEntry("probe", true));
+            model.Refresh(new[] { Feature(new FeatureId(guid), "同名功能", editor) }, new[]
+            {
+                new LoadedPluginDescriptor(guid, "独有插件", "1.0.0", new PluginConfigEntryView[0])
+            });
+            Assert(!entry(model, guid, ManagementEntryKind.BueFeature).IsFavorite, "后注册同名功能不得抢星");
+            Assert(entry(model, guid, ManagementEntryKind.ExternalPlugin).IsFavorite, "插件星不漂走");
+        }
+
+        private static void RestartBadgeDoesNotCrossKind()
+        {
+            // POST-P4-03：RequiresRestart 顶栏徽章跟当前详情种类走，不串到同 id 另一行。
+            var editor = new DraftableSettingsEditor();
+            var configEditor = new RecordingPluginEditor();
+            var shared = "io.github.yu80rice.bue.noop";
+            var feature = new FeatureId(shared);
+            editor.Seed(feature, ToggleEntry("probe", true));
+            var model = NewModel(editor, configEditor);
+            model.Refresh(new[] { Feature(feature, "样板功能", editor) }, new[]
+            {
+                new LoadedPluginDescriptor(shared, "样板插件", "0.0.0", new[]
+                {
+                    new PluginConfigEntryView("Threads", "线程数", PluginConfigValueKind.Integer, PluginConfigValue.IntegerValue(2), true, true, 1, 16),
+                })
+            });
+
+            model.OpenDetail(shared, ManagementEntryKind.ExternalPlugin);
+            Assert(model.DraftEditPluginConfig(shared, "Threads", "8"), "插件页重启项进草稿");
+            var report = model.SaveDraft();
+            Assert(report.Outcome == DraftSaveOutcome.Success && report.RequiresRestart, "插件页写入重启项");
+            Assert(model.ShowsRestartBadge, "当前插件详情点亮需要重启");
+
+            model.OpenDetail(shared, ManagementEntryKind.BueFeature);
+            Assert(!model.ShowsRestartBadge, "切到同 id 功能页不得点亮需要重启");
+
+            model.OpenDetail(shared, ManagementEntryKind.ExternalPlugin);
+            Assert(model.ShowsRestartBadge, "回到写入过重启项的插件页仍点亮");
+
+            // 行级（需要重启）标记只存在于插件配置投影：功能页的行集里不得出现
+            // 插件行的重启标记（Spec R1#2 补全「顶栏/行级」两面的种类范围）。
+            var pluginRows = model.GetPluginConfigRows(shared);
+            Assert(pluginRows.Count == 1 && pluginRows[0].RequiresRestart, "插件页行级（需要重启）如实标记");
+            model.OpenDetail(shared, ManagementEntryKind.BueFeature);
+            var featureRows = model.GetSettingRows(shared);
+            Assert(featureRows.Count == 1 && featureRows[0].SettingId == "probe", "功能页不消费插件配置行");
         }
 
         private static void EditDoesNotWriteAuthoritativeSource()
@@ -442,6 +565,14 @@ namespace BetterUnturnedExperience.ClientUi.Tests
             for (var index = 0; index < rows.Count; index++)
                 if (rows[index].StableId == stableId) return rows[index];
             throw new InvalidOperationException("entry not found: " + stableId);
+        }
+
+        private static ManagementEntryView entry(ManagementPanelModel model, string stableId, ManagementEntryKind kind)
+        {
+            var rows = model.GetEntries();
+            for (var index = 0; index < rows.Count; index++)
+                if (rows[index].StableId == stableId && rows[index].Kind == kind) return rows[index];
+            throw new InvalidOperationException("entry not found: " + kind + "/" + stableId);
         }
 
         private static bool ContainsMessage(DraftSaveReport report, string text)

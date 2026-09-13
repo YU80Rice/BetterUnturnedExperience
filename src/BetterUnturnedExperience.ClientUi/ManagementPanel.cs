@@ -519,6 +519,9 @@ namespace BetterUnturnedExperience.ClientUi.Internal
         // survives a UI-tree re-mount, and is the ONLY thing the edit commands
         // touch until "保存配置" hands values to the authoritative sources.
         private DetailDraft draft;
+        // POST-P4-03：顶栏「需要重启」跟最近一次尝试写入的详情走。NoChanges 不动。
+        private string restartBadgeStableId;
+        private ManagementEntryKind? restartBadgeKind;
 
         internal ManagementPanelModel(IManagementPanelPreferencesStore preferencesStore, IBueSettingsEditor bueSettingsEditor,
             IPluginConfigEditor pluginConfigEditor = null)
@@ -565,6 +568,10 @@ namespace BetterUnturnedExperience.ClientUi.Internal
                 if (plugin == null) continue;
                 plugins[plugin.Guid] = plugin;
             }
+            // POST-P4-03 票面「按种类分桶迁移」：旧盘裸 id 在目录就绪时归桶一次
+            // （功能优先=票面「旧单键记录只贴功能行」的碰撞裁决），改写成前缀键后
+            // 持久化。归桶结果从此确定，不随后续功能注册/注销漂移。
+            MigrateLegacyFavoriteKeys();
             PruneFavorites();
         }
 
@@ -576,19 +583,18 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             {
                 all.Add(new ManagementEntryView(ManagementEntryKind.BueFeature, feature.Feature.Value, feature.DisplayName,
                     feature.Version, feature.State, feature.Presentation, VisibleSettings(feature.Settings), null,
-                    favoriteIds.Contains(feature.Feature.Value, StringComparer.Ordinal)));
+                    IsEntryFavorite(ManagementEntryKind.BueFeature, feature.Feature.Value)));
             }
             foreach (var plugin in plugins.Values)
             {
                 all.Add(new ManagementEntryView(ManagementEntryKind.ExternalPlugin, plugin.Guid, plugin.DisplayName,
                     plugin.Version, default(FeatureState), default(FeaturePresentationView), null, plugin.ConfigEntries,
-                    favoriteIds.Contains(plugin.Guid, StringComparer.Ordinal)));
+                    IsEntryFavorite(ManagementEntryKind.ExternalPlugin, plugin.Guid)));
             }
 
-            var favoriteSet = new HashSet<string>(favoriteIds, StringComparer.Ordinal);
-            var orderedFavorites = all.Where(x => favoriteSet.Contains(x.StableId))
-                .OrderBy(x => favoriteIds.IndexOf(x.StableId)).ToList();
-            var others = all.Where(x => !favoriteSet.Contains(x.StableId));
+            var orderedFavorites = all.Where(x => IsEntryFavorite(x.Kind, x.StableId))
+                .OrderBy(x => FavoriteOrderIndex(x.Kind, x.StableId)).ToList();
+            var others = all.Where(x => !IsEntryFavorite(x.Kind, x.StableId));
             others = sortOrder == ManagementSortOrder.NameAscending
                 ? others.OrderBy(x => x.DisplayName, StringComparer.OrdinalIgnoreCase).ThenBy(x => x.StableId, StringComparer.Ordinal)
                 : others.OrderByDescending(x => x.DisplayName, StringComparer.OrdinalIgnoreCase).ThenBy(x => x.StableId, StringComparer.Ordinal);
@@ -596,15 +602,46 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             return new ReadOnlyCollection<ManagementEntryView>(orderedFavorites);
         }
 
+        /// <summary>单参重载=features-first：目录有该功能则只拨功能行，否则才拨插件行。
+        /// 同 id 两行并存时不得两行一起亮（POST-P4-03）。</summary>
         internal bool ToggleFavorite(string stableId)
         {
             EnsurePreferencesLoaded();
-            if (!ContainsStableId(stableId)) return false;
-            var index = favoriteIds.IndexOf(stableId);
-            if (index >= 0) favoriteIds.RemoveAt(index);
-            else favoriteIds.Add(stableId);
-            SavePreferences();
-            return true;
+            if (string.IsNullOrWhiteSpace(stableId)) return false;
+            if (features.ContainsKey(stableId)) return ToggleFavorite(stableId, ManagementEntryKind.BueFeature);
+            if (plugins.ContainsKey(stableId)) return ToggleFavorite(stableId, ManagementEntryKind.ExternalPlugin);
+            return false;
+        }
+
+        /// <summary>POST-P4-03：按行种类收藏。键=（种类, StableId）——盘上分别写成
+        /// feature: / plugin: 前缀，同串 id 的功能行与插件行不再共用一颗星。</summary>
+        internal bool ToggleFavorite(string stableId, ManagementEntryKind kind)
+        {
+            EnsurePreferencesLoaded();
+            if (string.IsNullOrWhiteSpace(stableId)) return false;
+            if (kind == ManagementEntryKind.BueFeature)
+            {
+                if (!features.ContainsKey(stableId)) return false;
+                return ToggleFavoriteKey(FeatureFavoriteKey(stableId));
+            }
+            if (kind == ManagementEntryKind.ExternalPlugin)
+            {
+                if (!plugins.ContainsKey(stableId)) return false;
+                return ToggleFavoriteKey(PluginFavoriteKey(stableId));
+            }
+            return false;
+        }
+
+        /// <summary>当前打开的详情是否点亮顶栏「需要重启」。徽章跟最近一次
+        /// 尝试写入的 (种类, StableId) 绑定；切到同 id 另一行不得串台（POST-P4-03）。</summary>
+        internal bool ShowsRestartBadge
+        {
+            get
+            {
+                if (draft == null || !restartBadgeKind.HasValue || string.IsNullOrEmpty(restartBadgeStableId)) return false;
+                return draft.Kind == restartBadgeKind.Value
+                    && string.Equals(draft.StableId, restartBadgeStableId, StringComparison.Ordinal);
+            }
         }
 
         internal void SetSortOrder(ManagementSortOrder value)
@@ -1287,9 +1324,11 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             if (failures == 0)
             {
                 var badge = requiresRestart;
+                RememberRestartBadge(badge);
                 ClearDraftEdits();
                 return new DraftSaveReport(DraftSaveOutcome.Success, new[] { "配置已保存。" }, badge, committedLifecycleIntent);
             }
+            RememberRestartBadge(requiresRestart);
             return new DraftSaveReport(DraftSaveOutcome.PartialFailure, messages, requiresRestart, committedLifecycleIntent);
         }
 
@@ -1373,6 +1412,21 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             draft.SettingEdits.Clear();
             draft.ConfigEdits.Clear();
             draft.EnableEdit = null;
+        }
+
+        private void RememberRestartBadge(bool requiresRestart)
+        {
+            if (draft == null) return;
+            if (requiresRestart)
+            {
+                restartBadgeStableId = draft.StableId;
+                restartBadgeKind = draft.Kind;
+            }
+            else
+            {
+                restartBadgeStableId = null;
+                restartBadgeKind = null;
+            }
         }
 
         private static bool SettingEditDiffers(DetailDraft currentDraft, string settingId, SettingValue edited)
@@ -1474,7 +1528,7 @@ namespace BetterUnturnedExperience.ClientUi.Internal
         {
             for (var index = favoriteIds.Count - 1; index >= 0; index--)
             {
-                if (!ContainsStableId(favoriteIds[index])) favoriteIds.RemoveAt(index);
+                if (!FavoriteKeyStillPresent(favoriteIds[index])) favoriteIds.RemoveAt(index);
             }
             SavePreferences();
         }
@@ -1482,6 +1536,76 @@ namespace BetterUnturnedExperience.ClientUi.Internal
         private bool ContainsStableId(string id)
         {
             return !string.IsNullOrWhiteSpace(id) && (features.ContainsKey(id) || plugins.ContainsKey(id));
+        }
+
+        // POST-P4-03：收藏按（种类, StableId）分桶。盘上键恒带前缀——feature: 归
+        // 功能行、plugin: 归插件行，同串 id 的两行不再共用一颗星。旧盘的裸 id 在
+        // 目录就绪时由 MigrateLegacyFavoriteKeys 归桶一次：功能优先（票面「旧单键
+        // 记录只贴功能行」的碰撞裁决），否则贴插件行（保住独有 GUID 收藏）；
+        // 归桶即持久化，此后不随功能注册/注销漂移（票面「拆分须确定且可测」）。
+        // 前缀是本模型自有的保留命名空间；BepInEx GUID/FeatureId 为反向 DNS，不含冒号。
+        private const string FeatureFavoritePrefix = "feature:";
+        private const string PluginFavoritePrefix = "plugin:";
+
+        private static string FeatureFavoriteKey(string stableId)
+        {
+            return FeatureFavoritePrefix + stableId;
+        }
+
+        private static string PluginFavoriteKey(string stableId)
+        {
+            return PluginFavoritePrefix + stableId;
+        }
+
+        private static string FavoriteKey(ManagementEntryKind kind, string stableId)
+        {
+            return kind == ManagementEntryKind.ExternalPlugin ? PluginFavoriteKey(stableId) : FeatureFavoriteKey(stableId);
+        }
+
+        private void MigrateLegacyFavoriteKeys()
+        {
+            var changed = false;
+            for (var index = 0; index < favoriteIds.Count; index++)
+            {
+                var stored = favoriteIds[index];
+                if (string.IsNullOrEmpty(stored)
+                    || stored.StartsWith(FeatureFavoritePrefix, StringComparison.Ordinal)
+                    || stored.StartsWith(PluginFavoritePrefix, StringComparison.Ordinal)) continue;
+                if (features.ContainsKey(stored)) favoriteIds[index] = FeatureFavoriteKey(stored);
+                else if (plugins.ContainsKey(stored)) favoriteIds[index] = PluginFavoriteKey(stored);
+                else continue;   // 两桶皆无此 id=陈旧条目，交给 PruneFavorites 摘除
+                changed = true;
+            }
+            if (changed) SavePreferences();
+        }
+
+        private bool ToggleFavoriteKey(string key)
+        {
+            var index = favoriteIds.IndexOf(key);
+            if (index >= 0) favoriteIds.RemoveAt(index);
+            else favoriteIds.Add(key);
+            SavePreferences();
+            return true;
+        }
+
+        private bool IsEntryFavorite(ManagementEntryKind kind, string stableId)
+        {
+            return favoriteIds.Contains(FavoriteKey(kind, stableId), StringComparer.Ordinal);
+        }
+
+        private int FavoriteOrderIndex(ManagementEntryKind kind, string stableId)
+        {
+            return favoriteIds.IndexOf(FavoriteKey(kind, stableId));
+        }
+
+        private bool FavoriteKeyStillPresent(string stored)
+        {
+            if (string.IsNullOrEmpty(stored)) return false;
+            if (stored.StartsWith(PluginFavoritePrefix, StringComparison.Ordinal))
+                return plugins.ContainsKey(stored.Substring(PluginFavoritePrefix.Length));
+            if (stored.StartsWith(FeatureFavoritePrefix, StringComparison.Ordinal))
+                return features.ContainsKey(stored.Substring(FeatureFavoritePrefix.Length));
+            return ContainsStableId(stored);
         }
 
         private static IReadOnlyList<SettingEntryView> VisibleSettings(FeatureSettingsSnapshot snapshot)
