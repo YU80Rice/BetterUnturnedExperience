@@ -1,0 +1,13 @@
+lines=101
+identity_af1f50c9=1
+identity_prefix=1
+accepted_true=5
+bue_error=0
+unhandled=0
+tidy_ui=0
+runtime_gate_headless=1
+lit_to_running=1
+posted=0
+heartbeat=2
+bootstrap_003=2
+bue_settings_written=0

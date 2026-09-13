@@ -1,0 +1,101 @@
+[Message:   BepInEx] BepInEx 5.4.23.5 - Unturned (2026/9/4 16:10:52)
+[Info   :   BepInEx] Running under Unity v2022.3.62.9860879
+[Info   :   BepInEx] CLR runtime version: 4.0.30319.42000
+[Info   :   BepInEx] Supports SRE: True
+[Info   :   BepInEx] System platform: Bits64, Windows
+[Message:   BepInEx] Preloader started
+[Info   :   BepInEx] Loaded 1 patcher method from [BepInEx.Preloader 5.4.23.5]
+[Info   :   BepInEx] 1 patcher plugin loaded
+[Info   :   BepInEx] Patching [UnityEngine.CoreModule] with [BepInEx.Chainloader]
+[Message:   BepInEx] Preloader finished
+[Message:   BepInEx] Chainloader ready
+[Message:   BepInEx] Chainloader started
+[Info   :   BepInEx] 1 plugin to load
+[Info   :   BepInEx] Loading [Better Unturned Experience 0.0.0]
+[Info   :Better Unturned Experience] [BUE-UI-TRACE] plugin=io.github.yu80rice.betterunturnedexperience diagnosticId=BUE-MANAGEMENT-TRACE-002 event=assembly-identity path=E:\Steam\steamapps\common\U3DS\BepInEx\plugins\BetterUnturnedExperience.dll sha256=AF1F50C990954F315F0823BC9E39698979D5E491E25E2D8EB1682EC35A9D16D0
+[Debug  :Better Unturned Experience] BUE host event runtime created hostClock=io.github.yu80rice.bue.host diagnosticId=BUE-EVENTS-001
+[Debug  :Better Unturned Experience] [BUE-UI-TRACE] plugin=io.github.yu80rice.betterunturnedexperience diagnosticId=BUE-BOOTSTRAP-002 event=runtime-gate decision=Headless batchMode=True headless=True
+[Debug  :Better Unturned Experience] [BUE-V2NET] event=lmn-config-migration result=no-op mapping=empty reason=lmn-has-no-config diagnosticId=BUE-V2NET-001
+[Debug  :Better Unturned Experience] [BUE-V2NET] event=takeover-patch result=installed priority=first targets=NetMessages.ReceiveMessageFromClient,NetMessages.ReceiveMessageFromServer diagnosticId=BUE-V2NET-003
+[Debug  :Better Unturned Experience] [BUE-UI-TRACE] plugin=io.github.yu80rice.betterunturnedexperience event=headless-survival-pump-attached diagnosticId=BUE-BOOTSTRAP-003
+[Debug  :Better Unturned Experience] Better Unturned Experience featureId=io.github.yu80rice.betterunturnedexperience status=BootstrapReady decision=Headless diagnosticId=BUE-BOOTSTRAP-001
+[Debug  :Better Unturned Experience] Better Item Interaction featureId=io.github.yu80rice.bue.better-item-interaction accepted=True reason=None diagnosticId=BUE-REG-ACCEPT
+[Debug  :Better Unturned Experience] BUE Network Module featureId=io.github.yu80rice.bue.network accepted=True reason=None diagnosticId=BUE-REG-ACCEPT
+[Debug  :Better Unturned Experience] BUE Inventory Tidy featureId=io.github.yu80rice.bue.inventory-tidy accepted=True reason=None diagnosticId=BUE-REG-ACCEPT
+[Debug  :Better Unturned Experience] BUE In-Place Reload featureId=io.github.yu80rice.bue.in-place-reload accepted=True reason=None diagnosticId=BUE-REG-ACCEPT
+[Debug  :Better Unturned Experience] BUE Horde Tracker featureId=io.github.yu80rice.bue.horde-tracker accepted=True reason=None diagnosticId=BUE-REG-ACCEPT
+[Message:   BepInEx] Chainloader startup complete
+[Debug  :Better Unturned Experience] [BUE-UI-TRACE] plugin=io.github.yu80rice.betterunturnedexperience event=host-destroyed state=preserved patches-kept=true diagnosticId=BUE-CLIENTUI-005
+[Debug  :Better Unturned Experience] [BUE-UI-TRACE] plugin=io.github.yu80rice.betterunturnedexperience event=headless-survival-pump-attached diagnosticId=BUE-BOOTSTRAP-003
+[Debug  :Better Unturned Experience] event=feature-state feature=io.github.yu80rice.bue.better-item-interaction to=Starting generation=1 revision=1 reason=none diagnosticId=BUE-LIFE-STATE
+[Debug  :Better Unturned Experience] [BUE-DIAG] BUE diagnostics runtime created diagnosticId=BUE-LOG-CREATED
+[Info   :Better Unturned Experience] BUE diagnostic-summary featureId=io.github.yu80rice.bue.better-item-interaction diagnosticId=BUE-LIFE-STATE level=info count=1 firstSeen=2026-09-13T15:29:37Z lastSeen=2026-09-13T15:29:37Z
+[Debug  :Better Unturned Experience] BUE main-thread dispatcher created host=io.github.yu80rice.bue.host diagnosticId=BUE-MT-CREATED
+[Debug  :Better Unturned Experience] [BUE-MT] event=main-thread result=generation-opened feature=io.github.yu80rice.bue.better-item-interaction generation=1 diagnosticId=BUE-MT-GEN
+[Debug  :Better Unturned Experience] [BUE-V2HOST] event=module-start result=not-started feature=io.github.yu80rice.bue.better-item-interaction diagnostic=
+[Debug  :Better Unturned Experience] event=feature-state feature=io.github.yu80rice.bue.better-item-interaction to=Isolating generation=1 revision=2 reason=none diagnosticId=BUE-LIFE-STATE
+[Debug  :Better Unturned Experience] event=feature-state feature=io.github.yu80rice.bue.better-item-interaction to=Isolated generation=1 revision=3 reason=RuntimeIsolated diagnosticId=BUE-LIFE-STATE
+[Debug  :Better Unturned Experience] event=feature-isolated feature=io.github.yu80rice.bue.better-item-interaction stage=start-result error=ModuleStartFailed diagnosticId=BUE-LIFE-ISOLATE
+[Info   :Better Unturned Experience] BUE diagnostic-summary featureId=io.github.yu80rice.bue.better-item-interaction diagnosticId=BUE-LIFE-ISOLATE level=info count=1 firstSeen=2026-09-13T15:29:37Z lastSeen=2026-09-13T15:29:37Z
+[Debug  :Better Unturned Experience] [BUE-MT] event=main-thread result=owner-invalidated feature=io.github.yu80rice.bue.better-item-interaction reason=start-result diagnosticId=BUE-MT-002
+[Debug  :Better Unturned Experience] [BUE-SET] event=settings-registry result=owner-invalidated feature=io.github.yu80rice.bue.better-item-interaction reason=start-result diagnosticId=BUE-SET-GEN
+[Debug  :Better Unturned Experience] event=feature-state feature=io.github.yu80rice.bue.horde-tracker to=Starting generation=2 revision=1 reason=none diagnosticId=BUE-LIFE-STATE
+[Info   :Better Unturned Experience] BUE diagnostic-summary featureId=io.github.yu80rice.bue.horde-tracker diagnosticId=BUE-LIFE-STATE level=info count=1 firstSeen=2026-09-13T15:29:37Z lastSeen=2026-09-13T15:29:37Z
+[Debug  :Better Unturned Experience] [BUE-MT] event=main-thread result=generation-opened feature=io.github.yu80rice.bue.horde-tracker generation=2 diagnosticId=BUE-MT-GEN
+[Debug  :Better Unturned Experience] [BUE-NET] event=network-deferred result=not-ready stage=register channel=io.github.yu80rice.bue.horde-tracker diagnosticId=BUE-NET-005
+[Debug  :Better Unturned Experience] [HordeNet] 已注册 BUE 命名频道=io.github.yu80rice.bue.horde-tracker（FeatureId 即频道身份，旧频道退役）
+[Debug  :Better Unturned Experience] [HordeTracker] 已订阅 BeaconManager.onBeaconUpdated + Provider.onServerHosted
+[Debug  :Better Unturned Experience] [Lht] 尸潮补丁已安装（Harmony ID=io.github.yu80rice.bue.horde-tracker）
+[Debug  :Better Unturned Experience] [Lht] 模块已启动（宿主 bootstrap：功能代际=2，表现=HeadlessOnly）
+[Debug  :Better Unturned Experience] event=feature-state feature=io.github.yu80rice.bue.horde-tracker to=Running generation=2 revision=2 reason=none diagnosticId=BUE-LIFE-STATE
+[Debug  :Better Unturned Experience] [BUE-V2HOST] event=module-start result=started feature=io.github.yu80rice.bue.horde-tracker diagnostic=BUE-LHT-START
+[Debug  :Better Unturned Experience] event=feature-state feature=io.github.yu80rice.bue.in-place-reload to=Starting generation=3 revision=1 reason=none diagnosticId=BUE-LIFE-STATE
+[Info   :Better Unturned Experience] BUE diagnostic-summary featureId=io.github.yu80rice.bue.in-place-reload diagnosticId=BUE-LIFE-STATE level=info count=1 firstSeen=2026-09-13T15:29:37Z lastSeen=2026-09-13T15:29:37Z
+[Debug  :Better Unturned Experience] [BUE-MT] event=main-thread result=generation-opened feature=io.github.yu80rice.bue.in-place-reload generation=3 diagnosticId=BUE-MT-GEN
+[Debug  :Better Unturned Experience] [Lir] 原位换弹补丁已安装（Harmony ID=io.github.yu80rice.bue.in-place-reload）
+[Debug  :Better Unturned Experience] [Lir] 模块已启动（宿主 bootstrap：功能代际=3，网络注册延迟至首帧游戏线程）
+[Debug  :Better Unturned Experience] event=feature-state feature=io.github.yu80rice.bue.in-place-reload to=Running generation=3 revision=2 reason=none diagnosticId=BUE-LIFE-STATE
+[Debug  :Better Unturned Experience] [BUE-V2HOST] event=module-start result=started feature=io.github.yu80rice.bue.in-place-reload diagnostic=BUE-LIR-START
+[Debug  :Better Unturned Experience] event=feature-state feature=io.github.yu80rice.bue.inventory-tidy to=Starting generation=4 revision=1 reason=none diagnosticId=BUE-LIFE-STATE
+[Info   :Better Unturned Experience] BUE diagnostic-summary featureId=io.github.yu80rice.bue.inventory-tidy diagnosticId=BUE-LIFE-STATE level=info count=1 firstSeen=2026-09-13T15:29:37Z lastSeen=2026-09-13T15:29:37Z
+[Debug  :Better Unturned Experience] [BUE-MT] event=main-thread result=generation-opened feature=io.github.yu80rice.bue.inventory-tidy generation=4 diagnosticId=BUE-MT-GEN
+[Debug  :Better Unturned Experience] [BUE-SET] event=settings-runtime result=created feature=io.github.yu80rice.bue.inventory-tidy descriptors=2 schema=1 diagnosticId=BUE-SET-CREATED
+[Debug  :Better Unturned Experience] [BUE-SET] event=settings-registry result=generation-opened feature=io.github.yu80rice.bue.inventory-tidy generation=4 diagnosticId=BUE-SET-GEN
+[Debug  :Better Unturned Experience] [Tidy] U3DS headless：不武装整理按钮补丁（Headless 决策门禁）
+[Debug  :Better Unturned Experience] [TidyNet] 已注册 BUE 命名频道=io.github.yu80rice.bue.inventory-tidy 双方向处理器
+[Debug  :Better Unturned Experience] event=feature-resource result=tracked feature=io.github.yu80rice.bue.inventory-tidy generation=4 diagnosticId=BUE-LIFE-ACCEPT
+[Info   :Better Unturned Experience] BUE diagnostic-summary featureId=io.github.yu80rice.bue.inventory-tidy diagnosticId=BUE-LIFE-ACCEPT level=info count=1 firstSeen=2026-09-13T15:29:37Z lastSeen=2026-09-13T15:29:37Z
+[Debug  :Better Unturned Experience] event=feature-resource result=tracked feature=io.github.yu80rice.bue.inventory-tidy generation=4 diagnosticId=BUE-LIFE-ACCEPT
+[Debug  :Better Unturned Experience] event=feature-resource result=tracked feature=io.github.yu80rice.bue.inventory-tidy generation=4 diagnosticId=BUE-LIFE-ACCEPT
+[Info   :Better Unturned Experience] [BUE-DIAG] feature=io.github.yu80rice.bue.inventory-tidy event=tidy-module-started level=info diagnosticId=BUE-LIT-START
+[Info   :Better Unturned Experience] BUE diagnostic-summary featureId=io.github.yu80rice.bue.inventory-tidy diagnosticId=BUE-LIT-START level=info count=1 firstSeen=2026-09-13T15:29:37Z lastSeen=2026-09-13T15:29:37Z
+[Debug  :Better Unturned Experience] [Tidy] 模块已启动（宿主 bootstrap：功能代际=4）
+[Debug  :Better Unturned Experience] event=feature-state feature=io.github.yu80rice.bue.inventory-tidy to=Running generation=4 revision=2 reason=none diagnosticId=BUE-LIFE-STATE
+[Debug  :Better Unturned Experience] [BUE-V2HOST] event=module-start result=started feature=io.github.yu80rice.bue.inventory-tidy diagnostic=BUE-LIT-START
+[Debug  :Better Unturned Experience] event=feature-state feature=io.github.yu80rice.bue.network to=Starting generation=5 revision=1 reason=none diagnosticId=BUE-LIFE-STATE
+[Info   :Better Unturned Experience] BUE diagnostic-summary featureId=io.github.yu80rice.bue.network diagnosticId=BUE-LIFE-STATE level=info count=1 firstSeen=2026-09-13T15:29:37Z lastSeen=2026-09-13T15:29:37Z
+[Debug  :Better Unturned Experience] [BUE-MT] event=main-thread result=generation-opened feature=io.github.yu80rice.bue.network generation=5 diagnosticId=BUE-MT-GEN
+[Debug  :Better Unturned Experience] [BUE-V2NET] event=lmn-config-migration result=no-op mapping=empty reason=lmn-has-no-config diagnosticId=BUE-V2NET-001
+[Debug  :Better Unturned Experience] [BUE-V2HOST] event=module-start result=not-started feature=io.github.yu80rice.bue.network diagnostic=
+[Debug  :Better Unturned Experience] event=feature-state feature=io.github.yu80rice.bue.network to=Isolating generation=5 revision=2 reason=none diagnosticId=BUE-LIFE-STATE
+[Debug  :Better Unturned Experience] event=feature-state feature=io.github.yu80rice.bue.network to=Isolated generation=5 revision=3 reason=RuntimeIsolated diagnosticId=BUE-LIFE-STATE
+[Debug  :Better Unturned Experience] event=feature-isolated feature=io.github.yu80rice.bue.network stage=start-result error=ModuleStartFailed diagnosticId=BUE-LIFE-ISOLATE
+[Info   :Better Unturned Experience] BUE diagnostic-summary featureId=io.github.yu80rice.bue.network diagnosticId=BUE-LIFE-ISOLATE level=info count=1 firstSeen=2026-09-13T15:29:37Z lastSeen=2026-09-13T15:29:37Z
+[Debug  :Better Unturned Experience] [BUE-MT] event=main-thread result=owner-invalidated feature=io.github.yu80rice.bue.network reason=start-result diagnosticId=BUE-MT-002
+[Debug  :Better Unturned Experience] [BUE-SET] event=settings-registry result=owner-invalidated feature=io.github.yu80rice.bue.network reason=start-result diagnosticId=BUE-SET-GEN
+[Debug  :Better Unturned Experience] event=feature-state feature=io.github.yu80rice.bue.network.v1compat to=Starting generation=6 revision=1 reason=none diagnosticId=BUE-LIFE-STATE
+[Info   :Better Unturned Experience] BUE diagnostic-summary featureId=io.github.yu80rice.bue.network.v1compat diagnosticId=BUE-LIFE-STATE level=info count=1 firstSeen=2026-09-13T15:29:37Z lastSeen=2026-09-13T15:29:37Z
+[Debug  :Better Unturned Experience] [BUE-MT] event=main-thread result=generation-opened feature=io.github.yu80rice.bue.network.v1compat generation=6 diagnosticId=BUE-MT-GEN
+[Debug  :Better Unturned Experience] [BUE-V2NET] event=lmn-config-migration result=no-op mapping=empty reason=lmn-has-no-config diagnosticId=BUE-V2NET-001
+[Debug  :Better Unturned Experience] [BUE-V2HOST] event=module-start result=not-started feature=io.github.yu80rice.bue.network.v1compat diagnostic=
+[Debug  :Better Unturned Experience] event=feature-state feature=io.github.yu80rice.bue.network.v1compat to=Isolating generation=6 revision=2 reason=none diagnosticId=BUE-LIFE-STATE
+[Debug  :Better Unturned Experience] event=feature-state feature=io.github.yu80rice.bue.network.v1compat to=Isolated generation=6 revision=3 reason=RuntimeIsolated diagnosticId=BUE-LIFE-STATE
+[Debug  :Better Unturned Experience] event=feature-isolated feature=io.github.yu80rice.bue.network.v1compat stage=start-result error=ModuleStartFailed diagnosticId=BUE-LIFE-ISOLATE
+[Info   :Better Unturned Experience] BUE diagnostic-summary featureId=io.github.yu80rice.bue.network.v1compat diagnosticId=BUE-LIFE-ISOLATE level=info count=1 firstSeen=2026-09-13T15:29:37Z lastSeen=2026-09-13T15:29:37Z
+[Debug  :Better Unturned Experience] [BUE-MT] event=main-thread result=owner-invalidated feature=io.github.yu80rice.bue.network.v1compat reason=start-result diagnosticId=BUE-MT-002
+[Debug  :Better Unturned Experience] [BUE-SET] event=settings-registry result=owner-invalidated feature=io.github.yu80rice.bue.network.v1compat reason=start-result diagnosticId=BUE-SET-GEN
+[Info   :Better Unturned Experience] Better Unturned Experience 加载成功（无界面）
+[Debug  :Better Unturned Experience] [RepackNet] 已注册 BUE 命名频道=io.github.yu80rice.bue.in-place-reload 双方向处理器（首帧游戏线程）
+[Debug  :Better Unturned Experience] [BUE-V2NET] event=bue-runtime-arm result=armed role=server localSteamId=12745186945458503681 diagnosticId=BUE-V2NET-003
+[Debug  :Better Unturned Experience] [HordeTracker] 已注册 /horde 命令（Commander.register）
+[Debug  :Better Unturned Experience] [HordeBroadcaster] heartbeat: isServer=true hasActive=False reportedActive=False epoch=0

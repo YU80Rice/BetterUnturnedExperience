@@ -1,7 +1,7 @@
 # Better Unturned Experience · 玩家安装与升级手册（真机版）
 
-> 适用版本：Phase-4 可视化体验正式交付版（`BetterUnturnedExperience.dll`，636416 字节，SHA-256 `e20fea58…aeee`，完整值见 `audit/RELEASES.md` 候选台账行 12）。对外契约仍为 2.1。
-> 本手册面向玩家；开发与验收证据见 `audit/RELEASES.md` 行 12 所绑归档（`audit/2026-09-12/DEV-V4-09/`）。
+> 适用版本：Phase-4 可视化体验正式交付版 + POST-P4 可见修复（`BetterUnturnedExperience.dll`，641536 字节，SHA-256 `af1f50c9…16d0`，完整值见 `audit/RELEASES.md` 候选台账行 13）。对外契约仍为 2.1。
+> 本手册面向玩家；开发与验收证据见 `audit/RELEASES.md` 行 13 所绑归档（`audit/2026-09-13/POST-P4-CANDIDATE/`）。
 
 ## 1. 这是什么
 
@@ -51,4 +51,4 @@
 
 1. 确认 `LogOutput.log` 有身份锚行且 sha256 与 RELEASES 台账一致（版本没装错）；
 2. 确认 `LogLevels = All` 已开，把 `[BUE-` 开头的行连同身份行一起反馈；
-3. 管理面板里看功能状态与「启用」开关（改完需点「保存配置」），确认是「功能关闭」还是「功能故障」。
+3. 管理面板里看功能状态与「启用」开关（改完需点「保存配置」），确认是「功能关闭」还是「功能故障」。联机时 **BUE Network Module** 显示「可继续通信」、没有启用开关，是已知良性投影，不是功能挂了——跨端整理/压弹仍以业务锚为准。

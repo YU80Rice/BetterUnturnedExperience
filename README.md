@@ -20,9 +20,9 @@
 
 ## 当前版本
 
-- **Phase-4 可视化体验正式交付版**（2026-09-13，阶段工单 DEV-V4-01..09 全部闭环；对外契约仍为 **2.1**）
-- `BetterUnturnedExperience.dll` SHA-256：`E20FEA58FFD888FC127CB7ECBAA47B12ECE8370957E84CDA5E16BB70B605AEEE`（636416 字节，三轮确定性重建逐字节一致）
-- 身份与门禁台账：[`audit/RELEASES.md`](audit/RELEASES.md) 行 12；正式交付包：[`publish/第4阶段-正式交付版本/`](publish/第4阶段-正式交付版本/)
+- **Phase-4 可视化体验正式交付版 + POST-P4 可见修复**（2026-09-13，阶段工单 DEV-V4-01..09 与关单后 01–08 全部闭环；对外契约仍为 **2.1**）
+- `BetterUnturnedExperience.dll` SHA-256：`AF1F50C990954F315F0823BC9E39698979D5E491E25E2D8EB1682EC35A9D16D0`（641536 字节，三轮确定性重建逐字节一致）
+- 身份与门禁台账：[`audit/RELEASES.md`](audit/RELEASES.md) 行 13；正式交付包：[`publish/第4阶段-正式交付版本/`](publish/第4阶段-正式交付版本/)
 
 ## 快速开始
 

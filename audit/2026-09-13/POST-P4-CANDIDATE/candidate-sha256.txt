@@ -1,0 +1,9 @@
+POST-P4 可见修复候选（01/03/04 进二进制；02/05/06/07/08 工程/测试/文档，不改玩家可见面）
+SHA-256 = AF1F50C990954F315F0823BC9E39698979D5E491E25E2D8EB1682EC35A9D16D0
+字节   = 641536
+确定性 = 3× -t:Rebuild Release 逐字节一致（exit 0，error=0/warning=0×3），源基线 a5ed3fb
+CaseId = POST-P4-CANDIDATE-20260913
+状态   = 当前发布物（RELEASES 行 13）；用户 2026-09-13 原话「三个功能都正常，人工复核无异议，准许发布候选」
+前序   = E20FEA58…AEEE（v5 / RELEASES 行 12）已取代
+部署   = SP + U3DS 在位哈希 = AF1F50C9…；P2P 双端 identity 同行（客机 234709 / 主机 234730）
+U3DS   = headless 负面 PASS（u3ds-tally-af1f50c9.txt）
