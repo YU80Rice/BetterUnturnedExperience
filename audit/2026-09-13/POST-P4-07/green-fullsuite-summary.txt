@@ -1,0 +1,7 @@
+﻿ClientUi EXIT=0 TAIL=DEV-V4-08 ClientUi tests: PASS | POST-P4-04 ClientUi category/list tests: PASS | DEV-05/DEV-15A/DEV-15B/DEV-15C/DEV-15D/DEV-16B/DEV-V4-01/DEV-V4-02/DEV-V4-03/DEV-V4-04/DEV-V4-05/DEV-V4-07/DEV-V4-08/POST-P4-04 ClientUi tests: PASS
+Contracts EXIT=0 TAIL=DEV-10 registration runtime tests: PASS
+Network EXIT=0 TAIL=DEV-06 network tests: PASS
+Placement EXIT=0 TAIL=DEV-04 placement evaluator tests: PASS
+Plugin EXIT=0 TAIL=DEV-V4-08 Plugin.Tests adapter tests: PASS | POST-P4-04 Plugin.Tests UPM tag parsing tests: PASS | DEV-14/DEV-16B plugin runtime tests: PASS
+Release EXIT=0 TAIL=DEV-15E qualification evidence tests: PASS
+Settings EXIT=0 TAIL=DEV-03 settings runtime tests: PASS

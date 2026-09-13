@@ -1,0 +1,2 @@
+VIOLATION: src/BetterUnturnedExperience.Plugin/BueNativeManagementPanel.cs: helper 'RefreshCatalogThenPaintCurrentDetail' must gate refresh on forceRefresh || CommittedLifecycleIntent (settings-only / rejected intent stay no-refresh)
+RefreshModel-dedup gate FAIL: 1 violation(s)

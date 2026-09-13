@@ -1,0 +1,2 @@
+VIOLATION: tests/BetterUnturnedExperience.ClientUi.Tests/DevV4DraftTests.cs: F2 regression 'SaveCommittedLifecycleIntentFlag(' missing (save-then-state-must-not-jump-back)
+RefreshModel-dedup gate FAIL: 1 violation(s)

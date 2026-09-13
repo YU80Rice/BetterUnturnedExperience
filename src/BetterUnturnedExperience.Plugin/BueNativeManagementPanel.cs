@@ -70,6 +70,10 @@ namespace BetterUnturnedExperience.Plugin
     internal sealed class BueNativeManagementPanel
     {
         internal enum TickSource : byte { Initialize, Update, HostUi, RuntimePump, Harmony }
+        // POST-P4-07: how the F2 single entry paints after a catalog rebuild.
+        // Full = list+details (save-stay / confirm-leave); Details = stay on the
+        // failed draft; None = close-after-leave (catalog still rebuilds, no frame).
+        private enum AfterCommitPaint : byte { Full, Details, None }
 
         private const string PluginId = "io.github.yu80rice.betterunturnedexperience";
         private const string FeatureId = "io.github.yu80rice.bue.management-panel";
@@ -1369,21 +1373,18 @@ namespace BetterUnturnedExperience.Plugin
             {
                 // 取消, or 保存 where a source failed — stay on the current entry,
                 // the failed draft is preserved by the model.
-                // DEV-V4-09 F2：保存中启停意图提交成功（跨源部分失败）时机器事实
-                // 已变——本条留在原地也必须先刷条目再渲染，否则状态/开关回跳旧值。
-                if (report != null && report.CommittedLifecycleIntent && refreshModel != null) refreshModel();
-                RenderDetails();
-                RenderDraftReport(report);   // after re-render, so a platform notice can't wipe the banner (Q23/Q24)
+                RefreshCatalogThenPaintCurrentDetail(report, false, AfterCommitPaint.Details);
                 return;
             }
-            // DEV-V4-09 F2：确认框「保存」提交启停意图后离开——离开前重建条目，
-            // 全部目录条目拿 fresh machine facts（刚启停过的条目再选中时如实显示）。
-            if ((wasRefresh || (report != null && report.CommittedLifecycleIntent)) && refreshModel != null) refreshModel();
-            if (target == null) { Close(); return; }   // the navigation-away was a close
+            if (target == null)
+            {
+                RefreshCatalogThenPaintCurrentDetail(report, wasRefresh, AfterCommitPaint.None);
+                Close();
+                return;
+            }
             selectedStableId = target;
             selectedKind = targetKind ?? selectedKind;
-            Render();
-            RenderDraftReport(report);   // frozen save banner wins over any notice (Q30)
+            RefreshCatalogThenPaintCurrentDetail(report, wasRefresh, AfterCommitPaint.Full);
         }
 
         private void AddDraftActionButtons(ref int y)
@@ -1401,13 +1402,25 @@ namespace BetterUnturnedExperience.Plugin
         private void CommitDraftAndStatus()
         {
             var report = runtime.Model.SaveDraft();
-            // DEV-V4-09 F2（实机缺陷）：启停意图提交成功=机器事实已变，而目录
-            // 条目的状态/开关投影建目录时缓存——先经组合根重建条目（fresh
-            // machine facts）再渲染，保存后立即如实显示新状态，不再回跳旧值。
-            // 非生命周期保存与 NoChanges 不刷新（机器事实未变，刷新无依据）。
-            if (report != null && report.CommittedLifecycleIntent && refreshModel != null) refreshModel();
-            Render();                    // re-render first — RenderDetails may restore a platform notice…
-            RenderDraftReport(report);   // …then publish the frozen save banner so it wins (Q30/Q23).
+            RefreshCatalogThenPaintCurrentDetail(report, false, AfterCommitPaint.Full);
+        }
+
+        // POST-P4-07 / DEV-V4-09 F2: the one "rebuild catalog then paint current
+        // detail" entry. Save-stay, confirm-stay, and confirm-leave (dirty refresh
+        // included) call this. Lifecycle intent committed = machine facts changed,
+        // so rebuild entries from the composition root before paint; settings-only
+        // and rejected intents do not refresh. forceRefresh covers dirty-refresh
+        // leave (wasRefresh). Banner last so a platform notice cannot wipe
+        // 「配置已保存。」 (Q30/Q23). AfterCommitPaint.None is close-after-leave:
+        // catalog still rebuilds, the panel is torn down without a paint frame.
+        private void RefreshCatalogThenPaintCurrentDetail(DraftSaveReport report, bool forceRefresh, AfterCommitPaint paint)
+        {
+            if ((forceRefresh || (report != null && report.CommittedLifecycleIntent)) && refreshModel != null)
+                refreshModel();
+            if (paint == AfterCommitPaint.None) return;
+            if (paint == AfterCommitPaint.Details) RenderDetails();
+            else Render();
+            RenderDraftReport(report);
         }
 
         // The one place the draft-save outcome becomes the top banner, so the

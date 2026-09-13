@@ -21,7 +21,7 @@ Parent: Phase-4 关单 `b04c4ab` / RELEASES 行 12 / 当前发布物 v5
 | [UPM 分类导航与列表文本路径](issues/04-upm-category-list-text.md) | enhancement | resolved | 无（**禁止 merge GitHub PR #1**·已保持） |
 | [显式种类无条目不回落红测](issues/05-kind-no-fallback-red-test.md) | enhancement | resolved | 无 |
 | [V4-R9 并入规格正文](issues/06-v4-r9-spec-ingest.md) | enhancement | resolved | 无 |
-| [refreshModel 三处复制](issues/07-refresh-model-dedup.md) | enhancement | ready-for-agent | 无 |
+| [refreshModel 三处复制](issues/07-refresh-model-dedup.md) | enhancement | resolved | 无 |
 | [测试运行器宿主 DLL 随克隆可用](issues/08-test-runner-host-dlls.md) | bug | ready-for-agent | 无（02 终验顺带抓出） |
 
 ## 本批明确不立票
@@ -44,6 +44,8 @@ Parent: Phase-4 关单 `b04c4ab` / RELEASES 行 12 / 当前发布物 v5
 
 - 06 V4-R9 并入规格正文：纯文档票，src/tests 零改动。Phase-4 spec LIT 节并入 V4-R9 段（ctor 覆盖新仪表盘不去重/Running 经既有 Tick 泵 16 拍节流首拍即试幂等补注入存活仪表盘/非 Running 不新增·Start 期不注入/拆除失败页引用保留→泵跳过→下次拆除重试/全页在册静默短路真做事才打日志），Testing §6 补泵路径五锚并点名 Plugin.Tests「DEV-V4-09 停用→再启用经模块泵实时重注入」组；Phase-4 地图 V4-R9 决策尾句「spec 冻结正文不动…下次并入」改指 spec 正文（同行四锚=已并入+票号+门禁+节名）。红测缝=新 eng 门禁 `eng/Verify-SpecV4R9Ingested.ps1`（spec↔地图↔测试三向区域绑定逐字锚），红 16 违例→绿；R2/R3 应 Spec 轴两轮 gap 加块内/同行/节边界/禁用残留绑定，M1–M4 四突变各证红。九态门未重开、60×60/-130 未升格、契约仍 2.1、不授候选。双轴三轮（每轮全新实例）R3 全 CLEAN 无递延项。终态 Rebuild 0/0+7/7+fixture 门禁 PASS。审计 `audit/2026-09-13/POST-P4-06/review-loop.md`。
 
+- 07 refreshModel 三处复制：F2 保存钮/确认留页/确认离开（脏刷新 `wasRefresh` 含）收成单一入口 `RefreshCatalogThenPaintCurrentDetail`（`forceRefresh || CommittedLifecycleIntent` 才重建目录，再按 Full/Details/None 画，banner 最后；关面板离开先刷目录不画帧）。Open / 干净刷新未抽（非 F2 门）；插件草稿填充两段同构未升格。红测缝=新 eng 门禁 `eng/Verify-RefreshModelDeduped.ps1`（方法切片区域绑定），红 7 违例→绿，M1–M4 四突变各证红。tests/ 零改动，F2 行为仍由 ClientUi `SaveCommittedLifecycleIntentFlag` 钉。契约仍 2.1、不授候选。双轴 R1 全新实例全 CLEAN 无递延项。终态 Rebuild 0/0+7/7+fixture 门禁 PASS。审计 `audit/2026-09-13/POST-P4-07/review-loop.md`。
+
 ## 下一站
 
-每票独立会话 `/implement`（红测先行 + 双轴 CLEAN）。建议顺序：03 → 04 → 08（08 由 02 终验顺带抓出=克隆即可跑测试面）。05–07 不挡玩家，可穿插。本批全 resolved 后再开第五阶段 `/wayfinder`。
+每票独立会话 `/implement`（红测先行 + 双轴 CLEAN）。余票=08（测试运行器宿主 DLL，02 终验顺带抓出）。本批全 resolved 后再开第五阶段 `/wayfinder`。

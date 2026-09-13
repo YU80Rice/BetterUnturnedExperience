@@ -1,0 +1,2 @@
+VIOLATION: src/BetterUnturnedExperience.Plugin/BueNativeManagementPanel.cs: helper 'RefreshCatalogThenPaintCurrentDetail' not found (F2 triad must share one entry)
+RefreshModel-dedup gate FAIL: 1 violation(s)

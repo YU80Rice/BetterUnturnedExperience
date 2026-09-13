@@ -1,0 +1,4 @@
+VIOLATION: src/BetterUnturnedExperience.Plugin/BueNativeManagementPanel.cs: CommitDraftAndStatus (save-stay) does not call RefreshCatalogThenPaintCurrentDetail
+VIOLATION: src/BetterUnturnedExperience.Plugin/BueNativeManagementPanel.cs: CommitDraftAndStatus still inlines refreshModel (must go through RefreshCatalogThenPaintCurrentDetail)
+VIOLATION: src/BetterUnturnedExperience.Plugin/BueNativeManagementPanel.cs: inline F2 refresh copy still present outside RefreshCatalogThenPaintCurrentDetail : report != null && report.CommittedLifecycleIntent && refreshModel
+RefreshModel-dedup gate FAIL: 3 violation(s)
