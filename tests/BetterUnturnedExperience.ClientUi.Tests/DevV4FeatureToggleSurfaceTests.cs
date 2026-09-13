@@ -24,6 +24,8 @@ namespace BetterUnturnedExperience.ClientUi.Tests
             IsolationReasonShownOnlyWhenIsolatedAndNonEmpty();
             SaveSubmitsTargetThroughLifecycleSeam();
             PresentationStateIsItsOwnLine();
+            BenignNetworkIsolationDoesNotReadAsUnexplainedFault();
+            GenuineIsolationKeepsHonestFailureFace();
         }
 
         // Q45：有开关 = 拥有可停止的 BUE 功能生命周期 seam（目录 BUE 功能条目）；
@@ -264,6 +266,75 @@ namespace BetterUnturnedExperience.ClientUi.Tests
             AssertPresentation(feature, FeaturePresentationState.HeadlessOnly, "仅主机端");
             AssertPresentation(feature, FeaturePresentationState.Failed, "失败");
             AssertPresentation(feature, FeaturePresentationState.NotApplicable, "不适用");
+        }
+
+        // 01：网络模块 Isolated 是已知良性投影（module-start not-started，跨端
+        // 整理/压弹仍在线）。面板不得同时呈现「已隔离」+ 无解释「启停失败」——
+        // 状态文案须说明可继续通信，启停不得再走无解释故障面。
+        private static void BenignNetworkIsolationDoesNotReadAsUnexplainedFault()
+        {
+            var network = new FeatureId("io.github.yu80rice.bue.network");
+            var model = NewModel();
+            var rejecting = new RecordingToggleHandler { Result = false };
+            model.FeatureToggleHandler = rejecting.Handle;
+            model.Refresh(new[]
+            {
+                FeatureWith(network, FeatureState.Isolated, FeatureStopReason.RuntimeIsolated, "start-result")
+            }, new LoadedPluginDescriptor[0]);
+
+            var projection = model.GetFeatureStatusProjection(network.Value);
+            Assert(projection.StateText != "已隔离", "网络模块良性隔离不得投影成无解释的「已隔离」");
+            Assert(projection.StateText.IndexOf("通信", StringComparison.Ordinal) >= 0,
+                "网络模块良性隔离文案须说明可继续通信，实际=「" + projection.StateText + "」");
+            Assert(!projection.ShowsEnableToggle, "网络模块良性隔离不画启用开关（避免再点出启停失败）");
+
+            model.OpenDetail(network.Value);
+            Assert(!model.DraftSetFeatureEnabled(true), "网络模块良性隔离不接受启用目标");
+            Assert(!model.IsDirty, "被拒启停不脏");
+
+            // 即便测试强行走保存路径，也不得再报无解释的「功能启停失败」。
+            // 基线=未启用（Isolated 不算当前启用），无 EnableEdit 则 SaveDraft 是无修改。
+            var report = model.SaveDraft();
+            Assert(report.Outcome == DraftSaveOutcome.NoChanges, "无开关则保存不提交启停");
+            Assert(rejecting.Calls.Count == 0, "良性隔离不把启用目标交给生命周期机");
+            Assert(!ContainsMessage(report, "未保存：功能启停失败。"), "不得再报无解释启停失败");
+        }
+
+        // 01 对照：真正故障功能仍走 Isolated + 启用失败诚实面（Q44 不回退）。
+        private static void GenuineIsolationKeepsHonestFailureFace()
+        {
+            var feature = new FeatureId("io.github.yu80rice.bue.genuine-isolated");
+            var model = NewModel();
+            var rejecting = new RecordingToggleHandler { Result = false };
+            model.FeatureToggleHandler = rejecting.Handle;
+            model.Refresh(new[]
+            {
+                FeatureWith(feature, FeatureState.Isolated, FeatureStopReason.RuntimeIsolated, "factory-null")
+            }, new LoadedPluginDescriptor[0]);
+
+            var projection = model.GetFeatureStatusProjection(feature.Value);
+            Assert(projection.StateText == "已隔离", "真正故障功能仍投影「已隔离」");
+            Assert(projection.ShowsEnableToggle, "真正故障功能仍有启用开关（Q44 诚实失败面）");
+            Assert(projection.IsolationReason == "factory-null", "真正故障隔离原因有值才显示");
+
+            model.OpenDetail(feature.Value);
+            Assert(model.DraftSetFeatureEnabled(true), "真正故障隔离条目的启用目标进草稿");
+            var pending = model.GetFeatureStatusProjection(feature.Value);
+            Assert(pending.PendingEffectText == "已隔离，保存后将尝试启用", "Q44 原文锚不回退");
+
+            var failed = model.SaveDraft();
+            Assert(failed.Outcome == DraftSaveOutcome.PartialFailure, "机拒绝=部分失败");
+            Assert(ContainsMessage(failed, "未保存：功能启停失败。"), "真正故障仍给无承诺的启停失败原因");
+            Assert(rejecting.Calls.Count == 1 && rejecting.Calls[0], "拒绝前确实提交过目标");
+            Assert(model.IsDirty, "被拒目标留草稿");
+        }
+
+        private static bool ContainsMessage(DraftSaveReport report, string expected)
+        {
+            if (report == null || report.Messages == null) return false;
+            for (var index = 0; index < report.Messages.Count; index++)
+                if (report.Messages[index] == expected) return true;
+            return false;
         }
 
         // ── helpers ──

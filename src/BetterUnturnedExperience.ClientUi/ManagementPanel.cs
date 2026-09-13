@@ -923,7 +923,7 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             // 与模型同一门禁，不画假控件也不收假意图).
             BueFeatureManagementEntry entry;
             if (!features.TryGetValue(draft.StableId, out entry) || !entry.HasStoppableLifecycle
-                || !StateHasEnableToggle(entry.State)) return false;
+                || !StateHasEnableToggle(entry.State) || IsBenignNetworkIsolation(entry)) return false;
             if (enabled == draft.EnableIntentBaseline) draft.EnableEdit = null;
             else draft.EnableEdit = enabled;
             return true;
@@ -1039,7 +1039,10 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             BueFeatureManagementEntry feature;
             if (string.IsNullOrEmpty(stableId) || !features.TryGetValue(stableId, out feature))
                 return new PanelFeatureStatusView(false, false, false, string.Empty, string.Empty, string.Empty, string.Empty);
-            var stateText = ProjectFeatureStateText(feature.State, feature.StopReason);
+            var benignNetworkIsolation = IsBenignNetworkIsolation(feature);
+            var stateText = benignNetworkIsolation
+                ? "可继续通信"
+                : ProjectFeatureStateText(feature.State, feature.StopReason);
             var target = IsFeatureCurrentlyEnabled(feature.State);
             var pending = false;
             var pendingText = string.Empty;
@@ -1052,8 +1055,13 @@ namespace BetterUnturnedExperience.ClientUi.Internal
                 target = draft.EnableEdit.Value;
                 pendingText = PendingEffectText(stateText, feature.State, target);
             }
-            var isolationReason = feature.State == FeatureState.Isolated ? feature.StatusDiagnostic : string.Empty;
-            return new PanelFeatureStatusView(feature.HasStoppableLifecycle && StateHasEnableToggle(feature.State),
+            // 网络模块 Isolated=已知良性投影（Start 恒 not-started，跨端通信仍在
+            // adapter 上）：不画「已隔离」、不露诊断码、不给启停开关，避免「已隔离」
+            // +「启停失败」被读成功能挂了。真正故障功能仍走九态+Q44 诚实失败面。
+            var isolationReason = feature.State == FeatureState.Isolated && !benignNetworkIsolation
+                ? feature.StatusDiagnostic : string.Empty;
+            return new PanelFeatureStatusView(
+                feature.HasStoppableLifecycle && StateHasEnableToggle(feature.State) && !benignNetworkIsolation,
                 target, pending, pendingText, stateText, ProjectPresentationText(feature.Presentation.State),
                 isolationReason);
         }
@@ -1415,6 +1423,14 @@ namespace BetterUnturnedExperience.ClientUi.Internal
         private static bool IsFeatureCurrentlyEnabled(FeatureState state)
         {
             return state == FeatureState.Running || state == FeatureState.Starting;
+        }
+
+        // 01：只收紧 bue.network 这条已知良性 Isolated 投影。其它功能 Isolated
+        // 仍是故障面；不把网络模块改成必须 Running 才能通信。
+        private static bool IsBenignNetworkIsolation(BueFeatureManagementEntry feature)
+        {
+            return feature.State == FeatureState.Isolated
+                && string.Equals(feature.Feature.Value, "io.github.yu80rice.bue.network", StringComparison.Ordinal);
         }
 
         // 当前条目详情的内存草稿：存进入详情时捕获的权威值（baseline）与按字段
