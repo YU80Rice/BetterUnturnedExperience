@@ -1,7 +1,7 @@
 # V2 第五阶段：现有官方功能优化定界与规格冻结（Wayfinder 地图）
 
 Type: task
-Status: **completed（2026-09-14：T1..T8 + R1..R8 resolved；spec.md ready-for-agent；DEV-V5-01..08 已发布；前沿=DEV-V5-01）**
+Status: **completed（2026-09-14：T1..T8 + R1..R8 resolved；spec.md ready-for-agent；DEV-V5-01..08 已发布；实施进展：DEV-V5-01 resolved（关单见票 Answer + audit/2026-09-14/DEV-V5-01/）；前沿=DEV-V5-02 / 06 / 07）**
 Label: wayfinder:map
 Parent: 无（承接 POST-P4 收官：01–08 resolved，RELEASES 行 13 / 候选 `AF1F50C9…16D0`）
 Author: GPT（本会话 charting，2026-09-14）
