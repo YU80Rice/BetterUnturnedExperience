@@ -1,5 +1,8 @@
 # Better Unturned Experience V1 Requirements Specification
 
+> **SUPERSEDED / 历史资料，不是现行契约**（2026-09-14 落标）：本文是 V1 架构期的需求规格，边界与假设（如「不动态加载外部功能 DLL」）已被后续阶段超越，不得作为实施依据。
+> 现行生态契约唯一事实源 = `docs/sdk/BetterUnturnedExperience-SDK-Assembly-Identity.md`；人类开发者入口 = `docs/developer/README.md`。本文件保留仅作历史决策资料，不删除。
+
 > Infrastructure file; authored by GPT.  
 > Status: ready-for-agent  
 > Stage: Requirements Specification  

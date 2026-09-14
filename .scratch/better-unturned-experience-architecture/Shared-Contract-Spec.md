@@ -1,5 +1,8 @@
 # GPT-Shared-Contract-Spec：共享契约规格书
 
+> **SUPERSEDED / 历史资料，不是现行契约**（2026-09-14 落标）：本文是 V1 期共享 interface 草案（非 Stable），其接口形态从未成为对外契约；现行契约以 SDK 文档与其附录为准。
+> 现行生态契约唯一事实源 = `docs/sdk/BetterUnturnedExperience-SDK-Assembly-Identity.md`；人类开发者入口 = `docs/developer/README.md`。本文件保留仅作历史决策资料，不删除。
+
 **作者: GPT**  
 **版本: 0.1.0-draft**  
 **状态: GPT/Gemini Draft interface 基线已对齐；非 Stable；实现与运行未验证**  

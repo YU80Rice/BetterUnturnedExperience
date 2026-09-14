@@ -1,5 +1,8 @@
 # 《更好的未转变者体验》V1 需求规格（中文版）
 
+> **SUPERSEDED / 历史资料，不是现行契约**（2026-09-14 落标）：本文件是 V1 英文需求规格的中文镜像，随英文版一并退役，不得作为现行契约或实施依据。
+> 现行生态契约唯一事实源 = `docs/sdk/BetterUnturnedExperience-SDK-Assembly-Identity.md`；人类开发者入口 = `docs/developer/README.md`。本文件保留仅作历史决策资料，不删除。
+
 > 基础设施镜像文件；作者：GPT。  
 > 状态：ready-for-agent  
 > 阶段：需求规格  

@@ -1,5 +1,8 @@
 # GPT-Module-Lifecycle-Isolation-Spec：模块生命周期与故障隔离状态机
 
+> **SUPERSEDED / 历史资料，不是现行契约**（2026-09-14 落标）：本文是 V1 期九态状态机草案（实现与运行未验证）；现行生命周期语义（状态投影、TryTrack、代际、隔离）以 SDK 附录 A.3 为准，不得按本文实施。
+> 现行生态契约唯一事实源 = `docs/sdk/BetterUnturnedExperience-SDK-Assembly-Identity.md`；人类开发者入口 = `docs/developer/README.md`。本文件保留仅作历史决策资料，不删除。
+
 **作者: GPT**  
 **版本: 0.1.0-draft**  
 **状态: GPT-09 决策基线；实现与运行未验证**  

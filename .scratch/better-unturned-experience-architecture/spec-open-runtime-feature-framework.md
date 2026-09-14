@@ -1,5 +1,8 @@
 # Better Unturned Experience — BepInEx Prerequisite Framework Runtime Specification
 
+> **SUPERSEDED / 历史资料，不是现行契约**（2026-09-14 落标）：本文是开放运行时的早期提案；其设想的独立 SDK 包拆分现行结论为暂缓（见 SDK §4），运行时生态形态已按后续阶段落地，本文不再作为实施依据。
+> 现行生态契约唯一事实源 = `docs/sdk/BetterUnturnedExperience-SDK-Assembly-Identity.md`；人类开发者入口 = `docs/developer/README.md`。本文件保留仅作历史决策资料，不删除。
+
 > Proposal specification; authored by GPT.
 > Status: ready-for-agent
 > Supersedes the current “V1 no external feature DLL” decision only after explicit human, GPT and Gemini acceptance.

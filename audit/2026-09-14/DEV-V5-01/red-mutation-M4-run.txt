@@ -1,0 +1,2 @@
+FAIL LINK-SDK-HB: docs/developer/BetterUnturnedExperience-Developer-Handbook.md lacks anchor: sdk/BetterUnturnedExperience-SDK-Assembly-Identity.md
+Developer-handbook gate FAILED: 1 violation(s)

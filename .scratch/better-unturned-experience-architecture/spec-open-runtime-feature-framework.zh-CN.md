@@ -1,5 +1,8 @@
 # 更好的未转变者体验——BepInEx 前置框架运行时规格
 
+> **SUPERSEDED / 历史资料，不是现行契约**（2026-09-14 落标）：本文件是开放运行时提案的中文版，随英文版一并退役；现行生态形态以 SDK 契约为准，本文不再作为实施依据。
+> 现行生态契约唯一事实源 = `docs/sdk/BetterUnturnedExperience-SDK-Assembly-Identity.md`；人类开发者入口 = `docs/developer/README.md`。本文件保留仅作历史决策资料，不删除。
+
 > 提案规格；GPT 撰写。
 > 状态：ready-for-agent
 > 只有在人工开发者、GPT 与 Gemini 明确接受后，才取代当前“V1 不加载外部功能 DLL”的决策。

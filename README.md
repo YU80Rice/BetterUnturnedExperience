@@ -36,6 +36,7 @@
 
 BUE 的功能分两层：**官方功能**（上表四件）是源码模块，构建期聚合进唯一主 DLL；**生态功能**是您交付的独立 BepInEx 插件 DLL——BUE 扮演您插件的前置库与运行时平台。
 
+- **给人看的开发手册（先读这里）**：[`docs/developer/README.md`](docs/developer/README.md)——一张总图 + 三短章（模块结构 / 最小接入流程 / NoOp 范例导读），解释平台怎么搭、先看哪里；它不定义契约，与 SDK 不一致以 SDK 为准；
 - **开发者契约（唯一事实源）**：[`docs/sdk/BetterUnturnedExperience-SDK-Assembly-Identity.md`](docs/sdk/BetterUnturnedExperience-SDK-Assembly-Identity.md)——程序集身份冻结面与三段式承诺、编译期引用规则（引用主 DLL、`CopyLocal=false`、禁止捆绑）、防双装处置、公开注册桥 `BueRuntimeHost.Register` 用法、契约版本演化登记；
 - **生态活样板**：[`src/BetterUnturnedExperience.NoOpFixture/`](src/BetterUnturnedExperience.NoOpFixture/)（独立 GUID + HardDependency 前置 + 经公开桥注册，被宿主测试长期验证）；
 - **平台 API 面**：`BueNetworkApi`（方向订阅/会话/定向与会话驱动组播）、功能事件（`TidyCompleted`）、宿主时钟（`HostTick`）、设置、诊断与隔离缝。Phase-4 未新增公开契约成员；生态模块继续按 2.1 接入。

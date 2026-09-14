@@ -1,0 +1,2 @@
+FAIL BAN-CODES: docs/developer/BetterUnturnedExperience-Developer-Handbook.md copies bookkeeping token: BUE-REG-001
+Developer-handbook gate FAILED: 1 violation(s)
