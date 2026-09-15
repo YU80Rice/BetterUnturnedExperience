@@ -1,0 +1,78 @@
+diff --git a/.scratch/bue-v2-phase5-official-optimization/issues/DEV-V5-03-container-session-tidy.md b/.scratch/bue-v2-phase5-official-optimization/issues/DEV-V5-03-container-session-tidy.md
+index 8a5d8eb..e10c943 100644
+--- a/.scratch/bue-v2-phase5-official-optimization/issues/DEV-V5-03-container-session-tidy.md
++++ b/.scratch/bue-v2-phase5-official-optimization/issues/DEV-V5-03-container-session-tidy.md
+@@ -1,7 +1,7 @@
+ # DEV-V5-03：容器会话整理
+ 
+ Type: task
+-Status: ready-for-agent
++Status: claimed
+ Parent: spec.md（V2 第五阶段规格·现有官方功能优化定界与接线）
+ Blocked by: DEV-V5-01, DEV-V5-02
+ Spec: `../spec.md`（「容器会话整理（V5-T4 → DEV-V5-03）」节）
+diff --git a/docs/BetterUnturnedExperience-Player-Handbook.md b/docs/BetterUnturnedExperience-Player-Handbook.md
+index 7b08f88..37e8eae 100644
+--- a/docs/BetterUnturnedExperience-Player-Handbook.md
++++ b/docs/BetterUnturnedExperience-Player-Handbook.md
+@@ -10,7 +10,7 @@
+ | 功能 | 用法 |
+ |---|---|
+ | 更好的物品交互（BII） | 背包内直接拖拽物品，拖拽预览与保活由 BUE 接管 |
+-| 背包整理（LIT） | 背包页点「整理」按钮；Ctrl+点击 = 整理全身（不含仓储栏）。整理只有一种方法：物品按固定用途分段（远程武器、弹匣、医疗用品、近战武器、投掷物、弹药、弹药箱、枪械配件、食物、饮水、工具、服装与防护装备、背包与容器、燃料、补给与制作材料、建造、设施与陷阱、地图与指南针、钥匙、其他），各段按从左上到右下的顺序摆放，空位收在右下角。旧「同类/空间/大件」三模式已退役：旧存档里的这两项设置仍能读取并自动归一，不再决定整理结果；管理面板只保留「整理方向」（降序/升序），它只影响完全相同条件物品的收尾顺序 |
++| 背包整理（LIT） | 背包页点「整理」按钮；Ctrl+点击 = 整理全身（永远只动身上五页，不含容器）。打开世界箱子或已授权的车辆后备箱时，容器标题栏也有一颗「整理」，只整理当前打开的这只容器；工坊展示柜与虚拟容器暂不支持。关箱、失去权限或内容已变化时会说明原因，格子不动。整理只有一种方法：物品按固定用途分段（远程武器、弹匣、医疗用品、近战武器、投掷物、弹药、弹药箱、枪械配件、食物、饮水、工具、服装与防护装备、背包与容器、燃料、补给与制作材料、建造、设施与陷阱、地图与指南针、钥匙、其他），各段按从左上到右下的顺序摆放，空位收在右下角。旧「同类/空间/大件」三模式已退役：旧存档里的这两项设置仍能读取并自动归一，不再决定整理结果；管理面板只保留「整理方向」（降序/升序），它只影响完全相同条件物品的收尾顺序 |
+ | 更好的换弹体验（LIR） | 持枪**双击换弹键**一键压弹（toast 显示压入发数）；整理后自动压弹 |
+ | 更好的尸潮播报（LHT） | 服务器管理员输入 `/horde` 启动尸潮；全体玩家 HUD 实时显示爆发地点与剩余数 |
+ 
+diff --git a/tests/BetterUnturnedExperience.Plugin.Tests/BetterUnturnedExperience.Plugin.Tests.csproj b/tests/BetterUnturnedExperience.Plugin.Tests/BetterUnturnedExperience.Plugin.Tests.csproj
+index 2d7b161..f910be9 100644
+--- a/tests/BetterUnturnedExperience.Plugin.Tests/BetterUnturnedExperience.Plugin.Tests.csproj
++++ b/tests/BetterUnturnedExperience.Plugin.Tests/BetterUnturnedExperience.Plugin.Tests.csproj
+@@ -4,6 +4,6 @@
+     <ProjectGuid>{4E2A7B6C-4AA2-4F84-B7C0-0A0000000001}</ProjectGuid><OutputType>Exe</OutputType><RootNamespace>BetterUnturnedExperience.Plugin.Tests</RootNamespace><AssemblyName>BetterUnturnedExperience.Plugin.Tests</AssemblyName><TargetFrameworkVersion>v4.7.2</TargetFrameworkVersion><LangVersion>10.0</LangVersion><Deterministic>true</Deterministic><OutputPath>bin\Release\</OutputPath><Optimize>true</Optimize><DebugType>none</DebugType><WarningLevel>4</WarningLevel><TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+   </PropertyGroup>
+   <ItemGroup><Reference Include="System" /><Reference Include="BepInEx"><HintPath>..\..\..\Libs\BepInEx.dll</HintPath><Private>True</Private></Reference><Reference Include="HarmonyLib"><HintPath>..\..\..\Libs\0Harmony.dll</HintPath><Private>True</Private></Reference><Reference Include="Assembly-CSharp"><HintPath>..\..\..\Libs\Assembly-CSharp.dll</HintPath><Private>True</Private></Reference><Reference Include="SDG.NetTransport"><HintPath>..\..\..\Libs\SDG.NetTransport.dll</HintPath><Private>True</Private></Reference><Reference Include="SDG.Glazier.Runtime"><HintPath>..\..\..\Libs\SDG.Glazier.Runtime.dll</HintPath><Private>True</Private></Reference><Reference Include="UnityEngine"><HintPath>..\..\..\Libs\UnityEngine.dll</HintPath><Private>True</Private></Reference><Reference Include="UnityEngine.CoreModule"><HintPath>..\..\..\Libs\UnityEngine.CoreModule.dll</HintPath><Private>True</Private></Reference><ProjectReference Include="..\..\src\BetterUnturnedExperience.Plugin\BetterUnturnedExperience.Plugin.csproj"><Project>{D2A52D07-B5A5-4F1F-8D80-5F48FBD4D5D7}</Project><Name>BetterUnturnedExperience.Plugin</Name></ProjectReference><ProjectReference Include="..\..\src\BetterUnturnedExperience.NoOpFixture\BetterUnturnedExperience.NoOpFixture.csproj"><Project>{4E2A7B6C-4AA2-4F84-B7C0-0B0000000001}</Project><Name>BetterUnturnedExperience.NoOpFixture</Name></ProjectReference></ItemGroup>
+-  <ItemGroup><Compile Include="Program.cs" /><Compile Include="DevV4ExternalConfigParityTests.cs" /><Compile Include="DevTicket04UpmTagParsingTests.cs" /><None Include="Fixtures\dev16d-r36-no-preview.log.txt" CopyToOutputDirectory="PreserveNewest" /><None Include="Fixtures\dev16d-fixed-preview.log.txt" CopyToOutputDirectory="PreserveNewest" /></ItemGroup>
++  <ItemGroup><Compile Include="Program.cs" /><Compile Include="DevV4ExternalConfigParityTests.cs" /><Compile Include="DevTicket04UpmTagParsingTests.cs" /><Compile Include="DevV5ContainerSessionTests.cs" /><None Include="Fixtures\dev16d-r36-no-preview.log.txt" CopyToOutputDirectory="PreserveNewest" /><None Include="Fixtures\dev16d-fixed-preview.log.txt" CopyToOutputDirectory="PreserveNewest" /></ItemGroup>
+   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+ </Project>
+diff --git a/tests/BetterUnturnedExperience.Plugin.Tests/Program.cs b/tests/BetterUnturnedExperience.Plugin.Tests/Program.cs
+index 563468b..d49bf0c 100644
+--- a/tests/BetterUnturnedExperience.Plugin.Tests/Program.cs
++++ b/tests/BetterUnturnedExperience.Plugin.Tests/Program.cs
+@@ -293,6 +293,11 @@ namespace BetterUnturnedExperience.Plugin.Tests
+                     AssertDevV502TaggedRowBand();
+                     return 0;
+                 }
++                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--bue-v5-03-container-session-red")
++                {
++                    DevV5ContainerSessionTests.Run(collectAllFailures: true);
++                    return 0;
++                }
+                 if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--bue-v2-send-semantics-red")
+                 {
+                     AssertBueV2SessionDrivenSendSemantics(collectAllFailures: true);
+@@ -472,6 +477,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
+                 AssertPlatformPanelNotice();
+                 AssertLitSingleplayerPath();
+                 AssertDevV502TaggedRowBand();
++                DevV5ContainerSessionTests.Run();
+                 AssertRuntimeCompletionBarrierIsolates();
+                 AssertManagementPanelConsumesRuntimeCatalog();
+                 AssertManagementPanelOpenHooks();
+@@ -3688,6 +3694,15 @@ namespace BetterUnturnedExperience.Plugin.Tests
+                 return new LitHotkeyRestoreResult { Restored = entries?.Count ?? 0, Verified = entries?.Count ?? 0, Cleared = 0, FailedIndices = new List<byte>() };
+             }
+ 
++            /// <summary>DEV-V5-03: the player-page fake never serves container
++            /// tidy — the container chain rides its own authority fake in
++            /// DevV5ContainerSessionTests. A call here would mean the two
++            /// paths crossed, so it answers loudly.</summary>
++            public LitContainerAuthorityResult ExecuteServerContainerTidy(LitContainerTidyRequestContext request)
++            {
++                throw new NotSupportedException("FakeLitAuthority does not serve container tidy");
++            }
++
+             public bool VerifyClientConvergence(List<LitNewPositionMapping> mappings)
+             {
+                 ConvergenceCount++;

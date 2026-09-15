@@ -145,6 +145,55 @@ namespace BetterUnturnedExperience.Lit
             return new LitAuthorityResult { Outcome = outcome, Mappings = mappings, RestoreEntries = entries };
         }
 
+        /// <summary>
+        /// DEV-V5-03: the authoritative container tidy for one admitted
+        /// request — re-read the live facts and the REAL jars, run the ordered
+        /// verifier (session → kind → access → version), and only then the
+        /// transaction through the module's unified layout. A requester whose
+        /// Player cannot be resolved has no access at all; an unreadable live
+        /// state answers InternalFailure — both mutate nothing. U3DS runs this
+        /// same path: the server executes container tidy authoritatively even
+        /// though it never draws a button (V5-T1 Headless 裁决).
+        /// </summary>
+        public LitContainerAuthorityResult ExecuteServerContainerTidy(LitContainerTidyRequestContext request)
+        {
+            if (request == null) throw new ArgumentNullException(nameof(request));
+            var player = ResolvePlayerBySteamId(request.PeerSteamId);
+            if (player?.inventory == null)
+            {
+                LitRuntime.LogWarning("[Tidy容器] peer " + request.PeerSteamId + " 无对应 Player，拒绝容器整理（reqId=" + request.RequestId + "）");
+                return RefusedContainer(LitContainerTidyReason.LostAccess);
+            }
+            if (!LitContainerSessionProbe.TryReadServerLive(player, out var live, out var grid))
+                return RefusedContainer(LitContainerTidyReason.InternalFailure);
+            var claim = new LitContainerTidyClaim { Kind = request.Kind, Fingerprint = request.Fingerprint };
+            var exec = LitContainerTidyExecution.Commit(live, claim, grid, request.SortDescending, module.Strategy);
+            TidyOperationOutcome outcome;
+            if (exec.Commit == TidyCommitResult.Committed) outcome = TidyOperationOutcome.Committed;
+            else if (exec.Commit == TidyCommitResult.CriticalFailure || exec.Commit == TidyCommitResult.ConcurrentMutationAfterCommit)
+            {
+                outcome = new TidyOperationOutcome
+                {
+                    Result = exec.Commit,
+                    MutationStarted = true,
+                    RollbackAttempted = true,
+                    RollbackVerified = true,
+                    FailureReason = "container tidy: " + exec.Reason,
+                };
+            }
+            else outcome = TidyOperationOutcome.RejectedNoMutation;
+            return new LitContainerAuthorityResult { Outcome = outcome, Reason = exec.Reason };
+        }
+
+        private static LitContainerAuthorityResult RefusedContainer(LitContainerTidyReason reason)
+        {
+            return new LitContainerAuthorityResult
+            {
+                Outcome = TidyOperationOutcome.RejectedNoMutation,
+                Reason = reason,
+            };
+        }
+
         public LitHotkeyRestoreResult RestoreServerHotkeys(ulong peerSteamId, List<HotkeyRestoreEntry> entries)
         {
             var result = new LitHotkeyRestoreResult { Restored = 0, Verified = 0, Cleared = 0, FailedIndices = new List<byte>() };

@@ -1,0 +1,797 @@
+using System;
+using System.Collections.Generic;
+
+// DEV-V5-03 (V5-T4): the container-session tidy deep module — pure domain.
+// The architecture frozen by T4:
+//   容器表面适配器 → 当前容器会话事实 → 容器整理请求
+//     → 统一标签分段行带排版（DEV-V5-02 出口） → 服务器权威校验与提交
+// Page number is NOT identity: the seventh page is only where vanilla mounts
+// the currently open container; identity = kind + session facts + requester +
+// content fingerprint, verified by the authority before any commit. This file
+// references no Unity/Unturned type; the engine-facing halves live in
+// LitContainerSessionProbe / LitTidyProductionAuthority / the UI patch.
+namespace BetterUnturnedExperience.Lit
+{
+    /// <summary>What the REQUEST claims to tidy — only the two supported
+    /// kinds exist on the wire; anything else has no adapter and fails
+    /// closed (V5-T4 Q1: 本阶段两类).</summary>
+    internal enum LitContainerTidyKind : byte
+    {
+        WorldContainer = 1,
+        VehicleTrunk = 2,
+    }
+
+    /// <summary>What the CURRENTLY MOUNTED session actually is, as observed
+    /// from the authoritative (or best-effort client) side facts. Ground
+    /// drops, primary/secondary hands and equipment slots can never produce a
+    /// container session at all (they are not mounted into the storage page by
+    /// any supported adapter); a workshop virtual container is observed under
+    /// its documented hook (T4 Q1: 能力投影 Unsupported，不画，留诊断原因).</summary>
+    internal enum LitContainerSessionKind : byte
+    {
+        None = 0,
+        WorldContainer = 1,
+        VehicleTrunk = 2,
+        VirtualContainer = 3,
+        Unsupported = 4,
+    }
+
+    /// <summary>The structured failure identity (T4 Q4: 「中文原因至少能区分」
+    /// — never a single vague "未改动"). 1..6 are the six causes the decision
+    /// names; 7/8 are the honest extras the transaction/admission can answer
+    /// with (internal state / another tidy holds the lease). Wire bytes are
+    /// this domain; display text has ONE source (ChineseText).</summary>
+    internal enum LitContainerTidyReason : byte
+    {
+        None = 0,
+        ContainerClosed = 1,
+        LostAccess = 2,
+        ContentChanged = 3,
+        UnsupportedKind = 4,
+        LayoutFailed = 5,
+        FeatureUnavailable = 6,
+        InternalFailure = 7,
+        Busy = 8,
+    }
+
+    /// <summary>Reason code ⇄ wire byte ⇄ player-facing Chinese text — the
+    /// single source (toasts, logs and the audit all read these).</summary>
+    internal static class LitContainerTidyReasons
+    {
+        internal const byte MaxWire = (byte)LitContainerTidyReason.Busy;
+
+        internal static bool TryFromWire(byte value, out LitContainerTidyReason reason)
+        {
+            if (value > MaxWire) { reason = LitContainerTidyReason.None; return false; }
+            reason = (LitContainerTidyReason)value;
+            return true;
+        }
+
+        internal static string ChineseText(LitContainerTidyReason reason)
+        {
+            switch (reason)
+            {
+                case LitContainerTidyReason.ContainerClosed: return "容器已经关闭（或已更换），未整理任何物品。";
+                case LitContainerTidyReason.LostAccess: return "已失去该容器的整理权限，未整理任何物品。";
+                case LitContainerTidyReason.ContentChanged: return "容器内容已变化，请重新整理（物品未改动）。";
+                case LitContainerTidyReason.UnsupportedKind: return "当前容器类型不支持整理（本阶段支持世界容器与已授权车辆后备箱）。";
+                case LitContainerTidyReason.LayoutFailed: return "整理排版失败，未改动任何物品。";
+                case LitContainerTidyReason.FeatureUnavailable: return "背包整理功能当前不可用。";
+                case LitContainerTidyReason.InternalFailure: return "整理未能完成，物品保持原样（诊断日志有详情）。";
+                case LitContainerTidyReason.Busy: return "上一次整理仍在进行，请稍后再试。";
+                default: return string.Empty; // None = success has no reason text
+            }
+        }
+    }
+
+    /// <summary>The client-side snapshot of the container surface at click /
+    /// refresh time. Every field is a FACT read from the engine (never a
+    /// patch-private bool); FeatureRunning rides the lifecycle fact the module
+    /// stamps, so the projection can answer the nine-state table honestly.</summary>
+    internal struct LitContainerSessionObservation
+    {
+        public LitContainerSessionKind Kind;
+        /// <summary>A container session is currently mounted (原版 isStoring 且网格非空挂载).</summary>
+        public bool SessionActive;
+        /// <summary>Single-opener / driver-seat access still stands (客户端可见口径；权威端提交前重验).</summary>
+        public bool PermissionGranted;
+        public bool FeatureRunning;
+        public bool TitleBarPresent;
+        public bool GridNonEmpty;
+        /// <summary>Free-text diagnostic kept for the log when the projection
+        /// refuses (e.g. virtual container's observed hook).</summary>
+        public string UnsupportedDiagnostic;
+    }
+
+    /// <summary>Draw-button decision = capability projection「可用」ONLY
+    /// (T4 Q4). Returns false for every not-draw case and names the reason;
+    /// reason None on false means "silent absence" (no session / no title
+    /// bar), never a failed click.</summary>
+    internal static class LitContainerCapability
+    {
+        internal static bool TryProject(LitContainerSessionObservation obs, out LitContainerTidyReason reason)
+        {
+            reason = LitContainerTidyReason.None;
+            if (!obs.TitleBarPresent) return false; // 标题栏不在场：没有表面可画，静默
+            if (!obs.FeatureRunning) { reason = LitContainerTidyReason.FeatureUnavailable; return false; }
+            switch (obs.Kind)
+            {
+                case LitContainerSessionKind.None:
+                    return false; // 没有任何容器会话：静默
+                case LitContainerSessionKind.VirtualContainer:
+                    reason = LitContainerTidyReason.UnsupportedKind;
+                    return false;
+                case LitContainerSessionKind.Unsupported:
+                    reason = LitContainerTidyReason.UnsupportedKind;
+                    return false;
+            }
+            var adapter = LitContainerSessionAdapters.Resolve((LitContainerTidyKind)(byte)obs.Kind);
+            if (adapter == null) { reason = LitContainerTidyReason.UnsupportedKind; return false; }
+            if (!obs.SessionActive || !obs.GridNonEmpty) { reason = LitContainerTidyReason.ContainerClosed; return false; }
+            if (!obs.PermissionGranted) { reason = LitContainerTidyReason.LostAccess; return false; }
+            if (!adapter.Matches(obs)) { reason = LitContainerTidyReason.UnsupportedKind; return false; }
+            return true;
+        }
+    }
+
+    /// <summary>One jar as the fingerprint sees it (values, not references —
+    /// the client mirror and the authority read the same content, never the
+    /// same objects).</summary>
+    internal struct LitContainerJarTuple
+    {
+        public byte X;
+        public byte Y;
+        public byte Rot;
+        public ushort Id;
+        public byte Amount;
+        public byte Quality;
+        public byte[] State;
+    }
+
+    /// <summary>Content fingerprint: FNV-1a 64 over the grid geometry plus the
+    /// jar tuple MULTISET (each tuple canonical-encoded then sorted, so the
+    /// Items enumeration order is never an input — same rule as the
+    /// transaction's StateMatches normalization). The claim carries what the
+    /// requester saw; the authority re-reads from the real jars and compares —
+    /// a stale or forged claim cannot tidy someone else's state.</summary>
+    internal static class LitContainerContentFingerprint
+    {
+        private const ulong FnvOffset = 14695981039346656037UL;
+        private const ulong FnvPrime = 1099511628211UL;
+
+        internal static ulong Compute(byte width, byte height, List<LitContainerJarTuple> jars)
+        {
+            var encoded = new List<byte[]>((jars == null ? 0 : jars.Count) + 1);
+            encoded.Add(new[] { width, height, (byte)0, (byte)(jars == null ? 0 : jars.Count) });
+            if (jars != null)
+                for (int i = 0; i < jars.Count; i++)
+                    encoded.Add(Encode(jars[i]));
+            encoded.Sort(CompareBytes);
+            var hash = FnvOffset;
+            for (int i = 0; i < encoded.Count; i++)
+            {
+                var bytes = encoded[i];
+                for (int j = 0; j < bytes.Length; j++)
+                {
+                    hash ^= bytes[j];
+                    hash *= FnvPrime;
+                }
+            }
+            return hash;
+        }
+
+        /// <summary>Fingerprint of a real Items grid (host-safe: managed
+        /// list/array reads only; a null jar/item is encoded as zeros so the
+        /// hash never throws on anomalous data).</summary>
+        internal static ulong FromItems(SDG.Unturned.Items items)
+        {
+            var tuples = new List<LitContainerJarTuple>();
+            if (items != null)
+            {
+                byte count = items.getItemCount();
+                for (byte i = 0; i < count; i++)
+                {
+                    var jar = items.getItem(i);
+                    if (jar == null) continue;
+                    var item = jar.item;
+                    tuples.Add(new LitContainerJarTuple
+                    {
+                        X = jar.x, Y = jar.y, Rot = jar.rot,
+                        Id = item == null ? (ushort)0 : item.id,
+                        Amount = item == null ? (byte)0 : item.amount,
+                        Quality = item == null ? (byte)0 : item.quality,
+                        State = item == null ? null : item.state,
+                    });
+                }
+                return Compute(items.width, items.height, tuples);
+            }
+            return Compute(0, 0, tuples);
+        }
+
+        private static byte[] Encode(LitContainerJarTuple t)
+        {
+            var state = t.State;
+            var stateLen = state == null ? 0 : state.Length;
+            var bytes = new byte[6 + stateLen];
+            bytes[0] = t.X;
+            bytes[1] = t.Y;
+            bytes[2] = t.Rot;
+            bytes[3] = (byte)(t.Id >> 8);
+            bytes[4] = (byte)(t.Id & 0xFF);
+            bytes[5] = (byte)stateLen;
+            if (stateLen > 0) Buffer.BlockCopy(state, 0, bytes, 6, stateLen);
+            // amount/quality ride a second block so the state variable length
+            // cannot be confused with trailing scalars.
+            var tail = new byte[2];
+            tail[0] = t.Amount;
+            tail[1] = t.Quality;
+            var full = new byte[bytes.Length + tail.Length];
+            Buffer.BlockCopy(bytes, 0, full, 0, bytes.Length);
+            Buffer.BlockCopy(tail, 0, full, bytes.Length, tail.Length);
+            return full;
+        }
+
+        private static int CompareBytes(byte[] a, byte[] b)
+        {
+            var n = Math.Min(a.Length, b.Length);
+            for (int i = 0; i < n; i++)
+            {
+                if (a[i] != b[i]) return a[i].CompareTo(b[i]);
+            }
+            return a.Length.CompareTo(b.Length);
+        }
+    }
+
+    /// <summary>What the authority re-reads BEFORE committing: the live mount
+    /// kind, whether a session stands, the KIND-SPECIFIC vanilla access
+    /// dimensions (V5-T4 Q1: 箱子与后备箱各处理自己的生命周期 — 世界箱 = 单
+    /// opener + 原版锁/组；后备箱 = 驾驶座授权仍在位；距离/关箱/离座/换座/车辆
+    /// 销毁在原版里先把挂载会话拆掉，因而先于授权呈现为 ContainerClosed), and
+    /// the live content fingerprint. Each adapter reads ONLY its own kind's
+    /// dimensions — no shared "authorized" shortcut, no BUE-side lock.</summary>
+    internal struct LitContainerLiveFacts
+    {
+        public LitContainerSessionKind KindObserved;
+        public bool SessionActive;
+        /// <summary>世界箱维度：InteractableStorage.opener 仍是请求者（单 opener）。</summary>
+        public bool WorldOpenerIsRequester;
+        /// <summary>世界箱维度：原版锁/组事实（checkRot）仍放行。</summary>
+        public bool WorldAccessAllowed;
+        /// <summary>后备箱维度：请求者仍坐在驾驶座且该车在位（离座/换座/换车即失效）。</summary>
+        public bool TrunkDriverAuthorized;
+        public ulong LiveFingerprint;
+    }
+
+    /// <summary>The request binding (T4 Q3): kind + claimed content version.
+    /// The requester identity rides the SESSION (the channel's PeerSteamId —
+    /// never a payload field), like the whole LIT protocol.</summary>
+    internal struct LitContainerTidyClaim
+    {
+        public LitContainerTidyKind Kind;
+        public ulong Fingerprint;
+    }
+
+    /// <summary>The per-kind adapter seam (V5-T4 Q1: 箱子与后备箱不是同一种
+    /// 容器…必须各有适配器). Each answers the client-side Matches and the
+    /// authority-side Verify for its own kind; the shared VerifyCore order
+    /// encodes the Q3/Q4 rulings, and each adapter binds the expected kind so
+    /// a trunk session is never tidied as a crate (or vice versa).</summary>
+    internal interface ILitContainerSessionAdapter
+    {
+        LitContainerTidyKind Kind { get; }
+        bool Matches(LitContainerSessionObservation obs);
+        LitContainerTidyReason Verify(LitContainerLiveFacts live, LitContainerTidyClaim claim);
+    }
+
+    internal abstract class LitContainerSessionAdapterBase : ILitContainerSessionAdapter
+    {
+        public abstract LitContainerTidyKind Kind { get; }
+        protected abstract LitContainerSessionKind ExpectedSessionKind { get; }
+
+        /// <summary>本 adapter 自己的权限维度判定（T4 Q1 的「分别处理」落点：
+        /// 世界箱读 opener+锁组，后备箱读驾驶座；彼此不越界）。</summary>
+        protected abstract LitContainerTidyReason CheckAccess(LitContainerLiveFacts live);
+
+        public bool Matches(LitContainerSessionObservation obs)
+        {
+            return (LitContainerTidyKind)(byte)obs.Kind == Kind
+                && obs.SessionActive && obs.GridNonEmpty && obs.PermissionGranted;
+        }
+
+        public LitContainerTidyReason Verify(LitContainerLiveFacts live, LitContainerTidyClaim claim)
+        {
+            // Ordered exactly as T4 Q3/Q4: 会话 → 种类 → 权限（本种维度）→ 版本.
+            if (!live.SessionActive) return LitContainerTidyReason.ContainerClosed;
+            if (live.KindObserved == LitContainerSessionKind.VirtualContainer
+                || live.KindObserved == LitContainerSessionKind.Unsupported)
+                return LitContainerTidyReason.UnsupportedKind;
+            if (live.KindObserved != ExpectedSessionKind) return LitContainerTidyReason.ContainerClosed;
+            var access = CheckAccess(live);
+            if (access != LitContainerTidyReason.None) return access;
+            if (live.LiveFingerprint != claim.Fingerprint) return LitContainerTidyReason.ContentChanged;
+            return LitContainerTidyReason.None;
+        }
+    }
+
+    /// <summary>Ordinary world container (InteractableStorage mounted via the
+    /// vanilla openStorage path). Its own access dimensions: 单 opener（opener
+    /// 仍是请求者）+ 原版锁/组（checkRot）。距离过远与关箱由原版先把挂载会话
+    /// 拆掉（closeMoveCheck / ManualOnDestroy），因而在「会话」一步就呈现为
+    /// ContainerClosed——原版访问控制保持，BUE 不另造整理锁。</summary>
+    internal sealed class LitWorldContainerSessionAdapter : LitContainerSessionAdapterBase
+    {
+        public override LitContainerTidyKind Kind { get { return LitContainerTidyKind.WorldContainer; } }
+        protected override LitContainerSessionKind ExpectedSessionKind { get { return LitContainerSessionKind.WorldContainer; } }
+
+        protected override LitContainerTidyReason CheckAccess(LitContainerLiveFacts live)
+        {
+            if (!live.WorldOpenerIsRequester) return LitContainerTidyReason.LostAccess;
+            if (!live.WorldAccessAllowed) return LitContainerTidyReason.LostAccess;
+            return LitContainerTidyReason.None;
+        }
+    }
+
+    /// <summary>Vehicle trunk the CURRENT player was granted（驾驶座上车的原版
+    /// grantTrunkAccess；离座/换座/车辆销毁由原版 revokeTrunkAccess→closeTrunk
+    /// 先拆挂载会话，因而呈现为 ContainerClosed）。其自有权限维度 = 请求者仍
+    /// 在驾驶座且该车在位——不读世界箱维度，也不读锁。</summary>
+    internal sealed class LitVehicleTrunkSessionAdapter : LitContainerSessionAdapterBase
+    {
+        public override LitContainerTidyKind Kind { get { return LitContainerTidyKind.VehicleTrunk; } }
+        protected override LitContainerSessionKind ExpectedSessionKind { get { return LitContainerSessionKind.VehicleTrunk; } }
+
+        protected override LitContainerTidyReason CheckAccess(LitContainerLiveFacts live)
+        {
+            return live.TrunkDriverAuthorized ? LitContainerTidyReason.None : LitContainerTidyReason.LostAccess;
+        }
+    }
+
+    /// <summary>DEV-V5-03: the container title-bar surface adapter — the ONE
+    /// place the container button's layout and text are decided (V5-T4 Q2:
+    /// 「布局由容器标题栏 adapter 提供，不复用服装页固定偏移」). The UI patch
+    /// consumes this output and nothing else: geometry (left-anchored box,
+    /// away from the right-side display-cabinet rot controls), the frozen
+    /// 「整理」label and the tooltip single-source.</summary>
+    internal static class LitContainerTitleBarAdapter
+    {
+        /// <summary>headers[STORAGE - SLOTS] = the sixth header row — a mount
+        /// position, again not an identity.</summary>
+        internal const int HeaderIndex = 5;
+        internal const float ButtonSizeX = 60f;
+        internal const float ButtonSizeY = 60f;
+        /// <summary>Left anchor: the clothing-page right anchor (-130) is NOT
+        /// reused; the storage header has no durability/quality badge, while
+        /// display crates own the right 180px for rot_x/y/z.</summary>
+        internal const float PositionScaleX = 0f;
+        internal const float PositionOffsetX = 10f;
+        internal const string ButtonText = "整理";
+        internal const string TooltipText = "左键：整理当前打开的容器（只动这一只，不含身上与地面）";
+    }
+
+    internal static class LitContainerSessionAdapters
+    {
+        private static readonly LitWorldContainerSessionAdapter World = new LitWorldContainerSessionAdapter();
+        private static readonly LitVehicleTrunkSessionAdapter Trunk = new LitVehicleTrunkSessionAdapter();
+        private static readonly IReadOnlyList<ILitContainerSessionAdapter> AllAdapters =
+            new ILitContainerSessionAdapter[] { World, Trunk };
+
+        internal static IReadOnlyList<ILitContainerSessionAdapter> All { get { return AllAdapters; } }
+
+        /// <summary>Null for any kind without an adapter (the fail-closed
+        /// 「该类型有适配器」projection input).</summary>
+        internal static ILitContainerSessionAdapter Resolve(LitContainerTidyKind kind)
+        {
+            switch (kind)
+            {
+                case LitContainerTidyKind.WorldContainer: return World;
+                case LitContainerTidyKind.VehicleTrunk: return Trunk;
+                default: return null;
+            }
+        }
+    }
+
+    /// <summary>The ONE authority-side entry the execution/protocol share:
+    /// resolve the claim's adapter first (no adapter = unsupported kind,
+    /// including the all-pages 0xFF sentinel), then run the adapter's ordered
+    /// verify. Page numbers are never consulted (V5-T4: 第 7 页只是挂载位置).</summary>
+    internal static class LitContainerTidyVerifier
+    {
+        internal static LitContainerTidyReason Verify(LitContainerLiveFacts live, LitContainerTidyClaim claim)
+        {
+            var adapter = LitContainerSessionAdapters.Resolve(claim.Kind);
+            if (adapter == null) return LitContainerTidyReason.UnsupportedKind;
+            return adapter.Verify(live, claim);
+        }
+    }
+}
+using System;
+using System.Runtime.CompilerServices;
+using SDG.Unturned;
+
+namespace BetterUnturnedExperience.Lit
+{
+    /// <summary>
+    /// DEV-V5-03: the container-tidy authority execution core — verify first
+    /// (never touching the grid on any failure), then the SAME transactional
+    /// single-page service the player pages use, planned by the ONE injected
+    /// strategy (DEV-V5-02 tagged-row-band-v1). Entries: the local (server
+    /// role) path and the multiplayer authority path both run through here,
+    /// so no entry point copies the algorithm or the verification order.
+    ///
+    /// The grid is mutated ONLY through the transaction's removeItem/addItem
+    /// pair — which keeps the vanilla sync intact: for a world crate the
+    /// mounted Items is the crate's own instance, so its onStateUpdated
+    /// re-persists via BarricadeManager.updateState and the opener's client
+    /// receives the item add/remove fan-out (updateItems subscriptions), and
+    /// for a trunk the same applies to the vehicle's trunkItems. No parallel
+    /// BUE lock, no hand-rolled sync (V5-T4 Q3: 原版访问控制保持).
+    /// </summary>
+    internal static class LitContainerTidyExecution
+    {
+        /// <summary>The page number the container mounts on in vanilla
+        /// (PlayerInventory.STORAGE). It is a MOUNT POSITION and only ever
+        /// reaches the transaction's diagnostics/mapping here — identity is
+        /// the session facts + claim, never this byte (V5-T4: 第 7 页只是原版
+        /// 挂载位置，不是身份). It is a literal rather than the vanilla field
+        /// on purpose: reading PlayerInventory.STORAGE would force its static
+        /// initializer (net-reflection wiring) into every JIT of this core,
+        /// and the host test path must never touch it.</summary>
+        internal const byte MOUNT_PAGE = 7;
+
+        internal sealed class Result
+        {
+            public LitContainerTidyReason Reason;
+            public TidyCommitResult Commit;
+
+            internal static Result Refused(LitContainerTidyReason reason)
+            {
+                return new Result { Reason = reason, Commit = TidyCommitResult.Rejected };
+            }
+        }
+
+        /// <summary>
+        /// DEV-V5-03 host-test seam (the NetServiceFactoryForTests /
+        /// ServerRoleProbeForTests family): replaces the single-page
+        /// transaction call. Null = the production path (ManualTidyService.
+        /// TidyPage, which commits via the vanilla removeItem/addItem — those
+        /// resolve item assets through SDG.Unturned.Assets, which fails
+        /// outside the game process, so the host injects a same-semantics
+        /// fake that applies the plan straight to the jar coordinates; the
+        /// real commit chain rides DEV-V5-08 machine acceptance — the named
+        /// seam gap this ticket records).
+        /// </summary>
+        internal static Func<Items, byte, bool, ITidyStrategy, TidyOperationOutcome> PageTransactionForTests;
+
+        /// <summary>Re-reads the fingerprint FROM THE REAL JARS (the Round-9
+        /// rule the player pages already follow: trust only what the server's
+        /// own read proves), runs the ordered verifier, and only then the
+        /// transaction. Mapping out of the caller is intentionally absent:
+        /// container pages carry no hotkeys (the hotkey gate already refuses
+        /// any page outside 2..6, so an all-container transaction never
+        /// touches them).</summary>
+        internal static Result Commit(
+            LitContainerLiveFacts live,
+            LitContainerTidyClaim claim,
+            Items containerItems,
+            bool sortDescending,
+            ITidyStrategy strategy)
+        {
+            if (strategy == null) throw new ArgumentNullException(nameof(strategy));
+            if (containerItems == null)
+            {
+                // The mount the fact table said is open is gone between the
+                // read and here — that is a closed/changed container, zero
+                // mutation, never a half transaction.
+                return Result.Refused(LitContainerTidyReason.ContainerClosed);
+            }
+            var checkedLive = live;
+            checkedLive.LiveFingerprint = LitContainerContentFingerprint.FromItems(containerItems);
+            var reason = LitContainerTidyVerifier.Verify(checkedLive, claim);
+            if (reason != LitContainerTidyReason.None) return Result.Refused(reason);
+
+            TidyOperationOutcome outcome;
+            try
+            {
+                var transaction = PageTransactionForTests;
+                outcome = transaction != null
+                    ? transaction(containerItems, MOUNT_PAGE, sortDescending, strategy)
+                    : ManualTidyService.TidyPage(
+                        containerItems, MOUNT_PAGE, sortDescending, TidyMode.SameType, null, strategy);
+            }
+            catch (Exception error)
+            {
+                LitRuntime.LogError("[Tidy容器] 整理事务异常（未改动物品）: " + error.Message);
+                return new Result { Reason = LitContainerTidyReason.InternalFailure, Commit = TidyCommitResult.Rejected };
+            }
+
+            switch (outcome.Result)
+            {
+                case TidyCommitResult.Committed:
+                    TidyDiagnosticLog.Info("container-tidy-committed",
+                        "[Tidy容器] 容器整理已提交（kind=" + claim.Kind + ", strategy=" + strategy.StrategyId + "）。");
+                    return new Result { Reason = LitContainerTidyReason.None, Commit = TidyCommitResult.Committed };
+                case TidyCommitResult.ConcurrentMutationAfterCommit:
+                    LitRuntime.LogWarning("[Tidy容器] 提交后检测到并发修改，已安全隔离（kind=" + claim.Kind + "）");
+                    return new Result { Reason = LitContainerTidyReason.ContentChanged, Commit = outcome.Result };
+                case TidyCommitResult.CriticalFailure:
+                    LitRuntime.LogError("[Tidy容器] 整理事务关键失败（回滚状态=" + (outcome.RollbackVerified ? "已验证" : "未验证") + "）");
+                    return new Result { Reason = LitContainerTidyReason.InternalFailure, Commit = outcome.Result };
+                default:
+                    // The version was just re-verified against the real jars,
+                    // so a plain Rejected here is the planner refusing the
+                    // grid (cannot-fit / validation) — the honest cause is
+                    // 排版失败, zero mutation either way.
+                    return new Result { Reason = LitContainerTidyReason.LayoutFailed, Commit = TidyCommitResult.Rejected };
+            }
+        }
+    }
+
+    /// <summary>The player-facing feedback channel for container tidy
+    /// (T4 Q4: 禁止可点但静默没动静). Every refused click answers with the
+    /// Chinese text of its structured reason — through the injectable sink
+    /// (production: the on-screen toast bound with the UI patch; host tests:
+    /// a recorder; U3DS: unbound, so the authoritative execution stays and
+    /// only the log line lands). The log line ALWAYS writes.</summary>
+    internal static class LitContainerFeedback
+    {
+        internal static Action<string> ToastSink;
+
+        /// <summary>The production sink identity (module Start binds it when
+        /// the client UI is armed; Stop unbinds only this one, never a test
+        /// recorder left by a host fixture).</summary>
+        internal static readonly Action<string> ProductionSink = LitContainerToast.Show;
+
+        internal static void ShowReason(string context, LitContainerTidyReason reason)
+        {
+            var text = LitContainerTidyReasons.ChineseText(reason);
+            if (string.IsNullOrEmpty(text)) return;
+            LitRuntime.LogWarning("[Tidy容器] " + context + "：" + text);
+            var sink = ToastSink;
+            if (sink != null)
+            {
+                try { sink(text); }
+                catch (Exception error) { LitRuntime.LogWarning("[Tidy容器] 提示渲染失败（原因仍见日志）: " + error.Message); }
+            }
+        }
+
+        internal static void ShowNote(string context, string message)
+        {
+            TidyDiagnosticLog.Info("container-tidy", "[Tidy容器] " + context + "：" + message);
+        }
+    }
+
+    /// <summary>DEV-V5-03: the on-screen answer for container tidy refusals —
+    /// the native NPC_CUSTOM message lane (the LirToast precedent), bottom-
+    /// anchored, never intercepting the vanilla message area. Engine-only:
+    /// NoInlining + guarded so the host test path never JITs it.</summary>
+    internal static class LitContainerToast
+    {
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        internal static void Show(string message)
+        {
+            try { SDG.Unturned.PlayerUI.message(SDG.Unturned.EPlayerMessage.NPC_CUSTOM, message, 4f); }
+            catch (Exception) { /* no client surface — the log line already carries the reason */ }
+        }
+    }
+}
+using System;
+using System.Runtime.CompilerServices;
+using SDG.Unturned;
+
+namespace BetterUnturnedExperience.Lit
+{
+    /// <summary>
+    /// DEV-V5-03: what the surface/protocol layers ask the world — the local
+    /// container session view (client side) and the live facts + grid for one
+    /// authoritative execution (server side). Pure data; the production reads
+    /// live in LitContainerSessionProbe; host tests inject the whole view
+    /// through the module's ContainerProbeOverride (the NetServiceFactory
+    /// ForTests precedent). Live/ContainerItems stay null on the pure-client
+    /// click path — that role never executes locally.
+    /// </summary>
+    internal sealed class LitContainerClientView
+    {
+        public LitContainerSessionObservation Observation;
+        /// <summary>The fingerprint of what the client's storage mirror
+        /// currently shows — the claimed content version.</summary>
+        public ulong Fingerprint;
+        /// <summary>Server-role only: the live facts read from the real
+        /// opener inventory, paired with the mounted grid to execute on.</summary>
+        public LitContainerLiveFacts? Live;
+        public Items ContainerItems;
+    }
+
+    /// <summary>
+    /// The engine-facing reads behind the container session. Every method is
+    /// failure-guarded and [MethodImpl(NoInlining)] so the pure container
+    /// domain never drags Unturned type initializers into a host-tested path
+    /// (the Mono ECall rule the whole plugin follows).
+    ///
+    /// Kind identification (V5-T4 Q1 + R3 facts):
+    ///  - the storage page mount is the vanilla session signal (isStoring);
+    ///  - the networked trunk bit distinguishes 后备箱 from a world crate;
+    ///  - a world crate the SERVER-side inventory still references is checked
+    ///    against the documented virtual-storage hook (onStateRebuilt —
+    ///    「Plugin implementation for virtual storage to hook state. Vanilla
+    ///    code does not use this.」) and the display-cabinet flag; anything
+    ///    hooked/display is projected Unsupported with a diagnostic (T4: 不因
+    ///    没有识别字段写成永不支持，也不把没钩子的箱子误判成虚拟);
+    ///  - on a pure remote client the crate reference does not exist (the
+    ///    field is server-side only, R3 §4.1) — there the client projects from
+    ///    the mount flags and the AUTHORITY does the virtual check on the real
+    ///    object (button可见 ≠ 授权承诺; every refusal answers in words).
+    /// </summary>
+    internal static class LitContainerSessionProbe
+    {
+        /// <summary>The local (this-process) container view for the UI and the
+        /// client-role click. All-failure default = "no session" (fail-closed,
+        /// never a button on an unreadable surface).</summary>
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        internal static LitContainerClientView ObserveClient()
+        {
+            var view = new LitContainerClientView { Observation = new LitContainerSessionObservation() };
+            try
+            {
+                var inv = Player.LocalPlayer?.inventory;
+                if (inv == null) return view;
+                var storageItems = inv.items != null && PlayerInventory.STORAGE < inv.items.Length ? inv.items[PlayerInventory.STORAGE] : null;
+                var obs = new LitContainerSessionObservation
+                {
+                    TitleBarPresent = true, // refreshed by the patch pump right before evaluation
+                    SessionActive = inv.isStoring,
+                    GridNonEmpty = storageItems != null && storageItems.width > 0 && storageItems.height > 0,
+                    // the page is only ever mounted for the opener/driver by
+                    // the server's own open/close flow — client-visible grant:
+                    PermissionGranted = inv.isStoring,
+                };
+                if (!inv.isStoring)
+                {
+                    view.Observation = obs; // Kind None — silent
+                    return view;
+                }
+                if (inv.isStorageTrunk)
+                {
+                    obs.Kind = LitContainerSessionKind.VehicleTrunk;
+                }
+                else if (inv.storage != null)
+                {
+                    // SP / listen host: the crate object is reachable here —
+                    // the honest virtual/display check runs where it can see.
+                    obs.Kind = ClassifyCrate(inv.storage, out var diagnostic);
+                    obs.UnsupportedDiagnostic = diagnostic;
+                }
+                else
+                {
+                    // Remote client: PlayerInventory.storage is server-side
+                    // only (R3 §4.1) — the inventory itself cannot identify
+                    // the crate. Use the vanilla client UI's own reference for
+                    // exactly this decision (PlayerDashboardInventoryUI reads
+                    // PlayerInteract.interactable as InteractableStorage for
+                    // display-crate controls): when the focused object IS the
+                    // crate, classify it client-side (isDisplay/lock/asset flags
+                    // are asset-derived and present on the client; the virtual
+                    // hook onStateRebuilt is server-side only, so a virtual
+                    // crate without a locally observable reference stays the
+                    // authority's call). No local reference => honest fallback:
+                    // the mount fact still says a container session exists, the
+                    // claim carries the unverified diagnostic, and the
+                    // authority fail-closes (button可见 ≠ 授权承诺, T4 Q4).
+                    var focusedCrate = TryGetFocusedCrate();
+                    if (focusedCrate != null)
+                    {
+                        obs.Kind = ClassifyCrate(focusedCrate, out var crateDiagnostic);
+                        obs.UnsupportedDiagnostic = crateDiagnostic;
+                    }
+                    else
+                    {
+                        obs.Kind = LitContainerSessionKind.WorldContainer;
+                        obs.UnsupportedDiagnostic = "remote-crate-identity-unverified:authority-revalidates";
+                    }
+                }
+                view.Observation = obs;
+                if (storageItems != null) view.Fingerprint = LitContainerContentFingerprint.FromItems(storageItems);
+                return view;
+            }
+            catch (Exception error)
+            {
+                LitRuntime.LogWarning("[Tidy容器] 客户端容器会话观察失败（按无会话处理）: " + error.Message);
+                view.Observation = new LitContainerSessionObservation();
+                view.Fingerprint = 0UL;
+                return view;
+            }
+        }
+
+        /// <summary>Server-side live facts + mounted grid for one execution
+        /// (used by the production authority for a remote peer's admitted
+        /// request, and by the local server-role path with LocalPlayer).</summary>
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        internal static bool TryReadServerLive(Player player, out LitContainerLiveFacts live, out Items grid)
+        {
+            live = new LitContainerLiveFacts();
+            grid = null;
+            try
+            {
+                var inv = player?.inventory;
+                if (inv?.items == null || PlayerInventory.STORAGE >= inv.items.Length) return false;
+                grid = inv.items[PlayerInventory.STORAGE];
+                live.SessionActive = inv.isStoring && grid != null && grid.width > 0 && grid.height > 0;
+                if (!live.SessionActive)
+                {
+                    live.KindObserved = LitContainerSessionKind.None;
+                    live.LiveFingerprint = 0UL;
+                    return true;
+                }
+                if (inv.isStorageTrunk)
+                {
+                    live.KindObserved = LitContainerSessionKind.VehicleTrunk;
+                    // 后备箱 adapter 自有维度：驾驶座授权仍在位（离座/换座由原版
+                    // revokeTrunkAccess→closeTrunk 先拆挂载，呈现为会话失效）。
+                    var vehicle = player.movement != null ? player.movement.getVehicle() : null;
+                    live.TrunkDriverAuthorized = vehicle != null && vehicle.GetDriverPlayer() == player;
+                }
+                else if (inv.storage != null)
+                {
+                    live.KindObserved = ClassifyCrate(inv.storage, out var diagnostic);
+                    if (live.KindObserved != LitContainerSessionKind.WorldContainer)
+                    {
+                        LitRuntime.LogWarning("[Tidy容器] 权威识别到不支持的世界对象（peer 请求被拒，诊断=" + diagnostic + "）");
+                        live.WorldOpenerIsRequester = false;
+                        live.WorldAccessAllowed = false;
+                    }
+                    else
+                    {
+                        // 世界箱 adapter 自有维度：单 opener + 原版锁/组
+                        // （checkRot：SP 恒真、联机看 isLocked/owner/group——
+                        // 原版访问控制保持，不另造 BUE 整理锁）。距离/关箱由
+                        // 原版先拆挂载会话，已在 SessionActive 一步呈现。
+                        live.WorldOpenerIsRequester = inv.storage.isOpen && inv.storage.opener == player;
+                        live.WorldAccessAllowed = inv.storage.checkRot(
+                            player.channel.owner.playerID.steamID, player.quests.groupID);
+                    }
+                }
+                else
+                {
+                    live.KindObserved = LitContainerSessionKind.Unsupported;
+                }
+                live.LiveFingerprint = LitContainerContentFingerprint.FromItems(grid);
+                return true;
+            }
+            catch (Exception error)
+            {
+                LitRuntime.LogWarning("[Tidy容器] 权威现读失败（零修改拒绝）: " + error.Message);
+                return false;
+            }
+        }
+
+        /// <summary>The crate the local player is currently focused on — the
+        /// same reference the vanilla dashboard itself uses client-side for
+        /// display-crate controls (PlayerDashboardInventoryUI). Null when the
+        /// focus is gone (e.g. the player looked away after opening).</summary>
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static InteractableStorage TryGetFocusedCrate()
+        {
+            try { return PlayerInteract.interactable as InteractableStorage; }
+            catch (Exception) { return null; }
+        }
+
+        /// <summary>The crate kind from the real object (R3 §4.4 signals):
+        /// plugin state hook = virtual storage; display cabinet = its own
+        /// surface (rot buttons + quickGrab) — both Unsupported this phase.</summary>
+        private static LitContainerSessionKind ClassifyCrate(InteractableStorage storage, out string diagnostic)
+        {
+            diagnostic = null;
+            if (storage == null) return LitContainerSessionKind.None;
+            if (storage.onStateRebuilt != null)
+            {
+                diagnostic = "virtual-container:state-hooked";
+                return LitContainerSessionKind.VirtualContainer;
+            }
+            if (storage.isDisplay)
+            {
+                diagnostic = "display-cabinet";
+                return LitContainerSessionKind.Unsupported;
+            }
+            return LitContainerSessionKind.WorldContainer;
+        }
+    }
+}

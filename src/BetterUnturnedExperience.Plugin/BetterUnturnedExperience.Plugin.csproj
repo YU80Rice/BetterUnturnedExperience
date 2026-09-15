@@ -95,6 +95,9 @@
     <Compile Include="..\BetterUnturnedExperience.Lit\Tidy\LocalTidyExecutor.cs"><Link>EmbeddedLit\Tidy\LocalTidyExecutor.cs</Link></Compile>
     <Compile Include="..\BetterUnturnedExperience.Lit\Ui\InventoryTidyUiPatch.cs"><Link>EmbeddedLit\Ui\InventoryTidyUiPatch.cs</Link></Compile>
     <Compile Include="..\BetterUnturnedExperience.Lit\InventoryTidyModule.cs"><Link>EmbeddedLit\InventoryTidyModule.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Lit\Container\LitContainerTidy.cs"><Link>EmbeddedLit\Container\LitContainerTidy.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Lit\Container\LitContainerTidyExecution.cs"><Link>EmbeddedLit\Container\LitContainerTidyExecution.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Lit\Container\LitContainerSessionProbe.cs"><Link>EmbeddedLit\Container\LitContainerSessionProbe.cs</Link></Compile>
     <!-- DEV-V2-22: embed the migrated LIR (in-place reload) domain into the single runtime assembly.
          The old plugin's BepInEx identity, LMN dependency and the cross-plugin TidyServicePostfixPatch
          (replaced by the TidyCompleted feature event) are NOT in this list. -->

@@ -1,0 +1,1 @@
+Spec-V4R9-ingest gate PASS: V4-R9 clauses block-scoped in spec, map decision line points at the spec section, pump-path tests anchored

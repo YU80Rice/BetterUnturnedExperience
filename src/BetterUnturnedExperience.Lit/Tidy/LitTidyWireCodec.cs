@@ -27,7 +27,8 @@ namespace BetterUnturnedExperience.Lit
     }
 
     /// <summary>
-    /// The five feature-private message kinds and their codecs. Envelope:
+    /// The feature-private message kinds and their codecs (five migrated +
+    /// the DEV-V5-03 container pair: MsgRequestContainerTidy / MsgContainerTidyResult). Envelope:
     /// [NamedPayloadVersion=1][msgType][body…]. All integers little-endian
     /// (BinaryWriter default). Every decode validates the exact byte shape —
     /// short packets, reserved-byte violations and trailing data fail closed.
@@ -41,6 +42,8 @@ namespace BetterUnturnedExperience.Lit
         internal const byte MsgHotkeyFlowAck = 4;        // client → server (semantics: hotkey flow ack)
         internal const byte MsgTidyHotkeyResult = 5;     // server → client
         internal const byte MsgSessionChallenge = 6;     // server → client
+        internal const byte MsgRequestContainerTidy = 7; // client → server (DEV-V5-03)
+        internal const byte MsgContainerTidyResult = 8;  // server → client (DEV-V5-03)
         internal const int MappingWireSize = 7;          // hotkey(1)+page(1)+x(1)+y(1)+id(2)+reserved(1)
         internal const byte HotkeyCountLimit = (byte)HotkeySnapshotUtil.HOTKEY_COUNT;
 
@@ -138,6 +141,47 @@ namespace BetterUnturnedExperience.Lit
             }
         }
 
+        // ── DEV-V5-03 container tidy (feature-private kinds 7/8) ──────
+        // The request binds KIND + CONTENT FINGERPRINT + the session token —
+        // never a page number (the seventh page is a mount position, not an
+        // identity, so it never enters the frame). The result carries the
+        // frozen TidyCommitResult byte plus a STRUCTURED reason byte so a
+        // refusal can always answer in words (no silent no-op).
+
+        /// <summary>Request body: [proto][token][requestId][kind][fingerprint][desc] — 23 bytes.</summary>
+        internal static byte[] BuildContainerTidyRequest(ulong sessionToken, uint requestId, byte kind, ulong fingerprint, bool sortDescending)
+        {
+            using (var stream = new MemoryStream(1 + 1 + 1 + 8 + 4 + 1 + 8 + 1))
+            using (var w = new BinaryWriter(stream))
+            {
+                w.Write(PayloadVersion);
+                w.Write(MsgRequestContainerTidy);
+                w.Write(ProtocolVersionV3);
+                w.Write(sessionToken);
+                w.Write(requestId);
+                w.Write(kind);
+                w.Write(fingerprint);
+                w.Write(sortDescending);
+                return stream.ToArray();
+            }
+        }
+
+        /// <summary>Result body: [token][requestId][result][reasonCode] — 14 bytes.</summary>
+        internal static byte[] BuildContainerTidyResult(ulong sessionToken, uint requestId, TidyCommitResult result, byte reasonCode)
+        {
+            using (var stream = new MemoryStream(1 + 1 + 8 + 4 + 1 + 1))
+            using (var w = new BinaryWriter(stream))
+            {
+                w.Write(PayloadVersion);
+                w.Write(MsgContainerTidyResult);
+                w.Write(sessionToken);
+                w.Write(requestId);
+                w.Write((byte)result);
+                w.Write(reasonCode);
+                return stream.ToArray();
+            }
+        }
+
         // ── envelope ────────────────────────────────────────────────
 
         /// <summary>Envelope gate: payload present, at least [version][type], version == 1. Body is the remainder.</summary>
@@ -192,6 +236,55 @@ namespace BetterUnturnedExperience.Lit
                     hotkeys.Add(new HotkeySnapshot(hi, itemId, p, x, y));
                 }
                 mode = (TidyMode)modeByte;
+                return true;
+            }
+        }
+
+        /// <summary>DEV-V5-03: decode one container tidy request — exact
+        /// shape or the frame does not exist (fail-closed like every other
+        /// kind). kind must be a SUPPORTED claim (1..2: 种类声明即身份面，
+        /// 无页号、无哨兵); the fingerprint is the claimed content version.</summary>
+        internal static bool TryReadContainerTidyRequest(byte[] body, out ulong sessionToken, out uint requestId, out byte kind, out ulong fingerprint, out bool sortDescending)
+        {
+            sessionToken = 0; requestId = 0; kind = 0; fingerprint = 0; sortDescending = false;
+            if (body == null || body.Length != 1 + 8 + 4 + 1 + 8 + 1) return false;
+            using (var r = new BinaryReader(new MemoryStream(body)))
+            {
+                var version = r.ReadByte();
+                sessionToken = r.ReadUInt64();
+                requestId = r.ReadUInt32();
+                kind = r.ReadByte();
+                fingerprint = r.ReadUInt64();
+                sortDescending = r.ReadBoolean();
+                if (version != ProtocolVersionV3) return false;
+                if (sessionToken == 0UL) return false;
+                if (requestId == 0u) return false;
+                if (kind != (byte)LitContainerTidyKind.WorldContainer && kind != (byte)LitContainerTidyKind.VehicleTrunk) return false;
+                return true;
+            }
+        }
+
+        /// <summary>DEV-V5-03: decode one container tidy result. result must
+        /// be a frozen TidyCommitResult byte, the reason a frozen wire byte,
+        /// and the pair must not contradict (Committed ⇔ reason None — 成功不
+        /// 携带失败文案).</summary>
+        internal static bool TryReadContainerTidyResult(byte[] body, out ulong sessionToken, out uint requestId, out TidyCommitResult result, out byte reasonCode)
+        {
+            sessionToken = 0; requestId = 0; result = TidyCommitResult.Rejected; reasonCode = 0;
+            if (body == null || body.Length != 8 + 4 + 1 + 1) return false;
+            using (var r = new BinaryReader(new MemoryStream(body)))
+            {
+                sessionToken = r.ReadUInt64();
+                requestId = r.ReadUInt32();
+                var resultByte = r.ReadByte();
+                reasonCode = r.ReadByte();
+                if (sessionToken == 0UL) return false;
+                if (requestId == 0u) return false;
+                if (resultByte > 3) return false;
+                if (!LitContainerTidyReasons.TryFromWire(reasonCode, out _)) return false;
+                if (resultByte == (byte)TidyCommitResult.Committed && reasonCode != (byte)LitContainerTidyReason.None) return false;
+                if (resultByte != (byte)TidyCommitResult.Committed && reasonCode == (byte)LitContainerTidyReason.None) return false;
+                result = (TidyCommitResult)resultByte;
                 return true;
             }
         }

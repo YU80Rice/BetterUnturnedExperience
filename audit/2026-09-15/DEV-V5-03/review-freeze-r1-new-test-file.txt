@@ -1,0 +1,1046 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using BetterUnturnedExperience.Contracts;
+using BetterUnturnedExperience.Contracts.BueNetwork;
+using BetterUnturnedExperience.Core.Registration;
+using BetterUnturnedExperience.Lit;
+using SDG.Unturned;
+
+namespace BetterUnturnedExperience.Plugin.Tests
+{
+    /// <summary>
+    /// DEV-V5-03（V5-T4 → 容器会话整理）红测先行组。判据面 = 票面验收条逐字对位：
+    /// 两个 adapter（世界容器/车辆后备箱各证 seam）；page=7 不是身份（身份=种类+会话+
+    /// 请求者+内容指纹，页号不进任何判定输入）；关箱/换 opener/离座/版本过期 零修改且
+    /// 有结构化原因；虚拟箱不画（能力投影 Unsupported+诊断原因）；Ctrl+全身不含容器。
+    /// 引擎读面（Player.LocalPlayer 字段、Glazier 标题栏、toast 原生渲染）为具名接缝
+    /// 缺口（宿主无引擎），实机随 DEV-V5-08；此处全部判据走纯事实记录 + 真实 Items
+    /// 事务（宿主可用）+ loopback 双端全链（假权威）。
+    /// 排版侧不复制算法：容器提交必须经模块的统一排版策略出口（DEV-V5-02 消费锚）。
+    /// </summary>
+    internal static class DevV5ContainerSessionTests
+    {
+        internal static void Run(bool collectAllFailures = false)
+        {
+            var reds = new List<string>();
+            // 事务层主线程闸（IsMainThread）读 LitRuntime.MainThreadId；真机
+            // 由模块 EnsureStarted 设置，独立红入口必须显式设置同线程 id。
+            LitRuntime.MainThreadId = System.Threading.Thread.CurrentThread.ManagedThreadId;
+            try
+            {
+                void Check(bool condition, string message)
+                {
+                    if (condition) return;
+                    if (collectAllFailures) reds.Add(message);
+                    else throw new InvalidOperationException(message);
+                }
+
+                void Group(string name, System.Action body)
+                {
+                    try { body(); }
+                    catch (Exception error) when (collectAllFailures)
+                    {
+                        reds.Add("[" + name + "] " + (error is InvalidOperationException ? error.Message : "UNEXPECTED " + error.GetType().Name + ": " + error.Message));
+                    }
+                }
+
+                Group("能力投影与两个adapter", () => ContainerGroupCapabilityAndAdapters(Check));
+                Group("内容指纹", () => ContainerGroupFingerprint(Check));
+                Group("权威重验矩阵零修改", () => ContainerGroupVerifierMatrix(Check));
+                Group("容器提交走统一排版", () => ContainerGroupCommitUsesUnifiedLayout(Check));
+                Group("容器线协议", () => ContainerGroupWireCodec(Check));
+                Group("容器全链双端", () => ContainerGroupFullChain(Check));
+                Group("官方先行消费与全身隔离", () => ContainerGroupOfficialFirstAndIsolation(Check));
+            }
+            catch (Exception error) when (collectAllFailures)
+            {
+                reds.Add("UNEXPECTED: " + error.GetType().FullName + ": " + error.Message);
+            }
+            if (collectAllFailures && reds.Count == 0)
+                Console.WriteLine("DEV-V5-03 container session collection: ALL GREEN (0 failures) — groups: 能力投影与两个adapter/内容指纹/权威重验矩阵零修改/容器提交走统一排版/容器线协议/容器全链双端/官方先行消费与全身隔离");
+            Console.WriteLine("DEV-V5-03 container session tests: " + (collectAllFailures && reds.Count > 0 ? "FAIL" : "PASS"));
+            if (collectAllFailures && reds.Count > 0)
+                throw new InvalidOperationException("DEV-V5-03 red collection (" + reds.Count + "): " + string.Join(" || ", reds));
+        }
+
+        // ─────────────────────────────────────────────────────────────────
+        // 组1：能力投影与两个 adapter（票面「两个 adapter」「虚拟箱不画」+
+        // T4 Q4 投影六输入逐项：种类/会话有效/权限/功能运行/有 adapter/标题栏在）。
+        // ─────────────────────────────────────────────────────────────────
+        private static LitContainerSessionObservation WorldObs(
+            bool active = true, bool permission = true, bool running = true,
+            bool titleBar = true, bool grid = true)
+        {
+            return new LitContainerSessionObservation
+            {
+                Kind = LitContainerSessionKind.WorldContainer,
+                SessionActive = active,
+                PermissionGranted = permission,
+                FeatureRunning = running,
+                TitleBarPresent = titleBar,
+                GridNonEmpty = grid,
+            };
+        }
+
+        private static LitContainerSessionObservation TrunkObs(
+            bool active = true, bool permission = true, bool running = true,
+            bool titleBar = true, bool grid = true)
+        {
+            var obs = WorldObs(active, permission, running, titleBar, grid);
+            obs.Kind = LitContainerSessionKind.VehicleTrunk;
+            return obs;
+        }
+
+        private static void ContainerGroupCapabilityAndAdapters(System.Action<bool, string> check)
+        {
+            // 1a. 两个 adapter 各自证 seam：种类匹配是 adapter 自己的判定。
+            var adapters = LitContainerSessionAdapters.All;
+            check(adapters.Count >= 2, "两个 adapter：注册表至少存在世界容器与车辆后备箱两条实现");
+            var world = LitContainerSessionAdapters.Resolve(LitContainerTidyKind.WorldContainer);
+            var trunk = LitContainerSessionAdapters.Resolve(LitContainerTidyKind.VehicleTrunk);
+            check(world != null && trunk != null, "两个 adapter：两种受支持种类各解析出一条 adapter");
+            check(!ReferenceEquals(world, trunk), "两个 adapter：世界容器与后备箱不是同一条实现（生命周期/权限模型各自独立）");
+            check(world.Kind == LitContainerTidyKind.WorldContainer && trunk.Kind == LitContainerTidyKind.VehicleTrunk,
+                "两个 adapter：adapter 自报种类与注册键一致");
+            check(LitContainerSessionAdapters.Resolve((LitContainerTidyKind)99) == null,
+                "两个 adapter：未注册种类解析为 null（无 adapter=不支持，fail-closed）");
+            check(world.Matches(WorldObs()) && !world.Matches(TrunkObs()),
+                "两个 adapter：世界容器 adapter 只认世界容器会话");
+            check(trunk.Matches(TrunkObs()) && !trunk.Matches(WorldObs()),
+                "两个 adapter：后备箱 adapter 只认后备箱会话");
+
+            // 1b. 能力投影 = 画按钮的唯一依据（T4 Q4）。
+            check(LitContainerCapability.TryProject(WorldObs(), out var okReason) && okReason == LitContainerTidyReason.None,
+                "投影：受支持容器全部条件满足 = 可用（画「整理」）");
+            check(LitContainerCapability.TryProject(TrunkObs(), out okReason) && okReason == LitContainerTidyReason.None,
+                "投影：已授权后备箱全部条件满足 = 可用");
+
+            LitContainerTidyReason reason;
+            var virtualObs = WorldObs();
+            virtualObs.Kind = LitContainerSessionKind.VirtualContainer;
+            virtualObs.UnsupportedDiagnostic = "state-hooked";
+            check(!LitContainerCapability.TryProject(virtualObs, out reason) && reason == LitContainerTidyReason.UnsupportedKind,
+                "虚拟箱不画：工坊虚拟容器投影 Unsupported + 结构化原因（诊断字段随行可查）");
+            var unsupportedObs = WorldObs();
+            unsupportedObs.Kind = LitContainerSessionKind.Unsupported;
+            check(!LitContainerCapability.TryProject(unsupportedObs, out reason) && reason == LitContainerTidyReason.UnsupportedKind,
+                "不画：其余不可整理种类（地面摊/主副手/装备槽等）投影 Unsupported");
+            var noneObs = WorldObs();
+            noneObs.Kind = LitContainerSessionKind.None;
+            check(!LitContainerCapability.TryProject(noneObs, out reason),
+                "不画：没有任何容器会话时投影不可用");
+            check(!LitContainerCapability.TryProject(WorldObs(active: false), out reason) && reason == LitContainerTidyReason.ContainerClosed,
+                "投影：会话未建立/容器已关 = 不可用，原因=容器已关闭");
+            check(!LitContainerCapability.TryProject(WorldObs(grid: false), out reason) && reason == LitContainerTidyReason.ContainerClosed,
+                "投影：挂载网格为空（0×0/关闭残影）= 不可用");
+            check(!LitContainerCapability.TryProject(WorldObs(permission: false), out reason) && reason == LitContainerTidyReason.LostAccess,
+                "投影：无权限（非 opener/失去驾驶座）= 不可用，原因=已失去权限");
+            check(!LitContainerCapability.TryProject(WorldObs(running: false), out reason) && reason == LitContainerTidyReason.FeatureUnavailable,
+                "投影：背包整理功能不在运行 = 不可用（Q4：功能未运行不画）");
+            check(!LitContainerCapability.TryProject(WorldObs(titleBar: false), out reason) && reason == LitContainerTidyReason.None,
+                "投影：容器标题栏不在场 = 不画（静默：没有表面可放按钮，不是失败原因）");
+
+            // 1c. 原因文案单一事实源：非 None 必有中文、互不相同、None 为空。
+            var texts = new HashSet<string>(StringComparer.Ordinal);
+            var allReasons = new[] {
+                LitContainerTidyReason.ContainerClosed, LitContainerTidyReason.LostAccess,
+                LitContainerTidyReason.ContentChanged, LitContainerTidyReason.UnsupportedKind,
+                LitContainerTidyReason.LayoutFailed, LitContainerTidyReason.FeatureUnavailable,
+                LitContainerTidyReason.InternalFailure, LitContainerTidyReason.Busy,
+            };
+            foreach (var r in allReasons)
+            {
+                var text = LitContainerTidyReasons.ChineseText(r);
+                check(!string.IsNullOrWhiteSpace(text), "原因文案：每种结构化失败都有可见中文（不笼统「未改动」）" + r);
+                check(texts.Add(text), "原因文案：各失败原因文本互不相同（至少能区分）" + r);
+            }
+            check(texts.Count == allReasons.Length, "原因文案：T4 Q4 六类原因逐条在案（+内部失败/忙两类如实）");
+            check(LitContainerTidyReasons.ChineseText(LitContainerTidyReason.None) == string.Empty,
+                "原因文案：成功无原因文案（None 为空串）");
+            check(LitContainerTidyReasons.TryFromWire(0, out _) && LitContainerTidyReasons.TryFromWire(8, out _) && !LitContainerTidyReasons.TryFromWire(9, out _),
+                "原因编码：线协议字节域冻结 0..8，越界 fail-closed");
+        }
+
+        // ─────────────────────────────────────────────────────────────────
+        // 组2：内容指纹——「版本/指纹」绑定的纯函数（请求者看到的那份内容）。
+        // 确定性 + 收集序无关（Items 枚举序不是业务不变量）+ 逐字段敏感。
+        // ─────────────────────────────────────────────────────────────────
+        private static LitContainerJarTuple JarT(byte x, byte y, byte rot, ushort id, byte amount, byte quality, byte[] state)
+        {
+            return new LitContainerJarTuple
+            {
+                X = x, Y = y, Rot = rot, Id = id, Amount = amount, Quality = quality, State = state,
+            };
+        }
+
+        private static void ContainerGroupFingerprint(System.Action<bool, string> check)
+        {
+            var base0 = new List<LitContainerJarTuple>
+            {
+                JarT(0, 0, 0, 100, 1, 50, new byte[] { 7 }),
+                JarT(2, 1, 1, 200, 3, 90, new byte[0]),
+                JarT(4, 2, 0, 300, 2, 10, new byte[] { 1, 2, 3 }),
+            };
+            var hash = LitContainerContentFingerprint.Compute(8, 4, base0);
+            check(hash != 0UL, "指纹：非空网格内容产生非零指纹");
+            check(LitContainerContentFingerprint.Compute(8, 4, base0) == hash, "指纹：同输入同结果（确定性）");
+
+            var shuffled = new List<LitContainerJarTuple> { base0[2], base0[0], base0[1] };
+            check(LitContainerContentFingerprint.Compute(8, 4, shuffled) == hash,
+                "指纹：收集顺序不影响结果（多重集合语义，两侧枚举序无契约）");
+
+            check(LitContainerContentFingerprint.Compute(9, 4, base0) != hash, "指纹：网格宽度入指纹");
+            check(LitContainerContentFingerprint.Compute(8, 5, base0) != hash, "指纹：网格高度入指纹");
+            var empty = LitContainerContentFingerprint.Compute(0, 0, new List<LitContainerJarTuple>());
+            check(empty != hash, "指纹：空格与非空格区分");
+            check(LitContainerContentFingerprint.Compute(0, 0, new List<LitContainerJarTuple>()) == empty,
+                "指纹：空网格本身确定");
+
+            var moved = new List<LitContainerJarTuple> { JarT(1, 0, 0, 100, 1, 50, new byte[] { 7 }), base0[1], base0[2] };
+            check(LitContainerContentFingerprint.Compute(8, 4, moved) != hash, "指纹：坐标变化敏感（x）");
+            var rotated = new List<LitContainerJarTuple> { JarT(0, 0, 1, 100, 1, 50, new byte[] { 7 }), base0[1], base0[2] };
+            check(LitContainerContentFingerprint.Compute(8, 4, rotated) != hash, "指纹：旋转变化敏感");
+            var yMoved = new List<LitContainerJarTuple> { JarT(0, 1, 0, 100, 1, 50, new byte[] { 7 }), base0[1], base0[2] };
+            check(LitContainerContentFingerprint.Compute(8, 4, yMoved) != hash, "指纹：坐标变化敏感（y）");
+            var idChanged = new List<LitContainerJarTuple> { JarT(0, 0, 0, 101, 1, 50, new byte[] { 7 }), base0[1], base0[2] };
+            check(LitContainerContentFingerprint.Compute(8, 4, idChanged) != hash, "指纹：物品 id 敏感");
+            var amountChanged = new List<LitContainerJarTuple> { JarT(0, 0, 0, 100, 2, 50, new byte[] { 7 }), base0[1], base0[2] };
+            check(LitContainerContentFingerprint.Compute(8, 4, amountChanged) != hash, "指纹：数量敏感");
+            var qualityChanged = new List<LitContainerJarTuple> { JarT(0, 0, 0, 100, 1, 51, new byte[] { 7 }), base0[1], base0[2] };
+            check(LitContainerContentFingerprint.Compute(8, 4, qualityChanged) != hash, "指纹：品质敏感");
+            var stateChanged = new List<LitContainerJarTuple> { JarT(0, 0, 0, 100, 1, 50, new byte[] { 8 }), base0[1], base0[2] };
+            check(LitContainerContentFingerprint.Compute(8, 4, stateChanged) != hash, "指纹：state 字节敏感");
+            var stateNull = new List<LitContainerJarTuple> { JarT(0, 0, 0, 100, 1, 50, null), base0[1], base0[2] };
+            check(LitContainerContentFingerprint.Compute(8, 4, stateNull) == LitContainerContentFingerprint.Compute(8, 4, new List<LitContainerJarTuple> { JarT(0, 0, 0, 100, 1, 50, new byte[0]), base0[1], base0[2] }),
+                "指纹：null state 与空 state 同义（与 ItemFingerprint 口径一致）");
+            var added = new List<LitContainerJarTuple>(base0) { JarT(7, 3, 0, 400, 1, 0, null) };
+            check(LitContainerContentFingerprint.Compute(8, 4, added) != hash, "指纹：多一件即变（数量守恒敏感）");
+            var removed = new List<LitContainerJarTuple> { base0[0], base0[1] };
+            check(LitContainerContentFingerprint.Compute(8, 4, removed) != hash, "指纹：少一件即变");
+            check(LitContainerContentFingerprint.Compute(8, 4, new List<LitContainerJarTuple>(base0)) == hash,
+                "指纹：调用方输入不被改写（同表复算稳定）");
+        }
+
+        // ─────────────────────────────────────────────────────────────────
+        // 组3：权威重验矩阵（T4 Q3/Q4）。输入 = 服务器现读事实 + 请求绑定；
+        // 每一格失败都是「结构化原因 + 零修改」——零修改由「先验证、后事务」的
+        // 构造性顺序 + 真实 Items 前后逐格对照双证（组4 承担 Items 侧）。
+        // ─────────────────────────────────────────────────────────────────
+        private static LitContainerLiveFacts Live(
+            LitContainerSessionKind kind = LitContainerSessionKind.WorldContainer,
+            bool active = true, bool authorized = true, ulong fingerprint = 1000UL)
+        {
+            return new LitContainerLiveFacts
+            {
+                KindObserved = kind,
+                SessionActive = active,
+                RequesterAuthorized = authorized,
+                LiveFingerprint = fingerprint,
+            };
+        }
+
+        private static LitContainerTidyClaim Claim(
+            LitContainerTidyKind kind = LitContainerTidyKind.WorldContainer, ulong fingerprint = 1000UL)
+        {
+            return new LitContainerTidyClaim { Kind = kind, Fingerprint = fingerprint };
+        }
+
+        private static void ContainerGroupVerifierMatrix(System.Action<bool, string> check)
+        {
+            check(LitContainerTidyVerifier.Verify(Live(), Claim()) == LitContainerTidyReason.None,
+                "重验：会话在/种类对/有权/指纹对 = 放行");
+
+            // page=7 不是身份：验证输入里没有页号——种类声明+实测才是身份；
+            // 声明与实测不符（换箱/换代）按会话失效处理。
+            check(LitContainerTidyVerifier.Verify(Live(kind: LitContainerSessionKind.VehicleTrunk), Claim()) == LitContainerTidyReason.ContainerClosed,
+                "重验：声明世界容器但实测已挂后备箱 = 会话已更换（不整理新容器）");
+            check(LitContainerTidyVerifier.Verify(Live(), Claim(kind: LitContainerTidyKind.VehicleTrunk)) == LitContainerTidyReason.ContainerClosed,
+                "重验：声明后备箱但实测世界容器 = 会话已更换（两个方向对称）");
+
+            check(LitContainerTidyVerifier.Verify(Live(active: false), Claim()) == LitContainerTidyReason.ContainerClosed,
+                "重验：关箱后请求零修改，原因=容器已关闭");
+            check(LitContainerTidyVerifier.Verify(Live(authorized: false), Claim()) == LitContainerTidyReason.LostAccess,
+                "重验：换 opener（箱子被他人合法重开）零修改，原因=已失去权限");
+            var trunkLive = Live(kind: LitContainerSessionKind.VehicleTrunk);
+            check(LitContainerTidyVerifier.Verify(trunkLive, Claim(kind: LitContainerTidyKind.VehicleTrunk)) == LitContainerTidyReason.None,
+                "重验：驾驶座在位后备箱放行");
+            check(LitContainerTidyVerifier.Verify(trunkLive, Claim(kind: LitContainerTidyKind.VehicleTrunk, fingerprint: 1001UL)) == LitContainerTidyReason.ContentChanged,
+                "重验：版本过期（内容指纹不符）零修改，原因=内容已变化请重新整理");
+            check(LitContainerTidyVerifier.Verify(Live(kind: LitContainerSessionKind.VirtualContainer), Claim()) == LitContainerTidyReason.UnsupportedKind,
+                "重验：权威侧实测虚拟容器（状态钩子在）拒绝，原因=当前类型不支持");
+            check(LitContainerTidyVerifier.Verify(Live(kind: LitContainerSessionKind.None), Claim()) == LitContainerTidyReason.ContainerClosed,
+                "重验：会话事实消失（原版已关箱）原因=容器已关闭");
+            check(LitContainerTidyVerifier.Verify(Live(kind: LitContainerSessionKind.Unsupported), Claim()) == LitContainerTidyReason.UnsupportedKind,
+                "重验：权威侧实测不可整理种类拒绝，原因=当前类型不支持");
+
+            // 顺序纪律：关闭先于权限与版本；权限先于版本（先说清哪一环失效）。
+            check(LitContainerTidyVerifier.Verify(Live(active: false, authorized: false, fingerprint: 9), Claim()) == LitContainerTidyReason.ContainerClosed,
+                "重验顺序：会话已死优先报关闭");
+            check(LitContainerTidyVerifier.Verify(Live(authorized: false, fingerprint: 9), Claim()) == LitContainerTidyReason.LostAccess,
+                "重验顺序：无权限优先于版本（先拒身份再比内容）");
+            check(LitContainerTidyVerifier.Verify(Live(kind: LitContainerSessionKind.VirtualContainer, fingerprint: 9), Claim()) == LitContainerTidyReason.UnsupportedKind,
+                "重验顺序：类型不支持先于版本比对");
+        }
+
+        // ─────────────────────────────────────────────────────────────────
+        // 组4：容器提交 = 先重验、后经统一排版出口的事务（DEV-V5-02 消费锚）；
+        // 失败零修改；page=7 不是身份（两个方向：页号≠3 的网格只要会话成立就整理，
+        // 页号=7 的网格只要会话不成立/声明不符就零修改）。
+        // ─────────────────────────────────────────────────────────────────
+        private static Items ContainerGrid(byte page, byte width, byte height)
+        {
+            // 宿主安全构造：_width/_height/slots 反射直填，绕开 Items.loadSize
+            // （它触 PlayerInventory 静态 NetReflection，游戏外不可用——既有先例
+            // DEV-16D R13 组同法）。
+            var items = new Items(page);
+            var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+            typeof(Items).GetField("_width", flags).SetValue(items, width);
+            typeof(Items).GetField("_height", flags).SetValue(items, height);
+            typeof(Items).GetField("slots", flags).SetValue(items, new bool[width, height]);
+            return items;
+        }
+
+        private static ItemJar ContainerJar(Items items, byte x, byte y, byte rot, byte sx, byte sy, ushort id, byte amount)
+        {
+            var jar = (ItemJar)System.Runtime.Serialization.FormatterServices.GetUninitializedObject(typeof(ItemJar));
+            jar.x = x; jar.y = y; jar.rot = rot; jar.size_x = sx; jar.size_y = sy;
+            SetItemField(jar, new Item(id, amount, 100, new byte[0]));
+            items.items.Add(jar);
+            return jar;
+        }
+
+        private static void SetItemField(ItemJar jar, Item item)
+        {
+            foreach (var field in typeof(ItemJar).GetFields(System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public))
+            {
+                if (field.FieldType == typeof(Item)) { field.SetValue(jar, item); return; }
+            }
+            throw new InvalidOperationException("no Item field on ItemJar — fixture cannot run");
+        }
+
+        private static List<(byte x, byte y, byte rot, ushort id, byte amount)> ContainerSnapshotTuples(Items items)
+        {
+            var list = new List<(byte x, byte y, byte rot, ushort id, byte amount)>(items.getItemCount());
+            for (byte i = 0; i < items.getItemCount(); i++)
+            {
+                var jar = items.getItem(i);
+                list.Add((jar.x, jar.y, jar.rot, jar.item.id, jar.item.amount));
+            }
+            return list;
+        }
+
+        private static LitContainerTidyClaim ClaimFor(Items grid)
+        {
+            return new LitContainerTidyClaim
+            {
+                Kind = LitContainerTidyKind.WorldContainer,
+                Fingerprint = LitContainerContentFingerprint.FromItems(grid),
+            };
+        }
+
+        /// <summary>DEV-V5-03 host transaction: ManualTidyService.TidyPage's
+        /// CommitPage re-adds items through new ItemJar(...) → GetAsset() →
+        /// SDG.Unturned.Assets 静态初始化，游戏外必抛（TypeInitializationException）。
+        /// 所以「提交成功写面」在宿主不可跑——本假事务保持同一语义（消费同一
+        /// 计划出口、把 Result 坐标直写回原 jar、不新增不删除），把容器整理对
+        /// 统一排版计划的消费钉死在宿主；真机提交链（removeItem/addItem+资产
+        /// 解析+原版同步）为具名接缝缺口，随 DEV-V5-08 实机验收。生产路径（缝
+        /// 为 null）由 4c 在真 ManualTidyService.TidyPage 上钉（Prepare 失败
+        /// 分支不触碰资产，宿主可跑）。</summary>
+        private sealed class V503HostTransaction
+        {
+            public int Calls;
+            public Items LastItems;
+            public byte LastPage;
+            public bool LastSortDescending;
+            public string LastStrategyId;
+
+            public TidyOperationOutcome Outcome(Items items, byte page, bool sortDescending, ITidyStrategy strategy)
+            {
+                Calls++;
+                LastItems = items; LastPage = page; LastSortDescending = sortDescending; LastStrategyId = strategy.StrategyId;
+                var prep = ManualTidyService.PreparePage(items, page, sortDescending, TidyMode.SameType, strategy);
+                if (!prep.Valid) return TidyOperationOutcome.RejectedNoMutation;
+                foreach (var p in prep.Result)
+                    if (p != null && p.Placed && p.Tag is ItemJar jar) { jar.x = p.ResultX; jar.y = p.ResultY; jar.rot = p.ResultRot; }
+                return TidyOperationOutcome.Committed;
+            }
+        }
+
+        private static void ContainerGroupCommitUsesUnifiedLayout(System.Action<bool, string> check)
+        {
+            // 4a. 成功链：会话成立 + 声明指纹 = 现读内容 → 经模块的统一排版策略
+            //     提交；格子按 DEV-V5-02 计划落位、内容守恒。
+            var tx = new V503HostTransaction();
+            LitContainerTidyExecution.PageTransactionForTests = tx.Outcome;
+            try
+            {
+            var grid = ContainerGrid(7, 6, 4);
+            ContainerJar(grid, 3, 0, 0, 1, 1, 901, 1);
+            ContainerJar(grid, 0, 0, 0, 2, 2, 905, 1);
+            ContainerJar(grid, 4, 3, 0, 3, 1, 906, 1);
+            var strategy = new TaggedRowBandV1Strategy();
+
+            // 期望计划 = 同一输入同一出口再算一遍（确定性 ⇒ 可逐格对照）。
+            var packables = new List<PackableItem>();
+            for (byte i = 0; i < grid.getItemCount(); i++)
+            {
+                var jar = grid.getItem(i);
+                packables.Add(new PackableItem
+                {
+                    Tag = jar, size_x = jar.size_x, size_y = jar.size_y,
+                    GroupKey = jar.item.id, StableOrder = i,
+                    OriginalX = jar.x, OriginalY = jar.y, OriginalRot = jar.rot, PreferredRotation = jar.rot,
+                    Label = ItemUseSignalsProvider.ResolveFor(jar.item),
+                });
+            }
+            var expected = strategy.BuildPlan(new TidyInput(6, 4, true, TidyMode.SameType, packables));
+            check(expected.AllPlaced, "提交前置：期望计划本身合法（统一排版对同一输入全部放置）");
+
+            var live = Live(fingerprint: LitContainerContentFingerprint.FromItems(grid));
+            var claim = ClaimFor(grid);
+            var result = LitContainerTidyExecution.Commit(live, claim, grid, true, strategy);
+            check(result.Reason == LitContainerTidyReason.None && result.Commit == TidyCommitResult.Committed,
+                "提交：重验全过的容器整理落定（Committed，无失败原因）");
+            check(tx.Calls == 1 && ReferenceEquals(tx.LastItems, grid) && tx.LastPage == LitContainerTidyExecution.MOUNT_PAGE
+                    && tx.LastSortDescending && tx.LastStrategyId == TaggedRowBandLayout.LayoutId,
+                "提交：事务出口 = 容器网格 + 方向偏好 + tagged-row-band-v1 计划（消费 02 出口，不复制排版）");
+            var placed = new Dictionary<ushort, (byte x, byte y, byte rot)>();
+            for (byte i = 0; i < grid.getItemCount(); i++)
+            {
+                var jar = grid.getItem(i);
+                placed[jar.item.id] = (jar.x, jar.y, jar.rot);
+            }
+            foreach (var planItem in expected.Placements)
+            {
+                var want = placed[((ItemJar)planItem.Tag).item.id];
+                check(want.x == planItem.ResultX && want.y == planItem.ResultY && want.rot == planItem.ResultRot,
+                    "提交：容器格子按统一排版计划落位（id=" + ((ItemJar)planItem.Tag).item.id + "）");
+            }
+            var contentAfter = new List<(ushort id, byte amount)>(placed.Count);
+            for (byte i = 0; i < grid.getItemCount(); i++) contentAfter.Add((grid.getItem(i).item.id, grid.getItem(i).item.amount));
+            check(contentAfter.Count == 3, "提交：内容守恒（件数不变，指纹守恒由事务层已验，此处只锚件数）");
+
+            // 4b. 版本过期 → ContentChanged + 零修改（不触事务：Calls 不再增长）。
+            var stale = ContainerGrid(7, 6, 4);
+            ContainerJar(stale, 0, 0, 0, 2, 2, 905, 1);
+            var staleBefore = ContainerSnapshotTuples(stale);
+            var staleClaim = new LitContainerTidyClaim { Kind = LitContainerTidyKind.WorldContainer, Fingerprint = LitContainerContentFingerprint.FromItems(stale) ^ 0x5A5A5A5A5A5A5A5AUL };
+            var staleResult = LitContainerTidyExecution.Commit(Live(fingerprint: LitContainerContentFingerprint.FromItems(stale)), staleClaim, stale, true, strategy);
+            check(staleResult.Reason == LitContainerTidyReason.ContentChanged, "提交：声明指纹≠现读内容 = 内容已变化请重新整理");
+            check(ContainerSnapshotTuples(stale).Count == staleBefore.Count && ContainerSnapshotTuples(stale)[0] == staleBefore[0],
+                "提交：版本过期零修改（格子未动）");
+            check(tx.Calls == 1, "提交：版本过期的请求从未进入事务（构造性零修改）");
+
+            // 4c. 排版失败 → LayoutFailed + 零修改。此格关掉宿主缝、走真实
+            // ManualTidyService.TidyPage（Prepare 失败分支不触碰资产，宿主可跑
+            // ——生产接线本身在此钉死）。
+            LitContainerTidyExecution.PageTransactionForTests = null;
+            var rejectGrid = ContainerGrid(7, 4, 4);
+            ContainerJar(rejectGrid, 0, 0, 0, 2, 2, 700, 1);
+            var rejectBefore = ContainerSnapshotTuples(rejectGrid);
+            var rejectStrategy = new DevV5ContainerRejectStrategy();
+            var rejectLive = Live(fingerprint: LitContainerContentFingerprint.FromItems(rejectGrid));
+            var rejectResult = LitContainerTidyExecution.Commit(rejectLive, ClaimFor(rejectGrid), rejectGrid, true, rejectStrategy);
+            check(rejectResult.Reason == LitContainerTidyReason.LayoutFailed, "提交：排版失败有结构化原因（排版失败未改物品，真事务出口）");
+            check(ContainerSnapshotTuples(rejectGrid)[0] == rejectBefore[0], "提交：排版失败零修改");
+            LitContainerTidyExecution.PageTransactionForTests = tx.Outcome;
+
+            // 4d. page=7 不是身份——两个方向。
+            //  方向1：页号不是判定输入。同一会话事实挂在一个 page=3 的网格上（宿主
+            //  构造），身份来自会话+声明，与 items.page 无关 → 照样整理。
+            var altGrid = ContainerGrid(3, 4, 4);
+            ContainerJar(altGrid, 2, 2, 0, 2, 1, 800, 1);
+            var altLive = Live(fingerprint: LitContainerContentFingerprint.FromItems(altGrid));
+            var altResult = LitContainerTidyExecution.Commit(altLive, ClaimFor(altGrid), altGrid, true, strategy);
+            check(altResult.Commit == TidyCommitResult.Committed,
+                "page 非身份：会话与声明成立即整理，items.page 不参与判定（页号≠7 也照整理）");
+            //  方向2：page=7 但会话不成立/声明为「全部」类哨兵 → 拒绝，不碰格子。
+            var noSessionGrid = ContainerGrid(7, 4, 4);
+            ContainerJar(noSessionGrid, 0, 0, 0, 2, 1, 801, 1);
+            var noSessionBefore = ContainerSnapshotTuples(noSessionGrid);
+            var txCallsBeforeRejects = tx.Calls;
+            var noSessionResult = LitContainerTidyExecution.Commit(
+                Live(active: false, fingerprint: LitContainerContentFingerprint.FromItems(noSessionGrid)),
+                ClaimFor(noSessionGrid), noSessionGrid, true, strategy);
+            check(noSessionResult.Reason == LitContainerTidyReason.ContainerClosed,
+                "page 非身份：page=7 不构成会话事实（未打开就拒，原因=容器已关闭）");
+            check(ContainerSnapshotTuples(noSessionGrid)[0] == noSessionBefore[0] && tx.Calls == txCallsBeforeRejects,
+                "page 非身份：该拒绝零修改（不触事务）");
+            var allPagesClaim = new LitContainerTidyClaim { Kind = (LitContainerTidyKind)0xFF, Fingerprint = 1UL };
+            check(LitContainerTidyVerifier.Verify(Live(), allPagesClaim) == LitContainerTidyReason.UnsupportedKind,
+                "page 非身份：AllPages 哨兵不是容器种类（0xFF 声明 = 无 adapter 支持）");
+
+            // 4e. 空容器：合法成功（0 件，格子不动也算 Committed——事务层空页语义）。
+            var emptyGrid = ContainerGrid(7, 6, 4);
+            var emptyResult = LitContainerTidyExecution.Commit(
+                Live(fingerprint: LitContainerContentFingerprint.FromItems(emptyGrid)),
+                ClaimFor(emptyGrid), emptyGrid, true, strategy);
+            check(emptyResult.Reason == LitContainerTidyReason.None && emptyResult.Commit == TidyCommitResult.Committed,
+                "提交：空容器合法收敛（无物品可排即成功，不报失败原因）");
+            }
+            finally
+            {
+                LitContainerTidyExecution.PageTransactionForTests = null;
+            }
+        }
+
+        /// <summary>Test-only rejecting strategy (the one built-in adapter is
+        /// untouched): proves LayoutFailed classification without engine-side
+        /// oversized anomalies.</summary>
+        private sealed class DevV5ContainerRejectStrategy : ITidyStrategy
+        {
+            public string StrategyId { get { return "v5-03-reject-fixture"; } }
+
+            public TidyPlan BuildPlan(TidyInput input)
+            {
+                var placements = new List<PackableItem>();
+                foreach (var item in input.Items)
+                    placements.Add(new PackableItem { Tag = item.Tag, size_x = item.size_x, size_y = item.size_y, Placed = false });
+                return new TidyPlan(StrategyId, placements, false);
+            }
+        }
+
+        // ─────────────────────────────────────────────────────────────────
+        // 组5：容器线协议（功能私有帧形：版本信封 + 恰字节长度 fail-closed）。
+        // 请求不含页号（身份=种类+指纹；「page=7 不是身份」的协议面锚）。
+        // ─────────────────────────────────────────────────────────────────
+        private static void ContainerGroupWireCodec(System.Action<bool, string> check)
+        {
+            var frame = LitTidyWireCodec.BuildContainerTidyRequest(42UL, 7u, (byte)LitContainerTidyKind.WorldContainer, 0xDEADBEEFCAFEBEEFUL, true);
+            check(frame.Length == 1 + 1 + 1 + 8 + 4 + 1 + 8 + 1, "线协议：容器请求帧 = [ver][kind7][proto][token][reqId][kind][fingerprint][desc] 恰 24 字节");
+            check(LitTidyWireCodec.TryReadEnvelope(frame, out var msgType, out var body) && msgType == LitTidyWireCodec.MsgRequestContainerTidy,
+                "线协议：容器请求信封版本/种类字节可解（PayloadVersion=1 + 新消息号 7）");
+            check(LitTidyWireCodec.TryReadContainerTidyRequest(body, out var token, out var reqId, out var kindByte, out var fingerprint, out var desc)
+                    && token == 42UL && reqId == 7u && kindByte == (byte)LitContainerTidyKind.WorldContainer
+                    && fingerprint == 0xDEADBEEFCAFEBEEFUL && desc,
+                "线协议：容器请求逐字段往返（token/reqId/kind/fingerprint/desc）");
+
+            // 失败形全部 fail-closed（解码失败 = 帧不存在，与畸形 RequestTidy 同纪律）。
+            check(!LitTidyWireCodec.TryReadContainerTidyRequest(null, out _, out _, out _, out _, out _), "线协议：null body 拒");
+            check(!LitTidyWireCodec.TryReadContainerTidyRequest(new byte[10], out _, out _, out _, out _, out _), "线协议：短包拒");
+            var trailing = new byte[body.Length + 1];
+            Buffer.BlockCopy(body, 0, trailing, 0, body.Length);
+            check(!LitTidyWireCodec.TryReadContainerTidyRequest(trailing, out _, out _, out _, out _, out _), "线协议：尾随数据拒");
+            var badProto = (byte[])body.Clone(); badProto[0] = 2;
+            check(!LitTidyWireCodec.TryReadContainerTidyRequest(badProto, out _, out _, out _, out _, out _), "线协议：协议版本≠3 拒");
+            var badToken = (byte[])body.Clone(); Array.Clear(badToken, 1, 8);
+            check(!LitTidyWireCodec.TryReadContainerTidyRequest(badToken, out _, out _, out _, out _, out _), "线协议：token=0 拒");
+            var badKind = (byte[])body.Clone(); badKind[13] = 3;
+            check(!LitTidyWireCodec.TryReadContainerTidyRequest(badKind, out _, out _, out _, out _, out _), "线协议：kind∉{1,2} 拒（世界/后备箱之外的种类不是合法声明）");
+            var badReqId = (byte[])body.Clone(); Array.Clear(badReqId, 9, 4);
+            check(!LitTidyWireCodec.TryReadContainerTidyRequest(badReqId, out _, out _, out _, out _, out _), "线协议：requestId=0 拒");
+
+            // 结果帧：[ver][kind8][token][reqId][result][reason]，恰 8+4+1+1+2。
+            var result = LitTidyWireCodec.BuildContainerTidyResult(42UL, 7u, TidyCommitResult.Rejected, (byte)LitContainerTidyReason.ContentChanged);
+            check(LitTidyWireCodec.TryReadEnvelope(result, out var rmsgType, out var rbody) && rmsgType == LitTidyWireCodec.MsgContainerTidyResult,
+                "线协议：容器结果信封可解（新消息号 8）");
+            check(LitTidyWireCodec.TryReadContainerTidyResult(rbody, out var rtoken, out var rreqId, out var rresult, out var rreason)
+                    && rtoken == 42UL && rreqId == 7u && rresult == TidyCommitResult.Rejected
+                    && rreason == (byte)LitContainerTidyReason.ContentChanged,
+                "线协议：容器结果逐字段往返（结果字节 + 结构化原因码）");
+            var okResult = LitTidyWireCodec.BuildContainerTidyResult(42UL, 8u, TidyCommitResult.Committed, (byte)LitContainerTidyReason.None);
+            check(LitTidyWireCodec.TryReadEnvelope(okResult, out _, out var okBody)
+                    && LitTidyWireCodec.TryReadContainerTidyResult(okBody, out _, out _, out var okRes, out var okReason)
+                    && okRes == TidyCommitResult.Committed && okReason == 0,
+                "线协议：成功结果原因码=None（成功不携带失败文案）");
+            var badResultByte = (byte[])rbody.Clone(); badResultByte[12] = 4;
+            check(!LitTidyWireCodec.TryReadContainerTidyResult(badResultByte, out _, out _, out _, out _), "线协议：结果字节>3 拒");
+            var badReasonByte = (byte[])rbody.Clone(); badReasonByte[13] = 9;
+            check(!LitTidyWireCodec.TryReadContainerTidyResult(badReasonByte, out _, out _, out _, out _), "线协议：原因码越界拒（0..8 冻结域）");
+            var committedWithReason = LitTidyWireCodec.BuildContainerTidyResult(42UL, 9u, TidyCommitResult.Committed, (byte)LitContainerTidyReason.LayoutFailed);
+            check(LitTidyWireCodec.TryReadEnvelope(committedWithReason, out _, out var cwBody)
+                    && !LitTidyWireCodec.TryReadContainerTidyResult(cwBody, out _, out _, out _, out _),
+                "线协议：Committed 携带非 None 原因的矛盾帧拒收（成功⇔无因）");
+
+            // 旧页协议不因本票扩面：page=7 的 RequestTidyV2 仍是畸形（既有纪律，此处反向钉）。
+            check(!LitTidyWireCodec.TryReadTidyRequest(LitTidyWireCodec.BuildTidyRequest(1UL, 1u, 7, TidyMode.SameType, true, null)
+                    .Skip(2).ToArray(), out _, out _, out _, out _, out _, out _),
+                "隔离：服装页协议仍拒 page=7（容器走新种类帧，不借道页号）");
+        }
+
+        // ─────────────────────────────────────────────────────────────────
+        // 组6：容器整理联机全链（loopback 双端 + 假权威，零 Harmony/零引擎）。
+        // 证明：发送门（challenge/会话）、准入与账本重放、主线程派发、结果帧
+        // 回送（含结构化原因）、客户端待确认清除、失败中文可见、容器路径
+        // 无快捷键 ack、无 TidyCompleted 发布、与全身整理账本共闸不互踩。
+        // ─────────────────────────────────────────────────────────────────
+        private sealed class DevV5ContainerAuthority : ILitTidyAuthority
+        {
+            public int PlayerExecuteCount;
+            public int ContainerExecuteCount;
+            public LitContainerTidyRequestContext LastContainer;
+            public TidyCommitResult ContainerCommitResult = TidyCommitResult.Committed;
+            public LitContainerTidyReason ContainerReason = LitContainerTidyReason.None;
+
+            public List<HotkeySnapshot> CaptureClientHotkeys() { return new List<HotkeySnapshot>(); }
+
+            public LitAuthorityResult ExecuteServerTidy(LitTidyRequestContext request)
+            {
+                PlayerExecuteCount++;
+                return LitAuthorityResult.From(TidyOperationOutcome.Committed);
+            }
+
+            public LitContainerAuthorityResult ExecuteServerContainerTidy(LitContainerTidyRequestContext request)
+            {
+                ContainerExecuteCount++;
+                LastContainer = request;
+                return new LitContainerAuthorityResult
+                {
+                    Outcome = ContainerCommitResult == TidyCommitResult.Committed ? TidyOperationOutcome.Committed : TidyOperationOutcome.RejectedNoMutation,
+                    Reason = ContainerReason,
+                };
+            }
+
+            public LitHotkeyRestoreResult RestoreServerHotkeys(ulong peerSteamId, List<HotkeyRestoreEntry> entries)
+            {
+                return new LitHotkeyRestoreResult { Restored = 0, Verified = 0, Cleared = 0, FailedIndices = new List<byte>() };
+            }
+
+            public bool VerifyClientConvergence(List<LitNewPositionMapping> mappings) { return true; }
+        }
+
+        private static LitContainerSessionObservation HarnessObs(
+            LitContainerSessionKind kind = LitContainerSessionKind.WorldContainer,
+            bool active = true, bool permission = true, bool running = true,
+            bool titleBar = true, bool grid = true)
+        {
+            return new LitContainerSessionObservation
+            {
+                Kind = kind, SessionActive = active, PermissionGranted = permission,
+                FeatureRunning = running, TitleBarPresent = titleBar, GridNonEmpty = grid,
+            };
+        }
+
+        // DEV-V5-03 自带假件（不触碰既有组的私有件，避免跨组串扰）。
+        private sealed class V5SettingsView : IScopedFeatureSettings
+        {
+            public readonly List<SettingEntryView> Entries = new List<SettingEntryView>();
+            public uint Revision = 7U;
+            public int GetSnapshotCalls;
+
+            public FeatureSettingsSnapshot GetSnapshot(SettingRevisionScope revisionScope)
+            {
+                GetSnapshotCalls++;
+                return new FeatureSettingsSnapshot(new FeatureId(LitRuntime.FeatureIdValue), 1U,
+                    revisionScope, Revision, SettingSyncState.Ready, SettingSnapshotSource.LocalPersistent, Entries);
+            }
+
+            public bool TryGet(string settingId, out SettingValue value, out uint revision)
+            {
+                value = default(SettingValue);
+                revision = Revision;
+                for (var index = 0; index < Entries.Count; index++)
+                {
+                    if (Entries[index].SettingId != settingId) continue;
+                    value = Entries[index].EffectiveValue;
+                    return true;
+                }
+                return false;
+            }
+
+            public SettingChangeResult Submit(ScopedSettingChangeRequest request)
+            {
+                return new SettingChangeResult(false, FrameworkErrorCode.SettingRejected, Revision, default(FeatureSettingsSnapshot));
+            }
+
+            internal void SetEntry(string settingId, SettingValue value)
+            {
+                for (var index = 0; index < Entries.Count; index++)
+                {
+                    if (Entries[index].SettingId != settingId) continue;
+                    Entries.RemoveAt(index);
+                    break;
+                }
+                Entries.Add(new SettingEntryView(settingId, SettingAuthority.ClientLocal,
+                    new SettingValueOption(true, value), false, default(SettingPolicyView), value, true, true));
+            }
+
+            internal void DropEntry(string settingId)
+            {
+                for (var index = 0; index < Entries.Count; index++)
+                {
+                    if (Entries[index].SettingId != settingId) continue;
+                    Entries.RemoveAt(index);
+                    return;
+                }
+            }
+        }
+
+        private sealed class V5Lifetime : IFeatureLifetime
+        {
+            public FeatureState State = FeatureState.Running;
+            public readonly List<IDisposable> Tracked = new List<IDisposable>();
+
+            public bool TryTrack(IDisposable registration) { Tracked.Add(registration); return true; }
+
+            public FeatureStatusView CurrentStatus
+            {
+                get { return new FeatureStatusView(new FeatureId(LitRuntime.FeatureIdValue), State, FrameworkErrorCode.None, FeatureStopReason.None, "v5-03-fake", 1UL); }
+            }
+        }
+
+        private sealed class DevV5ContainerHarness
+        {
+            public BetterUnturnedExperience.Core.Network.LocalLoopbackPair Pair;
+            public BetterUnturnedExperience.Core.Network.BueNetworkRuntime ServerRuntime;
+            public BetterUnturnedExperience.Core.Network.BueNetworkRuntime ClientRuntime;
+            public InventoryTidyModule ServerModule;
+            public InventoryTidyModule ClientModule;
+            public DevV5ContainerAuthority ServerAuthority;
+            public V5SettingsView ClientSettings;
+            public V5Lifetime ClientLifetime;
+            public readonly List<TidyCompleted> ServerTidyEvents = new List<TidyCompleted>();
+            public readonly List<byte[]> ClientRawFromServer = new List<byte[]>();
+            public readonly List<byte[]> ServerRawFromClients = new List<byte[]>();
+            public readonly List<string> ClientToasts = new List<string>();
+            public IConnectionSession ClientSession;
+            public IConnectionSession ServerSession;
+
+            public static DevV5ContainerHarness Create()
+            {
+                var localContract = new ContractVersion(2, 0);
+                var feature = new FeatureId(LitRuntime.FeatureIdValue);
+                var pair = BetterUnturnedExperience.Core.Network.LocalLoopbackTransport.CreatePair();
+                var clientRuntime = new BetterUnturnedExperience.Core.Network.BueNetworkRuntime(pair.First, localContract, 1001UL);
+                var serverRuntime = new BetterUnturnedExperience.Core.Network.BueNetworkRuntime(pair.Second, localContract, 2002UL, handshakeInitiator: false);
+                var harness = new DevV5ContainerHarness
+                {
+                    Pair = pair,
+                    ClientRuntime = clientRuntime,
+                    ServerRuntime = serverRuntime,
+                    ServerAuthority = new DevV5ContainerAuthority(),
+                };
+                var serverBus = new BetterUnturnedExperience.Core.Events.FeatureEventBus();
+                harness.ServerModule = CreateModule(serverBus, serverRuntime, isServer: true, harness.ServerAuthority, null, null);
+                var clientBus = new BetterUnturnedExperience.Core.Events.FeatureEventBus();
+                harness.ClientSettings = new V5SettingsView();
+                harness.ClientSettings.SetEntry(InventoryTidyModule.DirectionSettingId, SettingValue.Choice(InventoryTidyModule.DirectionDescendingLabel));
+                harness.ClientLifetime = new V5Lifetime();
+                harness.ClientModule = CreateModule(clientBus, clientRuntime, isServer: false, harness.ServerAuthority, harness.ClientSettings, harness.ClientLifetime);
+                harness.ClientModule.Network.Subscribe(feature, ChannelDirection.FromServer, (s, p) => harness.ClientRawFromServer.Add(p));
+                harness.ServerModule.Network.Subscribe(feature, ChannelDirection.FromClients, (s, p) => harness.ServerRawFromClients.Add(p));
+                serverBus.Subscriber(feature).Subscribe<TidyCompleted>(harness.ServerTidyEvents.Add);
+                harness.ClientModule.ContainerProbeOverride = () => new LitContainerClientView
+                {
+                    Observation = HarnessObs(),
+                    Fingerprint = 12345UL,
+                };
+                LitContainerFeedback.ToastSink = harness.ClientToasts.Add;
+                return harness;
+            }
+
+            private static InventoryTidyModule CreateModule(BetterUnturnedExperience.Core.Events.FeatureEventBus bus,
+                BetterUnturnedExperience.Core.Network.BueNetworkRuntime runtime, bool isServer, ILitTidyAuthority authority,
+                IScopedFeatureSettings settings, IFeatureLifetime lifetime)
+            {
+                var feature = new FeatureId(LitRuntime.FeatureIdValue);
+                var module = new InventoryTidyModule(feature);
+                module.ScopeDirectoryForTests = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+                    "bue-v5-03-lit-mp-" + Guid.NewGuid().ToString("N"));
+                module.FaultContextForTests = () => new LitFaultScopeContext("TestMap", 1);
+                module.NetServiceFactoryForTests = (m, net, book) => new LitTidyNetService(m, net, authority, () => isServer, book);
+                var bootstrap = new FeatureBootstrap(default(FeatureScopeIdentity), 1UL, settings,
+                    bus.Subscriber(feature), bus.Publisher(feature), bus.EventRegistry(feature), null, null, lifetime, runtime);
+                var started = module.Start(bootstrap);
+                if (!started.Started) throw new InvalidOperationException("harness: module start failed: " + started.DiagnosticId);
+                return module;
+            }
+
+            public void Handshake()
+            {
+                ClientSession = ClientRuntime.StartSession(2002UL);
+                Pump();
+                Pump();
+                if (ClientRuntime.Sessions.Count != 1 || ServerRuntime.Sessions.Count != 1)
+                    throw new InvalidOperationException("harness: handshake did not establish both sides");
+                ServerSession = ServerRuntime.Sessions[0];
+            }
+
+            public void EstablishChallenge()
+            {
+                ServerModule.Tick();
+                ClientModule.Tick();
+                Pump();
+            }
+
+            public void Pump()
+            {
+                Pair.First.Pump();
+                Pair.Second.Pump();
+            }
+        }
+
+        /// <summary>把一条容器请求帧的 kind 字节改坏（body 内偏移 = proto1+token8+reqId4）。</summary>
+        private static byte[] CorruptContainerRequestKind(byte[] frame)
+        {
+            var copy = (byte[])frame.Clone();
+            copy[1 + 1 + 1 + 8 + 4] = 3;
+            return copy;
+        }
+
+        private static void ContainerGroupFullChain(System.Action<bool, string> check)
+        {
+            var harness = DevV5ContainerHarness.Create();
+            try
+            {
+                harness.Handshake();
+                harness.EstablishChallenge();
+                check(harness.ClientRawFromServer.Count > 0 && harness.ClientRawFromServer[0][1] == LitTidyWireCodec.MsgSessionChallenge,
+                    "全链：会话 challenge 先行（容器与服装页共用服务器颁发的会话令牌）");
+
+                // 1. 客机容器点击 → 种类+指纹绑定的新帧 → 权威执行 → 结果帧回送。
+                var dispatched = harness.ClientModule.RequestContainerTidyFromUiClick();
+                check(dispatched == LitTidyRequestResult.Dispatched, "全链：challenge 就绪后容器整理点击受理（Dispatched）");
+                harness.Pump();
+                check(harness.ServerRawFromClients.Exists(p => p.Length > 1 && p[1] == LitTidyWireCodec.MsgRequestContainerTidy),
+                    "全链：容器请求以功能私有新消息 7 出线（不借道服装页消息 2）");
+                harness.ServerModule.Tick();
+                harness.Pump();
+                check(harness.ServerAuthority.ContainerExecuteCount == 1 && harness.ServerAuthority.PlayerExecuteCount == 0,
+                    "全链：主机权威恰好执行一次容器整理（且未走服装页事务）");
+                check(harness.ServerAuthority.LastContainer != null
+                        && harness.ServerAuthority.LastContainer.Kind == LitContainerTidyKind.WorldContainer
+                        && harness.ServerAuthority.LastContainer.Fingerprint == 12345UL
+                        && harness.ServerAuthority.LastContainer.PeerSteamId == 1001UL
+                        && harness.ServerAuthority.LastContainer.SortDescending,
+                    "全链：请求绑定送达权威 = 种类+内容指纹+请求者(会话身份)+方向收尾偏好");
+                check(harness.ClientRawFromServer.Exists(p => p.Length > 1 && p[1] == LitTidyWireCodec.MsgContainerTidyResult),
+                    "全链：客户端收到容器整理结果帧（功能私有消息 8）");
+                check(!harness.ServerRawFromClients.Exists(p => p.Length > 1 && p[1] == LitTidyWireCodec.MsgHotkeyFlowAck),
+                    "全链：容器路径零快捷键 ack（容器格子不卷身上快捷键）");
+                check(harness.ServerTidyEvents.Count == 0,
+                    "全链：容器整理不发布 TidyCompleted（不触发整理后自动压弹；成功=格子可见变化）");
+
+                // 2. 重放：同 (token, reqId) 再次入线 → 账本缓存重发结果，权威不再执行。
+                var containerFrame = harness.ServerRawFromClients.Find(p => p.Length > 1 && p[1] == LitTidyWireCodec.MsgRequestContainerTidy);
+                var token = BitConverter.ToUInt64(harness.ClientRawFromServer[0], 2);
+                var replay = LitTidyWireCodec.BuildContainerTidyRequest(token, 1u, (byte)LitContainerTidyKind.WorldContainer, 12345UL, true);
+                harness.ClientModule.Network.SendToServer(new FeatureId(LitRuntime.FeatureIdValue), replay, reliable: true);
+                harness.Pump();
+                harness.ServerModule.Tick();
+                harness.Pump();
+                check(harness.ServerAuthority.ContainerExecuteCount == 1, "全链：重放命中账本缓存（权威仍恰好一次）");
+                check(harness.ClientRawFromServer.FindAll(p => p.Length > 1 && p[1] == LitTidyWireCodec.MsgContainerTidyResult).Count >= 2,
+                    "全链：重放收到缓存结果帧重发");
+
+                // 3. 失败可见：权威回 Rejected(ContentChanged) → 客户端中文可见。
+                harness.ServerAuthority.ContainerCommitResult = TidyCommitResult.Rejected;
+                harness.ServerAuthority.ContainerReason = LitContainerTidyReason.ContentChanged;
+                var toastsBefore = harness.ClientToasts.Count;
+                check(harness.ClientModule.RequestContainerTidyFromUiClick() == LitTidyRequestResult.Dispatched, "全链：第二次容器点击受理");
+                harness.Pump();
+                harness.ServerModule.Tick();
+                harness.Pump();
+                check(harness.ClientToasts.Count > toastsBefore && harness.ClientToasts[harness.ClientToasts.Count - 1].Contains("变化"),
+                    "全链：服务器重验失败 → 客户端可见中文原因（禁止可点但静默没动静）");
+
+                // 4. 忙闸共享：在途服装页整理未执行时，容器请求显式 Busy（不并发两笔事务）。
+                harness.ServerAuthority.ContainerCommitResult = TidyCommitResult.Committed;
+                harness.ServerAuthority.ContainerReason = LitContainerTidyReason.None;
+                check(harness.ClientModule.RequestTidy(3, TidyMode.SameType, true) == LitTidyRequestResult.Dispatched, "全链：服装页请求受理（先占租约）");
+                harness.Pump(); // 帧到服务器：admission 占租约，执行排队在 ServerModule.Tick
+                check(harness.ClientModule.RequestContainerTidyFromUiClick() == LitTidyRequestResult.Dispatched, "全链：容器点击发出（帧出线）");
+                harness.Pump(); // 容器帧到服务器：admission 见租约被占 → Busy 回包
+                harness.Pump(); // Busy 回包到客户端
+                var busyFrame = harness.ClientRawFromServer.LastOrDefault(p => p.Length > 1 && p[1] == LitTidyWireCodec.MsgContainerTidyResult);
+                check(busyFrame != null && LitTidyWireCodec.TryReadEnvelope(busyFrame, out _, out var busyBody)
+                        && LitTidyWireCodec.TryReadContainerTidyResult(busyBody, out _, out _, out var busyResult, out var busyReason)
+                        && busyResult == TidyCommitResult.Rejected && busyReason == (byte)LitContainerTidyReason.Busy,
+                    "全链：租约被服装页事务持有 → 容器请求显式 Busy（可点后必有回响）");
+                harness.ServerModule.Tick();
+                harness.Pump();
+
+                // 5. 畸形帧 fail-closed：坏 kind 字节直接丢弃，不应答、不执行。
+                var executesBeforeMalformed = harness.ServerAuthority.ContainerExecuteCount;
+                harness.ClientModule.Network.SendToServer(new FeatureId(LitRuntime.FeatureIdValue),
+                    CorruptContainerRequestKind(containerFrame), reliable: true);
+                harness.Pump();
+                harness.ServerModule.Tick();
+                harness.Pump();
+                check(harness.ServerAuthority.ContainerExecuteCount == executesBeforeMalformed,
+                    "全链：畸形容器帧（kind=3）不触达权威（解码失败=帧不存在，与畸形服装页请求同纪律）");
+            }
+            finally
+            {
+                LitContainerFeedback.ToastSink = null;
+                harness.ClientModule.ContainerProbeOverride = null;
+                harness.ServerModule.Stop(FeatureStopReason.PluginStopping);
+                harness.ClientModule.Stop(FeatureStopReason.PluginStopping);
+            }
+        }
+
+        // ─────────────────────────────────────────────────────────────────
+        // 组7：官方先行消费（真实点击入口走会话提交 + 02 计划，本地权威角色
+        // 同构执行）+ 全身整理与容器互不卷入（Ctrl+全身只动身上五页）。
+        // ─────────────────────────────────────────────────────────────────
+        private static InventoryTidyModule V5StartContainerModule(V5Lifetime lifetime, V5SettingsView settings, out BetterUnturnedExperience.Core.Events.FeatureEventBus bus)
+        {
+            var feature = new FeatureId(LitRuntime.FeatureIdValue);
+            bus = new BetterUnturnedExperience.Core.Events.FeatureEventBus();
+            var module = new InventoryTidyModule(feature);
+            module.ScopeDirectoryForTests = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+                "bue-v5-03-lit-local-" + Guid.NewGuid().ToString("N"));
+            module.FaultContextForTests = () => new LitFaultScopeContext("TestMap", 1);
+            // 本地权威角色（LitTidyProductionAuthority.ServerRoleProbeForTests 由组内在 finally 复位）。
+            var pair = BetterUnturnedExperience.Core.Network.LocalLoopbackTransport.CreatePair();
+            var runtime = new BetterUnturnedExperience.Core.Network.BueNetworkRuntime(pair.First, new ContractVersion(2, 0), 2103UL);
+            var started = module.Start(new FeatureBootstrap(default(FeatureScopeIdentity), 9UL, settings,
+                bus.Subscriber(feature), bus.Publisher(feature), bus.EventRegistry(feature), null, null, lifetime, runtime));
+            if (!started.Started) throw new InvalidOperationException("DEV-V5-03 setup：本地模块经宿主 bootstrap 启动失败");
+            return module;
+        }
+
+        private static void ContainerGroupOfficialFirstAndIsolation(System.Action<bool, string> check)
+        {
+            var probeOwned = false;
+            var toastOwned = false;
+            InventoryTidyModule module = null;
+            var toasts = new List<string>();
+            try
+            {
+                LitContainerFeedback.ToastSink = toasts.Add;
+                toastOwned = true;
+                BetterUnturnedExperience.Core.Events.FeatureEventBus bus;
+                var lifetime = new V5Lifetime();
+                var settings = new V5SettingsView();
+                settings.SetEntry(InventoryTidyModule.DirectionSettingId, SettingValue.Choice(InventoryTidyModule.DirectionDescendingLabel));
+                module = V5StartContainerModule(lifetime, settings, out bus);
+                LitTidyProductionAuthority.ServerRoleProbeForTests = () => true; // 本地路径：单人/主机同权威
+                probeOwned = true;
+
+                // 7a. 官方先行消费：本地容器点击 = 会话观察 → 重验 → 统一排版提交（同一出口）。
+                var grid = ContainerGrid(7, 6, 4);
+                ContainerJar(grid, 4, 2, 0, 2, 2, 905, 1);
+                ContainerJar(grid, 0, 0, 0, 1, 1, 901, 1);
+                // 与组4 同一宿主缝理由：真机提交写面游戏外不可跑（资产初始化），
+                // 本地权威路径在这里钉「点击→入队→重验→消费统一排版计划」。
+                var localTx = new V503HostTransaction();
+                LitContainerTidyExecution.PageTransactionForTests = localTx.Outcome;
+                var live = Live(fingerprint: LitContainerContentFingerprint.FromItems(grid));
+                module.ContainerProbeOverride = () => new LitContainerClientView
+                {
+                    Observation = HarnessObs(),
+                    Fingerprint = LitContainerContentFingerprint.FromItems(grid),
+                    Live = live,
+                    ContainerItems = grid,
+                };
+                var events = new List<TidyCompleted>();
+                bus.Subscriber(new FeatureId(LitRuntime.FeatureIdValue)).Subscribe<TidyCompleted>(events.Add);
+
+                // 期望计划：提交前用同一策略出口对同一输入再算一遍（确定性 ⇒ 可逐格对照）。
+                var expected = module.Strategy.BuildPlan(new TidyInput(6, 4, true, TidyMode.SameType, DevV503Pack(grid, 0)));
+                var result = module.RequestContainerTidyFromUiClick();
+                check(result == LitTidyRequestResult.Dispatched, "官方先行：本地容器点击经模块入口受理（Dispatched）");
+                module.Tick(); // 主线程队列派发
+                var ids = new HashSet<ushort>();
+                for (byte i = 0; i < grid.getItemCount(); i++) ids.Add(grid.getItem(i).item.id);
+                check(ids.Count == 2, "官方先行：本地容器整理已提交且内容守恒（2 件都在）");
+                var placedAt = new Dictionary<ushort, (byte, byte)>();
+                for (byte i = 0; i < grid.getItemCount(); i++) placedAt[grid.getItem(i).item.id] = (grid.getItem(i).x, grid.getItem(i).y);
+                foreach (var placement in expected.Placements)
+                {
+                    var item = ((ItemJar)placement.Tag).item;
+                    check(placedAt[item.id] == (placement.ResultX, placement.ResultY),
+                        "官方先行：本地容器落位 = 02 统一排版计划（同入口，不复制算法）");
+                }
+                check(events.Count == 0, "隔离：本地容器整理不发布 TidyCompleted（不触发自动压弹，与联机侧同纪律）");
+
+                // 7b. 生命周期门：功能未 Running，点击原生回退且不触碰容器。
+                var frozenGrid = ContainerGrid(7, 6, 4);
+                ContainerJar(frozenGrid, 1, 1, 0, 2, 1, 770, 1);
+                var frozenBefore = ContainerSnapshotTuples(frozenGrid);
+                var frozenModule = V5StartContainerModule(new V5Lifetime { State = FeatureState.Disabled }, settings, out _);
+                frozenModule.ContainerProbeOverride = () => new LitContainerClientView
+                {
+                    Observation = HarnessObs(running: false),
+                    Fingerprint = 1UL,
+                    Live = Live(),
+                    ContainerItems = frozenGrid,
+                };
+                var frozenResult = frozenModule.RequestContainerTidyFromUiClick();
+                frozenModule.Tick();
+                check(frozenResult == LitTidyRequestResult.NativeFallback && ContainerSnapshotTuples(frozenGrid)[0] == frozenBefore[0],
+                    "生命周期：非 Running 点击原生回退且零修改（按钮在册≠执行许可）");
+
+                // 7c. 能力不可用（无会话/无权限）点击 → 显式拒绝 + 中文可见，不进事务。
+                var noSessionModule = V5StartContainerModule(lifetime, settings, out _);
+                var ghostGrid = ContainerGrid(7, 6, 4);
+                ContainerJar(ghostGrid, 0, 0, 0, 1, 1, 771, 1);
+                var ghostBefore = ContainerSnapshotTuples(ghostGrid);
+                noSessionModule.ContainerProbeOverride = () => new LitContainerClientView
+                {
+                    Observation = HarnessObs(active: false),
+                    Fingerprint = LitContainerContentFingerprint.FromItems(ghostGrid),
+                    Live = Live(active: false, fingerprint: LitContainerContentFingerprint.FromItems(ghostGrid)),
+                    ContainerItems = ghostGrid,
+                };
+                var noSessionToasts = toasts.Count;
+                check(noSessionModule.RequestContainerTidyFromUiClick() == LitTidyRequestResult.RejectedContainerUnavailable,
+                    "能力门：投影不可用时点击显式拒绝（RejectedContainerUnavailable），不进事务");
+                check(toasts.Count > noSessionToasts && toasts[toasts.Count - 1].Contains("关闭"),
+                    "能力门：拒绝即刻中文可见（关箱瞬间点旧按钮=说原因，不空响）");
+                noSessionModule.Tick();
+                check(ContainerSnapshotTuples(ghostGrid)[0] == ghostBefore[0], "能力门：该路径零修改");
+
+                // 7d. 已保存偏好纪律（与服装页同一 Q59 读法）：读不到方向不发明组合。
+                var noPrefModule = V5StartContainerModule(lifetime, new V5SettingsView(), out _);
+                noPrefModule.ContainerProbeOverride = () => new LitContainerClientView
+                {
+                    Observation = HarnessObs(),
+                    Fingerprint = 1UL,
+                    Live = Live(),
+                    ContainerItems = ContainerGrid(7, 6, 4),
+                };
+                check(noPrefModule.RequestContainerTidyFromUiClick() == LitTidyRequestResult.RejectedPreferenceUnavailable,
+                    "偏好：无已保存方向快照时拒绝（RejectedPreferenceUnavailable，不发明未保存组合）");
+
+                // 7e. 熔断闸：本地故障打开后容器点击同样被拒（功能级共享，不另造第二套闸）。
+                module.FaultGate.Open("v5-03 fixture circuit", restoreVerified: true);
+                var circuitGrid = ContainerGrid(7, 6, 4);
+                ContainerJar(circuitGrid, 0, 0, 0, 1, 1, 772, 1);
+                var circuitBefore = ContainerSnapshotTuples(circuitGrid);
+                var circuitResult = module.RequestContainerTidyFromUiClick();
+                module.Tick();
+                check(circuitResult == LitTidyRequestResult.RejectedFaultCircuit && ContainerSnapshotTuples(circuitGrid)[0] == circuitBefore[0],
+                    "熔断：闸开时容器整理被拒且零修改（与服装页同闸，禁第二套 BUE 整理锁）");
+                module.FaultGate.Reset();
+            }
+            finally
+            {
+                if (probeOwned) LitTidyProductionAuthority.ServerRoleProbeForTests = null;
+                if (toastOwned) LitContainerFeedback.ToastSink = null;
+                LitContainerTidyExecution.PageTransactionForTests = null;
+                module?.Stop(FeatureStopReason.PluginStopping);
+            }
+
+            // 7f. Ctrl+全身不含容器（回归钉，两侧都钉）：
+            //  · 全身整理 = 服装页五页事务，输入里永远不出现容器种类声明；
+            //  · 容器入口没有「全身」形态（无 AllPages 种类，见组5 编译面+运行面）。
+            check(LitContainerTidyKind.WorldContainer == (LitContainerTidyKind)1 && LitContainerTidyKind.VehicleTrunk == (LitContainerTidyKind)2,
+                "隔离：容器种类域冻结 1..2（无全身/无页号哨兵）");
+            check(LitContainerTidyVerifier.Verify(Live(), new LitContainerTidyClaim { Kind = (LitContainerTidyKind)LitRuntime.AllPages, Fingerprint = 1000UL })
+                    == LitContainerTidyReason.UnsupportedKind,
+                "隔离：AllPages 哨兵不是容器种类（全身形态在容器协议里不存在）");
+        }
+
+        /// <summary>把宿主网格的 jar 转成排版输入（顺序与 PreparePage 同口径）。</summary>
+        private static List<PackableItem> DevV503Pack(Items grid, byte page)
+        {
+            var list = new List<PackableItem>(grid.getItemCount());
+            for (byte i = 0; i < grid.getItemCount(); i++)
+            {
+                var jar = grid.getItem(i);
+                list.Add(new PackableItem
+                {
+                    Tag = jar, size_x = jar.size_x, size_y = jar.size_y,
+                    GroupKey = jar.item.id, StableOrder = i,
+                    OriginalX = jar.x, OriginalY = jar.y, OriginalRot = jar.rot, PreferredRotation = jar.rot,
+                    Label = ItemUseSignalsProvider.ResolveFor(jar.item),
+                });
+            }
+            return list;
+        }
+    }
+}

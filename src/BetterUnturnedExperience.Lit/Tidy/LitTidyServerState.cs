@@ -166,6 +166,13 @@ namespace BetterUnturnedExperience.Lit
             public RequestState State;
             public TidyCommitResult Result;
             public List<LitNewPositionMapping> Mappings;
+            /// <summary>DEV-V5-03: the cached answer of a CONTAINER tidy
+            /// request (result frame carries the structured reason, not the
+            /// hotkey-mapping frame). False for every player-page entry.</summary>
+            public bool IsContainerTidy;
+            /// <summary>DEV-V5-03: wire reason byte (LitContainerTidyReason)
+            /// for cached container results; 0 for the player-page flow.</summary>
+            public byte ReasonCode;
         }
 
         private struct Record
@@ -251,6 +258,30 @@ namespace BetterUnturnedExperience.Lit
         internal void MarkFailed(ulong peer, ulong connectionGeneration, ulong token, uint requestId)
         {
             MarkResult(peer, connectionGeneration, token, requestId, RequestState.Failed, TidyCommitResult.Rejected, null);
+        }
+
+        /// <summary>DEV-V5-03: the container path's terminal mark — the
+        /// cached replay must answer with a CONTAINER result frame (the entry
+        /// carries the kind marker + structured reason byte).</summary>
+        internal void MarkContainerResult(ulong peer, ulong connectionGeneration, ulong token, uint requestId,
+            RequestState state, TidyCommitResult result, byte reasonCode)
+        {
+            var key = LedgerKey(peer, connectionGeneration, token);
+            lock (sync)
+            {
+                if (!entries.TryGetValue(key, out var list)) return;
+                for (int i = 0; i < list.Count; i++)
+                {
+                    if (list[i].Entry.RequestId != requestId) continue;
+                    var updated = list[i].Entry;
+                    updated.State = state;
+                    updated.Result = result;
+                    updated.IsContainerTidy = true;
+                    updated.ReasonCode = reasonCode;
+                    list[i] = new Record { RecordedAt = list[i].RecordedAt, Entry = updated };
+                    return;
+                }
+            }
         }
 
         /// <summary>One connection generation dies: its ledger entries (peer@gen@token keys) go; other generations stay.</summary>

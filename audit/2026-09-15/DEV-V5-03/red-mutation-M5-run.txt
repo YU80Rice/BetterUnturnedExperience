@@ -1,0 +1,1 @@
+System.InvalidOperationException: DEV-V5-03 red collection (4): 飺 openerӱ˺Ϸؿ޸ģԭ=ʧȥȨ || ˳Ȩڰ汾Ⱦٱݣ || ַȨ opener ѻ = ʧȥȨޣ opener ά adapter ж || ַȨԭ/ʵܾcheckRot= ʧȥȨޣBUE 

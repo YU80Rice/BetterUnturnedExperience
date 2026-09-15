@@ -172,6 +172,12 @@ namespace BetterUnturnedExperience.Lit
     /// <summary>
     /// Client pending request table: only responses matching a pending
     /// (generation, token, requestId) are accepted. Entries expire.
+    /// DEV-V5-03: the container path reuses the table and marks its entries
+    /// with Page = 7 (the container mount position — a player-page request
+    /// can never carry page 7: the codec and the authority both refuse it),
+    /// so the marker cleanly separates which response kind may consume which
+    /// pending entry (a container result never clears a player-page pending,
+    /// and vice versa).
     /// </summary>
     internal sealed class LitClientPendingTable
     {
@@ -180,6 +186,11 @@ namespace BetterUnturnedExperience.Lit
             public byte Page;
             public TidyMode Mode;
             public bool SortDescending;
+
+            /// <summary>DEV-V5-03: pending entry recorded for a container
+            /// tidy request (page 7 = the mount position marker, never a
+            /// player page).</summary>
+            public bool IsContainerRequest { get { return Page == LitContainerTidyExecution.MOUNT_PAGE; } }
         }
 
         internal static readonly TimeSpan EntryTtl = TimeSpan.FromSeconds(30);
@@ -195,6 +206,13 @@ namespace BetterUnturnedExperience.Lit
         internal bool IsPending(ulong connectionGeneration, ulong token, uint requestId)
         {
             return pending.Contains(LitTidyClientKeys.Request(connectionGeneration, token, requestId));
+        }
+
+        /// <summary>DEV-V5-03: read the pending entry so a response handler
+        /// can check the container marker before consuming it.</summary>
+        internal bool TryGetPending(ulong connectionGeneration, ulong token, uint requestId, out PendingEntry entry)
+        {
+            return pending.TryGet(LitTidyClientKeys.Request(connectionGeneration, token, requestId), out entry);
         }
 
         internal void ClearPending(ulong connectionGeneration, ulong token, uint requestId)

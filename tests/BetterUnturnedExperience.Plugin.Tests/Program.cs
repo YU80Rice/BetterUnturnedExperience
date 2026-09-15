@@ -293,6 +293,11 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     AssertDevV502TaggedRowBand();
                     return 0;
                 }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--bue-v5-03-container-session-red")
+                {
+                    DevV5ContainerSessionTests.Run(collectAllFailures: true);
+                    return 0;
+                }
                 if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--bue-v2-send-semantics-red")
                 {
                     AssertBueV2SessionDrivenSendSemantics(collectAllFailures: true);
@@ -472,6 +477,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 AssertPlatformPanelNotice();
                 AssertLitSingleplayerPath();
                 AssertDevV502TaggedRowBand();
+                DevV5ContainerSessionTests.Run();
                 AssertRuntimeCompletionBarrierIsolates();
                 AssertManagementPanelConsumesRuntimeCatalog();
                 AssertManagementPanelOpenHooks();
@@ -3686,6 +3692,15 @@ namespace BetterUnturnedExperience.Plugin.Tests
             {
                 RestoreCount++;
                 return new LitHotkeyRestoreResult { Restored = entries?.Count ?? 0, Verified = entries?.Count ?? 0, Cleared = 0, FailedIndices = new List<byte>() };
+            }
+
+            /// <summary>DEV-V5-03: the player-page fake never serves container
+            /// tidy — the container chain rides its own authority fake in
+            /// DevV5ContainerSessionTests. A call here would mean the two
+            /// paths crossed, so it answers loudly.</summary>
+            public LitContainerAuthorityResult ExecuteServerContainerTidy(LitContainerTidyRequestContext request)
+            {
+                throw new NotSupportedException("FakeLitAuthority does not serve container tidy");
             }
 
             public bool VerifyClientConvergence(List<LitNewPositionMapping> mappings)

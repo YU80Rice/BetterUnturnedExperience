@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Reflection;
 using System.Reflection.Emit;
+using System.Runtime.CompilerServices;
 using HarmonyLib;
 using SDG.Unturned;
 using UnityEngine;
@@ -199,6 +200,12 @@ namespace BetterUnturnedExperience.Lit
         private static PropertyInfo s_PosOffsetX;
         private static PropertyInfo s_SizeOffsetX;
         private static PropertyInfo s_SizeOffsetY;
+        // DEV-V5-03: the container button's show/hide rides ISleekElement.IsVisible.
+        // Soft-resolved: a miss means the button stays hidden (never flashes a
+        // button the capability could not answer for).
+        private static PropertyInfo s_IsVisible;
+        // DEV-V5-03: last pushed container-button visibility (flip-only sync).
+        private static bool s_ContainerVisible;
         // 按钮 (ISleekButton)
         private static PropertyInfo s_Text;
         private static PropertyInfo s_TooltipText;
@@ -233,18 +240,24 @@ namespace BetterUnturnedExperience.Lit
         private const float TIDY_POS_OFFSET_X  = -130f;
         private const float TIDY_SIZE_X        = 60f;
 
-        // ── 容器页（page=STORAGE=7，headers[5]）不注入（v2.0.1 起的既定裁决，
-        // DEV-V4-06 延续）：V2 协议仅支持 page 2..6 服装页；容器页涉及
-        // InteractableStorage 生命周期、跨玩家并发、工坊虚拟容器等独立权限模型，
-        // 不能与服装页共用同一套规则；注入会造成 UI 可点击但服务端确定性拒绝
-        // 的误导性 UI。旧 STORAGE 布局常量已随本票退役删除。
+        // ── 容器页（DEV-V5-03 重开：第五阶段容器会话整理）──
+        // v2.0.1 的「不注入 STORAGE」裁决由 V5-T1/V5-T4 显式重开：新边界是
+        // 容器会话（种类+会话+请求者+版本），不是把服装页协议上限改成 7。
+        // 服装页注入循环（headers[0..4]）保持 5 页不变；容器按钮是一颗独立
+        // 的表面元素：其全部几何与文案由 LitContainerTitleBarAdapter（容器标题栏
+        // surface adapter）单源提供——本 patch 只消费那个出口，不自持任何容器
+        // 几何常量（V5-T4 Q2：布局由容器标题栏 adapter 提供，不复用服装页 -130）。
+        // 可见性由能力投影逐拍决定（T4 Q4：能力为可用才画）。工坊虚拟/展示柜等
+        // 不支持种类投影不可用 → 不画，诊断原因走日志与提示通道。
 
         // headers 循环上限：i=0..4 -> page 2..6（SLOTS..PANTS 服装页）。
+        // DEV-V5-03：容器标题栏是独立一颗（page 7 登记），不并入本循环。
         private const int HEADER_INJECT_COUNT = 5;
 
         // DEV-V4-06：tooltip 用玩家语言钉死手势契约（Q54 原文）。DEV-V5-02：
         // 三档退役后不再提「全局模式」——唯一统一排版，方向仅是设置页的收尾
-        // 偏好；手势契约不变（整理/整理全身，不含仓储栏）。
+        // 偏好；手势契约不变（整理/整理全身，不含仓储栏——第五阶段重开后
+        // 「全身」仍不含容器，容器有自己的一颗）。
         private const string TOOLTIP_TIDY =
             "左键：整理当前栏；Ctrl+左键：按统一分段排版整理全身（不含仓储栏）";
 
@@ -293,6 +306,7 @@ namespace BetterUnturnedExperience.Lit
             s_PosOffsetX  = GetInterfaceProperty(s_ISleekElementType, "PositionOffset_X");
             s_SizeOffsetX = GetInterfaceProperty(s_ISleekElementType, "SizeOffset_X");
             s_SizeOffsetY = GetInterfaceProperty(s_ISleekElementType, "SizeOffset_Y");
+            s_IsVisible   = GetInterfaceProperty(s_ISleekElementType, "IsVisible"); // DEV-V5-03 soft
             if (s_PosScaleX == null || s_PosOffsetX == null || s_SizeOffsetX == null || s_SizeOffsetY == null)
             {
                 LogError("ISleekElement 布局属性定位失败！");
@@ -420,7 +434,7 @@ namespace BetterUnturnedExperience.Lit
         }
 
         // ─────────────────────────────────────────────────────────────────
-        // Postfix：构造完成后注入 5 颗「整理」按钮
+        // Postfix：构造完成后注入 5 颗「整理」按钮 + DEV-V5-03 容器标题栏一颗
         // ─────────────────────────────────────────────────────────────────
         public static void Postfix()
         {
@@ -440,25 +454,138 @@ namespace BetterUnturnedExperience.Lit
             // ctor=新仪表盘：旧行为=覆盖在册（不去重）——仪表盘重建时旧按钮随旧
             // headers 丢弃，新页必须重画（DEV-V4-09 泵路径才去重）。
             InjectButtonsInto(headers, skipTrackedPages: false);
+            // DEV-V5-03: the container title-bar button rides the same armed
+            // generation — created hidden, then answered by the capability
+            // projection (trunk may already be mounted at construction time).
+            EnsureContainerButton(headers);
+            RefreshContainerButtonVisibility(module);
         }
 
         // DEV-V4-09 F1（实机二轮=实时注入）：由模块 Tick 泵每 16 拍调用一次——
-        // Start 运行在机器 Starting 态（九态门必然拒绝），重启用落地 Running 后
-        // 由泵补注入；仪表盘未构造时静态读失败/为 null=无事可做（首个 ctor
+        // Start 运行在机器 Starting 态（九态门必然拒绝），重启用落地 Running
+        // 后由泵补注入；仪表盘未构造时静态读失败/为 null=无事可做（首个 ctor
         // Postfix 会注入）。与 ctor 路径的差异：在册去重（同一存活的 headers，
         // 重画=双按钮；Q55 移除失败页引用保留→跳过→下次拆除重试）。
         internal static void TryInjectIntoAliveDashboard(InventoryTidyModule module)
         {
             if (module == null || !module.ShouldInjectTidyButtonForNewPage) return;
             if (InjectButtonForTests == null && !module.PatchesInstalled) return;
-            // DEV-V4-09（用户预警「日志要刷疯了」）：全页在册=无事可做，**静默
-            // 短路**——不解析 Glazier、不打注入完成行（16 拍一次 ≈ 60fps 每秒
-            // 3.75 次，稳态刷行=小时万行级噪音；Phase-3 F1 日志风暴同类零容忍）。
+            // DEV-V4-09（用户预警「日志要刷疯了」）：全页在册+容器在册=无事可做，
+            // **静默短路**——不解析 Glazier、不打注入完成行（16 拍一次 ≈ 60fps 每
+            // 秒 3.75 次，稳态刷行=小时万行级噪音；Phase-3 F1 日志风暴同类零容忍）。
             // 部分在册（个别页创建失败）仍走到注入=重试自愈，真做事才打日志。
-            if (s_TidyButtons.Count >= HEADER_INJECT_COUNT) return;
             Array headers = HeadersForTests != null ? HeadersForTests() : ReadStaticHeaders();
             if (headers == null) return;
+            // DEV-V5-03: the container button rides the same pump — created at
+            // most once (page-7 registry dedupe), then its visibility is a
+            // per-beat answer of the capability projection (打开且可用才画；
+            // 关闭/失去权限/不支持类型 → 藏，诊断行走日志). A headers array
+            // without the storage element draws nothing at all (same rule).
+            EnsureContainerButton(headers);
+            RefreshContainerButtonVisibility(module);
+            if (CountTrackedPlayerPages() >= HEADER_INJECT_COUNT) return;
             InjectButtonsInto(headers, skipTrackedPages: true);
+        }
+
+        private static int CountTrackedPlayerPages()
+        {
+            var n = 0;
+            for (var page = HotkeySnapshotUtil.TIDYABLE_PAGE_MIN; page <= HotkeySnapshotUtil.TIDYABLE_PAGE_MAX; page++)
+                if (s_TidyButtons.ContainsKey((byte)page)) n++;
+            return n;
+        }
+
+        // ─────────────────────────────────────────────────────────────────
+        // DEV-V5-03: the container title-bar button (一颗，page 7 在册)。
+        // 几何 = 容器标题栏 adapter 提供（左对齐 60×60 @ x=10）——服装页的
+        // 右侧 -130 不复用：容器标题无耐久/品质角标，而展示柜右侧还有原版
+        // rot_x/y/z（本阶段展示柜整体不画，见能力投影）。初始不画；每拍由
+        // 能力投影决定显/藏（画=会话打开且可用；藏=其余一切）。
+        // ─────────────────────────────────────────────────────────────────
+        private static void EnsureContainerButton(Array headers)
+        {
+            if (s_TidyButtons.ContainsKey(LitContainerTidyExecution.MOUNT_PAGE)) return;
+            if (headers == null || headers.Length <= LitContainerTitleBarAdapter.HeaderIndex) return;
+            object headerElement;
+            try { headerElement = headers.GetValue(LitContainerTitleBarAdapter.HeaderIndex); }
+            catch (Exception) { return; }
+            if (headerElement == null) return;
+
+            var page = LitContainerTidyExecution.MOUNT_PAGE;
+            object tidyButton = null;
+            Delegate tidyHandler = null;
+            if (InjectButtonForTests != null)
+            {
+                if (!InjectButtonForTests(page, headerElement)) return;
+            }
+            else
+            {
+                WarmupReflection();
+                if (s_GlazierType == null || s_ISleekElementType == null || s_ISleekButtonType == null || s_OnClicked == null) return;
+                object glazier;
+                try { glazier = s_GlazierGet.Invoke(null, s_EmptyArgs); }
+                catch (Exception e) { LogError("容器整理按钮：Glazier.Get() 失败 " + e.Message); return; }
+                if (glazier == null) return;
+                if (!s_CreateButtonResolved)
+                {
+                    s_CreateButton = AccessTools.Method(glazier.GetType(), "CreateButton", new Type[0]);
+                    if (s_CreateButton == null) { LogError("容器整理按钮：CreateButton 未定位"); return; }
+                    s_CreateButtonResolved = true;
+                }
+                try
+                {
+                    tidyButton = s_CreateButton.Invoke(glazier, s_EmptyArgs);
+                    if (tidyButton == null) return;
+                    // 几何/文案全部来自容器标题栏 surface adapter（单源，不复用服装页偏移）。
+                    s_PosScaleX.SetValue(tidyButton, LitContainerTitleBarAdapter.PositionScaleX, null);
+                    s_PosOffsetX.SetValue(tidyButton, LitContainerTitleBarAdapter.PositionOffsetX, null);
+                    s_SizeOffsetX.SetValue(tidyButton, LitContainerTitleBarAdapter.ButtonSizeX, null);
+                    s_SizeOffsetY.SetValue(tidyButton, LitContainerTitleBarAdapter.ButtonSizeY, null);
+                    s_Text.SetValue(tidyButton, LitContainerTitleBarAdapter.ButtonText, null);
+                    s_TooltipText.SetValue(tidyButton, LitContainerTitleBarAdapter.TooltipText, null);
+                    SetContainerVisible(tidyButton, false); // 能力投影每拍再定
+                    tidyHandler = CreatePageDelegate(s_OnClicked.EventHandlerType, page);
+                    s_OnClicked.AddEventHandler(tidyButton, tidyHandler);
+                    s_OneArg[0] = tidyButton;
+                    s_AddChild.Invoke(headerElement, s_OneArg);
+                }
+                catch (Exception e) { LogError("容器整理按钮注入失败: " + e.Message); return; }
+                // 生产提示面：只有真实画了按钮的路径才绑 toast（宿主测试的
+                // 记录器不被覆写）；U3DS 永不到此（补丁不武装）。
+                if (LitContainerFeedback.ToastSink == null)
+                    LitContainerFeedback.ToastSink = LitContainerFeedback.ProductionSink;
+                LogInfo("容器标题栏整理按钮已就位（初始藏，按能力投影显/藏）");
+            }
+            s_TidyButtons[page] = tidyButton;
+            s_TidyClickHandlers[page] = tidyHandler;
+            s_TidyHeaders[page] = headerElement;
+            s_ContainerVisible = false;
+        }
+
+        private static void RefreshContainerButtonVisibility(InventoryTidyModule module)
+        {
+            if (!s_TidyButtons.TryGetValue(LitContainerTidyExecution.MOUNT_PAGE, out var button) || button == null) return;
+            var available = module.ContainerCapabilityAvailable(true, out var reason, out var diagnostic);
+            if (available == s_ContainerVisible) return; // 只在翻转时动作（16 拍一次稳态零日志）
+            s_ContainerVisible = available;
+            SetContainerVisible(button, available);
+            if (!available && reason != LitContainerTidyReason.None)
+                TidyDiagnosticLog.Info("container-tidy-surface", "[TidyUI] 容器整理按钮藏起：" + LitContainerTidyReasons.ChineseText(reason)
+                    + (string.IsNullOrEmpty(diagnostic) ? string.Empty : "（诊断=" + diagnostic + "）"));
+            else if (available)
+                TidyDiagnosticLog.Info("container-tidy-surface", "[TidyUI] 容器整理按钮已画出（能力投影=可用）。");
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static void SetContainerVisible(object button, bool visible)
+        {
+            try
+            {
+                if (s_ISleekElementType == null) WarmupReflection();
+                if (s_IsVisible == null) return; // 宿主/漂移：可见性同步缺位=保守不闪（按钮初始已藏）
+                s_IsVisible.SetValue(button, visible, null);
+            }
+            catch (Exception e) { LogError("容器整理按钮显隐设置失败: " + e.Message); }
         }
 
         // 静态 headers 读（生产路径）。任何失败（宿主无游戏程序集 / 仪表盘未
@@ -620,6 +747,15 @@ namespace BetterUnturnedExperience.Lit
         // ─────────────────────────────────────────────────────────────────
         private static void HandleTidyClick(byte page)
         {
+            // DEV-V5-03: page 7 here is the container-button registration key
+            // (a surface identity for routing), never a tidy scope — the
+            // container path is a session request, and the clothing-page
+            // protocol still refuses page 7 as malformed at the wire.
+            if (page == LitContainerTidyExecution.MOUNT_PAGE)
+            {
+                HandleContainerTidyClick();
+                return;
+            }
             Player player = Player.LocalPlayer;
             if (player?.inventory == null)
             {
@@ -646,6 +782,33 @@ namespace BetterUnturnedExperience.Lit
             }
         }
 
+        /// <summary>
+        /// DEV-V5-03: the container button click — no Ctrl semantics (整理
+        /// 全身 never includes containers: that is the clothing button's
+        /// gesture), everything else rides the module's session entry: the
+        /// lifecycle fact, the same saved preference read, the capability
+        /// projection, and the local-or-network submission. Refusals are
+        /// answered in words inside the module (never a silent dead button).
+        /// </summary>
+        private static void HandleContainerTidyClick()
+        {
+            try
+            {
+                var module = ActiveModule;
+                if (module == null)
+                {
+                    LogError("无已装配的整理模块（未启动或已关闭），容器整理点击忽略");
+                    return;
+                }
+                var result = module.RequestContainerTidyFromUiClick();
+                LogRequestResult("容器", result);
+            }
+            catch (Exception e)
+            {
+                LogError($"HandleContainerTidyClick crashed: {e}");
+            }
+        }
+
         /// <summary>请求结果的低频诊断：每个显式枚举结果一行，不猜原因。</summary>
         private static void LogRequestResult(string scope, LitTidyRequestResult result)
         {
@@ -667,7 +830,13 @@ namespace BetterUnturnedExperience.Lit
                     TidyDiagnosticLog.Info("ui-tidy-send-failed", $"[TidyUI] {scope} 整理请求发送失败（可靠通道未送达）。");
                     break;
                 case LitTidyRequestResult.RejectedPreferenceUnavailable:
-                    TidyDiagnosticLog.Info("ui-tidy-preference-unavailable", $"[TidyUI] {scope} 整理被拒绝：无法读取已保存的整理模式/方向快照（不发明未保存过的组合）。");
+                    TidyDiagnosticLog.Info("ui-tidy-preference-unavailable", $"[TidyUI] {scope} 整理被拒绝：无法读取已保存的整理方向（不发明未保存过的组合）。");
+                    break;
+                case LitTidyRequestResult.RejectedContainerUnavailable:
+                    // DEV-V5-03: the human sentence went through the feedback
+                    // channel (toast/log) already; this line is the machine
+                    // trace of the same refusal.
+                    TidyDiagnosticLog.Info("ui-container-tidy-refused", $"[TidyUI] {scope} 整理被拒绝：容器会话能力投影不可用（原因已随提示与日志）。");
                     break;
                 default:
                     TidyDiagnosticLog.Info("ui-tidy-queue-closed", $"[TidyUI] {scope} 整理被拒绝：主线程队列已关闭。");

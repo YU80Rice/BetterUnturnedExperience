@@ -23,6 +23,12 @@ namespace BetterUnturnedExperience.Lit
         // refused honestly instead of inventing a combination that was never
         // saved (V4-T5 Q59).
         RejectedPreferenceUnavailable = 6,
+        // DEV-V5-03: the container click refused at the capability projection
+        // (closed / no access / unsupported kind / grid gone) — the player
+        // already got the structured Chinese reason through the feedback
+        // channel; this result is the machine-side counterpart (never a
+        // silent no-op).
+        RejectedContainerUnavailable = 7,
     }
 
     /// <summary>
@@ -247,6 +253,12 @@ namespace BetterUnturnedExperience.Lit
         /// <summary>Host-test seam: overrides the fault scope context provider (map/slot).</summary>
         internal Func<LitFaultScopeContext> FaultContextForTests;
 
+        /// <summary>DEV-V5-03 host-test seam: replaces the engine container
+        /// session observation (and, on the local server-role path, the live
+        /// facts + mounted grid to execute on). Null = production probe reads.
+        /// Same ForTests family as NetServiceFactoryForTests / ServerRoleProbe.</summary>
+        internal Func<LitContainerClientView> ContainerProbeOverride;
+
         public FeatureStartResult Start(IFeatureBootstrap bootstrap)
         {
             if (bootstrap == null) throw new ArgumentNullException(nameof(bootstrap));
@@ -403,6 +415,11 @@ namespace BetterUnturnedExperience.Lit
             // 表 + 解绑日志缝（解绑放在收尾日志之后，阶段完成信息仍可见）。
             UninstallPatches();
             InventoryTidyUiPatch.RemoveInjectedButtons();
+            // DEV-V5-03: the production container-tidy toast is bound by the UI
+            // when it actually draws (never in Start, so host recorders are not
+            // clobbered); teardown unbinds ONLY our own production sink.
+            if (ReferenceEquals(LitContainerFeedback.ToastSink, LitContainerFeedback.ProductionSink))
+                LitContainerFeedback.ToastSink = null;
             // DEV-V2-21: the network service fully tears down AFTER the
             // dispatcher drain — queued compensations already ran; the
             // channel unregisters and every memory table drops while the
@@ -551,6 +568,147 @@ namespace BetterUnturnedExperience.Lit
             var service = NetService;
             if (service == null || !service.Started) return LitTidyRequestResult.RejectedNoSession;
             return service.RequestTidy(page, mode, sortDescending);
+        }
+
+        /// <summary>
+        /// DEV-V5-03: the visibility-side capability answer for the container
+        /// title bar. The lifecycle fact is stamped HERE (never a patch bool),
+        /// the title bar presence comes from the surface, and the rest of the
+        /// projection is the pure capability module. The click path
+        /// (RequestContainerTidyFromUiClick) runs the SAME projection against
+        /// the live observation — a button having been drawn never entitles a
+        /// click, and a refused click always answers in words.
+        /// </summary>
+        internal bool ContainerCapabilityAvailable(bool titleBarPresent, out LitContainerTidyReason reason)
+        {
+            string ignoredDiagnostic;
+            return ContainerCapabilityAvailable(titleBarPresent, out reason, out ignoredDiagnostic);
+        }
+
+        /// <summary>DEV-V5-03 (Spec R2): the refusal ALSO carries the
+        /// observation's free-text diagnostic (T4 Q1「留下可诊断原因」 — e.g.
+        /// virtual-container:state-hooked), so the surface log and the click
+        /// feedback can trace WHY the projection refused, instead of only the
+        /// six generic Chinese sentences.</summary>
+        internal bool ContainerCapabilityAvailable(bool titleBarPresent, out LitContainerTidyReason reason, out string diagnostic)
+        {
+            diagnostic = null;
+            var view = ContainerProbeOverride != null ? ContainerProbeOverride() : LitContainerSessionProbe.ObserveClient();
+            if (view == null) { reason = LitContainerTidyReason.None; return false; }
+            var obs = view.Observation;
+            obs.TitleBarPresent = titleBarPresent;
+            obs.FeatureRunning = CurrentTidyUiAction == TidyUiLifecycleAction.Inject;
+            var available = LitContainerCapability.TryProject(obs, out reason);
+            if (!available) diagnostic = obs.UnsupportedDiagnostic;
+            return available;
+        }
+
+        /// <summary>
+        /// DEV-V5-03 (V5-T4): the container title-bar button's ONE entry, the
+        /// mirror shape of the player-page click seam — availability is the
+        /// LIFECYCLE FACT first (a drawn button never entitles a click), the
+        /// saved direction is read with the same Q59 rule, and the actual
+        /// decision is the capability projection over live session facts. The
+        /// click never touches a grid itself: the server role enqueues the
+        /// authoritative execution (kind+claim bound, live re-read inside the
+        /// queue turn), a client role sends the session-addressed container
+        /// request. Every refusal answers with the structured reason through
+        /// the feedback channel — 「可点但静默失败」被逐条堵住.
+        /// </summary>
+        internal LitTidyRequestResult RequestContainerTidyFromUiClick()
+        {
+            if (!Started || ShuttingDown || CurrentTidyUiAction != TidyUiLifecycleAction.Inject)
+                return LitTidyRequestResult.NativeFallback;
+            if (Strategy == null) throw new InvalidOperationException("InventoryTidyModule.Strategy must never be null (developer error)");
+            TidyMode mode;
+            bool sortDescending;
+            if (!TryReadSavedTidyPreference(out mode, out sortDescending, out _))
+                return LitTidyRequestResult.RejectedPreferenceUnavailable;
+            var view = ContainerProbeOverride != null ? ContainerProbeOverride() : LitContainerSessionProbe.ObserveClient();
+            if (view == null)
+                return LitTidyRequestResult.RejectedContainerUnavailable; // observer itself failed — honest absence
+            var obs = view.Observation;
+            obs.FeatureRunning = true; // past the Inject gate: the lifecycle fact speaks, never a patch bool
+            if (!LitContainerCapability.TryProject(obs, out var reason))
+            {
+                if (reason != LitContainerTidyReason.None)
+                    LitContainerFeedback.ShowReason(string.IsNullOrEmpty(obs.UnsupportedDiagnostic)
+                        ? "点击被拒" : "点击被拒（诊断=" + obs.UnsupportedDiagnostic + "）", reason);
+                return LitTidyRequestResult.RejectedContainerUnavailable;
+            }
+            var claimKind = (LitContainerTidyKind)(byte)obs.Kind;
+            if (LitTidyProductionAuthority.IsServerRole())
+            {
+                if (!FaultGate.Allowed) return LitTidyRequestResult.RejectedFaultCircuit;
+                var captured = new LitContainerTidyClaim { Kind = claimKind, Fingerprint = view.Fingerprint };
+                var capturedSort = sortDescending;
+                var fromOverride = view.Live.HasValue && view.ContainerItems != null;
+                var overrideLive = fromOverride ? view.Live.Value : default(LitContainerLiveFacts);
+                var overrideGrid = view.ContainerItems;
+                bool enqueued = MainThreadDispatcher.TryEnqueue(new QueuedTidyRequest
+                {
+                    // The live facts are (re)read INSIDE the queue turn: a
+                    // container closing between click and execution must land
+                    // as ContainerClosed/ContentChanged with zero mutation,
+                    // never as a tidy of a detached grid.
+                    Work = () =>
+                    {
+                        LitContainerLiveFacts execLive;
+                        SDG.Unturned.Items execGrid;
+                        if (fromOverride) { execLive = overrideLive; execGrid = overrideGrid; }
+                        else if (!LitContainerSessionProbe.TryReadServerLive(SDG.Unturned.Player.LocalPlayer, out execLive, out execGrid))
+                        {
+                            LitContainerFeedback.ShowReason("本地执行", LitContainerTidyReason.InternalFailure);
+                            return;
+                        }
+                        ExecuteLocalContainerTidy(execLive, captured, execGrid, capturedSort);
+                    },
+                    Cancel = () => LitRuntime.LogInfo("[Tidy容器] 模块停止 drain：已入队的容器整理被取消（未执行，无副作用）"),
+                    Tag = "LocalContainerTidy kind=" + captured.Kind,
+                });
+                return enqueued ? LitTidyRequestResult.Dispatched : LitTidyRequestResult.RejectedQueueClosed;
+            }
+            var containerService = NetService;
+            if (containerService == null || !containerService.Started) return LitTidyRequestResult.RejectedNoSession;
+            return containerService.RequestContainerTidy(claimKind, view.Fingerprint, sortDescending);
+        }
+
+        /// <summary>DEV-V5-03: the local authoritative container execution
+        /// (server role — SP / listen host; U3DS answers remote requests
+        /// through the same execution core on its authority path). A verified
+        /// internal failure opens the fault gate exactly like the player
+        /// pages: the same circuit, no parallel BUE tidy lock.</summary>
+        private void ExecuteLocalContainerTidy(LitContainerLiveFacts live, LitContainerTidyClaim claim, SDG.Unturned.Items grid, bool sortDescending)
+        {
+            LitContainerTidyExecution.Result exec;
+            try
+            {
+                exec = LitContainerTidyExecution.Commit(live, claim, grid, sortDescending, Strategy);
+            }
+            catch (Exception error)
+            {
+                LitRuntime.LogError("[Tidy容器] 本地容器整理执行崩溃（未改动物品）: " + error);
+                FaultGate.Open("local container tidy crashed: " + error.Message, restoreVerified: false);
+                LitContainerFeedback.ShowReason("本地容器整理", LitContainerTidyReason.InternalFailure);
+                return;
+            }
+            switch (exec.Commit)
+            {
+                case TidyCommitResult.CriticalFailure:
+                    FaultGate.Open(exec.Reason + " during local container tidy", restoreVerified: true);
+                    LitContainerFeedback.ShowReason("本地容器整理", exec.Reason);
+                    break;
+                case TidyCommitResult.ConcurrentMutationAfterCommit:
+                    FaultGate.Open("ConcurrentMutationAfterCommit in local container tidy", restoreVerified: true);
+                    LitContainerFeedback.ShowReason("本地容器整理", exec.Reason);
+                    break;
+                case TidyCommitResult.Committed:
+                    LitContainerFeedback.ShowNote("本地", "容器整理已完成。");
+                    break;
+                default:
+                    LitContainerFeedback.ShowReason("本地容器整理", exec.Reason);
+                    break;
+            }
         }
 
         /// <summary>Tick 节拍计数（实时注入节流；uint 回绕无害）。</summary>

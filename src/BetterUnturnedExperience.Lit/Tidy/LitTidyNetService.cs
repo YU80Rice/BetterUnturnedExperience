@@ -5,8 +5,8 @@ using BetterUnturnedExperience.Contracts;
 using BetterUnturnedExperience.Contracts.BueNetwork;
 
 // DEV-V2-21: the LIT multiplayer orchestration — the feature-private tidy
-// protocol carried over the BUE named channel (FeatureId). The five message
-// kinds, the admission chain and the challenge flow are migrated from the
+// protocol carried over the BUE named channel (FeatureId). The message kinds (five migrated +
+// the DEV-V5-03 container pair), the admission chain and the challenge flow are migrated from the
 // retired standalone plugin (author: YU80Rice, MIT; attribution
 // docs/third-party/LaunchInventoryTidy-attribution.md); the transport is the
 // frozen IBueNetworkApi surface (directional subscribe, session-addressed
@@ -31,6 +31,34 @@ namespace BetterUnturnedExperience.Lit
 
         /// <summary>Client main thread: one bounded convergence probe (mapping targets present at the new coordinates).</summary>
         bool VerifyClientConvergence(List<LitNewPositionMapping> mappings);
+
+        /// <summary>DEV-V5-03: server main thread — the authoritative container tidy
+        /// (session re-verify → unified layout → atomic commit; every refusal
+        /// names a structured reason and mutates nothing). No ack, no hotkey
+        /// flow: the answer is the single result frame.</summary>
+        LitContainerAuthorityResult ExecuteServerContainerTidy(LitContainerTidyRequestContext request);
+    }
+
+    /// <summary>One admitted container tidy request, fully resolved (network
+    /// callback captured it). DEV-V5-03: the identity binding — requester is
+    /// the SESSION peer (never a payload field), kind+fingerprint is what the
+    /// requester claimed to see, and the authority re-reads both before any
+    /// mutation.</summary>
+    internal sealed class LitContainerTidyRequestContext
+    {
+        public ulong PeerSteamId;
+        public ulong ConnectionGeneration;
+        public ulong SessionToken;
+        public uint RequestId;
+        public LitContainerTidyKind Kind;
+        public ulong Fingerprint;
+        public bool SortDescending;
+    }
+
+    internal sealed class LitContainerAuthorityResult
+    {
+        public TidyOperationOutcome Outcome;
+        public LitContainerTidyReason Reason;
     }
 
     /// <summary>One admitted tidy request, fully resolved (network callback captured it).</summary>
@@ -570,6 +598,52 @@ namespace BetterUnturnedExperience.Lit
             return LitTidyRequestResult.Dispatched;
         }
 
+        /// <summary>
+        /// DEV-V5-03: the client-role container tidy request. Same gates as
+        /// the player-page path (live session → server-issued token → reliable
+        /// send decides the pending), same request-id counter (a transaction
+        /// id is unique across both request kinds within the generation), and
+        /// the pending entry carries the CONTAINER marker (page 7) so only a
+        /// container result can consume it. The request binds kind + content
+        /// fingerprint; the requester identity is the session itself.
+        /// </summary>
+        internal LitTidyRequestResult RequestContainerTidy(LitContainerTidyKind kind, ulong fingerprint, bool sortDescending)
+        {
+            if (GateClosed || !Started) return LitTidyRequestResult.NativeFallback;
+            if (isServerRole()) return LitTidyRequestResult.NativeFallback; // the host tidies locally, never self-sends
+            IConnectionSession session = null;
+            try
+            {
+                var snapshot = network.Sessions;
+                if (snapshot != null && snapshot.Count > 0) session = snapshot[0]; // the client topology has exactly one server peer
+            }
+            catch (Exception) { }
+            if (session == null)
+            {
+                LitRuntime.LogInfo("[Tidy容器] 尚未建立 BUE 会话；本次容器整理请求未发送。");
+                return LitTidyRequestResult.RejectedNoSession;
+            }
+            var generation = session.SessionId;
+            if (!clientToken.TryGetServerIssuedToken(generation, out var token))
+            {
+                LitRuntime.LogInfo("[Tidy容器] 客户端尚未收到有效服务端 session challenge；本次容器整理请求未发送。");
+                return LitTidyRequestResult.RejectedNoSession;
+            }
+            var requestId = clientToken.NextRequestId();
+            clientPending.SetPending(generation, token, requestId, LitContainerTidyExecution.MOUNT_PAGE, TidyMode.SameType, sortDescending);
+            NetworkSendResult sent;
+            try { sent = network.SendToServer(Channel, LitTidyWireCodec.BuildContainerTidyRequest(token, requestId, (byte)kind, fingerprint, sortDescending), reliable: true); }
+            catch (Exception) { sent = NetworkSendResult.LocalTransportUnavailable; }
+            if (sent != NetworkSendResult.Sent)
+            {
+                clientPending.ClearPending(generation, token, requestId);
+                LitRuntime.LogWarning("[Tidy容器] 容器整理请求发送失败（result=" + sent + "），未建立待确认。");
+                return LitTidyRequestResult.RejectedSendFailed;
+            }
+            LitRuntime.LogInfo("[Tidy容器] -> 服务器: RequestContainerTidy(reqId=" + requestId + ", kind=" + kind + ", fp=" + fingerprint + ", desc=" + sortDescending + ")");
+            return LitTidyRequestResult.Dispatched;
+        }
+
         // ── inbound frames ──────────────────────────────────────────
 
         private void HandleServerFrame(IConnectionSession session, byte[] payload)
@@ -580,6 +654,7 @@ namespace BetterUnturnedExperience.Lit
             {
                 case LitTidyWireCodec.MsgRequestTidyV2: HandleTidyRequest(session, body); break;
                 case LitTidyWireCodec.MsgHotkeyFlowAck: HandleHotkeyFlowAck(session, body); break;
+                case LitTidyWireCodec.MsgRequestContainerTidy: HandleContainerTidyRequest(session, body); break; // DEV-V5-03
                 default: break; // unknown kinds are ignored (feature-private set)
             }
         }
@@ -593,6 +668,7 @@ namespace BetterUnturnedExperience.Lit
                 case LitTidyWireCodec.MsgSessionChallenge: HandleSessionChallenge(session, body); break;
                 case LitTidyWireCodec.MsgTidyCommitted: HandleTidyCommitted(session, body); break;
                 case LitTidyWireCodec.MsgTidyHotkeyResult: HandleTidyHotkeyResult(session, body); break;
+                case LitTidyWireCodec.MsgContainerTidyResult: HandleContainerTidyResult(session, body); break; // DEV-V5-03
                 default: break;
             }
         }
@@ -614,7 +690,7 @@ namespace BetterUnturnedExperience.Lit
                 case LitAdmissionGate.AdmissionKind.InFlight:
                     return; // the original request is still executing — silent
                 case LitAdmissionGate.AdmissionKind.Cached:
-                    SendCommitted(session, token, requestId, cached.Result, cached.Mappings);
+                    ReplayCached(session, token, requestId, cached);
                     return;
                 case LitAdmissionGate.AdmissionKind.BusyDifferent:
                 case LitAdmissionGate.AdmissionKind.Rejected:
@@ -716,6 +792,127 @@ namespace BetterUnturnedExperience.Lit
             }
         }
 
+        // ── DEV-V5-03: server container tidy admission + execution ─────
+        // Shares the session token, the request ledger and the per-player
+        // lease with the player-page flow: one tidy transaction at a time per
+        // peer (the lease answers Busy), replays hit the cached container
+        // result, and the authority re-verifies kind/access/version before
+        // any mutation. No hotkey restore, no TidyCompleted publish — a
+        // container move never triggers the reload-after-tidy feature
+        // (V5-T4/V5-T7: 容器整理不是背包整理完成事件).
+
+        /// <summary>Which frame replays a cached terminal answer: the entry
+        /// itself carries the kind (a container cache must never answer a
+        /// mixed-kind replay with the hotkey-mapping frame).</summary>
+        private void ReplayCached(IConnectionSession session, ulong token, uint requestId, LitRequestLedger.LedgerEntry cached)
+        {
+            if (cached.IsContainerTidy)
+            {
+                SendContainerResult(session, token, requestId, cached.Result, cached.ReasonCode);
+                return;
+            }
+            SendCommitted(session, token, requestId, cached.Result, cached.Mappings);
+        }
+
+        private void HandleContainerTidyRequest(IConnectionSession session, byte[] body)
+        {
+            if (!LitTidyWireCodec.TryReadContainerTidyRequest(body, out var token, out var requestId, out var kindByte, out var fingerprint, out var sortDescending))
+            {
+                LitRuntime.LogWarning("[TidyNet] 服务器收到畸形 RequestContainerTidy，拒绝（peer=" + session.PeerSteamId + "）");
+                return;
+            }
+            var peer = session.PeerSteamId; // the session is the identity authority — never a payload field
+            var generation = session.SessionId;
+            var admitted = admission.TryAdmit(peer, generation, token, requestId, out var cached);
+            switch (admitted)
+            {
+                case LitAdmissionGate.AdmissionKind.InFlight:
+                    return; // the original container request is still executing — silent
+                case LitAdmissionGate.AdmissionKind.Cached:
+                    ReplayCached(session, token, requestId, cached);
+                    return;
+                case LitAdmissionGate.AdmissionKind.BusyDifferent:
+                case LitAdmissionGate.AdmissionKind.Rejected:
+                    SendContainerResult(session, token, requestId, TidyCommitResult.Rejected, (byte)LitContainerTidyReason.Busy);
+                    return;
+            }
+            var captured = new LitContainerTidyRequestContext
+            {
+                PeerSteamId = peer,
+                ConnectionGeneration = generation,
+                SessionToken = token,
+                RequestId = requestId,
+                Kind = (LitContainerTidyKind)kindByte,
+                Fingerprint = fingerprint,
+                SortDescending = sortDescending,
+            };
+            var queued = new QueuedTidyRequest
+            {
+                Work = () => ExecuteServerContainerTidyOnMainThread(captured),
+                Cancel = () =>
+                {
+                    // Stop drain / enqueue failure: the ledger lands Failed
+                    // and the client gets a terminal Rejected — with an honest
+                    // reason (功能停用中), never a silent nothing.
+                    admission.CancelNew(peer, generation, token, requestId);
+                    SendContainerResult(ResolveLiveSession(generation), token, requestId, TidyCommitResult.Rejected, (byte)LitContainerTidyReason.FeatureUnavailable);
+                },
+                Tag = "ContainerTidyRequest peer=" + peer + " reqId=" + requestId,
+            };
+            if (!MainThreadDispatcher.TryEnqueue(queued))
+            {
+                admission.CancelNew(peer, generation, token, requestId);
+                SendContainerResult(session, token, requestId, TidyCommitResult.Rejected, (byte)LitContainerTidyReason.FeatureUnavailable);
+            }
+        }
+
+        private void ExecuteServerContainerTidyOnMainThread(LitContainerTidyRequestContext req)
+        {
+            var session = ResolveLiveSession(req.ConnectionGeneration);
+            try
+            {
+                if (!faultBook.IsAllowed(req.PeerSteamId))
+                {
+                    ledger.MarkContainerResult(req.PeerSteamId, req.ConnectionGeneration, req.SessionToken, req.RequestId,
+                        LitRequestLedger.RequestState.Failed, TidyCommitResult.Rejected, (byte)LitContainerTidyReason.FeatureUnavailable);
+                    SendContainerResult(session, req.SessionToken, req.RequestId, TidyCommitResult.Rejected, (byte)LitContainerTidyReason.FeatureUnavailable);
+                    return;
+                }
+                LitContainerAuthorityResult result;
+                try { result = authority.ExecuteServerContainerTidy(req); }
+                catch (Exception error)
+                {
+                    faultBook.Open(req.PeerSteamId, "container authority crash: " + error.Message, temporary: false);
+                    ledger.MarkContainerResult(req.PeerSteamId, req.ConnectionGeneration, req.SessionToken, req.RequestId,
+                        LitRequestLedger.RequestState.Failed, TidyCommitResult.CriticalFailure, (byte)LitContainerTidyReason.InternalFailure);
+                    SendContainerResult(session, req.SessionToken, req.RequestId, TidyCommitResult.CriticalFailure, (byte)LitContainerTidyReason.InternalFailure);
+                    return;
+                }
+                if (result == null || result.Outcome == null)
+                    result = new LitContainerAuthorityResult { Outcome = TidyOperationOutcome.RejectedNoMutation, Reason = LitContainerTidyReason.InternalFailure };
+                var outcome = result.Outcome;
+                var reason = result.Reason;
+                if (outcome.Result == TidyCommitResult.Committed) reason = LitContainerTidyReason.None;
+                else if (reason == LitContainerTidyReason.None) reason = LitContainerTidyReason.LayoutFailed; // never an unnamed refusal
+                var terminal = outcome.Result == TidyCommitResult.Committed
+                    ? LitRequestLedger.RequestState.Committed
+                    : LitRequestLedger.RequestState.Failed;
+                if (outcome.Result == TidyCommitResult.CriticalFailure)
+                    faultBook.Open(req.PeerSteamId, outcome.FailureReason ?? "container CriticalFailure", temporary: outcome.FullRestorationVerified);
+                else if (outcome.Result == TidyCommitResult.ConcurrentMutationAfterCommit)
+                    faultBook.Open(req.PeerSteamId, outcome.FailureReason ?? "container ConcurrentMutationAfterCommit", temporary: false);
+                ledger.MarkContainerResult(req.PeerSteamId, req.ConnectionGeneration, req.SessionToken, req.RequestId,
+                    terminal, outcome.Result, (byte)reason);
+                SendContainerResult(session, req.SessionToken, req.RequestId, outcome.Result, (byte)reason);
+                TidyDiagnosticLog.Info("container-tidy-authority",
+                    "[Tidy容器] 权威处理完成（peer=" + req.PeerSteamId + ", reqId=" + req.RequestId + ", result=" + outcome.Result + ", reason=" + reason + "）。");
+            }
+            finally
+            {
+                leases.Release(req.PeerSteamId, req.RequestId);
+            }
+        }
+
         // ── server: hotkey flow ack → restore → result ─────────────
 
         private void HandleHotkeyFlowAck(IConnectionSession session, byte[] body)
@@ -781,6 +978,15 @@ namespace BetterUnturnedExperience.Lit
             if (!clientPending.IsPending(generation, token, requestId))
             {
                 LitRuntime.LogWarning("[TidyNet] 收到未发出的 (generation=" + generation + ", reqId=" + requestId + ") 响应，忽略（可能是旧响应或伪造）。");
+                return;
+            }
+            // DEV-V5-03: a player-page committed frame must not consume a
+            // CONTAINER pending (and the container handler mirrors this
+            // guard) — a mismatched pair is a protocol lie from the wire,
+            // dropped with a warning.
+            if (clientPending.TryGetPending(generation, token, requestId, out var pendingEntry) && pendingEntry.IsContainerRequest)
+            {
+                LitRuntime.LogWarning("[TidyNet] 收到服装页 TidyCommitted 但待确认登记为容器请求（reqId=" + requestId + "），忽略。");
                 return;
             }
             if (result != TidyCommitResult.Committed)
@@ -887,6 +1093,40 @@ namespace BetterUnturnedExperience.Lit
             }
         }
 
+        /// <summary>
+        /// DEV-V5-03 (client): consume one container tidy result. The pending
+        /// entry must exist AND be a container request (kind mismatch on the
+        /// wire is a protocol lie — dropped with a warning, never consumed).
+        /// Success is the visible grid re-arriving through vanilla's own
+        /// item fan-out (no extra sync); every failure answers in the
+        /// player's language (T4 Q4: 禁止可点但静默没动静).
+        /// </summary>
+        private void HandleContainerTidyResult(IConnectionSession session, byte[] body)
+        {
+            if (!LitTidyWireCodec.TryReadContainerTidyResult(body, out var token, out var requestId, out var result, out var reasonByte)) return;
+            var generation = session.SessionId;
+            if (!clientPending.TryGetPending(generation, token, requestId, out var entry))
+            {
+                LitRuntime.LogWarning("[Tidy容器] 收到未发出的容器整理响应（generation=" + generation + ", reqId=" + requestId + "），忽略（旧响应或伪造）。");
+                return;
+            }
+            if (!entry.IsContainerRequest)
+            {
+                LitRuntime.LogWarning("[Tidy容器] 收到容器结果帧但待确认登记为服装页请求（reqId=" + requestId + "），忽略。");
+                return;
+            }
+            clientPending.ClearPending(generation, token, requestId);
+            LitContainerTidyReasons.TryFromWire(reasonByte, out var reason);
+            if (result == TidyCommitResult.Committed)
+            {
+                LitContainerFeedback.ShowNote("结果(reqId=" + requestId + ")", "容器整理已完成。");
+                return;
+            }
+            if (result == TidyCommitResult.CriticalFailure || result == TidyCommitResult.ConcurrentMutationAfterCommit)
+                LitRuntime.LogError("[Tidy容器] 服务器报告 " + result + "（reqId=" + requestId + "）");
+            LitContainerFeedback.ShowReason("服务器重验未通过（reqId=" + requestId + "）", reason);
+        }
+
         // ── shared send / publish helpers ───────────────────────────
 
         private void SendCommitted(IConnectionSession session, ulong token, uint requestId, TidyCommitResult result, List<LitNewPositionMapping> mappings)
@@ -906,6 +1146,22 @@ namespace BetterUnturnedExperience.Lit
             {
                 LitRuntime.LogInfo("[TidyNet] -> 客机 TidyCommitted(reqId=" + requestId + ", result=" + result + ", mappings=" + (mappings?.Count ?? 0) + ")。");
             }
+        }
+
+        /// <summary>DEV-V5-03: the container result is the transaction's
+        /// terminal answer — reliable like the committed frame; a failed send
+        /// leaves the ledger cache so the client's duplicate request replays
+        /// it (the same recovery path as the player-page flow).</summary>
+        private void SendContainerResult(IConnectionSession session, ulong token, uint requestId, TidyCommitResult result, byte reasonCode)
+        {
+            var sendResult = TrySendToSession(session, LitTidyWireCodec.BuildContainerTidyResult(token, requestId, result, reasonCode));
+            if (sendResult != NetworkSendResult.Sent)
+            {
+                LitRuntime.LogWarning("[Tidy容器] ContainerTidyResult 可靠发送未送达（reqId=" + requestId + ", result=" + sendResult + "），账本缓存保留，等待客户端重发命中 Cached 路径");
+                return;
+            }
+            if (session != null)
+                LitRuntime.LogInfo("[Tidy容器] -> 客机 ContainerTidyResult(reqId=" + requestId + ", result=" + result + ", reason=" + reasonCode + ")。");
         }
 
         private void SendHotkeyResult(IConnectionSession session, ulong token, uint requestId, byte restored, byte cleared, byte failed, byte verified, List<byte> failedIndices)
