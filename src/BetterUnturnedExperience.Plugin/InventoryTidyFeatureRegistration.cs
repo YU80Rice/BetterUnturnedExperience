@@ -84,12 +84,15 @@ namespace BetterUnturnedExperience.Plugin
         }
 
         // DEV-V3-06 → DEV-V4-04 → DEV-V4-06: the settings facet is BACK as
-        // the module's TWO global choices (inventorytidy.mode / direction,
-        // ClientPreference scope); the legacy enabled master switch STAYS
-        // retired (spec「成功后旧字段从 schema 与面板退役」) — the lifecycle
-        // is the only switch and the panel draws the two Choice rows through
-        // the DEV-V4-02 row projection (T1 检验点②: LIT is the official-first
-        // real consumer of the choice controls).
+        // global choices (ClientPreference scope). DEV-V5-02 (V5-T3): the
+        // facet is now the module's ONE global choice (inventorytidy.direction
+        // stable-finish preference) — the 同类/空间/大件 mode row retires with
+        // the unified tagged row-band layout (the old stored value keeps
+        // loading harmlessly and never decides the algorithm). The legacy
+        // enabled master switch STAYS retired (spec「成功后旧字段从 schema 与
+        // 面板退役」) — the lifecycle is the only switch and the panel draws
+        // the Choice rows through the DEV-V4-02 row projection (T1 检验点②:
+        // LIT is the official-first real consumer of the choice controls).
         private sealed class Registration : IFeatureRegistration, IFeatureSettingsRegistration
         {
             private readonly InventoryTidyModule moduleForFactory;

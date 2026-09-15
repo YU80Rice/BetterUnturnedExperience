@@ -1,0 +1,5 @@
+DEV-14 official registration parity tests: FAIL
+System.InvalidOperationException: migration: even a junk legacy mode value cannot refuse the unified click (首次读取归一)
+   在 BetterUnturnedExperience.Plugin.Tests.Program.Assert(Boolean condition, String message)
+   在 BetterUnturnedExperience.Plugin.Tests.Program.AssertDevV502TaggedRowBand()
+   在 BetterUnturnedExperience.Plugin.Tests.Program.Main()

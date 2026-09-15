@@ -1,0 +1,5 @@
+DEV-14 official registration parity tests: FAIL
+System.InvalidOperationException: strategy: the plan always accounts for every input item
+   дк BetterUnturnedExperience.Plugin.Tests.Program.Assert(Boolean condition, String message)
+   дк BetterUnturnedExperience.Plugin.Tests.Program.AssertLitSingleplayerPath()
+   дк BetterUnturnedExperience.Plugin.Tests.Program.Main()

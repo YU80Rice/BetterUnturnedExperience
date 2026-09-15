@@ -38,7 +38,9 @@ namespace BetterUnturnedExperience.Lit
     ///     old per-page memory dictionaries and the previous click cache are
     ///     never consulted);
     ///   - the tidy plan is produced through the module's ITidyStrategy
-    ///     (built-in default-grid-v1 wrapping the migrated InventorySolver);
+    ///     (DEV-V5-02: the ONE built-in adapter is TaggedRowBandV1Strategy —
+    ///     the unified tagged row-band layout; the three legacy modes are
+    ///     retired to save-compatibility values and decide nothing);
     ///   - the UI patch set lives under the Harmony id = FeatureId (install
     ///     at start, UnpatchSelf at stop — spec「Harmony ID 收编」); U3DS
     ///     headless never arms it (T1 Q17, a decision gate — not exceptions);
@@ -61,10 +63,17 @@ namespace BetterUnturnedExperience.Lit
         }
 
         // DEV-V4-06: the global mode/direction ClientPreference choices (V4-T5
-        // Q56). The Chinese literals are BOTH the machine values and the
-        // display values this phase; a later i18n ticket must split
-        // machine/display explicitly, never reuse these as a stable protocol.
-        internal const string ModeSettingId = "inventorytidy.mode";
+        // Q56). DEV-V5-02 (V5-T3): the 同类/空间/大件 mode row is RETIRED from
+        // the schema and the panel — the unified tagged row-band layout is the
+        // one official method, so no saved档 decides the algorithm any more.
+        // The legacy key stays name-visible here for the save-compatibility
+        // contract: an old store entry loads harmlessly, is ignored, and
+        // disappears on the next persisted write (first-read normalization).
+        // Direction survives as a stable-finish preference only. The Chinese
+        // literals remain BOTH machine and display values this phase; a later
+        // i18n ticket must split machine/display explicitly, never reuse these
+        // as a stable protocol.
+        internal const string ModeSettingId = "inventorytidy.mode"; // legacy read-compat key (no descriptor, no row)
         internal const string DirectionSettingId = "inventorytidy.direction";
 
         private Harmony harmony;
@@ -83,55 +92,48 @@ namespace BetterUnturnedExperience.Lit
         internal InventoryTidyModule(FeatureId feature)
         {
             Feature = feature;
-            Strategy = new DefaultGridV1Strategy();
+            Strategy = new TaggedRowBandV1Strategy();
             FaultGate = new LocalTidyFaultGate();
         }
 
         /// <summary>The settings facet schema this feature declares (V3-T7:
-        /// 功能拥有 Schema; DEV-V4-06: the two global choices replace the
-        /// retired enabled toggle) — the host composes the runtime from it.
-        /// The display names are the Q56 frozen copy (整理模式/整理方向) and
-        /// the description sentences are the Q61 frozen copy, landed by
-        /// DEV-V4-07 (描述解释玩家可见效果). MaximumUtf8Bytes covers the
-        /// frozen Chinese literals (2 chars = 6 UTF-8 bytes each) with
-        /// headroom; values only arrive through the Cycle seam, which is
-        /// AllowedValues-restricted anyway.</summary>
+        /// 功能拥有 Schema; DEV-V4-06: the two global choices replaced the
+        /// retired enabled toggle; DEV-V5-02: the mode row retires with the
+        /// three档 — ONE descriptor remains, 整理方向, whose values are the
+        /// stable-finish preference the unified layout consumes). The host
+        /// composes the runtime from this list. The display name keeps the Q56
+        /// frozen literal (整理方向); the description is the DEV-V5-02 frozen
+        /// sentence replacing the Q61 pair (the档 retired with it). Values
+        /// only arrive through the Cycle seam, which is AllowedValues-
+        /// restricted anyway; MaximumUtf8Bytes covers the frozen Chinese
+        /// literals (2 chars = 6 UTF-8 bytes each) with headroom.</summary>
         internal static IReadOnlyList<SettingDescriptor> CreateSettingsDescriptors(FeatureId feature)
         {
             return new[]
             {
                 new SettingDescriptor(
-                    feature, ModeSettingId, ModeDisplayName, ModeDescription,
-                    SettingKind.Choice, SettingAuthority.ClientLocal, SettingValue.Choice(ModeSameTypeLabel),
-                    default(SettingValueOption), default(SettingValueOption), default(SettingValueOption),
-                    new[] { SettingValue.Choice(ModeSameTypeLabel), SettingValue.Choice(ModeMaxRectsLabel), SettingValue.Choice(ModeFfdLabel) },
-                    16, null, 1, 0, null, null),
-                new SettingDescriptor(
                     feature, DirectionSettingId, DirectionDisplayName, DirectionDescription,
                     SettingKind.Choice, SettingAuthority.ClientLocal, SettingValue.Choice(DirectionDescendingLabel),
                     default(SettingValueOption), default(SettingValueOption), default(SettingValueOption),
                     new[] { SettingValue.Choice(DirectionDescendingLabel), SettingValue.Choice(DirectionAscendingLabel) },
-                    16, null, 1, 1, null, null),
+                    16, null, 1, 0, null, null),
             };
         }
 
-        // Q56 frozen literal↔solver mapping: 降序 = the existing 大件优先
-        // direction; 升序 = the opposite. The labels are the machine values.
-        internal const string ModeSameTypeLabel = "同类";
-        internal const string ModeMaxRectsLabel = "空间";
-        internal const string ModeFfdLabel = "大件";
+        // Q56 frozen literals survive for direction: 降序/升序 are BOTH the
+        // machine values and the display values (stable-finish preference,
+        // DEV-V5-02). The retired mode档 literals (同类/空间/大件) no longer
+        // appear anywhere in the schema or the panel.
         internal const string DirectionDescendingLabel = "降序";
         internal const string DirectionAscendingLabel = "升序";
-        // Q56 frozen display names (the panel's row title) + DEV-V4-07 (Q61)
-        // frozen description sentences — the description explains the PLAYER-
-        // VISIBLE effect of each level, never the solver algorithm or
-        // O-LIT-1 (V4-T6 Q61: 描述解释玩家可见效果，不承诺排序算法或 O-LIT-1；
-        // 120 是显示截断，不是正文契约上限).
-        internal const string ModeDisplayName = "整理模式";
         internal const string DirectionDisplayName = "整理方向";
-        internal const string ModeDescription =
-            "同类：把相同物品聚在一起；空间：优先保留大块空位；大件：优先放置大件。对当前栏整理和全身整理都生效。";
-        internal const string DirectionDescription = "降序：大件优先；升序：小件优先。与整理模式共同决定整理顺序。";
+        // DEV-V5-02 (V5-T3) frozen description — replaces the Q61 pair that
+        // retired with the three档. Still explains the PLAYER-VISIBLE effect
+        // only (V4-T6 Q61 discipline), never the internal algorithm: the
+        // direction is now a stable-finish preference, and the tagged
+        // row-band layout is the one method.
+        internal const string DirectionDescription =
+            "降序/升序只影响完全相同条件物品的收尾摆放顺序，不改变统一分段排版的结果。";
 
         /// <summary>DEV-V4-06: the nine-state → tidy-UI action table (V4-T5
         /// Q55). Pure so the host tests pin every state explicitly; the module
@@ -469,13 +471,16 @@ namespace BetterUnturnedExperience.Lit
         /// DEV-V4-06: the title-bar button's ONE entry (Q54/Q59). Availability
         /// is re-confirmed from the LIFECYCLE FACT before anything runs — a
         /// button merely having been drawn never entitles a click — then the
-        /// SAVED ClientPreference snapshot is read (one read serves both
-        /// mode and direction; never the panel draft, never per-page memory,
-        /// never a previous-click cache) and the request rides the ordinary
-        /// RequestTidy seam. Refusals are explicit results, never fake
-        /// successes: transitions answer NativeFallback, an unreadable or
-        /// unknown-valued snapshot answers RejectedPreferenceUnavailable
-        /// (no combination that was never saved may be invented).
+        /// SAVED ClientPreference snapshot is read (DEV-V5-02: one read serves
+        /// the direction stable-finish preference; the retired mode row is not
+        /// consulted and a legacy mode entry cannot block the click; never the
+        /// panel draft, never per-page memory, never a previous-click cache)
+        /// and the request rides the ordinary RequestTidy seam. Refusals are
+        /// explicit results, never fake successes: transitions answer
+        /// NativeFallback, an unreadable or unknown-valued DIRECTION answers
+        /// RejectedPreferenceUnavailable (no combination that was never saved
+        /// may be invented). The wire still carries a mode byte — the frozen
+        /// placeholder value — so the private protocol frame is unchanged.
         /// </summary>
         internal LitTidyRequestResult RequestTidyFromUiClick(byte page, bool allPages)
         {
@@ -489,12 +494,17 @@ namespace BetterUnturnedExperience.Lit
         }
 
         /// <summary>
-        /// DEV-V4-06: the same-revision saved-preference read (Q59). The whole
-        /// preference rides ONE GetSnapshot — the store revision is captured
-        /// atomically with both values, so a torn mode/direction combination
-        /// that never existed cannot be assembled. Unknown literals or a
-        /// schema-missing entry refuse the read honestly (the caller must not
-        /// silently fall back to defaults: the saved truth is unknown then).
+        /// DEV-V4-06: the same-revision saved-preference read (Q59) — ONE
+        /// GetSnapshot, the store revision captured atomically with the value,
+        /// so a torn combination that never existed cannot be assembled.
+        /// DEV-V5-02: the retired mode row is NO LONGER consulted (a legacy
+        /// inventorytidy.mode entry in the same store is ignored — 旧档只做
+        /// 存盘兼容，首次读取归一后不再决定算法); only the direction
+        /// stable-finish preference is read. Unknown direction literals or a
+        /// schema-missing entry still refuse the read honestly (the caller
+        /// must not silently fall back to defaults: the saved truth is unknown
+        /// then). The mode output survives as the frozen wire placeholder so
+        /// the private protocol keeps its frame shape unchanged.
         /// </summary>
         internal bool TryReadSavedTidyPreference(out TidyMode mode, out bool sortDescending, out uint revision)
         {
@@ -504,32 +514,17 @@ namespace BetterUnturnedExperience.Lit
             var view = SettingsView;
             if (view == null) return false;
             var snapshot = view.GetSnapshot(SettingRevisionScope.ClientPreference);
-            var modeText = string.Empty;
             var directionText = string.Empty;
-            var hasMode = false;
             var hasDirection = false;
             for (var i = 0; i < snapshot.Entries.Count; i++)
             {
                 var entry = snapshot.Entries[i];
-                if (entry.SettingId == ModeSettingId) { modeText = entry.EffectiveValue.Text; hasMode = true; }
-                else if (entry.SettingId == DirectionSettingId) { directionText = entry.EffectiveValue.Text; hasDirection = true; }
+                if (entry.SettingId == DirectionSettingId) { directionText = entry.EffectiveValue.Text; hasDirection = true; }
             }
-            if (!hasMode || !hasDirection) return false;
-            if (!TryMapModeLabel(modeText, out mode)) return false;
+            if (!hasDirection) return false;
             if (!TryMapDirectionLabel(directionText, out sortDescending)) return false;
             revision = snapshot.Revision;
             return true;
-        }
-
-        internal static bool TryMapModeLabel(string label, out TidyMode mode)
-        {
-            switch (label)
-            {
-                case ModeSameTypeLabel: mode = TidyMode.SameType; return true;
-                case ModeMaxRectsLabel: mode = TidyMode.MaxRects; return true;
-                case ModeFfdLabel: mode = TidyMode.FFD; return true;
-                default: mode = TidyMode.SameType; return false;
-            }
         }
 
         internal static bool TryMapDirectionLabel(string label, out bool sortDescending)

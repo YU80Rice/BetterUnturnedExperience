@@ -288,6 +288,11 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     AssertLitSingleplayerPath();
                     return 0;
                 }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--bue-v5-02-tagged-layout-red")
+                {
+                    AssertDevV502TaggedRowBand();
+                    return 0;
+                }
                 if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--bue-v2-send-semantics-red")
                 {
                     AssertBueV2SessionDrivenSendSemantics(collectAllFailures: true);
@@ -466,6 +471,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 AssertBueV2PlatformSelfCheck();
                 AssertPlatformPanelNotice();
                 AssertLitSingleplayerPath();
+                AssertDevV502TaggedRowBand();
                 AssertRuntimeCompletionBarrierIsolates();
                 AssertManagementPanelConsumesRuntimeCatalog();
                 AssertManagementPanelOpenHooks();
@@ -4188,16 +4194,19 @@ namespace BetterUnturnedExperience.Plugin.Tests
         // DEV-V2-15 red anchor: LIT (inventory tidy) adoption, single-player
         // path. Freezes the four red surfaces the ticket names — strategy
         // replacement on the ITidyStrategy seam, the enabled=false native
-        // fallback, direct InventorySolver algorithm tests, and the harness
-        // exclusion from the production compile — plus the registration /
-        // panel / settings identity. RED until the Lit domain exists
+        // fallback, the direct algorithm tests (DEV-V5-02: these moved to the
+        // unified TaggedRowBandLayout group), and the harness exclusion from
+        // the production compile — plus the registration / panel / settings
+        // identity. RED until the Lit domain exists
         // (compile CS0246, then runtime assertions).
         private static void AssertLitSingleplayerPath()
         {
             // ── 1. Strategy seam: StrategyId + replacement changes the plan. ──
-            var defaultStrategy = new DefaultGridV1Strategy();
-            Assert(defaultStrategy.StrategyId == "default-grid-v1",
-                "strategy: the built-in adapter identifies as 'default-grid-v1'");
+            // DEV-V5-02: the ONE built-in adapter is now the unified tagged
+            // row-band plan (the three-档 default-grid-v1 is retired).
+            var defaultStrategy = new TaggedRowBandV1Strategy();
+            Assert(defaultStrategy.StrategyId == "tagged-row-band-v1",
+                "strategy: the built-in adapter identifies as 'tagged-row-band-v1'");
 
             var input = new TidyInput(6, 5, true, TidyMode.SameType, new List<PackableItem>
             {
@@ -4206,10 +4215,10 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 LitTestItem("c", 1, 1, 20, 2, 0, 4),
             });
             var plan = defaultStrategy.BuildPlan(input);
-            Assert(plan.StrategyId == "default-grid-v1", "strategy: the plan carries the producing adapter's StrategyId");
+            Assert(plan.StrategyId == "tagged-row-band-v1", "strategy: the plan carries the producing adapter's StrategyId");
             Assert(plan.Placements != null && plan.Placements.Count == 3,
                 "strategy: the plan always accounts for every input item");
-            Assert(plan.AllPlaced, "strategy: default-grid-v1 places every valid item on a loose grid");
+            Assert(plan.AllPlaced, "strategy: the unified plan places every valid item on a loose grid");
             for (var index = 0; index < plan.Placements.Count; index++)
             {
                 var placement = plan.Placements[index];
@@ -4239,70 +4248,13 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 && replacedPlan.Placements[0].ResultX == 0 && !replacedPlan.AllPlaced,
                 "strategy: replacing the adapter changes the plan output for the same input (seam, not solver, decides)");
             var replacedAgain = defaultStrategy.BuildPlan(input);
-            Assert(replacedAgain.StrategyId == "default-grid-v1" && replacedAgain.AllPlaced,
+            Assert(replacedAgain.StrategyId == "tagged-row-band-v1" && replacedAgain.AllPlaced,
                 "strategy: the default adapter still answers with its own plan after the replacement probe");
 
-            // ── 1b. InventorySolver direct algorithm tests (工单字面：纯算法直测，不经策略层)。 ──
-            // Determinism: identical input → identical output (stable tie-break contract).
-            var solverItemsA = new List<PackableItem> { LitTestItem("x", 2, 1, 7, 0, 0, 0), LitTestItem("y", 2, 1, 7, 1, 2, 0), LitTestItem("z", 1, 2, 8, 2, 4, 0) };
-            var solverItemsB = new List<PackableItem> { LitTestItem("x", 2, 1, 7, 0, 0, 0), LitTestItem("y", 2, 1, 7, 1, 2, 0), LitTestItem("z", 1, 2, 8, 2, 4, 0) };
-            bool okA = InventorySolver.TryPack(6, 3, solverItemsA, out var planA, true, TidyMode.SameType);
-            bool okB = InventorySolver.TryPack(6, 3, solverItemsB, out var planB, true, TidyMode.SameType);
-            Assert(okA && okB && planA.Count == 3 && planB.Count == 3,
-                "solver: SameType mode places every valid item on a loose grid");
-            for (var index = 0; index < 3; index++)
-            {
-                Assert(planA[index].Placed && planB[index].Placed
-                    && planA[index].ResultX == planB[index].ResultX && planA[index].ResultY == planB[index].ResultY
-                    && planA[index].ResultRot == planB[index].ResultRot,
-                    "solver: identical inputs produce identical plans (deterministic tie-break, run " + index + ")");
-            }
-            // Core geometric invariants: every placed item is in-bounds and the plan is overlap-free
-            // (candidate scoring may pick any candidate, these two must hold for all of them).
-            var occupied = new bool[6, 3];
-            for (var index = 0; index < 3; index++)
-            {
-                var placement = planA[index];
-                var width = (placement.ResultRot & 1) == 1 ? placement.size_y : placement.size_x;
-                var height = (placement.ResultRot & 1) == 1 ? placement.size_x : placement.size_y;
-                Assert(placement.Placed && placement.ResultX + width <= 6 && placement.ResultY + height <= 3,
-                    "solver: placed item " + index + " stays inside the grid");
-                for (var cx = placement.ResultX; cx < placement.ResultX + width; cx++)
-                    for (var cy = placement.ResultY; cy < placement.ResultY + height; cy++)
-                        Assert(!occupied[cx, cy], "solver: no two placed items overlap at " + cx + "," + cy);
-                for (var cx = placement.ResultX; cx < placement.ResultX + width; cx++)
-                    for (var cy = placement.ResultY; cy < placement.ResultY + height; cy++)
-                        occupied[cx, cy] = true;
-            }
-            // Oversized item: not a "valid" item by the solver's contract (it can
-            // never fit), so the pack succeeds with it unplaced — the SERVICE
-            // layer rejects on the unplaced count (section 2 pins that).
-            var oversized = new List<PackableItem> { LitTestItem("big", 4, 4, 9, 0, 0, 0), LitTestItem("small", 1, 1, 10, 1, 3, 3) };
-            bool oversizedOk = InventorySolver.TryPack(3, 3, oversized, out var oversizedPlan, true, TidyMode.SameType);
-            Assert(oversizedOk, "solver: an item larger than the grid is not a valid item (pack still succeeds)");
-            Assert(oversizedPlan.Count == 2 && !oversizedPlan[0].Placed && oversizedPlan[1].Placed,
-                "solver: the oversized item stays unplaced while valid items still place");
-            // FFD mode direct: row-major first-fit places both; candidate
-            // scoring may pick either sort direction, so locate by Tag —
-            // the plan list is in the candidate's SORTED order, not input order.
-            var ffdItems = new List<PackableItem> { LitTestItem("f1", 2, 2, 1, 0, 0, 0), LitTestItem("f2", 1, 2, 2, 1, 2, 0) };
-            bool ffdOk = InventorySolver.TryPack(4, 2, ffdItems, out var ffdPlan, true, TidyMode.FFD);
-            Assert(ffdOk && ffdPlan.Count == 2,
-                "solver: FFD first-fit places every valid item");
-            var ffdFirst = ffdPlan[0];
-            var ffdSecond = ffdPlan[1];
-            Assert(ffdFirst.Placed && ffdSecond.Placed, "solver: both FFD items placed");
-            Assert(ffdFirst.ResultX + ffdFirst.size_x <= 4 && ffdFirst.ResultY + ffdFirst.size_y <= 2
-                && ffdSecond.ResultX + ffdSecond.size_x <= 4 && ffdSecond.ResultY + ffdSecond.size_y <= 2,
-                "solver: both FFD placements stay inside the grid");
-            Assert(ffdFirst.ResultX + ffdFirst.size_x <= ffdSecond.ResultX
-                || ffdSecond.ResultX + ffdSecond.size_x <= ffdFirst.ResultX
-                || ffdFirst.ResultY + ffdFirst.size_y <= ffdSecond.ResultY
-                || ffdSecond.ResultY + ffdSecond.size_y <= ffdFirst.ResultY,
-                "solver: FFD placements never overlap");
-            // Empty page: legal, no plan entries.
-            bool emptyOk = InventorySolver.TryPack(4, 4, new List<PackableItem>(), out var emptyPlan, true, TidyMode.SameType);
-            Assert(emptyOk && emptyPlan.Count == 0, "solver: an empty page packs trivially");
+            // ── 1b. (DEV-V5-02) 纯算法直测已迁到统一排版模块的独立红测组：
+            // AssertDevV502TaggedRowBand 直接测 TaggedRowBandLayout.TryPlanLayout
+            // （确定性/硬性不变量/失败零提交/规格列举输入类型），本组只留策略缝。
+            // The old default-grid-v1 direct tests retired with the solver.
 
             // ── 2. ManualTidyService consumes the strategy (service-level seam). ──
             LitRuntime.MainThreadId = System.Threading.Thread.CurrentThread.ManagedThreadId;
@@ -4353,8 +4305,8 @@ namespace BetterUnturnedExperience.Plugin.Tests
             module.AttachSettingsView(settingsView);
             Assert(module.Feature.Value == "io.github.yu80rice.bue.inventory-tidy",
                 "module: the feature identity is the frozen LIT FeatureId");
-            Assert(module.Strategy.StrategyId == "default-grid-v1",
-                "module: the module default strategy is the built-in adapter");
+            Assert(module.Strategy.StrategyId == "tagged-row-band-v1",
+                "module: the module default strategy is the built-in adapter (DEV-V5-02: the unified tagged row-band plan)");
             Assert(!module.PatchesInstalled,
                 "module: construction installs no Harmony patches (installation is an explicit start step)");
             Assert(module.RequestLocalTidy(3, TidyMode.SameType, true) == LitTidyRequestResult.NativeFallback,
@@ -4366,10 +4318,12 @@ namespace BetterUnturnedExperience.Plugin.Tests
 
             // DEV-V4-06: the click seam reads the SAVED ClientPreference
             // snapshot (never the panel draft, never per-page memory) — the
-            // descriptor defaults serve an empty store (同类 + 降序).
+            // descriptor defaults serve an empty store. DEV-V5-02: only the
+            // direction default remains (降序 stable-finish); the mode output
+            // is the frozen wire placeholder, no longer a read of any档.
             Assert(module.TryReadSavedTidyPreference(out var savedMode, out var savedDescending, out _)
                 && savedMode == TidyMode.SameType && savedDescending,
-                "module: the saved-preference read serves the schema defaults on an empty store (同类+降序)");
+                "module: the saved-preference read serves the schema default (降序) on an empty store (DEV-V5-02: mode is the wire placeholder, not an算法档)");
 
             module.FaultGate.Open("host-red-test", restoreVerified: false);
             Assert(module.RequestLocalTidy(3, TidyMode.SameType, true) == LitTidyRequestResult.RejectedFaultCircuit,
@@ -4423,7 +4377,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 solutionRoot = solutionRoot.Parent;
             Assert(solutionRoot != null, "exclusion: solution root located from the test base directory");
             var pluginCsproj = File.ReadAllText(Path.Combine(solutionRoot.FullName, "src", "BetterUnturnedExperience.Plugin", "BetterUnturnedExperience.Plugin.csproj"));
-            Assert(pluginCsproj.Contains("EmbeddedLit\\Solver\\InventorySolver.cs"),
+            Assert(pluginCsproj.Contains("EmbeddedLit\\Layout\\TaggedRowBandLayout.cs"),
                 "exclusion: the Plugin compile list is the real production list (positive control: migrated Lit sources present)");
             var excludedSources = new[]
             {
@@ -4511,6 +4465,654 @@ namespace BetterUnturnedExperience.Plugin.Tests
             {
                 BueRuntimeHost.Bind(previousRuntime);
             }
+        }
+
+        // DEV-V5-02 (V5-T3) 统一标签分段行带排版：红测先行组。断言面 = 冻结标签
+        // 表、分类器纯映射（含弹药箱按 FillTargetItem 蓝图关系认）、TryPlanLayout
+        // 硬性不变量（不重叠/不越界/不丢物/确定性/失败零提交/规划不改输入）、
+        // 规格列举输入类型（同 ID 医疗堆、细长混放、并排、换行、旋转改善 vs 更差、
+        // 「其他」、弹药箱 vs SUPPLY、放得下却重叠失败不得再现）、官方先行消费
+        // （模块默认策略+PreparePage 标签填充+旧三档不再决定算法）、设置迁移
+        // （mode 从 schema/面板退役、旧档可读不决定算法、下次保存归一），以及
+        // 生产编译列表与程序集类型层面的旧三套退役。
+        private static void AssertDevV502TaggedRowBand()
+        {
+            // ── 1. 冻结标签表：20 档、固定序，不是 EItemType 枚举序 ──
+            Assert(PlayerUseLabels.Count == 20, "labels: the frozen player-use table has exactly 20 segments");
+            Assert((int)PlayerUseLabel.RangedWeapon == 0 && (int)PlayerUseLabel.Magazine == 1
+                && (int)PlayerUseLabel.Medical == 2 && (int)PlayerUseLabel.Melee == 3
+                && (int)PlayerUseLabel.Throwable == 4 && (int)PlayerUseLabel.Ammo == 5
+                && (int)PlayerUseLabel.AmmoBox == 6 && (int)PlayerUseLabel.GunAttachment == 7
+                && (int)PlayerUseLabel.Food == 8 && (int)PlayerUseLabel.Drink == 9
+                && (int)PlayerUseLabel.Tool == 10 && (int)PlayerUseLabel.ClothingArmor == 11
+                && (int)PlayerUseLabel.BackpackContainer == 12 && (int)PlayerUseLabel.Fuel == 13
+                && (int)PlayerUseLabel.SupplyCraft == 14 && (int)PlayerUseLabel.Build == 15
+                && (int)PlayerUseLabel.FacilityTrap == 16 && (int)PlayerUseLabel.MapCompass == 17
+                && (int)PlayerUseLabel.Key == 18 && (int)PlayerUseLabel.Other == 19,
+                "labels: 远程武器、弹匣、医疗用品、近战武器、投掷物、弹药、弹药箱、枪械配件、食物、饮水、工具、服装与防护装备、背包与容器、燃料、补给与制作材料、建造、设施与陷阱、地图与指南针、钥匙、其他 (V5-T3 frozen order)");
+            Assert(PlayerUseLabels.DiagnosticName(PlayerUseLabel.AmmoBox) == "弹药箱"
+                && PlayerUseLabels.DiagnosticName(PlayerUseLabel.Other) == "其他",
+                "labels: diagnostics names land in the player language (internal surface only, never a control)");
+
+            // ── 2. 分类器纯映射（T3 四条裁决之一：Item → PlayerUseLabel 内部缝）──
+            // 明确类型优先：
+            Assert(DevV502Classify(EItemType.GUN) == PlayerUseLabel.RangedWeapon
+                && DevV502Classify(EItemType.MELEE) == PlayerUseLabel.Melee
+                && DevV502Classify(EItemType.MEDICAL) == PlayerUseLabel.Medical
+                && DevV502Classify(EItemType.THROWABLE) == PlayerUseLabel.Throwable
+                && DevV502ClassifyCaliber() == PlayerUseLabel.Ammo
+                && DevV502Classify(EItemType.FOOD) == PlayerUseLabel.Food
+                && DevV502Classify(EItemType.WATER) == PlayerUseLabel.Drink
+                && DevV502Classify(EItemType.FUEL) == PlayerUseLabel.Fuel
+                && DevV502Classify(EItemType.KEY) == PlayerUseLabel.Key,
+                "classifier: explicit EItemType answers win (远程/近战/医疗/投掷/弹药/食物/饮水/燃料/钥匙)");
+            // 弹匣不能把所有 MAGAZINE 无条件当可用弹匣：
+            Assert(DevV502Classify(EItemType.MAGAZINE, true, false) == PlayerUseLabel.Magazine
+                && DevV502Classify(EItemType.MAGAZINE, false, false) == PlayerUseLabel.Other,
+                "classifier: MAGAZINE counts as 弹匣 only with a real ItemMagazineAsset — never unconditionally");
+            // 弹药箱按给弹匣供弹的蓝图关系认，不单看 SUPPLY；AMMO 显式类型优先：
+            Assert(DevV502Classify(EItemType.SUPPLY, false, true) == PlayerUseLabel.AmmoBox
+                && DevV502Classify(EItemType.SUPPLY, false, false) == PlayerUseLabel.SupplyCraft
+                && DevV502Classify(EItemType.BOX, false, true) == PlayerUseLabel.AmmoBox
+                && DevV502Classify(EItemType.BOX, false, false) == PlayerUseLabel.Other
+                && DevV502ClassifyCaliber(isFillSupply: true) == PlayerUseLabel.Ammo,
+                "classifier: 弹药箱 = FillTargetItem fill relation (SUPPLY/BOX in the magazine-supplies set, never SUPPLY alone); a caliber loose-round stays 弹药 even when it is a fill supply");
+            // 配件族与其余族段：
+            Assert(DevV502Classify(EItemType.SIGHT) == PlayerUseLabel.GunAttachment
+                && DevV502Classify(EItemType.OPTIC) == PlayerUseLabel.GunAttachment
+                && DevV502Classify(EItemType.TACTICAL) == PlayerUseLabel.GunAttachment
+                && DevV502Classify(EItemType.GRIP) == PlayerUseLabel.GunAttachment
+                && DevV502Classify(EItemType.BARREL) == PlayerUseLabel.GunAttachment
+                && DevV502Classify(EItemType.HAT) == PlayerUseLabel.ClothingArmor
+                && DevV502Classify(EItemType.VEST) == PlayerUseLabel.ClothingArmor
+                && DevV502Classify(EItemType.BACKPACK) == PlayerUseLabel.BackpackContainer
+                && DevV502Classify(EItemType.TOOL) == PlayerUseLabel.Tool
+                && DevV502Classify(EItemType.BARRICADE) == PlayerUseLabel.Build
+                && DevV502Classify(EItemType.STRUCTURE) == PlayerUseLabel.Build
+                && DevV502Classify(EItemType.TRAP) == PlayerUseLabel.FacilityTrap
+                && DevV502Classify(EItemType.MAP) == PlayerUseLabel.MapCompass
+                && DevV502Classify(EItemType.COMPASS) == PlayerUseLabel.MapCompass,
+                "classifier: attachment/clothing/backpack/tool/build/facility/map families map per the frozen table");
+            // 分类失败/无可靠类型 → 其他（弹药箱 vs SUPPLY 的另一半：工坊杂项不猜用途）：
+            Assert(DevV502ClassifyUnknownType() == PlayerUseLabel.Other
+                && DevV502Classify(EItemType.CLOUD) == PlayerUseLabel.Other
+                && DevV502Classify(EItemType.LIBRARY) == PlayerUseLabel.Other
+                && DevV502Classify(EItemType.TIRE) == PlayerUseLabel.Other,
+                "classifier: items without a reliable type land in 其他 — never dropped (材料/任务物品裁决)");
+
+            // ── 3. TryPlanLayout 硬性不变量（V5-T3：硬性先于视觉）──
+            // 3a 确定性：相同输入两轮，逐件坐标/旋转一致。
+            var detItemsA = DevV502FixtureMixedLabels();
+            var detItemsB = DevV502FixtureMixedLabels();
+            bool detOkA = TaggedRowBandLayout.TryPlanLayout(6, 4, true, detItemsA, out var detPlanA, out _);
+            bool detOkB = TaggedRowBandLayout.TryPlanLayout(6, 4, true, detItemsB, out var detPlanB, out _);
+            Assert(detOkA && detOkB, "layout: the mixed-label fixture plans fully on a 6x4 (能放下必须放下)");
+            Assert(detPlanA.Count == detPlanB.Count, "layout: determinism keeps the entry count");
+            for (var i = 0; i < detPlanA.Count; i++)
+                Assert(detPlanA[i].ResultX == detPlanB[i].ResultX && detPlanA[i].ResultY == detPlanB[i].ResultY
+                    && detPlanA[i].ResultRot == detPlanB[i].ResultRot,
+                    "layout: identical input produces an identical plan (deterministic)");
+
+            // 3b 规划不改真实背包：TryPlanLayout 不得写入输入 items（克隆出参）。
+            var untouched = new List<PackableItem> { DevV502Item("u1", 2, 1, PlayerUseLabel.RangedWeapon, 10, 0, 3, 0, 0, 0) };
+            untouched[0].Placed = true; untouched[0].ResultX = 7; untouched[0].ResultY = 6;
+            TaggedRowBandLayout.TryPlanLayout(6, 4, true, untouched, out var clonePlan, out _);
+            Assert(untouched[0].Placed && untouched[0].ResultX == 7 && untouched[0].ResultY == 6,
+                "layout: TryPlanLayout never writes the caller's items (规划不改真实背包)");
+            Assert(!ReferenceEquals(clonePlan[0], untouched[0]) && (string)clonePlan[0].Tag == "u1",
+                "layout: the plan is a fresh clone list carrying the caller's tags");
+
+            // 3c 失败零提交：放不下 → false + 全部 Placed=false + 明确原因。
+            bool tightOk = TaggedRowBandLayout.TryPlanLayout(2, 2, true, new List<PackableItem>
+            {
+                DevV502Item("t1", 2, 2, PlayerUseLabel.Food, 1, 0, 0, 0, 0, 0),
+                DevV502Item("t2", 1, 1, PlayerUseLabel.Drink, 2, 0, 0, 0, 0, 0),
+            }, out var tightPlan, out var tightReason);
+            Assert(!tightOk, "layout: a grid that cannot hold every valid item fails explicitly");
+            Assert(tightPlan != null && tightPlan.Count == 2, "layout: a failed plan still accounts for every input item");
+            Assert(!tightPlan[0].Placed && !tightPlan[1].Placed,
+                "layout: failure answers with ZERO placements — never a half-committed layout");
+            Assert(!string.IsNullOrEmpty(tightReason), "layout: the failure carries an explicit reason");
+
+            // 3d/3e 空页平凡成功；零尺寸异常件保留未放置但整页成功——「全部放置
+            // 或明确失败」按 T3 在合法件（尺寸为正）上量化（迁入求解器既有契约，
+            // 服务层未放置计数同口径 size>0 才计），异常件由调用方原位保留=不丢物。
+            Assert(TaggedRowBandLayout.TryPlanLayout(4, 4, true, new List<PackableItem>(), out var emptyPlan, out _)
+                && emptyPlan.Count == 0,
+                "layout: an empty page plans trivially");
+            Assert(TaggedRowBandLayout.TryPlanLayout(4, 4, true, new List<PackableItem>
+            {
+                DevV502Item("ok", 1, 1, PlayerUseLabel.Medical, 1, 0, 0, 0, 0, 0),
+                DevV502Item("zero", 0, 0, PlayerUseLabel.Medical, 2, 0, 0, 0, 0, 0),
+            }, out var zeroPlan, out _)
+                && zeroPlan.Count == 2 && zeroPlan[0].Placed && !zeroPlan[1].Placed,
+                "layout: a zero-size anomaly stays unplaced (valid-items contract) and nothing is dropped by the plan");
+
+            // 3f 超限件：任何朝向都放不进 → 整单失败（无半成品）。
+            Assert(!TaggedRowBandLayout.TryPlanLayout(3, 3, true, new List<PackableItem>
+            {
+                DevV502Item("big", 4, 4, PlayerUseLabel.BackpackContainer, 1, 0, 0, 0, 0, 0),
+                DevV502Item("small", 1, 1, PlayerUseLabel.Medical, 2, 0, 0, 0, 0, 0),
+            }, out var bigPlan, out _)
+                && !bigPlan[0].Placed && !bigPlan[1].Placed,
+                "layout: an oversized item fails the whole plan (all-or-nothing), keeping every entry unplaced");
+
+            // 硬性验证器本身跑在核心夹具上（不重叠/不越界/每件一次）。
+            Assert(DevV502ValidatePlan(detPlanA, 6, 4, detItemsA.Count),
+                "layout: the mixed-label plan satisfies every hard invariant");
+
+            // ── 4. 规格列举输入类型（V5-T3 Q4：先准备这些输入类型）──
+            // 4a 同 ID 医疗堆：同组件在段内连续（左到右一行，段不穿插）。
+            Assert(TaggedRowBandLayout.TryPlanLayout(6, 3, true, new List<PackableItem>
+            {
+                DevV502Item("m1", 1, 1, PlayerUseLabel.Medical, 500, 0, 0, 0, 0, 0),
+                DevV502Item("m2", 1, 1, PlayerUseLabel.Medical, 500, 0, 1, 0, 0, 0),
+                DevV502Item("m3", 1, 1, PlayerUseLabel.Medical, 500, 0, 2, 0, 0, 0),
+            }, out var stackPlan, out _), "layout: the medical stack places every item");
+            Assert(DevV502ValidatePlan(stackPlan, 6, 3, 3)
+                && DevV502AllOnRow(stackPlan, 0)
+                && new HashSet<byte> { stackPlan[0].ResultX, stackPlan[1].ResultX, stackPlan[2].ResultX }.Count == 3,
+                "layout: same-ID stack lands in one row segment (同 ID 在同标签内尽量连续)");
+
+            // 4b 细长混放：左侧主体决定行带高，细长高件不得把同类挤成难看断裂。
+            // 6x4: 注射器 1x3、绷带 2x1 ×2、纱布 1x1 ×3。
+            var slimItems = new List<PackableItem>
+            {
+                DevV502Item("syringe", 1, 3, PlayerUseLabel.Medical, 501, 1, 0, 0, 0, 0),
+                DevV502Item("band-a", 2, 1, PlayerUseLabel.Medical, 502, 1, 0, 0, 0, 0),
+                DevV502Item("band-b", 2, 1, PlayerUseLabel.Medical, 502, 1, 0, 0, 0, 0),
+                DevV502Item("gauze-a", 1, 1, PlayerUseLabel.Medical, 503, 1, 0, 0, 0, 0),
+                DevV502Item("gauze-b", 1, 1, PlayerUseLabel.Medical, 503, 1, 0, 0, 0, 0),
+                DevV502Item("gauze-c", 1, 1, PlayerUseLabel.Medical, 503, 1, 0, 0, 0, 0),
+            };
+            Assert(TaggedRowBandLayout.TryPlanLayout(6, 4, true, slimItems, out var slimPlan, out _)
+                && DevV502ValidatePlan(slimPlan, 6, 4, 6),
+                "layout: the mixed-slimness same-label fixture places fully");
+            var syringe = DevV502FindByTag(slimPlan, "syringe");
+            var bandA = DevV502FindByTag(slimPlan, "band-a");
+            Assert(syringe.Placed && syringe.ResultRot == 0 && syringe.ResultY == 0
+                && bandA.ResultY == 0 && bandA.ResultX > syringe.ResultX,
+                "layout: the tall slim item forms the left body of the band and the regular items run to its right (主体决定行带高，细长件不制造断裂)");
+            Assert(syringe.ResultX == 0 && bandA.ResultX == 1,
+                "layout: the medical band is anchored at the grid left edge with the anchor flush first");
+
+            // 4c 可横向并排的多标签：一行带内 食物→饮水→工具，边界整体单调。
+            Assert(TaggedRowBandLayout.TryPlanLayout(6, 2, true, new List<PackableItem>
+            {
+                DevV502Item("f1", 2, 1, PlayerUseLabel.Food, 600, 1, 0, 0, 0, 0),
+                DevV502Item("d1", 1, 1, PlayerUseLabel.Drink, 601, 1, 0, 0, 0, 0),
+                DevV502Item("d2", 1, 1, PlayerUseLabel.Drink, 601, 1, 0, 0, 0, 0),
+                DevV502Item("t1", 2, 1, PlayerUseLabel.Tool, 602, 1, 0, 0, 0, 0),
+            }, out var sidePlan, out _), "layout: the side-by-side labels fixture plans fully");
+            Assert(DevV502AllOnRow(sidePlan, 0),
+                "layout: labels sharing a row band sit side by side in one band (横向并排可计算)");
+            Assert(DevV502RowMajorLabelsMonotone(sidePlan),
+                "layout: the side-by-side boundary is monotone (不同标签不穿插，整体单调)");
+
+            // 4d 右侧放不下必须换行：新标签从下一行最左侧开始，不回填补洞。
+            Assert(TaggedRowBandLayout.TryPlanLayout(3, 2, true, new List<PackableItem>
+            {
+                DevV502Item("wrap-food", 2, 1, PlayerUseLabel.Food, 600, 1, 0, 0, 0, 0),
+                DevV502Item("wrap-drink", 2, 1, PlayerUseLabel.Drink, 601, 1, 0, 0, 0, 0),
+            }, out var wrapPlan, out _), "layout: the wrap fixture places both items");
+            var wrapFood = DevV502FindByTag(wrapPlan, "wrap-food");
+            var wrapDrink = DevV502FindByTag(wrapPlan, "wrap-drink");
+            Assert(wrapFood.ResultY == 0 && wrapFood.ResultX == 0
+                && wrapDrink.ResultY == 1 && wrapDrink.ResultX == 0,
+                "layout: a label that cannot fit to the right continues on the NEXT row at the leftmost column (换行规则)");
+
+            // 4e 有旋转才能放下：1x2 装进 2x1 网格 → rot=1，脚印正确。
+            Assert(TaggedRowBandLayout.TryPlanLayout(2, 1, true, new List<PackableItem>
+            {
+                DevV502Item("rot-need", 1, 2, PlayerUseLabel.Medical, 700, 1, 0, 0, 0, 0),
+            }, out var rotPlan, out _) && rotPlan[0].Placed && rotPlan[0].ResultRot == 1
+                && DevV502ValidatePlan(rotPlan, 2, 1, 1),
+                "layout: rotation is used when it is the only way to avoid a drop (避免漏放才转)");
+
+            // 4f 不旋转也能放下但旋转更差：全正向保持，一次都不转。
+            Assert(TaggedRowBandLayout.TryPlanLayout(4, 2, true, new List<PackableItem>
+            {
+                DevV502Item("keep-a", 1, 2, PlayerUseLabel.Medical, 701, 1, 0, 0, 0, 0),
+                DevV502Item("keep-b", 1, 2, PlayerUseLabel.Medical, 701, 1, 0, 0, 0, 0),
+                DevV502Item("keep-c", 2, 1, PlayerUseLabel.Medical, 702, 1, 0, 0, 0, 0),
+            }, out var keepPlan, out _) && keepPlan.Count == 3 && DevV502AllPlaced(keepPlan)
+                && DevV502AllUnrotated(keepPlan) && DevV502ValidatePlan(keepPlan, 4, 2, 3),
+                "layout: forward orientation is kept whenever it fits (默认正向，不为整洁而转)");
+
+            // 4g/4j 标签不穿插 + 「其他」收尾：乱序输入 → 行主序标签非降。
+            var mixedPlan = detPlanA;
+            Assert(DevV502RowMajorLabelsMonotone(mixedPlan),
+                "layout: shuffled input lands as non-decreasing label segments (标签分段从左上到右下)");
+            Assert(DevV502FindByTag(mixedPlan, "x-other").ResultY
+                    >= DevV502FindByTag(mixedPlan, "x-med").ResultY,
+                "layout: the 其他 segment sits at the tail of the order (分类失败收进段尾)");
+
+            // 4m 救济路守「旋转只为避免漏放」：正向放不下的件在 bottom-left 以
+            // 旋转脚印落地（rot=1），而正向可放件绝不会被旋转（4f 已钉）。
+            Assert(TaggedRowBandLayout.TryPlanLayout(3, 1, true, new List<PackableItem>
+            {
+                DevV502Item("rescue-rot", 1, 3, PlayerUseLabel.Medical, 703, 1, 0, 0, 0, 0),
+            }, out var rescuePlan, out _) && rescuePlan[0].Placed && rescuePlan[0].ResultRot == 1
+                && rescuePlan[0].ResultX == 0 && rescuePlan[0].ResultY == 0,
+                "layout: the rescue rotates ONLY the item that cannot fit otherwise (旋转只为避免漏放)");
+
+            // 4i 「放得下却重叠失败」不得再现：V2-15 验收级拥挤页，成功且无重叠。
+            Assert(TaggedRowBandLayout.TryPlanLayout(5, 5, true, new List<PackableItem>
+            {
+                DevV502Item("cr-1", 2, 3, PlayerUseLabel.RangedWeapon, 801, 1, 0, 0, 0, 0),
+                DevV502Item("cr-2", 3, 2, PlayerUseLabel.RangedWeapon, 802, 1, 0, 0, 0, 0),
+                DevV502Item("cr-3", 2, 2, PlayerUseLabel.Melee, 803, 1, 0, 0, 0, 0),
+                DevV502Item("cr-4", 1, 1, PlayerUseLabel.Ammo, 804, 1, 0, 0, 0, 0),
+                DevV502Item("cr-5", 1, 1, PlayerUseLabel.Ammo, 804, 1, 0, 0, 0, 0),
+            }, out var crowdPlan, out _) && DevV502AllPlaced(crowdPlan)
+                && DevV502ValidatePlan(crowdPlan, 5, 5, 5),
+                "layout: a crowded-but-feasible page plans legally (旧「放得下却重叠失败」类不得再现)");
+
+            // 4p 精确重排层的完备性双面：4×4 上 2×3+2×3+2×2 面积恰满 16 但
+            // 几何不可行（两个 2×3 平行后只剩 4×1/1×4 条）——求解器必须证明
+            // 不可行并零提交，不得虚报可行。
+            Assert(!TaggedRowBandLayout.TryPlanLayout(4, 4, true, new List<PackableItem>
+            {
+                DevV502Item("r5d", 2, 3, PlayerUseLabel.Food, 971, 1, 0, 0, 0, 0),
+                DevV502Item("r5e", 2, 3, PlayerUseLabel.Food, 972, 1, 0, 0, 0, 0),
+                DevV502Item("r5f", 2, 2, PlayerUseLabel.Food, 973, 1, 0, 0, 0, 0),
+            }, out var r5Infeasible, out var r5Reason)
+                && !DevV502AnyPlaced(r5Infeasible) && !string.IsNullOrEmpty(r5Reason),
+                "layout: area-full-but-geometrically-infeasible page is PROVED and refused with zero placements (精确层完备性)");
+
+            // 4o 占角型可行反例（R5 常驻化）：4×4 上 1×3+2×2+2×3——单一固定
+            // 大件优先 BL 会先放 2×3 占角致 2×2 无处可放；可行布局
+            // 1×3(0,0)、2×2(1,0)、2×3(1,2)。整单重排多确定性序族必须拿下。
+            Assert(TaggedRowBandLayout.TryPlanLayout(4, 4, true, new List<PackableItem>
+            {
+                DevV502Item("r5a", 1, 3, PlayerUseLabel.Medical, 961, 1, 0, 0, 0, 0),
+                DevV502Item("r5b", 2, 2, PlayerUseLabel.Medical, 962, 1, 0, 0, 0, 0),
+                DevV502Item("r5c", 2, 3, PlayerUseLabel.Medical, 963, 1, 0, 0, 0, 0),
+            }, out var r5Plan, out _) && DevV502AllPlaced(r5Plan) && DevV502ValidatePlan(r5Plan, 4, 4, 3),
+                "layout: the corner-blocking counterexample (1x3 + 2x2 + 2x3 on 4x4) is never refused (能放下必须放下·R5 反例回归)");
+
+            // 4n 贪心失败但整体可行不得误拒（R4 反例常驻化）：4×4 上
+            // 1×2 + 2×3 + 2×3 需救济路旋转才全放；同标签与跨标签两种流序变体都测。
+            Assert(TaggedRowBandLayout.TryPlanLayout(4, 4, true, new List<PackableItem>
+            {
+                DevV502Item("r4n-a", 1, 2, PlayerUseLabel.Medical, 951, 1, 0, 0, 0, 0),
+                DevV502Item("r4n-b", 2, 3, PlayerUseLabel.Medical, 952, 1, 0, 0, 0, 0),
+                DevV502Item("r4n-c", 2, 3, PlayerUseLabel.Medical, 953, 1, 0, 0, 0, 0),
+            }, out var r4nSame, out _) && DevV502AllPlaced(r4nSame) && DevV502ValidatePlan(r4nSame, 4, 4, 3),
+                "layout: the greedy-stall counterexample (1x2 + 2x3 + 2x3 on 4x4) resolves fully in one label (能放下必须放下·反例回归)");
+            Assert(TaggedRowBandLayout.TryPlanLayout(4, 4, true, new List<PackableItem>
+            {
+                DevV502Item("r4m-a", 1, 2, PlayerUseLabel.Medical, 951, 1, 0, 0, 0, 0),
+                DevV502Item("r4m-b", 2, 3, PlayerUseLabel.BackpackContainer, 952, 1, 0, 0, 0, 0),
+                DevV502Item("r4m-c", 2, 3, PlayerUseLabel.BackpackContainer, 953, 1, 0, 0, 0, 0),
+            }, out var r4nCross, out _) && DevV502AllPlaced(r4nCross) && DevV502ValidatePlan(r4nCross, 4, 4, 3),
+                "layout: the same counterexample resolves across labels too (medical-first stream must not refuse the page)");
+
+            // 4k 升降序只影响完全相同条件下的稳定收尾：几何各异 → 两向同版。
+            bool descOk = TaggedRowBandLayout.TryPlanLayout(6, 4, true, DevV502FixtureMixedLabels(), out var finDesc, out _);
+            bool ascOk = TaggedRowBandLayout.TryPlanLayout(6, 4, false, DevV502FixtureMixedLabels(), out var finAsc, out _);
+            Assert(descOk && ascOk && finDesc.Count == finAsc.Count, "layout: both stable-finish directions plan the mixed fixture");
+            for (var i = 0; i < finDesc.Count; i++)
+                Assert(finDesc[i].ResultX == finAsc[i].ResultX && finDesc[i].ResultY == finAsc[i].ResultY
+                    && finDesc[i].ResultRot == finAsc[i].ResultRot,
+                    "layout: 升/降序 never changes the label order or the main layout (只动稳定收尾)");
+
+            // ── 5. 官方先行消费（V5-T3 Q5：凡背包整理都走同一模块）──
+            // 5a 模块默认策略 = 统一排版（真实整理按钮的计划来源）。
+            var v5Feature = new FeatureId("io.github.yu80rice.bue.inventory-tidy");
+            var v5Module = new InventoryTidyModule(v5Feature);
+            Assert(v5Module.Strategy.StrategyId == "tagged-row-band-v1",
+                "official-first: the module's ONE built-in strategy is the tagged row-band plan (真实整理按钮走新计划)");
+            // 5b 旧三档不再决定算法：同一输入任何 mode 值得到完全相同的计划。
+            var modeProbe = DevV502FixtureMixedLabels();
+            var planSame = new TaggedRowBandV1Strategy().BuildPlan(new TidyInput(6, 4, true, TidyMode.SameType, modeProbe));
+            var planRects = new TaggedRowBandV1Strategy().BuildPlan(new TidyInput(6, 4, true, TidyMode.MaxRects, modeProbe));
+            var planFfd = new TaggedRowBandV1Strategy().BuildPlan(new TidyInput(6, 4, true, TidyMode.FFD, modeProbe));
+            Assert(planSame.AllPlaced && planRects.AllPlaced && planFfd.AllPlaced,
+                "official-first: the fixture plans fully whatever the legacy mode says");
+            for (var i = 0; i < planSame.Placements.Count; i++)
+                Assert(planRects.Placements[i].ResultX == planSame.Placements[i].ResultX
+                    && planRects.Placements[i].ResultY == planSame.Placements[i].ResultY
+                    && planRects.Placements[i].ResultRot == planSame.Placements[i].ResultRot
+                    && planFfd.Placements[i].ResultX == planSame.Placements[i].ResultX
+                    && planFfd.Placements[i].ResultY == planSame.Placements[i].ResultY
+                    && planFfd.Placements[i].ResultRot == planSame.Placements[i].ResultRot,
+                    "official-first: 同类/空间/大件 no longer decide anything — the plan is one unified method (入口不得复制算法)");
+            // 5c PreparePage 标签缝：真实消费点在 Prepare 层填标签并进新计划。
+            var prepPage = new Items(3);
+            typeof(Items).GetField("_width", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+                .SetValue(prepPage, (byte)4);
+            typeof(Items).GetField("_height", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+                .SetValue(prepPage, (byte)4);
+            var medJar = CreateTestItemJar(3, 0, 0, 1, 1);
+            SetJarItem(medJar, new Item(901, 1, 100, new byte[0]));
+            var boxJar = CreateTestItemJar(3, 1, 0, 1, 1);
+            SetJarItem(boxJar, new Item(902, 1, 100, new byte[0]));
+            prepPage.items.Add(medJar);
+            prepPage.items.Add(boxJar);
+            ItemUseSignalsProvider.ResolveForTests = item => item.id == 901 ? PlayerUseLabel.Medical
+                : item.id == 902 ? PlayerUseLabel.AmmoBox : (PlayerUseLabel?)null;
+            try
+            {
+                var prep = ManualTidyService.PreparePage(prepPage, 3, true, TidyMode.SameType, v5Module.Strategy);
+                Assert(prep.Valid, "official-first: the tagged Prepare page passes static validation (计划合法可提交)");
+                var prepMed = DevV502FindByJar(prep.Result, medJar);
+                var prepBox = DevV502FindByJar(prep.Result, boxJar);
+                Assert(prepMed.Label == PlayerUseLabel.Medical && prepBox.Label == PlayerUseLabel.AmmoBox,
+                    "official-first: PreparePage fills the frozen labels from the classifier seam");
+                Assert(prepMed.ResultY < prepBox.ResultY
+                    || (prepMed.ResultY == prepBox.ResultY && prepMed.ResultX < prepBox.ResultX),
+                    "official-first: 医疗用品 segments ahead of 弹药箱 in the real consumer path");
+            }
+            finally
+            {
+                ItemUseSignalsProvider.ResolveForTests = null;
+            }
+
+            // ── 6. 设置迁移：旧 mode/direction 首次读取归一，不再决定算法 ──
+            // 6a schema：只剩「整理方向」一条 Choice；三档字样绝不再出现在任何
+            // 玩家可见 descriptor 字段（档位从玩家界面退役）。
+            var v5Descriptors = InventoryTidyModule.CreateSettingsDescriptors(v5Feature);
+            Assert(v5Descriptors.Count == 1 && v5Descriptors[0].SettingId == "inventorytidy.direction",
+                "migration: the schema declares exactly ONE choice (整理方向) — the mode row retired with the three档 (V5-T3 Q3)");
+            Assert(v5Descriptors[0].DisplayNameKey == "整理方向"
+                && v5Descriptors[0].DescriptionKey == "降序/升序只影响完全相同条件物品的收尾摆放顺序，不改变统一分段排版的结果。",
+                "migration: 整理方向 carries the DEV-V5-02 frozen copy (Q61 pair retired with the档)");
+            Assert(v5Descriptors[0].AllowedValues.Count == 2
+                && v5Descriptors[0].AllowedValues[0].Text == "降序"
+                && v5Descriptors[0].AllowedValues[1].Text == "升序",
+                "migration: the surviving choice keeps the Q56 frozen literals (降序/升序)");
+            Assert(v5Descriptors[0].Authority == SettingAuthority.ClientLocal,
+                "migration: direction stays a ClientPreference (never ServerAuthority)");
+            Assert(v5Descriptors[0].DefaultValue.Text == "降序",
+                "migration: the default stays 降序 (same stable-finish default as before)");
+            var legacy档Words = new[] { "同类", "空间", "大件" };
+            foreach (var descriptor in v5Descriptors)
+            {
+                foreach (var word in legacy档Words)
+                {
+                    Assert(descriptor.DisplayNameKey.IndexOf(word, StringComparison.Ordinal) < 0
+                        && descriptor.DescriptionKey.IndexOf(word, StringComparison.Ordinal) < 0,
+                        "migration: legacy档 word '" + word + "' never re-enters a player-facing descriptor (设置里不再用三档决定算法)");
+                    if (descriptor.AllowedValues != null)
+                        foreach (var allowed in descriptor.AllowedValues)
+                            Assert(allowed.Text == null || allowed.Text.IndexOf(word, StringComparison.Ordinal) < 0,
+                                "migration: legacy档 value '" + word + "' is not an allowed value of the surviving choice");
+                }
+                Assert(descriptor.SettingId != "inventorytidy.mode",
+                    "migration: inventorytidy.mode has no descriptor (旧键只作存盘兼容)");
+            }
+            // 6b 点击缝只读方向：旧存档残留的 mode 值（含未知字面量）一律忽略，
+            // 绝不拦点击；方向未知仍显式拒绝（Q59 纪律不松）。
+            var legacyStoreView = new FakeTidySettingsView();
+            legacyStoreView.SetEntry("inventorytidy.mode", SettingValue.Choice("空间"));
+            legacyStoreView.SetEntry("inventorytidy.direction", SettingValue.Choice("升序"));
+            var v5Lifetime = new FakeTidyLifetime { State = FeatureState.Running };
+            var v5ServingModule = V5StartLitModuleWith(v5Lifetime, legacyStoreView);
+            LitTidyProductionAuthority.ServerRoleProbeForTests = () => true;
+            try
+            {
+                Assert(v5ServingModule.TryReadSavedTidyPreference(out var legacyMode, out var legacyDescending, out _),
+                    "migration: an old store with the retired mode entry reads fine (旧存档仍能读，只做迁移)");
+                Assert(!legacyDescending && legacyMode == TidyMode.SameType,
+                    "migration: 升序 lands as the stable-finish preference and the legacy mode answers the frozen wire placeholder");
+                MainThreadDispatcher.ResetForTests();
+                Assert(v5ServingModule.RequestTidyFromUiClick(3, allPages: false) == LitTidyRequestResult.Dispatched,
+                    "migration: the title-bar click dispatches on an old档 store (旧 mode 不再决定算法、也不拦门)");
+                MainThreadDispatcher.ResetForTests();
+                legacyStoreView.SetEntry("inventorytidy.mode", SettingValue.Choice("任何未知字面量"));
+                Assert(v5ServingModule.RequestTidyFromUiClick(3, allPages: false) == LitTidyRequestResult.Dispatched,
+                    "migration: even a junk legacy mode value cannot refuse the unified click (首次读取归一)");
+                MainThreadDispatcher.ResetForTests();
+                legacyStoreView.SetEntry("inventorytidy.direction", SettingValue.Choice("从小到大"));
+                Assert(!v5ServingModule.TryReadSavedTidyPreference(out _, out _, out _)
+                    && v5ServingModule.RequestTidyFromUiClick(3, allPages: false) == LitTidyRequestResult.RejectedPreferenceUnavailable,
+                    "migration: the surviving direction keeps the honest refusal for unknown literals (Q59 不发明保存过的组合)");
+                MainThreadDispatcher.ResetForTests();
+            }
+            finally
+            {
+                LitTidyProductionAuthority.ServerRoleProbeForTests = null;
+                v5ServingModule.Stop(FeatureStopReason.PluginStopping);
+            }
+            // 6c 真实 store：旧文档（mode+direction 两条）被新 schema 完整装载，
+            // 下次保存后 mode 键自然消失（归一后保存为新规范值）。
+            var v5Persistence = new InMemorySettingsPersistence();
+            Assert(v5Persistence.TryCommit(v5Feature, SettingRevisionScope.ClientPreference, 1u, 9u,
+                new Dictionary<string, SettingValue>(StringComparer.Ordinal)
+                {
+                    ["inventorytidy.mode"] = SettingValue.Choice("空间"),
+                    ["inventorytidy.direction"] = SettingValue.Choice("升序"),
+                }, out _),
+                "migration seed: an old-shape persisted document is planted (同类/空间/大件 era)");
+            var v5Registry = new BetterUnturnedExperience.Core.Settings.FeatureSettingsRegistry(v5Persistence, () => true, null);
+            v5Registry.GetOrCreateRuntime(v5Feature, InventoryTidyModule.CreateSettingsDescriptors(v5Feature));
+            v5Registry.OpenGeneration(v5Feature, 1UL);
+            var v5StoreView = v5Registry.CreateView(v5Feature, 1UL);
+            var v5Snapshot = v5StoreView.GetSnapshot(SettingRevisionScope.ClientPreference);
+            Assert(v5Snapshot.Entries.Count == 1
+                && v5Snapshot.Entries[0].SettingId == "inventorytidy.direction"
+                && v5Snapshot.Entries[0].EffectiveValue.Text == "升序",
+                "migration: the old document loads — the legacy mode entry is ignored, the direction survives unchanged");
+            var v5StoreModule = new InventoryTidyModule(v5Feature);
+            v5StoreModule.AttachSettingsView(v5StoreView);
+            Assert(v5StoreModule.TryReadSavedTidyPreference(out _, out var storeDescending, out _) && !storeDescending,
+                "migration: the click seam reads the migrated store honestly");
+            Assert(v5StoreView.Submit(new ScopedSettingChangeRequest(1UL, SettingRevisionScope.ClientPreference,
+                v5Snapshot.Revision, new[] { new SettingMutation("inventorytidy.direction", SettingValue.Choice("降序")) })).Accepted,
+                "migration setup: the first saved write under the new schema is accepted");
+            SettingsPersistenceLoadResult afterSave;
+            afterSave = v5Persistence.Load(v5Feature, SettingRevisionScope.ClientPreference, 1u, v5Descriptors);
+            Assert(afterSave.Values.ContainsKey("inventorytidy.direction")
+                && !afterSave.Values.ContainsKey("inventorytidy.mode"),
+                "migration: the next commit persists ONLY the new canonical entries (旧 mode 键随保存归一消失)");
+            // 6d 私有线协议不变：mode 字节仍能传输与读取（帧形零改动）。
+            var legacyFrame = LitTidyWireCodec.BuildTidyRequest(5UL, 7u, 3, TidyMode.FFD, true, null);
+            Assert(LitTidyWireCodec.TryReadEnvelope(legacyFrame, out var frameType, out var frameBody)
+                && frameType == LitTidyWireCodec.MsgRequestTidyV2,
+                "migration: the built frame keeps the [version][msgType] envelope");
+            Assert(LitTidyWireCodec.TryReadTidyRequest(frameBody, out var frameToken, out var frameReq, out var framePage,
+                    out var frameMode, out var frameDesc, out _),
+                "migration: the private tidy-request frame still round-trips the legacy mode byte (协议不扩面)");
+            Assert(frameMode == TidyMode.FFD && frameDesc && frameToken == 5UL && framePage == 3,
+                "migration: the frame keeps every legacy field byte-for-byte (契约 2.1 零扩面)");
+
+            // ── 7. 生产退役：旧三套实现不得留在编译列表或程序集类型里 ──
+            var v5SolutionRoot = new DirectoryInfo(AppContext.BaseDirectory);
+            while (v5SolutionRoot != null && !File.Exists(Path.Combine(v5SolutionRoot.FullName, "BetterUnturnedExperience.sln")))
+                v5SolutionRoot = v5SolutionRoot.Parent;
+            Assert(v5SolutionRoot != null, "retirement: solution root located");
+            var v5Csproj = File.ReadAllText(Path.Combine(v5SolutionRoot.FullName, "src", "BetterUnturnedExperience.Plugin", "BetterUnturnedExperience.Plugin.csproj"));
+            Assert(v5Csproj.Contains("Layout\\TaggedRowBandLayout.cs") && v5Csproj.Contains("TaggedRowBandV1Strategy.cs"),
+                "retirement: the unified layout module is in the production compile list (positive control)");
+            Assert(!v5Csproj.Contains("DefaultGridV1Strategy.cs") && !v5Csproj.Contains("InventorySolver.cs")
+                && !v5Csproj.Contains("LayoutCandidate.cs"),
+                "retirement: the old solver trio is gone from the compile list (不保留旧实现并行)");
+            var v5AsmTypes = new HashSet<string>();
+            foreach (var type in typeof(BetterUnturnedExperiencePlugin).Assembly.GetTypes()) v5AsmTypes.Add(type.Name);
+            Assert(!v5AsmTypes.Contains("InventorySolver") && !v5AsmTypes.Contains("LayoutCandidate")
+                && !v5AsmTypes.Contains("DefaultGridV1Strategy"),
+                "retirement: the old solver trio carries no type in the shipped assembly either");
+            Assert(v5AsmTypes.Contains("TaggedRowBandLayout") && v5AsmTypes.Contains("PlayerUseClassifier"),
+                "retirement: the new deep module and classifier ship in the production assembly");
+        }
+
+        private static PackableItem DevV502FindByJar(IReadOnlyList<PackableItem> plan, ItemJar jar)
+        {
+            foreach (var item in plan)
+                if (item != null && ReferenceEquals(item.Tag, jar)) return item;
+            throw new InvalidOperationException("DEV-V5-02 fixture jar missing from the plan");
+        }
+
+        // Test-only helpers for the DEV-V5-02 layout group (DEV-V5-02).
+        private static PackableItem DevV502Item(string tag, byte sx, byte sy, PlayerUseLabel label,
+            ushort groupKey, int stableOrder, byte originalX, byte originalY, byte originalRot, byte preferredRot)
+        {
+            return new PackableItem
+            {
+                Tag = tag,
+                size_x = sx,
+                size_y = sy,
+                Label = label,
+                GroupKey = groupKey,
+                StableOrder = stableOrder,
+                OriginalX = originalX,
+                OriginalY = originalY,
+                OriginalRot = originalRot,
+                PreferredRotation = preferredRot,
+            };
+        }
+
+        private static PackableItem DevV502FindByTag(List<PackableItem> plan, string tag)
+        {
+            foreach (var item in plan)
+                if (item != null && (string)item.Tag == tag) return item;
+            throw new InvalidOperationException("DEV-V5-02 fixture tag missing: " + tag);
+        }
+
+        private static bool DevV502AnyPlaced(List<PackableItem> plan)
+        {
+            foreach (var item in plan)
+                if (item != null && item.Placed) return true;
+            return false;
+        }
+
+        private static bool DevV502AllPlaced(List<PackableItem> plan)
+        {
+            foreach (var item in plan)
+                if (item == null || !item.Placed) return false;
+            return true;
+        }
+
+        private static bool DevV502AllUnrotated(List<PackableItem> plan)
+        {
+            foreach (var item in plan)
+                if (item == null || item.ResultRot != 0) return false;
+            return true;
+        }
+
+        private static bool DevV502AllOnRow(List<PackableItem> plan, byte row)
+        {
+            foreach (var item in plan)
+                if (item == null || !item.Placed || item.ResultY != row) return false;
+            return true;
+        }
+
+        private static List<PackableItem> DevV502FixtureMixedLabels()
+        {
+            // 乱序输入（倒序+混组），覆盖 弹匣/医疗/弹药箱/背包/其他 五段 + 多尺寸。
+            return new List<PackableItem>
+            {
+                DevV502Item("x-other", 1, 1, PlayerUseLabel.Other, 901, 1, 4, 3, 0, 0),
+                DevV502Item("x-gun", 2, 1, PlayerUseLabel.RangedWeapon, 902, 2, 3, 2, 0, 0),
+                DevV502Item("x-mag", 1, 2, PlayerUseLabel.Magazine, 903, 3, 2, 1, 0, 0),
+                DevV502Item("x-med", 1, 1, PlayerUseLabel.Medical, 904, 4, 1, 0, 0, 0),
+                DevV502Item("x-box", 2, 2, PlayerUseLabel.AmmoBox, 905, 5, 0, 0, 0, 0),
+                DevV502Item("x-bag", 3, 1, PlayerUseLabel.BackpackContainer, 906, 6, 0, 0, 0, 0),
+                DevV502Item("x-ammo", 1, 1, PlayerUseLabel.Ammo, 907, 7, 5, 3, 0, 0),
+            };
+        }
+
+        /// <summary>Hard-invariant validator: every Placed entry sits in-bounds with its
+        /// rotated footprint, no two overlap, and the plan accounts for the input once.</summary>
+        private static bool DevV502ValidatePlan(List<PackableItem> plan, byte width, byte height, int inputCount)
+        {
+            if (plan == null || plan.Count != inputCount) return false;
+            var occupied = new bool[width, height];
+            foreach (var placement in plan)
+            {
+                if (placement == null || !placement.Placed) continue;
+                var w = (placement.ResultRot & 1) == 1 ? placement.size_y : placement.size_x;
+                var h = (placement.ResultRot & 1) == 1 ? placement.size_x : placement.size_y;
+                if (w == 0 || h == 0) return false;
+                if (placement.ResultX + w > width || placement.ResultY + h > height) return false;
+                for (var cx = placement.ResultX; cx < placement.ResultX + w; cx++)
+                    for (var cy = placement.ResultY; cy < placement.ResultY + h; cy++)
+                    {
+                        if (occupied[cx, cy]) return false;
+                        occupied[cx, cy] = true;
+                    }
+            }
+            return true;
+        }
+
+        /// <summary>Structural invariant: scanning placed items row-major (top-left then
+        /// left-to-right) the label ordinals never decrease — segments do not interleave.</summary>
+        private static bool DevV502RowMajorLabelsMonotone(List<PackableItem> plan)
+        {
+            var placed = new List<PackableItem>();
+            foreach (var item in plan)
+                if (item != null && item.Placed) placed.Add(item);
+            placed.Sort((a, b) =>
+            {
+                int c = a.ResultY.CompareTo(b.ResultY);
+                if (c != 0) return c;
+                return a.ResultX.CompareTo(b.ResultX);
+            });
+            int previous = -1;
+            foreach (var item in placed)
+            {
+                var current = (int)item.Label;
+                if (current < previous) return false;
+                previous = current;
+            }
+            return true;
+        }
+
+        // Test-only signal builders for the pure classifier table (DEV-V5-02).
+        private static PlayerUseLabel DevV502Classify(EItemType type, bool isMagazineAsset = false, bool isFillSupply = false)
+        {
+            return PlayerUseClassifier.Classify(new PlayerUseSignals
+            {
+                Id = 7,
+                TypeKnown = true,
+                Type = type,
+                IsMagazineAsset = isMagazineAsset,
+                IsCaliberAsset = isMagazineAsset,
+                IsFillSupply = isFillSupply,
+            });
+        }
+
+        // 弹药 in this game build: a caliber asset that is not a magazine (no
+        // EItemType.AMMO exists) — e.g. a loose-round ItemCaliberAsset.
+        private static PlayerUseLabel DevV502ClassifyCaliber(bool isFillSupply = false)
+        {
+            return PlayerUseClassifier.Classify(new PlayerUseSignals
+            {
+                Id = 7,
+                TypeKnown = true,
+                Type = EItemType.MAGAZINE,
+                IsMagazineAsset = false,
+                IsCaliberAsset = true,
+                IsFillSupply = isFillSupply,
+            });
+        }
+
+        // DEV-V5-02: hand-composed LIT module through the host bootstrap (the
+        // V4-06 group owns the equivalent local helper; a second copy lives
+        // here because that helper is a local function of another test).
+        private static InventoryTidyModule V5StartLitModuleWith(FakeTidyLifetime lifetime, IScopedFeatureSettings settings)
+        {
+            var lit = new FeatureId(LitRuntime.FeatureIdValue);
+            var bus = new BetterUnturnedExperience.Core.Events.FeatureEventBus();
+            var pair = BetterUnturnedExperience.Core.Network.LocalLoopbackTransport.CreatePair();
+            var network = new BetterUnturnedExperience.Core.Network.BueNetworkRuntime(pair.First, new ContractVersion(2, 0), 2102UL);
+            var litModule = new InventoryTidyModule(lit);
+            litModule.ScopeDirectoryForTests = NewLitFaultDirectory();
+            litModule.FaultContextForTests = () => new LitFaultScopeContext("TestMap", 1);
+            var started = litModule.Start(new FeatureBootstrap(default(FeatureScopeIdentity), 9UL, settings,
+                bus.Subscriber(lit), bus.Publisher(lit), bus.EventRegistry(lit), null, null, lifetime, network));
+            Assert(started.Started, "DEV-V5-02 setup：模块经宿主 bootstrap 启动");
+            return litModule;
+        }
+
+        private static PlayerUseLabel DevV502ClassifyUnknownType()
+        {
+            return PlayerUseClassifier.Classify(new PlayerUseSignals
+            {
+                Id = 7,
+                TypeKnown = false,
+            });
         }
 
         // DEV-V2-16 red regression (GPT watermark): session-driven multicast
@@ -9352,8 +9954,8 @@ namespace BetterUnturnedExperience.Plugin.Tests
                         var catalogEntries = litRuntime.Catalog.Entries;
                         for (var i = 0; i < catalogEntries.Count; i++)
                             if (catalogEntries[i].Definition.Feature.Value == litFeature.Value) litEntry = catalogEntries[i];
-                        Check(litEntry != null && litEntry.SettingDescriptors != null && litEntry.SettingDescriptors.Count == 2,
-                            "DEV-V4-06：目录条目声明两条全局 Choice（mode/direction facet 回归）");
+                        Check(litEntry != null && litEntry.SettingDescriptors != null && litEntry.SettingDescriptors.Count == 1,
+                            "DEV-V5-02：目录条目声明恰一条全局 Choice（统一排版后仅剩 direction 收尾偏好，mode 档随三模式退役）");
                         var hasEnabledDescriptor = false;
                         var hasModeDescriptor = false;
                         var hasDirectionDescriptor = false;
@@ -9367,8 +9969,8 @@ namespace BetterUnturnedExperience.Plugin.Tests
                                 if (descriptorId == "inventorytidy.direction") hasDirectionDescriptor = true;
                             }
                         }
-                        Check(hasModeDescriptor && hasDirectionDescriptor && !hasEnabledDescriptor,
-                            "enabled 保持退役：descriptor 集恰含 mode/direction，绝无 inventorytidy.enabled（旧总开关不复进 schema）");
+                        Check(hasDirectionDescriptor && !hasModeDescriptor && !hasEnabledDescriptor,
+                            "enabled 保持退役 + DEV-V5-02：descriptor 集恰含 direction、绝无 enabled 与 mode（三档不复活、旧总开关不复进 schema）");
                         BueFeatureStartRuntime.StartCatalog(litRuntime, NewLoopbackNetwork(litRuntime.Catalog.CatalogRevision));
                         Check(BueSettingsRuntime.Registry.TryGetRuntime(litFeature) != null,
                             "DEV-V4-06：启动路径为两条 Choice 组装设置 runtime（同一权威源供面板与点击快照）");
@@ -11169,11 +11771,11 @@ namespace BetterUnturnedExperience.Plugin.Tests
                             litEntry = entries[index];
                             hasLitEntry = true;
                         }
-                        // DEV-V4-06：LIT 设置 facet 以两条全局 Choice 回归
-                        // （mode/direction）；enabled 总开关保持退役（DEV-V4-04），
-                        // 不再以任何形状回到面板。
-                        Check(hasLitEntry && litEntry.BueSettings.Count == 2,
-                            "目录路由：LIT 设置页=两条全局 Choice（mode/direction），enabled 保持退役");
+                        // DEV-V4-06：LIT 设置 facet 以全局 Choice 回归；DEV-V5-02：
+                        // 三模式退役后仅剩 direction 收尾偏好一条；enabled 总开关
+                        // 保持退役（DEV-V4-04），不再以任何形状回到面板。
+                        Check(hasLitEntry && litEntry.BueSettings.Count == 1,
+                            "目录路由：LIT 设置页=一条全局 Choice（统一排版后仅剩 direction），mode/enabled 保持退役");
                         var hasModeRow = false;
                         var hasDirectionRow = false;
                         for (var settingIndex = 0; settingIndex < litEntry.BueSettings.Count; settingIndex++)
@@ -11181,8 +11783,8 @@ namespace BetterUnturnedExperience.Plugin.Tests
                             if (litEntry.BueSettings[settingIndex].SettingId == "inventorytidy.mode") hasModeRow = true;
                             if (litEntry.BueSettings[settingIndex].SettingId == "inventorytidy.direction") hasDirectionRow = true;
                         }
-                        Check(hasModeRow && hasDirectionRow,
-                            "目录路由：LIT 两条 Choice 以冻结 SettingId 出现在目录条目上");
+                        Check(hasDirectionRow && !hasModeRow,
+                            "目录路由：LIT 仅 direction 以冻结 SettingId 出现在目录条目上（整理模式行随三档退役）");
                         var edit = composition.ManagementPanel.Model.TryEditBueSetting(litFeature,
                             "inventorytidy.enabled", PluginConfigValue.BooleanValue(false));
                         Check(!edit.Accepted,
@@ -11307,11 +11909,11 @@ namespace BetterUnturnedExperience.Plugin.Tests
                             if (entries[index].StableId == biiFeature.Value) biiSettings = entries[index].BueSettings.Count;
                             if (entries[index].StableId == ecoFeature.Value) ecoSettings = entries[index].BueSettings.Count;
                         }
-                        // DEV-V4-06：官方 LIT 的两条全局 Choice 行（facet 回归，
-                        // mode/direction）；并列可编辑锚仍由官方 BII（组合路由，
-                        // 恰剩 AutoRotate）承担。
-                        Check(litSettings == 2 && ecoSettings == 1,
-                            "并列可见:官方 LIT 两条全局 Choice 行(DEV-V4-06 facet 回归)与生态条目各按其事实投影(同一目录规则)");
+                        // DEV-V4-06：官方 LIT 以全局 Choice 回归；DEV-V5-02：
+                        // 三模式退役后恰剩 direction 一行；并列可编辑锚仍由官方
+                        // BII（组合路由，恰剩 AutoRotate）承担。
+                        Check(litSettings == 1 && ecoSettings == 1,
+                            "并列可见:官方 LIT 恰一条全局 Choice 行(统一排版后仅剩 direction，mode 档随三模式退役)与生态条目各按其事实投影(同一目录规则)");
                         Check(biiSettings == 1,
                             "并列可见:BII 设置页恰剩 AutoRotate 一行(Enabled 退役,仍是普通设置)");
                         var litEdit = composition.ManagementPanel.Model.TryEditBueSetting(litFeature,
@@ -11702,7 +12304,8 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 });
 
                 // 点击只读同一 revision 的已保存 ClientPreference 快照（Q59）：
-                // 一次 GetSnapshot 同时供出 mode+direction；未知档位/schema 缺项/
+                // DEV-V5-02：一次 GetSnapshot 供出 direction 收尾偏好（旧 mode 条
+                // 目残留=读取忽略、绝不拦点击）；未知 direction/schema 缺项/
                 // view 缺席=诚实拒绝（禁止拼出从未存在过的组合）；每次点击现读
                 // 快照（保存后下一次点击即用新值，不要求重画标题栏）。
                 Group("DEV-V4-06 点击读同一 revision 快照", () =>
@@ -11716,8 +12319,8 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     try
                     {
                         Check(module.TryReadSavedTidyPreference(out var savedMode, out var savedDescending, out var savedRevision)
-                            && savedMode == TidyMode.FFD && !savedDescending && savedRevision == 7U,
-                            "快照：一次读取同时拿到 mode=大件(FFD)、direction=升序(false) 且携带 store revision");
+                            && savedMode == TidyMode.SameType && !savedDescending && savedRevision == 7U,
+                            "快照：一次读取拿到 direction=升序(false) 且携带 store revision；mode 是线协议占位（DEV-V5-02）");
                         Check(view.GetSnapshotCalls == 1,
                             "快照：同一 revision 规则=恰一次 GetSnapshot（两次读取拼装=违例）");
                         MainThreadDispatcher.ResetForTests();
@@ -11727,11 +12330,11 @@ namespace BetterUnturnedExperience.Plugin.Tests
                             "快照：每次点击现读快照（不缓存上一次点击，保存后下一次点击即新值）");
                         MainThreadDispatcher.ResetForTests();
 
-                        view.SetEntry("inventorytidy.mode", SettingValue.Choice("从小到大"));
+                        view.SetEntry("inventorytidy.direction", SettingValue.Choice("从小到大"));
                         Check(!module.TryReadSavedTidyPreference(out _, out _, out _),
-                            "快照：未知档位字面量=拒绝读取（不发明映射）");
+                            "快照：未知 direction 字面量=拒绝读取（不发明映射）");
                         Check(module.RequestTidyFromUiClick(3, allPages: false) == LitTidyRequestResult.RejectedPreferenceUnavailable,
-                            "快照：未知档位点击=显式拒绝（RejectedPreferenceUnavailable），不假成功");
+                            "快照：未知 direction 点击=显式拒绝（RejectedPreferenceUnavailable），不假成功");
                         MainThreadDispatcher.ResetForTests();
 
                         var partialView = new FakeTidySettingsView();
@@ -11754,8 +12357,9 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 });
 
                 // 接线级锚：点击→已保存快照→RequestTidy→真实协议→服务端权威。
-                // 服务端权威收到的 mode/desc 必须与快照一致（Q59 全链），且保存
-                // 新值后下一次点击即用新快照（不重画标题栏）。
+                // 服务端权威收到的 desc 必须与快照一致（Q59 全链）；DEV-V5-02：
+                // mode 字段以占位值传输（旧协议字段保留、不再决定算法），保存新
+                // direction 后下一次点击即用新快照（不重画标题栏）。
                 Group("DEV-V4-06 点击经真实协议用已保存快照", () =>
                 {
                     var view = new FakeTidySettingsView();
@@ -11768,7 +12372,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     harness.Handshake();
                     harness.EstablishChallenge();
                     Check(client.RequestTidyFromUiClick(3, allPages: false) == LitTidyRequestResult.Dispatched,
-                        "接线：点击=派发（快照 mode=大件/direction=升序）");
+                        "接线：点击=派发（快照 direction=升序）");
                     var deadline = DateTime.UtcNow.AddSeconds(10);
                     while (harness.ServerAuthority.ExecuteCount == 0 && DateTime.UtcNow < deadline)
                     {
@@ -11776,12 +12380,12 @@ namespace BetterUnturnedExperience.Plugin.Tests
                         harness.Pump();
                     }
                     Check(harness.ServerAuthority.ExecuteCount == 1 && harness.ServerAuthority.LastPage == 3
-                        && harness.ServerAuthority.LastMode == TidyMode.FFD && !harness.ServerAuthority.LastSortDescending,
-                        "接线：服务端权威收到的整理参数=已保存快照值（page 3、大件/升序）");
+                        && harness.ServerAuthority.LastMode == TidyMode.SameType && !harness.ServerAuthority.LastSortDescending,
+                        "接线：服务端权威收到 page 3 + 升序；mode 字段=线协议占位 SameType（旧档位值不再跨端决定算法）");
 
-                    view.SetEntry("inventorytidy.mode", SettingValue.Choice("空间"));
+                    view.SetEntry("inventorytidy.direction", SettingValue.Choice("降序"));
                     Check(client.RequestTidyFromUiClick(LitRuntime.AllPages, allPages: true) == LitTidyRequestResult.Dispatched,
-                        "接线：Ctrl 语义（allPages）派发，模式按保存后的新值");
+                        "接线：Ctrl 语义（allPages）派发，收尾方向按保存后的新值");
                     deadline = DateTime.UtcNow.AddSeconds(10);
                     while (harness.ServerAuthority.ExecuteCount == 1 && DateTime.UtcNow < deadline)
                     {
@@ -11789,8 +12393,8 @@ namespace BetterUnturnedExperience.Plugin.Tests
                         harness.Pump();
                     }
                     Check(harness.ServerAuthority.ExecuteCount == 2
-                        && harness.ServerAuthority.LastMode == TidyMode.MaxRects && !harness.ServerAuthority.LastSortDescending,
-                        "接线：下一次点击即用新保存快照（空间/升序），无需重画标题栏（Q59）");
+                        && harness.ServerAuthority.LastMode == TidyMode.SameType && harness.ServerAuthority.LastSortDescending,
+                        "接线：下一次点击即用新保存快照（降序），无需重画标题栏（Q59）");
                 });
 
                 // 停用/隔离拆除（Q55）：Stop 阶段 3 执行拆除（移除按钮对象+
@@ -11997,7 +12601,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     BueRuntimeHost.Bind(runtime);
                     runtime.OpenRegistration();
                     Check(BueRuntimeHost.Register(InventoryTidyFeatureRegistration.CreateRegistration()).Accepted,
-                        "消费锚 setup：真实 LIT 注册受理（facet=两条 Choice）");
+                        "消费锚 setup：真实 LIT 注册受理（DEV-V5-02：facet=一条 Choice）");
                     Check(runtime.CompleteRuntime(), "消费锚 setup：目录冻结");
                     BueFeatureStartRuntime.StartCatalog(runtime, NewLoopbackNetwork(3601UL));
                     var composition = new BueClientUiCompositionRoot();
@@ -12007,36 +12611,32 @@ namespace BetterUnturnedExperience.Plugin.Tests
                         var model = composition.ManagementPanel.Model;
                         model.OpenDetail(litFeature.Value);
                         var rows = model.GetSettingRows(litFeature.Value);
-                        Check(rows.Count == 2, "消费锚：LIT 详情页恰两行（enabled 退役不占行）");
+                        Check(rows.Count == 1, "消费锚：LIT 详情页恰一行（enabled 与 mode 三档均退役不占行）");
                         var hasEnabledRow = false;
-                        PanelSettingRowView modeRow = default(PanelSettingRowView);
+                        var hasModeRow = false;
                         PanelSettingRowView directionRow = default(PanelSettingRowView);
                         for (var rowIndex = 0; rowIndex < rows.Count; rowIndex++)
                         {
                             if (rows[rowIndex].SettingId == "inventorytidy.enabled") hasEnabledRow = true;
-                            if (rows[rowIndex].SettingId == "inventorytidy.mode") modeRow = rows[rowIndex];
+                            if (rows[rowIndex].SettingId == "inventorytidy.mode") hasModeRow = true;
                             if (rows[rowIndex].SettingId == "inventorytidy.direction") directionRow = rows[rowIndex];
                         }
                         Check(!hasEnabledRow, "消费锚：enabled 不在行投影（退役总开关不复画）");
-                        Check(modeRow.DisplayName == "整理模式" && directionRow.DisplayName == "整理方向",
-                            "消费锚：显示名=Q56 冻结文案（整理模式/整理方向，不再暴露内部键名）；描述句断言随 DEV-V4-07 落入其行投影组");
-                        Check(modeRow.ControlKind == PanelSettingControlKind.Cycle && modeRow.Kind == SettingKind.Choice,
-                            "消费锚：整理模式行=Choice→Cycle 控件（02 行投影真实消费官方 Choice）");
+                        Check(!hasModeRow, "消费锚：整理模式行不在投影——同类/空间/大件不再出现在玩家算法档（DEV-V5-02 验收钉）");
+                        Check(directionRow.DisplayName == "整理方向",
+                            "消费锚：显示名=Q56 冻结文案（整理方向，不再暴露内部键名）");
                         Check(directionRow.ControlKind == PanelSettingControlKind.Cycle && directionRow.Kind == SettingKind.Choice,
-                            "消费锚：整理方向行=Choice→Cycle 控件");
-                        Check(modeRow.AllowedValues.Count == 3 && modeRow.AllowedValues[0] == "同类"
-                            && modeRow.AllowedValues[1] == "空间" && modeRow.AllowedValues[2] == "大件",
-                            "消费锚：整理模式档位=同类/空间/大件（中文档位=机器值，Q56 冻结）");
+                            "消费锚：整理方向行=Choice→Cycle 控件（02 行投影真实消费官方 Choice）");
                         Check(directionRow.AllowedValues.Count == 2 && directionRow.AllowedValues[0] == "降序"
                             && directionRow.AllowedValues[1] == "升序",
-                            "消费锚：整理方向档位=降序/升序（Q56 冻结）");
-                        Check(modeRow.EffectiveValue.Text == "同类" && directionRow.EffectiveValue.Text == "降序",
-                            "消费锚：默认值=同类+降序（快照生效值，空存储即默认）");
-                        Check(modeRow.Authority == SettingAuthority.ClientLocal && directionRow.Authority == SettingAuthority.ClientLocal,
-                            "消费锚：两条 Choice 作用域=ClientPreference（ClientLocal，不进 ServerAuthority）");
+                            "消费锚：整理方向档位=降序/升序（Q56 冻结；收尾偏好语义见 07 对拍描述句钉）");
+                        Check(directionRow.EffectiveValue.Text == "降序",
+                            "消费锚：默认值=降序（快照生效值，空存储即默认）");
+                        Check(directionRow.Authority == SettingAuthority.ClientLocal,
+                            "消费锚：Choice 作用域=ClientPreference（ClientLocal，不进 ServerAuthority）");
 
-                        Check(model.DraftCycleBueSetting("inventorytidy.mode", 1) && model.IsDirty,
-                            "消费锚：循环切换整理模式进草稿（同类→空间，不立即写入）");
+                        Check(model.DraftCycleBueSetting("inventorytidy.direction", 1) && model.IsDirty,
+                            "消费锚：循环切换整理方向进草稿（降序→升序，不立即写入）");
                         var save = model.SaveDraft();
                         Check(save.Outcome == DraftSaveOutcome.Success,
                             "消费锚：草稿保存受理（设置提交原子缝，整单成败）");
@@ -12044,11 +12644,11 @@ namespace BetterUnturnedExperience.Plugin.Tests
                         Check(wired != null && wired.SettingsView != null,
                             "消费锚 setup：WiredModule 持宿主注入 view");
                         var afterSave = wired.SettingsView.GetSnapshot(SettingRevisionScope.ClientPreference);
-                        var savedMode = string.Empty;
+                        var savedDirection = string.Empty;
                         for (var entryIndex = 0; entryIndex < afterSave.Entries.Count; entryIndex++)
-                            if (afterSave.Entries[entryIndex].SettingId == "inventorytidy.mode")
-                                savedMode = afterSave.Entries[entryIndex].EffectiveValue.Text;
-                        Check(savedMode == "空间",
+                            if (afterSave.Entries[entryIndex].SettingId == "inventorytidy.direction")
+                                savedDirection = afterSave.Entries[entryIndex].EffectiveValue.Text;
+                        Check(savedDirection == "升序",
                             "消费锚：保存后模块注入 view 读到新值（点击将用的同一权威源，revision 推进）");
                     }
                     finally
@@ -12160,20 +12760,19 @@ namespace BetterUnturnedExperience.Plugin.Tests
                         var model = composition.ManagementPanel.Model;
                         model.OpenDetail(lit.Value);
                         var litRows = model.GetSettingRows(lit.Value);
-                        Check(litRows.Count == 2, "07：LIT 详情恰两行（enabled 退役不占行）");
-                        var litModeDescription = string.Empty;
+                        Check(litRows.Count == 1, "07→V5-02：LIT 详情恰一行（enabled 与 mode 三档均退役不占行）");
+                        var litHasMode = false;
                         var litDirectionDescription = string.Empty;
                         var litHasEnabled = false;
                         for (var i = 0; i < litRows.Count; i++)
                         {
-                            if (litRows[i].SettingId == "inventorytidy.mode") litModeDescription = litRows[i].Description;
+                            if (litRows[i].SettingId == "inventorytidy.mode") litHasMode = true;
                             if (litRows[i].SettingId == "inventorytidy.direction") litDirectionDescription = litRows[i].Description;
                             if (string.Equals(litRows[i].SettingId, "inventorytidy.enabled", StringComparison.Ordinal)) litHasEnabled = true;
                         }
-                        Check(litModeDescription == "同类：把相同物品聚在一起；空间：优先保留大块空位；大件：优先放置大件。对当前栏整理和全身整理都生效。",
-                            "07：整理模式描述=Q61 冻结原文逐字（经行投影缝，不直读描述符）");
-                        Check(litDirectionDescription == "降序：大件优先；升序：小件优先。与整理模式共同决定整理顺序。",
-                            "07：整理方向描述=Q61 冻结原文逐字（经行投影缝）");
+                        Check(!litHasMode, "07→V5-02：整理模式行已退役（Q61 原文随三档一起退场，经行投影缝）");
+                        Check(litDirectionDescription == "降序/升序只影响完全相同条件物品的收尾摆放顺序，不改变统一分段排版的结果。",
+                            "07→V5-02：整理方向描述=统一排版冻结新句逐字（经行投影缝，不直读描述符）");
                         Check(!litHasEnabled, "07：LIT 行投影无 inventorytidy.enabled（退役键不因文案票回潮，与 04 对拍）");
                         model.OpenDetail(noopFeature.Value);
                         var noopRows = model.GetSettingRows(noopFeature.Value);

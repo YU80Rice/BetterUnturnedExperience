@@ -1,0 +1,5 @@
+DEV-14 official registration parity tests: FAIL
+System.InvalidOperationException: classifier: MAGAZINE counts as µ¯Ï» only with a real ItemMagazineAsset ¡ª never unconditionally
+   ÔÚ BetterUnturnedExperience.Plugin.Tests.Program.Assert(Boolean condition, String message)
+   ÔÚ BetterUnturnedExperience.Plugin.Tests.Program.AssertDevV502TaggedRowBand()
+   ÔÚ BetterUnturnedExperience.Plugin.Tests.Program.Main()

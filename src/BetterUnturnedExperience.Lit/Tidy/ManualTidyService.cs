@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Threading;
 using SDG.Unturned;
@@ -666,7 +666,7 @@ namespace BetterUnturnedExperience.Lit
 
             int placedCount = CountPlaced(prep.Result);
             TidyDiagnosticLog.Info("transaction-page-committed",
-                $"page {page}: placed={placedCount}, mode={mode} 指纹守恒验证通过。");
+                $"page {page}: placed={placedCount}, strategy={strategy.StrategyId} 指纹守恒验证通过。");
             return TidyOperationOutcome.Committed;
         }
 
@@ -674,7 +674,10 @@ namespace BetterUnturnedExperience.Lit
         // Prepare 阶段：捕获快照 + 装箱 + 静态验证（无副作用）
         // ─────────────────────────────────────────────────────────────
 
-        private static PagePreparation PreparePage(Items items, byte page, bool sortDescending, TidyMode mode, ITidyStrategy strategy)
+        // internal（DEV-V5-02 宿主测试缝）：标签填充→统一排版的官方先行消费在
+        // Prepare 层的形状可无 Unity 观察；提交链仍由 TidyPage/TidyAllPlayerPages
+        // 的事务层承担，本缝不复制算法、不写库存。
+        internal static PagePreparation PreparePage(Items items, byte page, bool sortDescending, TidyMode mode, ITidyStrategy strategy)
         {
             var prep = new PagePreparation
             {
@@ -716,6 +719,11 @@ namespace BetterUnturnedExperience.Lit
                     OriginalY = jar.y,
                     OriginalRot = jar.rot,
                     PreferredRotation = jar.rot,
+                    // DEV-V5-02 (V5-T3): the frozen player-use label comes from the
+                    // module-internal classifier seam — a lookup failure lands in
+                    // 其他 (never drops the jar), so both the single-page and the
+                    // all-pages consumer enter the SAME tagged row-band plan.
+                    Label = ItemUseSignalsProvider.ResolveFor(jar.item),
                 });
             }
 
@@ -736,8 +744,9 @@ namespace BetterUnturnedExperience.Lit
                 return prep;
             }
 
-            // 装箱（DEV-V2-15：经 ITidyStrategy 策略 seam，default-grid-v1 包住 InventorySolver，
-            // 行为与旧直调一致；换 adapter 即换计划输出）
+            // 装箱（DEV-V2-15：经 ITidyStrategy 策略 seam；DEV-V5-02：唯一内置
+            // adapter 是 tagged-row-band-v1 统一排版——旧 mode 仍随输入传输但不再
+            // 决定算法（V5-T3 Q2 裁决）；换 adapter 即换计划输出）
             TidyPlan plan = strategy.BuildPlan(new TidyInput(items.width, items.height, sortDescending, mode, packList));
             prep.Result = plan.Placements;
 

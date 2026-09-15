@@ -16,11 +16,11 @@ namespace BetterUnturnedExperience.Lit
     /// <summary>
     /// 拦截 PlayerDashboardInventoryUI 构造函数，为 5 个标题栏（headers[0..4]，对应
     /// Hands/Backpack/Vest/Shirt/Pants）各注入一颗「整理」按钮（DEV-V4-06：
-    /// 标题栏只留一颗——模式与方向改为全局 ClientPreference Choice，在 LIT
-    /// 设置页用循环切换改）：
+    /// 标题栏只留一颗；DEV-V5-02：仍然只留一颗——同类/空间/大件三档退役，
+    /// 唯一官方排版是统一标签分段行带，设置页仅剩「整理方向」收尾偏好）：
     ///   - 整理按钮 [整理]：60×60，PositionOffset_X=-130（右侧预留 70px 避让
-    ///     耐久度文字与品质角标）；左键整理当前栏，Ctrl+左键按已保存的全局
-    ///     模式与方向整理全身（不含仓储栏）。
+    ///     耐久度文字与品质角标）；左键整理当前栏，Ctrl+左键整理全身
+    ///     （不含仓储栏），两者走同一统一排版模块（V5-T3 Q5）。
     ///   - 注入与拆除由生命周期事实决定（V4-T5 Q55 九态表）：仅 Running 新开
     ///     页注入；Disabled/Stopped/Isolated/Incompatible 拆除已有按钮；过渡
     ///     态不新增、点击走原生回退。patch 不自持任何可用性布尔。
@@ -242,10 +242,11 @@ namespace BetterUnturnedExperience.Lit
         // headers 循环上限：i=0..4 -> page 2..6（SLOTS..PANTS 服装页）。
         private const int HEADER_INJECT_COUNT = 5;
 
-        // DEV-V4-06：tooltip 用玩家语言钉死手势契约（Q54 原文）——模式与方向
-        // 已迁往 LIT 设置页（全局 ClientPreference Choice），不在标题栏。
+        // DEV-V4-06：tooltip 用玩家语言钉死手势契约（Q54 原文）。DEV-V5-02：
+        // 三档退役后不再提「全局模式」——唯一统一排版，方向仅是设置页的收尾
+        // 偏好；手势契约不变（整理/整理全身，不含仓储栏）。
         private const string TOOLTIP_TIDY =
-            "左键：整理当前栏；Ctrl+左键：按全局模式和方向整理全身（不含仓储栏）";
+            "左键：整理当前栏；Ctrl+左键：按统一分段排版整理全身（不含仓储栏）";
 
         private static void LogError(string msg) => LitRuntime.LogError($"{TAG} {msg}");
         private static void LogInfo(string msg)  => LitRuntime.LogInfo($"{TAG} {msg}");

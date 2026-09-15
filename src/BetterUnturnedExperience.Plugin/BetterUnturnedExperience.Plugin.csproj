@@ -75,9 +75,11 @@
          patch are NOT in this list — the exclusion is a hard rule verified by the host red test. -->
     <Compile Include="..\BetterUnturnedExperience.Lit\LitRuntime.cs"><Link>EmbeddedLit\LitRuntime.cs</Link></Compile>
     <Compile Include="..\BetterUnturnedExperience.Lit\TidyStrategy.cs"><Link>EmbeddedLit\TidyStrategy.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lit\DefaultGridV1Strategy.cs"><Link>EmbeddedLit\DefaultGridV1Strategy.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lit\Solver\InventorySolver.cs"><Link>EmbeddedLit\Solver\InventorySolver.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lit\Solver\LayoutCandidate.cs"><Link>EmbeddedLit\Solver\LayoutCandidate.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Lit\TaggedRowBandV1Strategy.cs"><Link>EmbeddedLit\TaggedRowBandV1Strategy.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Lit\Layout\PlayerUseLabel.cs"><Link>EmbeddedLit\Layout\PlayerUseLabel.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Lit\Layout\PlayerUseClassifier.cs"><Link>EmbeddedLit\Layout\PlayerUseClassifier.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Lit\Layout\ItemUseSignalsProvider.cs"><Link>EmbeddedLit\Layout\ItemUseSignalsProvider.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Lit\Layout\TaggedRowBandLayout.cs"><Link>EmbeddedLit\Layout\TaggedRowBandLayout.cs</Link></Compile>
     <Compile Include="..\BetterUnturnedExperience.Lit\Diagnostics\TidyDiagnosticLog.cs"><Link>EmbeddedLit\Diagnostics\TidyDiagnosticLog.cs</Link></Compile>
     <Compile Include="..\BetterUnturnedExperience.Lit\Tidy\MainThreadDispatcher.cs"><Link>EmbeddedLit\Tidy\MainThreadDispatcher.cs</Link></Compile>
     <Compile Include="..\BetterUnturnedExperience.Lit\Tidy\LitTidyWireCodec.cs"><Link>EmbeddedLit\Tidy\LitTidyWireCodec.cs</Link></Compile>
