@@ -1,0 +1,295 @@
+# DEV-V5-06 R2 审查包（R1 后增量 = 气味3/6 修复 + 气味1 驳回）
+
+## 变更点
+1) AmmoReserveHudSurface.cs：Apply 新 Slot 注入时摊销清扫 live 死引用（气味3：无界增长修复）
+2) AmmoReserveHudPatch.Post → Postfix；Binder AccessTools.Method 查找串与异常文案同步；红测 5a 同步（气味6：命名与仓库惯例一致）
+3) 气味1 驳回证据：git HEAD 原版 FindCaliberMatch 已含零跳过（本包第 4 节），重构=逐字等价提取，语义零变化
+
+## 1. AmmoReserveHudSurface.cs（修复后全文）
+using System;
+using System.Collections.Generic;
+using System.Reflection;
+using System.Runtime.CompilerServices;
+using HarmonyLib;
+using SDG.Unturned;
+
+namespace BetterUnturnedExperience.Lir
+{
+    /// <summary>
+    /// DEV-V5-06 呈现面（真机 only——宿主测试经 ApplyForTests/HideAllForTests
+    /// 替换，本类方法体在宿主永不执行；infoBox 为 vanilla 私有字段，反射读取，
+    /// 其余用编译期 Glazier 类型（BueNativeManagementPanel 同面先例）。
+    ///
+    /// 注入形态 = 「只扩展原版弹药信息区」的字面兑现：把读数标签作为
+    /// vanilla UseableGun.infoBox 的子元素放进右下弹药盒左列下半
+    /// （ammoLabel 大字号占左列；右列被 firemode/attach 两行占据——几何单源
+    /// 见下常量，LHT 顶栏条与右列两行互不相干、零争抢）。随 infoBox 同创建
+    /// 同销毁：卸枪/切枪原版 RemoveChild 带走子元素，呈现无跨面残留；功能
+    /// 停用 = 补丁注销 + HideAll 即时收（在枪上的残留读数不滞留）。
+    /// 原版 ammoLabel 文本一字不动（当前/上限含义保持）。
+    /// 写纪律：Text 仅在数值变化时写、IsVisible 仅在翻转时写（稳态零写零日志）。
+    /// </summary>
+    internal static class AmmoReserveHudSurface
+    {
+        // ── 几何/样式单源（红测不复算坐标；真机微调只动这里）──
+        internal const float ReserveLabelPositionScaleX = 0f;
+        internal const float ReserveLabelPositionScaleY = 0.5f;
+        internal const float ReserveLabelSizeScaleX = 0.35f;
+        internal const float ReserveLabelSizeScaleY = 0.5f;
+        internal const string InfoBoxFieldName = "infoBox";
+
+        private sealed class Slot
+        {
+            internal ISleekLabel label;
+            internal string lastText;
+            internal bool visible;
+        }
+
+        private static readonly object gate = new object();
+        private static readonly ConditionalWeakTable<object, Slot> slots = new ConditionalWeakTable<object, Slot>();
+        private static readonly List<WeakReference<Slot>> live = new List<WeakReference<Slot>>();
+        private static FieldInfo infoBoxField;      // lazy（首次 Apply 真机解析）
+        private static bool reflectionProbed;
+        private static bool reflectionBrokenLogged;
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        internal static void Apply(object gun, AmmoReserveResult result)
+        {
+            if (gun == null) return;
+            try
+            {
+                lock (gate)
+                {
+                    if (!EnsureReflection()) return;
+                    object box;
+                    try { box = infoBoxField.GetValue(gun); }
+                    catch (Exception) { return; }
+                    var parent = box as ISleekElement;
+                    if (parent == null) return; // 原版弹药区不在场（未装备/未创建）——不画、不抛
+
+                    Slot slot;
+                    if (!slots.TryGetValue(gun, out slot))
+                    {
+                        slot = CreateSlot(parent);
+                        if (slot == null) return;
+                        slots.Add(gun, slot);
+                        live.Add(new WeakReference<Slot>(slot));
+                        // 摊销清死引用：WeakReference 槽位本身不弱（长会话高频
+                        // 换枪下 live 只增不减 = 真实增长），每次新注入顺带回收。
+                        for (var d = live.Count - 1; d >= 0; d--)
+                        {
+                            Slot dead;
+                            if (!live[d].TryGetTarget(out dead)) live.RemoveAt(d);
+                        }
+                    }
+                    if (slot.label == null) return;
+
+                    if (slot.lastText != result.LabelText)
+                    {
+                        slot.label.Text = result.LabelText;
+                        slot.lastText = result.LabelText;
+                    }
+                    if (!slot.visible)
+                    {
+                        slot.label.IsVisible = true;
+                        slot.visible = true;
+                    }
+                }
+            }
+            catch (Exception error)
+            {
+                // 呈现失败绝不打断原版 updateInfo 链（HUD 是附加读数，非关键路径）。
+                LirRuntime.LogDiagnostic("[AmmoHud] 呈现异常（本次吞掉，原版读数不受影响）: " + error.Message);
+            }
+        }
+
+        /// <summary>功能注销 = 收掉所有已注入标签（登记=唯一开关的反操作）。</summary>
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        internal static void HideAll()
+        {
+            lock (gate)
+            {
+                if (live.Count == 0) return; // 从未注入（headless/宿主）——零反射零日志
+                for (var i = 0; i < live.Count; i++)
+                {
+                    Slot slot;
+                    if (!live[i].TryGetTarget(out slot) || slot == null || slot.label == null) continue;
+                    try
+                    {
+                        slot.label.IsVisible = false;
+                        slot.visible = false;
+                        slot.lastText = null;
+                    }
+                    catch (Exception) { }
+                }
+                live.Clear();
+            }
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static bool EnsureReflection()
+        {
+            if (reflectionProbed) return infoBoxField != null;
+            reflectionProbed = true;
+            infoBoxField = AccessTools.Field(typeof(UseableGun), InfoBoxFieldName);
+            if (infoBoxField == null && !reflectionBrokenLogged)
+            {
+                reflectionBrokenLogged = true;
+                LirRuntime.LogError("[AmmoHud] 原版弹药盒字段不可定位（版本漂移？）——后备 HUD 停用，压弹功能不受影响");
+            }
+            return infoBoxField != null;
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static Slot CreateSlot(ISleekElement infoBox)
+        {
+            try
+            {
+                var label = Glazier.Get().CreateLabel();
+                label.PositionScale_X = ReserveLabelPositionScaleX;
+                label.PositionScale_Y = ReserveLabelPositionScaleY;
+                label.SizeScale_X = ReserveLabelSizeScaleX;
+                label.SizeScale_Y = ReserveLabelSizeScaleY;
+                label.FontSize = ESleekFontSize.Small;
+                label.IsVisible = false;
+                infoBox.AddChild(label);
+                return new Slot { label = label };
+            }
+            catch (Exception error)
+            {
+                if (!reflectionBrokenLogged)
+                {
+                    reflectionBrokenLogged = true;
+                    LirRuntime.LogError("[AmmoHud] Glazier 标签注入失败（后备 HUD 停用）: " + error.Message);
+                }
+                return null;
+            }
+        }
+    }
+}
+
+## 2. AmmoReserveHudPatch.cs（修复后全文）
+namespace BetterUnturnedExperience.Lir
+{
+    /// <summary>
+    /// DEV-V5-06 唯一补丁面：原版 UseableGun.updateInfo 的 postfix。
+    /// 无 [HarmonyPatch] 属性——绑定唯一事实源 = AmmoReserveHudBinder
+    /// （显式 MethodBase 解析，宿主可证）。体是纯转发：所有闸（登记=唯一
+    /// 开关）、观察、投影、呈现都在 AmmoReserveHudAdapter 及其下游，本类型
+    /// 不持有任何状态与开关位（红测 4h 反射钉）。
+    /// </summary>
+    internal static class AmmoReserveHudPatch
+    {
+        internal static void Postfix(object __instance)
+        {
+            AmmoReserveHudAdapter.OnGunInfoUpdated(__instance);
+        }
+    }
+}
+
+## 3. AmmoReserveHudBinder.cs（修复后全文）
+using System;
+using System.Collections.Generic;
+using System.Reflection;
+using HarmonyLib;
+using SDG.Unturned;
+
+namespace BetterUnturnedExperience.Lir
+{
+    /// <summary>
+    /// DEV-V5-06 绑定唯一事实源：弹药后备 HUD 的补丁面清单与目标方法解析都
+    /// 集中在这里（04 教训：名字绑定不可证——显式 MethodBase 解析成宿主可证
+    /// 的单源）。目标 = SDG.Unturned.UseableGun 的私有零参 updateInfo（原版
+    /// 写 ammoLabel「当前/上限」的唯一出口，postfix 追加后备读数；updateInfo
+    /// 非重载，仍按名+元数全声明扫描要求恰一命中，漂移即抛不静默绑错）。
+    /// </summary>
+    internal static class AmmoReserveHudBinder
+    {
+        /// <summary>本票唯一触发面（红测 5a 逐字钉数量与身份——无夹带面）。</summary>
+        internal static readonly IReadOnlyList<Type> PatchSurface = new Type[] { typeof(AmmoReserveHudPatch) };
+
+        /// <summary>恰一 updateInfo；0 或多于 1 = 版本漂移，抛（半装=整体撤销）。</summary>
+        internal static MethodBase ResolveInfoUpdateTarget()
+        {
+            var candidates = new List<MethodBase>();
+            var methods = typeof(UseableGun).GetMethods(BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.DeclaredOnly);
+            for (var i = 0; i < methods.Length; i++)
+            {
+                if (methods[i].Name != "updateInfo") continue;
+                if (methods[i].GetParameters().Length != 0) continue;
+                candidates.Add(methods[i]);
+            }
+            if (candidates.Count != 1)
+            {
+                throw new InvalidOperationException("ammo-hud bind target not provable: UseableGun.updateInfo matches=" + candidates.Count);
+            }
+            return candidates[0];
+        }
+
+        /// <summary>显式绑定（6-arg Patch 面）：target ← 唯一事实源，postfix ← PatchSurface 面的 Postfix。</summary>
+        internal static void Bind(Harmony harmony, Type patchType)
+        {
+            if (harmony == null) throw new ArgumentNullException(nameof(harmony));
+            if (patchType != typeof(AmmoReserveHudPatch))
+            {
+                throw new InvalidOperationException("ammo-hud binder only accepts its single surface, got: " + (patchType == null ? "null" : patchType.Name));
+            }
+            var target = ResolveInfoUpdateTarget();
+            var postfix = AccessTools.Method(patchType, "Postfix");
+            if (postfix == null)
+            {
+                throw new InvalidOperationException("ammo-hud postfix body missing: " + patchType.Name + ".Postfix");
+            }
+            harmony.Patch(target, postfix: new HarmonyMethod(postfix));
+        }
+    }
+}
+
+## 4. 气味1 驳回证据（git show HEAD:src/.../AmmoRepackService.cs :753-770 与新版 Projection 谓词对位）
+            {
+                List<AmmoBoxRef> boxList = kvp.Value;
+                if (boxList == null || boxList.Count == 0) continue;
+                ItemAsset firstAsset = boxList[0].asset;
+                if (!(firstAsset is ItemCaliberAsset boxCaliberAsset)) continue;
+                if (boxCaliberAsset.calibers == null || boxCaliberAsset.calibers.Length == 0) continue;
+
+                bool hasCommon = false;
+                foreach (ushort magCal in magCalibers)
+                {
+                    if (magCal == 0) continue;
+                    foreach (ushort boxCal in boxCaliberAsset.calibers)
+                    {
+                        if (magCal == boxCal) { hasCommon = true; break; }
+                    }
+                    if (hasCommon) break;
+                }
+                if (hasCommon) result.Add(boxList);
+--- 新版谓词（被两边共用）---
+        internal static bool MagSuppliesMatch(ushort[] magazineCalibers, ushort[] sourceCalibers)
+        {
+            if (magazineCalibers == null || magazineCalibers.Length == 0) return false;
+            if (sourceCalibers == null || sourceCalibers.Length == 0) return false;
+            for (var a = 0; a < magazineCalibers.Length; a++)
+            {
+                var magCal = magazineCalibers[a];
+                if (magCal == 0) continue;
+                for (var b = 0; b < sourceCalibers.Length; b++)
+                {
+                    if (magCal == sourceCalibers[b]) return true;
+                }
+            }
+            return false;
+        }
+
+## 5. 红测 5a 相关行
+            check(target != null && target.DeclaringType == typeof(UseableGun) && target.Name == "updateInfo"
+                    && target.GetParameters().Length == 0,
+                "绑定目标 = SDG.Unturned.UseableGun.updateInfo（私有零参，宿主可证唯一）");
+            var post = AccessTools.Method(typeof(AmmoReserveHudPatch), "Postfix");
+            var ps = post == null ? null : post.GetParameters();
+            check(post != null && post.IsStatic && ps.Length == 1 && ps[0].ParameterType == typeof(object),
+                "postfix 面：static Postfix(object __instance)（不提前 JIT 引擎类型）");
+
+            // 5b. 匹配同源：压弹服务的 supplies 集合收集升为共享面（HUD 引擎侧消费）。
+            var collect = AccessTools.Method(typeof(AmmoRepackService), "CollectCompatibleAmmoIds");
+            check(collect != null && collect.IsStatic && collect.IsAssembly

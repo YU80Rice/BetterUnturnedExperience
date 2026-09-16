@@ -712,8 +712,11 @@ namespace BetterUnturnedExperience.Lir
         /// <summary>
         /// 收集弹匣所有 FillTargetItem 蓝图的 supplies 物品 ID。
         /// 这些 ID 构成"兼容弹药源 ID 列表"，用于绕过工坊作者乱填/漏填 Caliber 的硬伤。
+        /// DEV-V5-06: private→internal 共享面——弹药后备 HUD 的引擎观察侧
+        /// 调用本方法收集「当前匣能经 FillTargetItem 吃哪些箱」，主路径匹配
+        /// 单源（「匹配同现网压弹」由调用同一函数兑现，不是两份实现对表）。
         /// </summary>
-        private static List<ushort> CollectCompatibleAmmoIds(ItemMagazineAsset magAsset)
+        internal static List<ushort> CollectCompatibleAmmoIds(ItemMagazineAsset magAsset)
         {
             var result = new HashSet<ushort>();
             if (magAsset?.blueprints == null) return new List<ushort>(result);
@@ -757,17 +760,10 @@ namespace BetterUnturnedExperience.Lir
                 if (!(firstAsset is ItemCaliberAsset boxCaliberAsset)) continue;
                 if (boxCaliberAsset.calibers == null || boxCaliberAsset.calibers.Length == 0) continue;
 
-                bool hasCommon = false;
-                foreach (ushort magCal in magCalibers)
-                {
-                    if (magCal == 0) continue;
-                    foreach (ushort boxCal in boxCaliberAsset.calibers)
-                    {
-                        if (magCal == boxCal) { hasCommon = true; break; }
-                    }
-                    if (hasCommon) break;
-                }
-                if (hasCommon) result.Add(boxList);
+                // DEV-V5-06: 交集判定 = AmmoReserveProjection.MagSuppliesMatch
+                // 单源（现网逐字语义：mag 侧 0 口径跳过、双侧非空才配）——
+                // HUD 后备计数与压弹共用谓词，禁两份实现各自漂移。
+                if (AmmoReserveProjection.MagSuppliesMatch(magCalibers, boxCaliberAsset.calibers)) result.Add(boxList);
             }
             return result;
         }

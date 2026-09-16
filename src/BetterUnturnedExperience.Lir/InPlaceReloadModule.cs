@@ -79,6 +79,22 @@ namespace BetterUnturnedExperience.Lir
         internal string PatchHarmonyId { get; private set; }
         internal string StartGateDiagnostics { get; private set; } = string.Empty;
 
+        /// <summary>DEV-V5-06: 弹药后备 HUD 面（画面类）的在册位——登记=会画、
+        /// 注销+HideAll=不画；与两压弹权威面同代际共存、半装互撤归零。</summary>
+        internal bool HudPatchInstalled { get; private set; }
+        internal string HudStartGateDiagnostics { get; private set; } = string.Empty;
+
+        /// <summary>DEV-V5-06: host-test seam replacing the real binder.Bind
+        /// for the ammo-HUD surface (false = refuse → whole install rolls back).</summary>
+        internal static Func<Type, bool> HudPatchInstallerForTests;
+
+        /// <summary>DEV-V5-06: host-test seam for the two pre-existing reload
+        /// surfaces (the same all-or-none installer pattern as 04/05 — without
+        /// it the host can never even REACH the HUD surface install, because a
+        /// real Patch() on an ECall-touching method throws first). Null in
+        /// production: the historical attribute-style install stays verbatim.</summary>
+        internal static Func<Type, bool> CorePatchInstallerForTests;
+
         // DEV-V2-22: the host-composed seams captured at IFeatureModule.Start.
         internal IOwnedFeatureEventPublisher OwnedEvents { get; private set; }
         internal IFeatureEventSubscriber Events { get; private set; }
@@ -365,8 +381,10 @@ namespace BetterUnturnedExperience.Lir
                 // The handle goes live BEFORE Patch(): no game call can
                 // interleave (the install runs on the game thread itself).
                 ActiveModule = this;
-                harmony.CreateClassProcessor(typeof(UseableGunReceiveAttachMagazinePatch)).Patch();
-                harmony.CreateClassProcessor(typeof(ForceAddItemPatch)).Patch();
+                InstallCoreReloadPatches();
+                // DEV-V5-06: 三面同代共存——HUD 面失败 = 整体互撤归零（04/05
+                // 同律，禁半装；headless 跳过画面面是决策不是失败）。
+                InstallAmmoReserveHud();
                 PatchesInstalled = true;
                 StartGateDiagnostics = string.Empty;
                 LirRuntime.LogInfo("[Lir] 原位换弹补丁已安装（Harmony ID=" + LirRuntime.FeatureIdValue + "）");
@@ -380,20 +398,83 @@ namespace BetterUnturnedExperience.Lir
                 try { if (harmony != null) harmony.UnpatchSelf(); } catch (Exception) { }
                 ActiveModule = null;
                 PatchesInstalled = false;
+                // DEV-V5-06: 在册同步归零 + 呈现即时收（不留「补丁没了、登记
+                // 还在」的半态；HUD 面从未注入 = RevokeAll 空表零操作）。
+                HudPatchInstalled = false;
+                AmmoReserveHudAdapter.RevokeAll();
             }
+        }
+
+        /// <summary>DEV-V5-06: 既有两压弹权威面的登记（无测试缝时与迁移前逐字
+        /// 同形；有缝时按 04/05 installer 模式走——生命周期红测需三面同形驱动，
+        /// 否则真 Patch() 先在 ECall 边界抛，HUD 面根本到不了）。拒装 = 上抛 →
+        /// InstallPatches 三面互撤归零。</summary>
+        private void InstallCoreReloadPatches()
+        {
+            var seam = CorePatchInstallerForTests;
+            if (seam != null)
+            {
+                if (!seam(typeof(UseableGunReceiveAttachMagazinePatch)))
+                    throw new InvalidOperationException("lir-core patch refused: UseableGunReceiveAttachMagazinePatch");
+                if (!seam(typeof(ForceAddItemPatch)))
+                    throw new InvalidOperationException("lir-core patch refused: ForceAddItemPatch");
+                return;
+            }
+            harmony.CreateClassProcessor(typeof(UseableGunReceiveAttachMagazinePatch)).Patch();
+            harmony.CreateClassProcessor(typeof(ForceAddItemPatch)).Patch();
+        }
+
+        /// <summary>
+        /// DEV-V5-06: 弹药后备 HUD 面的登记（U3DS headless 不武装——只砍画面
+        /// 裁决，T1 同律；两压弹权威面在头less照常登记）。绑定唯一事实源 =
+        /// AmmoReserveHudBinder（显式 updateInfo 解析，宿主可证）；假 installer
+        /// 缝返回 false = 拒装 → 异常上抛 → InstallPatches 三面互撤归零。
+        /// </summary>
+        private void InstallAmmoReserveHud()
+        {
+            if (HudPatchInstalled) return;
+            if (BetterUnturnedExperience.Plugin.BueRuntimeCompletionChain.HeadlessDecision)
+            {
+                HudStartGateDiagnostics = "ammo-hud-headless-not-armed";
+                LirRuntime.LogInfo("[AmmoHud] U3DS headless：不武装弹药后备 HUD（Headless 决策门禁；压弹权威面不受影响）");
+                return;
+            }
+            var types = AmmoReserveHudBinder.PatchSurface;
+            for (var i = 0; i < types.Count; i++)
+            {
+                var seam = HudPatchInstallerForTests;
+                if (seam != null)
+                {
+                    if (!seam(types[i])) throw new InvalidOperationException("ammo-hud patch refused: " + types[i].Name);
+                    continue;
+                }
+                AmmoReserveHudBinder.Bind(harmony, types[i]);
+            }
+            HudPatchInstalled = true;
+            HudStartGateDiagnostics = string.Empty;
+            LirRuntime.LogInfo("[AmmoHud] 弹药后备 HUD 补丁已登记（Harmony ID=" + LirRuntime.FeatureIdValue + "）");
         }
 
         private void UninstallPatches()
         {
-            if (!PatchesInstalled) return;
+            if (!PatchesInstalled && !HudPatchInstalled) return;
             try
             {
                 if (harmony != null) harmony.UnpatchSelf();
+            }
+            catch (Exception e)
+            {
+                // 04 实证教训：撤装反转 IL 会在无 Unity 运行时的进程触发再 JIT
+                // 异常——边界绝不向生命周期机抛出，下方记账必须落地。
+                LirRuntime.LogError("[Lir] 补丁撤销异常（登记已强制收回，功能面按停用运行）: " + e.Message);
             }
             finally
             {
                 PatchesInstalled = false;
                 ActiveModule = null;
+                // DEV-V5-06: 注销=不画（登记交还 + 在枪上的残留读数即时收）。
+                HudPatchInstalled = false;
+                AmmoReserveHudAdapter.RevokeAll();
                 LirRuntime.LogInfo("[Lir] 原位换弹补丁已撤销（原生回退，仅撤自身 Harmony ID）");
             }
         }

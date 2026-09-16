@@ -129,6 +129,12 @@
     <Compile Include="..\BetterUnturnedExperience.Lir\Patches\UseableGunReceiveAttachMagazinePatch.cs"><Link>EmbeddedLir\Patches\UseableGunReceiveAttachMagazinePatch.cs</Link></Compile>
     <Compile Include="..\BetterUnturnedExperience.Lir\Patches\ForceAddItemPatch.cs"><Link>EmbeddedLir\Patches\ForceAddItemPatch.cs</Link></Compile>
     <Compile Include="..\BetterUnturnedExperience.Lir\InPlaceReloadModule.cs"><Link>EmbeddedLir\InPlaceReloadModule.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Lir\Hud\AmmoReserveProjection.cs"><Link>EmbeddedLir\Hud\AmmoReserveProjection.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Lir\Hud\AmmoReserveHudEngine.cs"><Link>EmbeddedLir\Hud\AmmoReserveHudEngine.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Lir\Hud\AmmoReserveHudSurface.cs"><Link>EmbeddedLir\Hud\AmmoReserveHudSurface.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Lir\Hud\AmmoReserveHudAdapter.cs"><Link>EmbeddedLir\Hud\AmmoReserveHudAdapter.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Lir\Hud\AmmoReserveHudBinder.cs"><Link>EmbeddedLir\Hud\AmmoReserveHudBinder.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Lir\Hud\AmmoReserveHudPatch.cs"><Link>EmbeddedLir\Hud\AmmoReserveHudPatch.cs</Link></Compile>
     <Compile Include="..\BetterUnturnedExperience.Lht\LhtRuntime.cs"><Link>EmbeddedLht\LhtRuntime.cs</Link></Compile>
     <Compile Include="..\BetterUnturnedExperience.Lht\Horde\HordeSnapshot.cs"><Link>EmbeddedLht\Horde\HordeSnapshot.cs</Link></Compile>
     <Compile Include="..\BetterUnturnedExperience.Lht\Horde\HordeStateTracker.cs"><Link>EmbeddedLht\Horde\HordeStateTracker.cs</Link></Compile>

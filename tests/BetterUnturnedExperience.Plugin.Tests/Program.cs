@@ -308,6 +308,11 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     DevV5FastTransferRecoverTests.Run(collectAllFailures: true);
                     return 0;
                 }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--bue-v5-06-ammo-hud-red")
+                {
+                    DevV5AmmoReserveHudTests.Run(collectAllFailures: true);
+                    return 0;
+                }
                 if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--bue-v2-send-semantics-red")
                 {
                     AssertBueV2SessionDrivenSendSemantics(collectAllFailures: true);
@@ -490,6 +495,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 DevV5ContainerSessionTests.Run();
                 DevV5InsertRecoverTests.Run();
                 DevV5FastTransferRecoverTests.Run();
+                DevV5AmmoReserveHudTests.Run();
                 AssertRuntimeCompletionBarrierIsolates();
                 AssertManagementPanelConsumesRuntimeCatalog();
                 AssertManagementPanelOpenHooks();
