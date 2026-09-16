@@ -303,6 +303,11 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     DevV5InsertRecoverTests.Run(collectAllFailures: true);
                     return 0;
                 }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--bue-v5-05-fast-transfer-recover-red")
+                {
+                    DevV5FastTransferRecoverTests.Run(collectAllFailures: true);
+                    return 0;
+                }
                 if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--bue-v2-send-semantics-red")
                 {
                     AssertBueV2SessionDrivenSendSemantics(collectAllFailures: true);
@@ -484,6 +489,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 AssertDevV502TaggedRowBand();
                 DevV5ContainerSessionTests.Run();
                 DevV5InsertRecoverTests.Run();
+                DevV5FastTransferRecoverTests.Run();
                 AssertRuntimeCompletionBarrierIsolates();
                 AssertManagementPanelConsumesRuntimeCatalog();
                 AssertManagementPanelOpenHooks();
@@ -3707,6 +3713,13 @@ namespace BetterUnturnedExperience.Plugin.Tests
             public LitContainerAuthorityResult ExecuteServerContainerTidy(LitContainerTidyRequestContext request)
             {
                 throw new NotSupportedException("FakeLitAuthority does not serve container tidy");
+            }
+
+            /// <summary>DEV-V5-05: same law for the fast-transfer recover —
+            /// its chain rides DevV5FastTransferRecoverTests.</summary>
+            public LitContainerAuthorityResult ExecuteServerFastTransferRecover(LitFastTransferRequestContext request)
+            {
+                throw new NotSupportedException("FakeLitAuthority does not serve fast-transfer recover");
             }
 
             public bool VerifyClientConvergence(List<LitNewPositionMapping> mappings)

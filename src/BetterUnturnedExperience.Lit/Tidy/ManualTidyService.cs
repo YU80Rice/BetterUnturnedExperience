@@ -307,6 +307,14 @@ namespace BetterUnturnedExperience.Lit
         /// page's expected content). Null = the button-tidy shape: byte-for-byte
         /// the pre-DEV-V5-04 semantics.</summary>
         public PackableItem Pending;
+
+        /// <summary>DEV-V5-05: the item-to-be-removed of a fast-transfer recovery
+        /// (Tag = the leaving ItemJar, the mirror of Pending). The page's plan is
+        /// the IDENTITY layout of everything except this jar — 源网格不整理的字面
+        /// 落实 — and the validation/commit/conservation chain treats it as part
+        /// of the page's pre-state and NOT of its post-state. Null = every
+        /// pre-DEV-V5-05 shape unchanged.</summary>
+        public PackableItem Leaving;
     }
 
     /// <summary>
@@ -737,22 +745,17 @@ namespace BetterUnturnedExperience.Lit
             prep.Width = items.width;
             prep.Height = items.height;
 
-            byte count = items.getItemCount();
-
             // v2.0.2：捕获值快照（Id/Amount/Quality/State.Clone）+ OriginalJar 引用
-            // v2.0.3 P1-M17：fail-closed - 任何 jar 或 jar.item 为 null 立即 Rejected（不再跳过）
-            var jars = new List<JarSnapshot>(count);
-            var packList = new List<PackableItem>(count);
-            for (byte i = 0; i < count; i++)
+            // v2.0.3 P1-M17：fail-closed（不再跳过异常数据）
+            // DEV-V5-05：捕获段提取为 TryCaptureSnapshots（行为与日志逐字不变），
+            // 供本页与 PreparePageLeave 共用，不留第二份快照拷贝。
+            if (!TryCaptureSnapshots(items, page, out var jars))
+                return prep;  // Valid = false
+
+            var packList = new List<PackableItem>(jars.Count);
+            for (byte i = 0; i < jars.Count; i++)
             {
-                ItemJar jar = items.getItem(i);
-                if (jar == null || jar.item == null)
-                {
-                    LitRuntime.LogError(
-                        $"[Tidy] page {page}: jar[{i}] 或 jar.item 为 null，Prepare fail-closed（不再跳过异常数据）");
-                    return prep;  // Valid = false
-                }
-                jars.Add(new JarSnapshot(jar));
+                ItemJar jar = jars[i].OriginalJar;
                 packList.Add(new PackableItem
                 {
                     Tag = jar,
@@ -770,14 +773,6 @@ namespace BetterUnturnedExperience.Lit
                     // all-pages consumer enter the SAME tagged row-band plan.
                     Label = ItemUseSignalsProvider.ResolveFor(jar.item),
                 });
-            }
-
-            // v2.0.3 P1-M17：强校验 - jars/packList 数量必须等于 items.getItemCount()
-            if (jars.Count != count || packList.Count != count)
-            {
-                LitRuntime.LogError(
-                    $"[Tidy] page {page}: 数量不一致 count={count}, jars.Count={jars.Count}, packList.Count={packList.Count}，Prepare fail-closed");
-                return prep;  // Valid = false
             }
 
             prep.BeforeJars = jars;
@@ -836,7 +831,7 @@ namespace BetterUnturnedExperience.Lit
             // 静态验证 2：result 中的 Tag 与 before 中的 ItemJar 一一对应（无外来/重复/遗漏）；
             // DEV-V5-04：待加入物品以 Item 引用恰出现一次（多了=外来、少了=吞物、Placed=false
             // 已被上面的未放置计数拒绝）。
-            if (!ValidateTagConsistency(plan.Placements, jars, pending))
+            if (!ValidateTagConsistency(plan.Placements, jars, pending, null))
             {
                 LitRuntime.LogError(
                     $"[Tidy] page {page}: 静态验证失败（Tag 一致性）");
@@ -845,10 +840,153 @@ namespace BetterUnturnedExperience.Lit
 
             // 静态验证 3：指纹多重集合匹配（result 中所有物品的指纹 = before 中所有物品的指纹；
             // DEV-V5-04 有 pending 时并入该件指纹一次）
-            if (!ValidateFingerprintMultiset(plan.Placements, jars, pending))
+            if (!ValidateFingerprintMultiset(plan.Placements, jars, pending, null))
             {
                 LitRuntime.LogError(
                     $"[Tidy] page {page}: 静态验证失败（指纹多重集不匹配）");
+                return prep;
+            }
+
+            prep.Valid = true;
+            return prep;
+        }
+
+        /// <summary>
+        /// DEV-V5-05 extraction（行为与日志逐字不变）：fail-closed 值快照捕获。
+        /// 任何 jar / jar.item 为 null 或数量不配 = 拒绝（异常数据绝不静默跳过）。
+        /// </summary>
+        private static bool TryCaptureSnapshots(Items items, byte page, out List<JarSnapshot> jars)
+        {
+            byte count = items.getItemCount();
+            jars = new List<JarSnapshot>(count);
+            for (byte i = 0; i < count; i++)
+            {
+                ItemJar jar = items.getItem(i);
+                if (jar == null || jar.item == null)
+                {
+                    LitRuntime.LogError(
+                        $"[Tidy] page {page}: jar[{i}] 或 jar.item 为 null，Prepare fail-closed（不再跳过异常数据）");
+                    return false;
+                }
+                jars.Add(new JarSnapshot(jar));
+            }
+            // v2.0.3 P1-M17：强校验 - 快照数量必须等于 items.getItemCount()
+            if (jars.Count != count)
+            {
+                LitRuntime.LogError(
+                    $"[Tidy] page {page}: 数量不一致 count={count}, jars.Count={jars.Count}，Prepare fail-closed");
+                return false;
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// DEV-V5-05 (V5-T5 快速转移恢复): the source page's preparation = the
+        /// IDENTITY layout of everything except the one leaving jar. This is
+        /// 「源网格不整理」in the literal sense: every remaining item keeps its
+        /// exact x/y/rot (the plan is read straight off the live page, never
+        /// through the strategy — re-flowing the source would be the ticket's
+        /// forbidden 转移失败但源已被整理), while the SAME static validation and
+        /// the SAME atomic transaction (CommitPreparations) still bind the page:
+        /// jar absent = refusal (零修改), conservation expects exactly one less
+        /// fingerprint, and a verified rollback restores the leaving item with
+        /// the page (两边都不动). The leaving jar must be one of this page's
+        /// jars — an off-page leave fails closed, never a silent empty remove.
+        /// </summary>
+        internal static PagePreparation PreparePageLeave(Items items, byte page, ItemJar leave)
+        {
+            var prep = new PagePreparation
+            {
+                Page = page,
+                ItemsInstance = items,
+                Valid = false,
+                Leaving = leave == null ? null : new PackableItem
+                {
+                    Tag = leave,
+                    size_x = leave.size_x,
+                    size_y = leave.size_y,
+                    GroupKey = leave.item == null ? (ushort)0 : leave.item.id,
+                    OriginalX = leave.x,
+                    OriginalY = leave.y,
+                    OriginalRot = leave.rot,
+                },
+            };
+
+            if (items == null || items.width == 0 || items.height == 0 || leave == null)
+                return prep;
+
+            prep.Width = items.width;
+            prep.Height = items.height;
+
+            if (!TryCaptureSnapshots(items, page, out var jars))
+                return prep;
+
+            // 离场件必须在场（引用同一性）——不在场 = 本票禁的形状：绝不空摘。
+            var leaveIndex = -1;
+            for (int i = 0; i < jars.Count; i++)
+            {
+                if (ReferenceEquals(jars[i].OriginalJar, leave)) { leaveIndex = i; break; }
+            }
+            if (leaveIndex < 0)
+            {
+                LitRuntime.LogError(
+                    $"[Tidy] page {page}: 离场物品不在该页（id={leave.item?.id}），Prepare fail-closed（绝不空摘）");
+                return prep;
+            }
+
+            prep.BeforeJars = jars;
+
+            // 恒等计划：除离场件外全部原位原旋转、全部 Placed；离场件只入 Leaving。
+            var plan = new List<PackableItem>(jars.Count - 1);
+            for (int i = 0; i < jars.Count; i++)
+            {
+                if (i == leaveIndex) continue;
+                var jar = jars[i].OriginalJar;
+                plan.Add(new PackableItem
+                {
+                    Tag = jar,
+                    size_x = jar.size_x,
+                    size_y = jar.size_y,
+                    GroupKey = jar.item.id,
+                    StableOrder = i,
+                    OriginalX = jar.x,
+                    OriginalY = jar.y,
+                    OriginalRot = jar.rot,
+                    PreferredRotation = jar.rot,
+                    ResultX = jar.x,
+                    ResultY = jar.y,
+                    ResultRot = jar.rot,
+                    Placed = true,
+                });
+            }
+            prep.Result = plan;
+
+            if (plan.Count == 0)
+            {
+                // 页上只剩离场件：空 Result 合法（这一件本就该离页；它的去向由接收侧
+                // Pending 守恒钉住，空页不是伪成功）。
+                prep.Valid = true;
+                return prep;
+            }
+
+            if (!ValidateNoOverlap(plan, items.width, items.height))
+            {
+                LitRuntime.LogError($"[Tidy] page {page}: Leave 静态验证失败（重叠——原页面即已非法）");
+                return prep;
+            }
+            if (!ValidateBounds(plan, items.width, items.height))
+            {
+                LitRuntime.LogError($"[Tidy] page {page}: Leave 静态验证失败（越界——原页面即已非法）");
+                return prep;
+            }
+            if (!ValidateTagConsistency(plan, jars, null, prep.Leaving))
+            {
+                LitRuntime.LogError($"[Tidy] page {page}: Leave 静态验证失败（Tag 一致性）");
+                return prep;
+            }
+            if (!ValidateFingerprintMultiset(plan, jars, null, prep.Leaving))
+            {
+                LitRuntime.LogError($"[Tidy] page {page}: Leave 静态验证失败（指纹多重集）");
                 return prep;
             }
 
@@ -861,10 +999,13 @@ namespace BetterUnturnedExperience.Lit
         /// 且每个 before jar 恰好出现一次。防止外来 Jar / 重复 Jar / 遗漏 Jar 通过验证。
         /// DEV-V5-04：pending 非空时，其 Tag（vanilla Item 引用，尚无 jar）必须在
         /// Placed 条目中恰好出现一次——多一次=外来、少一次=吞物，都直接非法。
+        /// DEV-V5-05：leaving 非空时（与 pending 互斥的场景由调用方结构保证），其 Tag
+        /// 必须是 before 里在场的 jar，且在 result 中恰好缺席——出现一次=目标被双重落格、
+        /// 缺席但不在 before=空摘，都直接非法；Placed 数 = before - 1。
         /// </summary>
-        private static bool ValidateTagConsistency(IReadOnlyList<PackableItem> result, List<JarSnapshot> before, PackableItem pending)
+        private static bool ValidateTagConsistency(IReadOnlyList<PackableItem> result, List<JarSnapshot> before, PackableItem pending, PackableItem leaving)
         {
-            if (result == null) return pending == null;
+            if (result == null) return pending == null && leaving == null;
 
             // 构建 before OriginalJar 引用集合（用于验证 Tag 来自 before）
             var beforeSet = new HashSet<ItemJar>(ReferenceEqualityComparer<ItemJar>.Instance);
@@ -875,6 +1016,8 @@ namespace BetterUnturnedExperience.Lit
             }
 
             object pendingTag = pending == null ? null : pending.Tag;
+            object leavingTag = leaving == null ? null : leaving.Tag;
+            if (leavingTag != null && !(leavingTag is ItemJar leaveJar && beforeSet.Contains(leaveJar))) return false; // 空摘
             var seen = new HashSet<ItemJar>(ReferenceEqualityComparer<ItemJar>.Instance);
             var pendingSeen = 0;
             for (int i = 0; i < result.Count; i++)
@@ -884,6 +1027,8 @@ namespace BetterUnturnedExperience.Lit
                 if (p.Tag is ItemJar jar)
                 {
                     if (jar.item == null) return false;
+                    // DEV-V5-05：离场件绝不双重落格（result 里再出现 = 摘了个重复）。
+                    if (leavingTag != null && ReferenceEquals(p.Tag, leavingTag)) return false;
                     // v2.0.2：Tag 必须来自 before 集合（防止外来 Jar）
                     if (!beforeSet.Contains(jar)) return false;
                     if (!seen.Add(jar)) return false;  // 重复
@@ -893,21 +1038,37 @@ namespace BetterUnturnedExperience.Lit
                 if (pendingTag == null || !ReferenceEquals(p.Tag, pendingTag)) return false;
                 pendingSeen++;
             }
-            // result 中 Placed 物品数 = before 数（无遗漏），且该件恰好一次。
-            return seen.Count == before.Count && pendingSeen == (pending != null ? 1 : 0);
+            // result 中 Placed jar 数 = before 数（无遗漏）或 before-1（离场件恰缺席），
+            // 且待加入物品恰好一次。
+            var expectedSeen = before.Count - (leaving != null ? 1 : 0);
+            return seen.Count == expectedSeen && pendingSeen == (pending != null ? 1 : 0);
         }
 
         /// <summary>
         /// 验证 result 中所有 Placed 物品的指纹多重集合 = before 中所有物品的指纹多重集合。
         /// 这是删除前的静态守恒验证。v2.0.2：使用 JarSnapshot 值字段而非可变 Item 引用。
-        /// DEV-V5-04：pending 的指纹并入 before 侧（提交后的页面必须多它一件）。
+        /// DEV-V5-04：pending 非空时，pending 的指纹并入 before 侧（提交后的页面必须多它一件）。
+        /// DEV-V5-05：leaving 非空时，其快照指纹从 before 侧恰减一次（提交后的页面 =
+        /// 原内容 - 它；离场件的归属由接收侧 Pending 守恒钉住，两侧合起来总量不变）。
         /// </summary>
-        private static bool ValidateFingerprintMultiset(IReadOnlyList<PackableItem> result, List<JarSnapshot> before, PackableItem pending)
+        private static bool ValidateFingerprintMultiset(IReadOnlyList<PackableItem> result, List<JarSnapshot> before, PackableItem pending, PackableItem leaving)
         {
-            if (result == null) return pending == null;
+            if (result == null) return pending == null && leaving == null;
             var beforeList = new List<ItemFingerprint>(before.Count + 1);
+            ItemJar leaveJar = leaving == null ? null : leaving.Tag as ItemJar;
+            var leaveRemoved = false;
             for (int i = 0; i < before.Count; i++)
+            {
+                // 离场件按 OriginalJar 引用恰减一次（引用匹配优先于指纹匹配，
+                // 同 id 同指纹的两件不会互相顶包）。
+                if (leaveJar != null && !leaveRemoved && ReferenceEquals(before[i]?.OriginalJar, leaveJar))
+                {
+                    leaveRemoved = true;
+                    continue;
+                }
                 beforeList.Add(before[i].Fingerprint);
+            }
+            if (leaveJar != null && !leaveRemoved) return false; // 离场件根本不在场 = 非法
             // DEV-V5-04：待加入物品的指纹进期望侧（提交后的页面 = 原内容 + 它）。
             if (pending != null && pending.Tag is Item pendingItem)
                 beforeList.Add(new ItemFingerprint(pendingItem));
@@ -986,8 +1147,11 @@ namespace BetterUnturnedExperience.Lit
                 return CommitPageResult.NotStartedInventoryChanged;
             }
 
-            // 空页面直接返回 Committed，并捕获 post-commit 快照（空快照）
-            if (prep.Result == null || prep.Result.Count == 0)
+            // 空页面直接返回 Committed，并捕获 post-commit 快照（空快照）。
+            // DEV-V5-05：有离场件时空 Result 也必须真走删除循环（页上只剩这一件时
+            // 提交后应为空页——直接早退会把离场件留在页上，守恒随后按配平失败处理，
+            // 但功能上就是错的，这里从提交形状上堵死）。
+            if ((prep.Result == null || prep.Result.Count == 0) && prep.Leaving == null)
             {
                 prep.PostCommitJars = CapturePostCommitSnapshot(items, prep.Page);
                 prep.CommitResult = CommitPageResult.Committed;
@@ -1423,15 +1587,22 @@ namespace BetterUnturnedExperience.Lit
         // Verify 阶段：捕获重排后指纹 + 比对
         // ─────────────────────────────────────────────────────────────
 
-        private static bool VerifyFingerprintConservation(PagePreparation prep)
+        /// <summary>DEV-V5-05: internal for the host red tests (the Leave
+        /// conservation shape) — behavior unchanged for every pre-existing
+        /// caller. Post-commit conservation: the page must hold exactly
+        /// before + pending - leaving fingerprints (DEV-V5-05 离场件 = the fast
+        /// transfer's source side; 错摘/漏摘被抓, same law as 04 的禁吞物).</summary>
+        internal static bool VerifyFingerprintConservation(PagePreparation prep)
         {
             Items items = prep.ItemsInstance;
             if (items == null) return true;
 
             // DEV-V5-04：待加入物品计入期望多重集（提交后页面必须多它一件；
             // 空页 + pending 也走完整守恒，不再被「空页面直接通过」短路）。
+            // DEV-V5-05：离场件反向配平（提交后页面 = 原内容 - 它）。
             int expectedCount = (prep.BeforeJars == null ? 0 : prep.BeforeJars.Count)
-                + (prep.Pending == null ? 0 : 1);
+                + (prep.Pending == null ? 0 : 1)
+                - (prep.Leaving == null ? 0 : 1);
 
             // 空页面直接通过（仅当既无旧物也无 pending）
             if (expectedCount == 0) return true;
@@ -1454,8 +1625,18 @@ namespace BetterUnturnedExperience.Lit
             }
 
             var beforeList = new List<ItemFingerprint>(expectedCount);
+            var leaveJar = prep.Leaving == null ? null : prep.Leaving.Tag as ItemJar;
+            var leaveRemoved = false;
             for (int i = 0; i < (prep.BeforeJars == null ? 0 : prep.BeforeJars.Count); i++)
+            {
+                if (leaveJar != null && !leaveRemoved && ReferenceEquals(prep.BeforeJars[i]?.OriginalJar, leaveJar))
+                {
+                    leaveRemoved = true;
+                    continue;
+                }
                 beforeList.Add(prep.BeforeJars[i].Fingerprint);
+            }
+            if (leaveJar != null && !leaveRemoved) return false; // 离场件不在快照 = 配平失败
             if (prep.Pending != null && prep.Pending.Tag is Item pendingItem)
                 beforeList.Add(new ItemFingerprint(pendingItem));
 

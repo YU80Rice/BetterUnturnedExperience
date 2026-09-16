@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 
@@ -44,6 +44,8 @@ namespace BetterUnturnedExperience.Lit
         internal const byte MsgSessionChallenge = 6;     // server → client
         internal const byte MsgRequestContainerTidy = 7; // client → server (DEV-V5-03)
         internal const byte MsgContainerTidyResult = 8;  // server → client (DEV-V5-03)
+        internal const byte MsgRequestFastTransferRecover = 9; // client → server (DEV-V5-05)
+        internal const byte MsgFastTransferRecoverResult = 10; // server → client (DEV-V5-05)
         internal const int MappingWireSize = 7;          // hotkey(1)+page(1)+x(1)+y(1)+id(2)+reserved(1)
         internal const byte HotkeyCountLimit = (byte)HotkeySnapshotUtil.HOTKEY_COUNT;
 
@@ -182,6 +184,54 @@ namespace BetterUnturnedExperience.Lit
             }
         }
 
+        // ── DEV-V5-05 fast-transfer recover (feature-private kinds 9/10) ──
+        // The request binds the SOURCE SLOT (page/x/y as the client saw it —
+        // the authority re-reads the real jar) plus the SAME 03 container
+        // identity claim (kind + content fingerprint): no page-7-as-identity,
+        // no item payload, no requester field (the session is the identity).
+        // The result reuses the frozen TidyCommitResult byte + the 03
+        // structured reason byte (8 causes, no new enum).
+
+        /// <summary>Request body: [proto][token][requestId][sourcePage][sourceX]
+        /// [sourceY][kind][fingerprint][desc] — 26 bytes.</summary>
+        internal static byte[] BuildFastTransferRequest(ulong sessionToken, uint requestId,
+            byte sourcePage, byte sourceX, byte sourceY, byte kind, ulong fingerprint, bool sortDescending)
+        {
+            using (var stream = new MemoryStream(1 + 1 + 1 + 8 + 4 + 1 + 1 + 1 + 1 + 8 + 1))
+            using (var w = new BinaryWriter(stream))
+            {
+                w.Write(PayloadVersion);
+                w.Write(MsgRequestFastTransferRecover);
+                w.Write(ProtocolVersionV3);
+                w.Write(sessionToken);
+                w.Write(requestId);
+                w.Write(sourcePage);
+                w.Write(sourceX);
+                w.Write(sourceY);
+                w.Write(kind);
+                w.Write(fingerprint);
+                w.Write(sortDescending);
+                return stream.ToArray();
+            }
+        }
+
+        /// <summary>Result body: [token][requestId][result][reasonCode] — 14 bytes
+        /// (the same frozen pair law as the container result).</summary>
+        internal static byte[] BuildFastTransferResult(ulong sessionToken, uint requestId, TidyCommitResult result, byte reasonCode)
+        {
+            using (var stream = new MemoryStream(1 + 1 + 8 + 4 + 1 + 1))
+            using (var w = new BinaryWriter(stream))
+            {
+                w.Write(PayloadVersion);
+                w.Write(MsgFastTransferRecoverResult);
+                w.Write(sessionToken);
+                w.Write(requestId);
+                w.Write((byte)result);
+                w.Write(reasonCode);
+                return stream.ToArray();
+            }
+        }
+
         // ── envelope ────────────────────────────────────────────────
 
         /// <summary>Envelope gate: payload present, at least [version][type], version == 1. Body is the remainder.</summary>
@@ -269,6 +319,63 @@ namespace BetterUnturnedExperience.Lit
         /// and the pair must not contradict (Committed ⇔ reason None — 成功不
         /// 携带失败文案).</summary>
         internal static bool TryReadContainerTidyResult(byte[] body, out ulong sessionToken, out uint requestId, out TidyCommitResult result, out byte reasonCode)
+        {
+            sessionToken = 0; requestId = 0; result = TidyCommitResult.Rejected; reasonCode = 0;
+            if (body == null || body.Length != 8 + 4 + 1 + 1) return false;
+            using (var r = new BinaryReader(new MemoryStream(body)))
+            {
+                sessionToken = r.ReadUInt64();
+                requestId = r.ReadUInt32();
+                var resultByte = r.ReadByte();
+                reasonCode = r.ReadByte();
+                if (sessionToken == 0UL) return false;
+                if (requestId == 0u) return false;
+                if (resultByte > 3) return false;
+                if (!LitContainerTidyReasons.TryFromWire(reasonCode, out _)) return false;
+                if (resultByte == (byte)TidyCommitResult.Committed && reasonCode != (byte)LitContainerTidyReason.None) return false;
+                if (resultByte != (byte)TidyCommitResult.Committed && reasonCode == (byte)LitContainerTidyReason.None) return false;
+                result = (TidyCommitResult)resultByte;
+                return true;
+            }
+        }
+
+        /// <summary>DEV-V5-05: decode one fast-transfer recover request — exact
+        /// shape or the frame does not exist. sourcePage must be a fast-transfer
+        /// source (2..6 player pages or the 7 mount page): 0/1 hands, 8 AREA and
+        /// 255 never enter the frame — the wire itself enforces the ticket's
+        /// 具名排除; kind rides the same {1,2} claim domain as 03.</summary>
+        internal static bool TryReadFastTransferRequest(byte[] body,
+            out ulong sessionToken, out uint requestId, out byte sourcePage, out byte sourceX, out byte sourceY,
+            out byte kind, out ulong fingerprint, out bool sortDescending)
+        {
+            sessionToken = 0; requestId = 0; sourcePage = 0; sourceX = 0; sourceY = 0;
+            kind = 0; fingerprint = 0; sortDescending = false;
+            if (body == null || body.Length != 1 + 8 + 4 + 1 + 1 + 1 + 1 + 8 + 1) return false;
+            using (var r = new BinaryReader(new MemoryStream(body)))
+            {
+                var version = r.ReadByte();
+                sessionToken = r.ReadUInt64();
+                requestId = r.ReadUInt32();
+                sourcePage = r.ReadByte();
+                sourceX = r.ReadByte();
+                sourceY = r.ReadByte();
+                kind = r.ReadByte();
+                fingerprint = r.ReadUInt64();
+                sortDescending = r.ReadBoolean();
+                if (version != ProtocolVersionV3) return false;
+                if (sessionToken == 0UL) return false;
+                if (requestId == 0u) return false;
+                if (sourcePage < HotkeySnapshotUtil.TIDYABLE_PAGE_MIN
+                    || sourcePage > LitContainerTidyExecution.MOUNT_PAGE) return false;
+                if (kind != (byte)LitContainerTidyKind.WorldContainer && kind != (byte)LitContainerTidyKind.VehicleTrunk) return false;
+                return true;
+            }
+        }
+
+        /// <summary>DEV-V5-05: decode one fast-transfer recover result. Same
+        /// frozen pair law as the container result (result byte ∈ 0..3, reason
+        /// in the 8-cause domain, Committed ⇔ no reason).</summary>
+        internal static bool TryReadFastTransferResult(byte[] body, out ulong sessionToken, out uint requestId, out TidyCommitResult result, out byte reasonCode)
         {
             sessionToken = 0; requestId = 0; result = TidyCommitResult.Rejected; reasonCode = 0;
             if (body == null || body.Length != 8 + 4 + 1 + 1) return false;

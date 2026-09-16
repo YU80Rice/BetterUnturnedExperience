@@ -194,6 +194,49 @@ namespace BetterUnturnedExperience.Lit
             };
         }
 
+        /// <summary>
+        /// DEV-V5-05: the authoritative fast-transfer recover for one admitted
+        /// request — re-read the 03 live facts + the real container grid AND
+        /// the requester's page array, then hand them to the recovery core
+        /// (session re-verify → source identity + receiving-side unified layout
+        /// → ONE two-page atomic transaction, engine tails owner-gated). A
+        /// requester whose Player cannot be resolved has no access at all; an
+        /// unreadable live state answers InternalFailure — both mutate nothing.
+        /// U3DS runs this same path for its clients (V5-T1 Headless 裁决: the
+        /// authoritative behavior is real there too, only the picture is not).
+        /// </summary>
+        public LitContainerAuthorityResult ExecuteServerFastTransferRecover(LitFastTransferRequestContext request)
+        {
+            if (request == null) throw new ArgumentNullException(nameof(request));
+            var player = ResolvePlayerBySteamId(request.PeerSteamId);
+            if (player?.inventory == null)
+            {
+                LitRuntime.LogWarning("[快速转移恢复] peer " + request.PeerSteamId + " 无对应 Player，拒绝恢复（reqId=" + request.RequestId + "）");
+                return RefusedContainer(LitContainerTidyReason.LostAccess);
+            }
+            if (!LitContainerSessionProbe.TryReadServerLive(player, out var live, out var grid))
+                return RefusedContainer(LitContainerTidyReason.InternalFailure);
+            var claim = new LitContainerTidyClaim { Kind = request.Kind, Fingerprint = request.Fingerprint };
+            var attempt = FastTransferRecoverAdapter.TryRecover(
+                player.inventory, player.inventory.items, grid, live, claim,
+                request.SourcePage, request.SourceX, request.SourceY, request.SortDescending);
+            TidyOperationOutcome outcome;
+            if (attempt.Commit == TidyCommitResult.Committed) outcome = TidyOperationOutcome.Committed;
+            else if (attempt.Commit == TidyCommitResult.CriticalFailure || attempt.Commit == TidyCommitResult.ConcurrentMutationAfterCommit)
+            {
+                outcome = new TidyOperationOutcome
+                {
+                    Result = attempt.Commit,
+                    MutationStarted = true,
+                    RollbackAttempted = true,
+                    RollbackVerified = true,
+                    FailureReason = "fast-transfer: " + attempt.Refusal,
+                };
+            }
+            else outcome = TidyOperationOutcome.RejectedNoMutation;
+            return new LitContainerAuthorityResult { Outcome = outcome, Reason = attempt.Reason };
+        }
+
         public LitHotkeyRestoreResult RestoreServerHotkeys(ulong peerSteamId, List<HotkeyRestoreEntry> entries)
         {
             var result = new LitHotkeyRestoreResult { Restored = 0, Verified = 0, Cleared = 0, FailedIndices = new List<byte>() };

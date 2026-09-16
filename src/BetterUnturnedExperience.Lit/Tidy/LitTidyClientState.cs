@@ -169,6 +169,12 @@ namespace BetterUnturnedExperience.Lit
         }
     }
 
+    /// <summary>Which request kind a pending entry stands for — the frame the
+    /// response must be (DEV-V5-05: a fast-transfer request also references the
+    /// mount page as SOURCE, so the old page==7 marker can no longer carry the
+    /// distinction alone; the kind is explicit now and the page is payload).</summary>
+    internal enum LitClientRequestKind : byte { Tidy = 0, Container = 1, FastTransfer = 2 }
+
     /// <summary>
     /// Client pending request table: only responses matching a pending
     /// (generation, token, requestId) are accepted. Entries expire.
@@ -177,7 +183,9 @@ namespace BetterUnturnedExperience.Lit
     /// can never carry page 7: the codec and the authority both refuse it),
     /// so the marker cleanly separates which response kind may consume which
     /// pending entry (a container result never clears a player-page pending,
-    /// and vice versa).
+    /// and vice versa). DEV-V5-05: the explicit RequestKind extends the same
+    /// mutual exclusion to the fast-transfer pair (三 kind 各认各的帧, 线谎话
+    /// 按 kind 丢弃).
     /// </summary>
     internal sealed class LitClientPendingTable
     {
@@ -186,21 +194,27 @@ namespace BetterUnturnedExperience.Lit
             public byte Page;
             public TidyMode Mode;
             public bool SortDescending;
+            /// <summary>DEV-V5-05: which frame shape may consume this entry.</summary>
+            public LitClientRequestKind Kind;
 
-            /// <summary>DEV-V5-03: pending entry recorded for a container
-            /// tidy request (page 7 = the mount position marker, never a
-            /// player page).</summary>
-            public bool IsContainerRequest { get { return Page == LitContainerTidyExecution.MOUNT_PAGE; } }
+            /// <summary>DEV-V5-03 (page-7 marker, unchanged behavior) refined
+            /// DEV-V5-05: a fast-transfer entry may also reference page 7 as
+            /// its SOURCE grid, so the marker only holds for non-fast entries.</summary>
+            public bool IsContainerRequest { get { return Kind == LitClientRequestKind.Container; } }
+
+            /// <summary>DEV-V5-05: only the message-10 result may consume a
+            /// fast-transfer pending.</summary>
+            public bool IsFastTransferRequest { get { return Kind == LitClientRequestKind.FastTransfer; } }
         }
 
         internal static readonly TimeSpan EntryTtl = TimeSpan.FromSeconds(30);
 
         private readonly LitExpiringKeySet<PendingEntry> pending = new LitExpiringKeySet<PendingEntry>(EntryTtl);
 
-        internal void SetPending(ulong connectionGeneration, ulong token, uint requestId, byte page, TidyMode mode, bool sortDescending)
+        internal void SetPending(ulong connectionGeneration, ulong token, uint requestId, byte page, TidyMode mode, bool sortDescending, LitClientRequestKind kind)
         {
             pending.Set(LitTidyClientKeys.Request(connectionGeneration, token, requestId),
-                new PendingEntry { Page = page, Mode = mode, SortDescending = sortDescending });
+                new PendingEntry { Page = page, Mode = mode, SortDescending = sortDescending, Kind = kind });
         }
 
         internal bool IsPending(ulong connectionGeneration, ulong token, uint requestId)

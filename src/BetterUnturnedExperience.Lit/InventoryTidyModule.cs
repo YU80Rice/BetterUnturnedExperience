@@ -210,11 +210,22 @@ namespace BetterUnturnedExperience.Lit
         internal bool RecoverPatchesInstalled { get; private set; }
         internal string RecoverStartGateDiagnostics { get; private set; } = string.Empty;
 
+        /// <summary>DEV-V5-05: the fast-transfer patch pair (intent opener +
+        /// send witness) is its OWN registration beside 04's trio — an
+        /// AUTHORITY-side surface armed on U3DS too (the recovery EXECUTES
+        /// where the request arrives; on real U3DS the UI never runs, so the
+        /// intent window simply never opens there — story 25).</summary>
+        internal bool FastTransferPatchesInstalled { get; private set; }
+        internal string FastTransferStartGateDiagnostics { get; private set; } = string.Empty;
+
         /// <summary>Host-test seam (the installer/observer family): replaces
         /// the real Harmony processor per patch type (true = installed). Null
         /// = production patching. Pins install order, the all-or-none rollback,
         /// and the U3DS arming without JITting engine methods in the test host.</summary>
         internal static Func<Type, bool> RecoverPatchInstallerForTests;
+
+        /// <summary>DEV-V5-05 seam for the fast-transfer pair (same family).</summary>
+        internal static Func<Type, bool> FastTransferPatchInstallerForTests;
 
         /// <summary>Last completed transaction outcome, observable for the future TidyCompleted publisher (DEV-V2-19/21).</summary>
         internal TidyOperationOutcome LastLocalOutcome { get; set; }
@@ -726,6 +737,77 @@ namespace BetterUnturnedExperience.Lit
             }
         }
 
+        /// <summary>
+        /// DEV-V5-05 (V5-T5): the fast-transfer recover entry, reached ONLY from
+        /// the onSelectedItem Finalizer when vanilla's own verdict was 「no
+        /// packet sent」. Gate order mirrors the button paths (Q59 saved
+        /// preference — never the panel draft; fault circuit — the same gate;
+        /// request shape — defense in depth, the engine probe and the wire
+        /// codec both gate it too). The server role (SP / listen host) runs the
+        /// SAME authoritative execution as a remote peer's admitted request —
+        /// live facts are (re)read INSIDE the queue turn, so a container closed
+        /// between click and execution lands as ContainerClosed with zero
+        /// mutation; a true client only sends the session-addressed request and
+        /// NEVER touches its own grids (「禁止只在本地改网格」 — the client's
+        /// mirror updates through vanilla's own sync after the authority
+        /// commits). Every refusal is silence + log: this is a recovery off a
+        /// right-click, not a clickable control (V5-T5 Q1 原版失败语义).
+        /// </summary>
+        internal LitTidyRequestResult RequestFastTransferRecoverFromIntent(FastTransferIntent intent)
+        {
+            if (!Started || ShuttingDown) return LitTidyRequestResult.NativeFallback;
+            if (intent == null) return LitTidyRequestResult.RejectedContainerUnavailable;
+            if (Strategy == null) throw new InvalidOperationException("InventoryTidyModule.Strategy must never be null (developer error)");
+            if (!FaultGate.Allowed) return LitTidyRequestResult.RejectedFaultCircuit;
+            TidyMode mode;
+            bool sortDescending;
+            if (!TryReadSavedTidyPreference(out mode, out sortDescending, out _))
+                return LitTidyRequestResult.RejectedPreferenceUnavailable;
+            var pageOk = (intent.SourcePage >= HotkeySnapshotUtil.TIDYABLE_PAGE_MIN && intent.SourcePage <= HotkeySnapshotUtil.TIDYABLE_PAGE_MAX)
+                || intent.SourcePage == LitContainerTidyExecution.MOUNT_PAGE;
+            if (!pageOk || LitContainerSessionAdapters.Resolve(intent.Kind) == null)
+                return LitTidyRequestResult.RejectedContainerUnavailable;
+            if (LitTidyProductionAuthority.IsServerRole())
+            {
+                var captured = intent;
+                var capturedSort = sortDescending;
+                var view = ContainerProbeOverride != null ? ContainerProbeOverride() : null;
+                var fromOverride = view != null && view.Live.HasValue && view.ContainerItems != null;
+                var overrideLive = fromOverride ? view.Live.Value : default(LitContainerLiveFacts);
+                var overrideGrid = view == null ? null : view.ContainerItems;
+                bool enqueued = MainThreadDispatcher.TryEnqueue(new QueuedTidyRequest
+                {
+                    Work = () =>
+                    {
+                        LitContainerLiveFacts execLive;
+                        SDG.Unturned.Items execGrid;
+                        var localPlayer = SDG.Unturned.Player.LocalPlayer;
+                        if (fromOverride) { execLive = overrideLive; execGrid = overrideGrid; }
+                        else if (!LitContainerSessionProbe.TryReadServerLive(localPlayer, out execLive, out execGrid))
+                        {
+                            LitRuntime.LogWarning("[快速转移恢复] 本地现读失败：保持原版，零修改。");
+                            return;
+                        }
+                        var claim = new LitContainerTidyClaim { Kind = captured.Kind, Fingerprint = captured.Fingerprint };
+                        var attempt = FastTransferRecoverAdapter.TryRecover(
+                            localPlayer == null ? null : localPlayer.inventory,
+                            FastTransferRecoverEngine.ReadPages(localPlayer),
+                            execGrid, execLive, claim,
+                            captured.SourcePage, captured.SourceX, captured.SourceY, capturedSort);
+                        if (!attempt.Recovered)
+                            LitRuntime.LogInfo("[快速转移恢复] 本地恢复未成立（" + attempt.Refusal + "）：保持原版失败。");
+                    },
+                    Cancel = () => LitRuntime.LogInfo("[快速转移恢复] 模块停止 drain：已入队的恢复被取消（未执行，无副作用）"),
+                    Tag = "LocalFastTransferRecover kind=" + captured.Kind,
+                });
+                return enqueued ? LitTidyRequestResult.Dispatched : LitTidyRequestResult.RejectedQueueClosed;
+            }
+            var service = NetService;
+            if (service == null || !service.Started) return LitTidyRequestResult.RejectedNoSession;
+            return service.RequestFastTransferRecover(intent.Kind, intent.Fingerprint,
+                intent.SourcePage, intent.SourceX, intent.SourceY, sortDescending);
+        }
+
         /// <summary>Tick 节拍计数（实时注入节流；uint 回绕无害）。</summary>
         private uint injectTickCounter;
 
@@ -767,6 +849,10 @@ namespace BetterUnturnedExperience.Lit
             // on every surface including U3DS (V5-T1 Headless 裁决只砍画面),
             // BEFORE and independent of the UI decision gate below.
             InstallRecoverPatches();
+            // DEV-V5-05: the fast-transfer pair likewise arms on every surface
+            // (its authoritative half = the admitted-request execution; the
+            // intent window simply never opens headless — no dashboard UI).
+            InstallFastTransferPatches();
 
             // DEV-V4-06: U3DS never arms the Glazier injection (T1 Q17) — a
             // DECISION gate recorded as an honest diagnostic, never an
@@ -796,10 +882,13 @@ namespace BetterUnturnedExperience.Lit
                 // 半装回滚：处理器可能已挂上部分补丁，失败即整体撤销自身。
                 // DEV-V5-04：UnpatchSelf 按 Harmony ID 全撤，恢复三件套同被摘除
                 // ——两面的在册状态必须同步归零（不留「补丁没了、登记还在」）。
+                // DEV-V5-05：快速转移两面同闸同理（三面在册一起归零）。
                 try { if (harmony != null) harmony.UnpatchSelf(); } catch (Exception) { }
                 InventoryTidyUiPatch.ActiveModule = null;
                 RecoverPatchesInstalled = false;
                 InsertRecoverAdapter.ActiveModule = null;
+                FastTransferPatchesInstalled = false;
+                FastTransferRecoverAdapter.ActiveModule = null;
             }
         }
 
@@ -845,9 +934,52 @@ namespace BetterUnturnedExperience.Lit
             }
         }
 
+        /// <summary>DEV-V5-05: register the fast-transfer patch pair (intent
+        /// opener on onSelectedItem → send witness on sendDragItem). All-or-none
+        /// like 04: any failure revokes everything under this Harmony id and the
+        /// registration, never a half surface; the diagnostic rides
+        /// FastTransferStartGateDiagnostics.</summary>
+        private void InstallFastTransferPatches()
+        {
+            if (FastTransferPatchesInstalled) return;
+            var types = FastTransferRecoverBinder.PatchSurface;
+            try
+            {
+                if (harmony == null) harmony = new Harmony(LitRuntime.FeatureIdValue);
+                for (var i = 0; i < types.Count; i++)
+                {
+                    var seam = FastTransferPatchInstallerForTests;
+                    if (seam != null)
+                    {
+                        if (!seam(types[i])) throw new InvalidOperationException("fast-transfer patch refused: " + types[i].Name);
+                        continue;
+                    }
+                    FastTransferRecoverBinder.Bind(harmony, types[i]);
+                }
+                FastTransferRecoverAdapter.ActiveModule = this;
+                FastTransferPatchesInstalled = true;
+                FastTransferStartGateDiagnostics = string.Empty;
+                LitRuntime.LogInfo("[快速转移恢复] 恢复补丁已登记（Harmony ID=" + LitRuntime.FeatureIdValue + "）");
+            }
+            catch (Exception e)
+            {
+                FastTransferStartGateDiagnostics = "fast-transfer-patch-install-failed: " + e.GetType().Name + ":" + e.Message;
+                LitRuntime.LogError("[快速转移恢复] 恢复补丁登记失败（快速转移保持原版，不半装）: " + e.Message);
+                try { if (harmony != null) harmony.UnpatchSelf(); } catch (Exception) { }
+                FastTransferRecoverAdapter.ActiveModule = null;
+                FastTransferPatchesInstalled = false;
+                // UnpatchSelf 同 ID 全撤：另一恢复面与 UI 的在册状态必须同步归零
+                //（04 同款在册同步律）。
+                RecoverPatchesInstalled = false;
+                InsertRecoverAdapter.ActiveModule = null;
+                PatchesInstalled = false;
+                InventoryTidyUiPatch.ActiveModule = null;
+            }
+        }
+
         private void UninstallPatches()
         {
-            if (!PatchesInstalled && !RecoverPatchesInstalled) return;
+            if (!PatchesInstalled && !RecoverPatchesInstalled && !FastTransferPatchesInstalled) return;
             // DEV-V5-04: the unpatch itself is guarded — reversing applied IL
             // re-JITs the ORIGINAL method bodies, which in a host without the
             // Unity runtime throws (the Mono ECall rule). The stop boundary
@@ -873,6 +1005,9 @@ namespace BetterUnturnedExperience.Lit
                 // 「功能停路径不执行」由这条注销保证（无补丁内死开关）。
                 RecoverPatchesInstalled = false;
                 InsertRecoverAdapter.ActiveModule = null;
+                // DEV-V5-05: 快速转移面同款注销（两恢复面同闸同代，交还一起交还）。
+                FastTransferPatchesInstalled = false;
+                FastTransferRecoverAdapter.ActiveModule = null;
                 LitRuntime.LogInfo("[Tidy] 整理按钮补丁已撤销（原生回退）");
             }
         }

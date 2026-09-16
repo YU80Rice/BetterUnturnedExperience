@@ -1,0 +1,3 @@
+R1→R2 增量：仅删除 FastTransferRecoverAdapter 中未被引用的死常量 RefusalPreference（Standards S1 采纳）。
+行为零变化（该 const 无引用点）；M1–M7 突变证据在删除前取得，删除不触及任何突变目标（已在 audit 具名）。
+R2 复验：green-sln-rebuild-r2.txt（0/0）+ green-v505-group-run-r2.txt（ALL GREEN）+ green-fullsuite-r2-*（7×exit 0）。

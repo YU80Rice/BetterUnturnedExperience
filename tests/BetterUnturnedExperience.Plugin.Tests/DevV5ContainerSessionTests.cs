@@ -640,6 +640,14 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 };
             }
 
+            /// <summary>DEV-V5-05: the container fake never serves the
+            /// fast-transfer chain — a call here would mean the two paths
+            /// crossed, so it answers loudly.</summary>
+            public LitContainerAuthorityResult ExecuteServerFastTransferRecover(LitFastTransferRequestContext request)
+            {
+                throw new NotSupportedException("DevV5ContainerAuthority does not serve fast-transfer recover");
+            }
+
             public LitHotkeyRestoreResult RestoreServerHotkeys(ulong peerSteamId, List<HotkeyRestoreEntry> entries)
             {
                 return new LitHotkeyRestoreResult { Restored = 0, Verified = 0, Cleared = 0, FailedIndices = new List<byte>() };

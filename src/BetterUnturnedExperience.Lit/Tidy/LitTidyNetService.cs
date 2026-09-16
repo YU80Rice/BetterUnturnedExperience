@@ -37,6 +37,36 @@ namespace BetterUnturnedExperience.Lit
         /// names a structured reason and mutates nothing). No ack, no hotkey
         /// flow: the answer is the single result frame.</summary>
         LitContainerAuthorityResult ExecuteServerContainerTidy(LitContainerTidyRequestContext request);
+
+        /// <summary>DEV-V5-05: server main thread — the authoritative fast-transfer
+        /// recover (03 session re-verify → source identity + receiving-side unified
+        /// layout → ONE two-page atomic transaction; every refusal names a
+        /// structured reason and mutates NEITHER side). Like the container flow:
+        /// no ack, no hotkey protocol, no TidyCompleted — the single result frame
+        /// is the terminal answer (and a client-side refusal stays vanilla-silent
+        /// by design — this is a recovery, not a button).</summary>
+        LitContainerAuthorityResult ExecuteServerFastTransferRecover(LitFastTransferRequestContext request);
+    }
+
+    /// <summary>One admitted fast-transfer recover request, fully resolved.
+    /// DEV-V5-05: the requester is the SESSION peer (never a payload field);
+    /// sourcePage/x/y is where the client SAW the moved item (authority
+    /// re-reads the real jar); kind+fingerprint is the 03 container-session
+    /// claim of the grid on the other side of the transfer (receiving side for
+    /// player→container, source side for container→player — in BOTH directions
+    /// the container grid's version must match the client's mirror).</summary>
+    internal sealed class LitFastTransferRequestContext
+    {
+        public ulong PeerSteamId;
+        public ulong ConnectionGeneration;
+        public ulong SessionToken;
+        public uint RequestId;
+        public LitContainerTidyKind Kind;
+        public ulong Fingerprint;
+        public byte SourcePage;
+        public byte SourceX;
+        public byte SourceY;
+        public bool SortDescending;
     }
 
     /// <summary>One admitted container tidy request, fully resolved (network
@@ -584,7 +614,7 @@ namespace BetterUnturnedExperience.Lit
                 LitRuntime.LogError("[Tidy] 快捷键快照捕获异常，放弃本次整理: " + error.Message);
                 return LitTidyRequestResult.RejectedQueueClosed;
             }
-            clientPending.SetPending(generation, token, requestId, page, mode, sortDescending);
+            clientPending.SetPending(generation, token, requestId, page, mode, sortDescending, LitClientRequestKind.Tidy);
             NetworkSendResult sent;
             try { sent = network.SendToServer(Channel, LitTidyWireCodec.BuildTidyRequest(token, requestId, page, mode, sortDescending, hotkeys), reliable: true); }
             catch (Exception) { sent = NetworkSendResult.LocalTransportUnavailable; }
@@ -630,7 +660,7 @@ namespace BetterUnturnedExperience.Lit
                 return LitTidyRequestResult.RejectedNoSession;
             }
             var requestId = clientToken.NextRequestId();
-            clientPending.SetPending(generation, token, requestId, LitContainerTidyExecution.MOUNT_PAGE, TidyMode.SameType, sortDescending);
+            clientPending.SetPending(generation, token, requestId, LitContainerTidyExecution.MOUNT_PAGE, TidyMode.SameType, sortDescending, LitClientRequestKind.Container);
             NetworkSendResult sent;
             try { sent = network.SendToServer(Channel, LitTidyWireCodec.BuildContainerTidyRequest(token, requestId, (byte)kind, fingerprint, sortDescending), reliable: true); }
             catch (Exception) { sent = NetworkSendResult.LocalTransportUnavailable; }
@@ -641,6 +671,53 @@ namespace BetterUnturnedExperience.Lit
                 return LitTidyRequestResult.RejectedSendFailed;
             }
             LitRuntime.LogInfo("[Tidy容器] -> 服务器: RequestContainerTidy(reqId=" + requestId + ", kind=" + kind + ", fp=" + fingerprint + ", desc=" + sortDescending + ")");
+            return LitTidyRequestResult.Dispatched;
+        }
+
+        /// <summary>
+        /// DEV-V5-05: the client-role fast-transfer recover request. Same gates
+        /// as the container path (live session → server-issued token → reliable
+        /// send decides the pending) and the same request-id counter (unique
+        /// across ALL request kinds within the generation). The entry carries
+        /// the FastTransfer kind so only a message-10 result may consume it.
+        /// </summary>
+        internal LitTidyRequestResult RequestFastTransferRecover(LitContainerTidyKind kind, ulong fingerprint,
+            byte sourcePage, byte sourceX, byte sourceY, bool sortDescending)
+        {
+            if (GateClosed || !Started) return LitTidyRequestResult.NativeFallback;
+            if (isServerRole()) return LitTidyRequestResult.NativeFallback; // the host recovers locally, never self-sends
+            if (sourcePage < HotkeySnapshotUtil.TIDYABLE_PAGE_MIN || sourcePage > LitContainerTidyExecution.MOUNT_PAGE)
+                return LitTidyRequestResult.RejectedContainerUnavailable; // 0/1/8/255 never leave this process
+            IConnectionSession session = null;
+            try
+            {
+                var snapshot = network.Sessions;
+                if (snapshot != null && snapshot.Count > 0) session = snapshot[0]; // the client topology has exactly one server peer
+            }
+            catch (Exception) { }
+            if (session == null)
+            {
+                LitRuntime.LogInfo("[快速转移恢复] 尚未建立 BUE 会话；本次恢复请求未发送（保持原版静默）。");
+                return LitTidyRequestResult.RejectedNoSession;
+            }
+            var generation = session.SessionId;
+            if (!clientToken.TryGetServerIssuedToken(generation, out var token))
+            {
+                LitRuntime.LogInfo("[快速转移恢复] 客户端尚未收到有效服务端 session challenge；本次恢复请求未发送。");
+                return LitTidyRequestResult.RejectedNoSession;
+            }
+            var requestId = clientToken.NextRequestId();
+            clientPending.SetPending(generation, token, requestId, sourcePage, TidyMode.SameType, sortDescending, LitClientRequestKind.FastTransfer);
+            NetworkSendResult sent;
+            try { sent = network.SendToServer(Channel, LitTidyWireCodec.BuildFastTransferRequest(token, requestId, sourcePage, sourceX, sourceY, (byte)kind, fingerprint, sortDescending), reliable: true); }
+            catch (Exception) { sent = NetworkSendResult.LocalTransportUnavailable; }
+            if (sent != NetworkSendResult.Sent)
+            {
+                clientPending.ClearPending(generation, token, requestId);
+                LitRuntime.LogWarning("[快速转移恢复] 恢复请求发送失败（result=" + sent + "），未建立待确认（原版静默）。");
+                return LitTidyRequestResult.RejectedSendFailed;
+            }
+            LitRuntime.LogInfo("[快速转移恢复] -> 服务器: RequestFastTransferRecover(reqId=" + requestId + ", source=" + sourcePage + "/" + sourceX + "/" + sourceY + ", kind=" + kind + ", fp=" + fingerprint + ")");
             return LitTidyRequestResult.Dispatched;
         }
 
@@ -655,6 +732,7 @@ namespace BetterUnturnedExperience.Lit
                 case LitTidyWireCodec.MsgRequestTidyV2: HandleTidyRequest(session, body); break;
                 case LitTidyWireCodec.MsgHotkeyFlowAck: HandleHotkeyFlowAck(session, body); break;
                 case LitTidyWireCodec.MsgRequestContainerTidy: HandleContainerTidyRequest(session, body); break; // DEV-V5-03
+                case LitTidyWireCodec.MsgRequestFastTransferRecover: HandleFastTransferRequest(session, body); break; // DEV-V5-05
                 default: break; // unknown kinds are ignored (feature-private set)
             }
         }
@@ -669,6 +747,7 @@ namespace BetterUnturnedExperience.Lit
                 case LitTidyWireCodec.MsgTidyCommitted: HandleTidyCommitted(session, body); break;
                 case LitTidyWireCodec.MsgTidyHotkeyResult: HandleTidyHotkeyResult(session, body); break;
                 case LitTidyWireCodec.MsgContainerTidyResult: HandleContainerTidyResult(session, body); break; // DEV-V5-03
+                case LitTidyWireCodec.MsgFastTransferRecoverResult: HandleFastTransferResult(session, body); break; // DEV-V5-05
                 default: break;
             }
         }
@@ -806,6 +885,14 @@ namespace BetterUnturnedExperience.Lit
         /// mixed-kind replay with the hotkey-mapping frame).</summary>
         private void ReplayCached(IConnectionSession session, ulong token, uint requestId, LitRequestLedger.LedgerEntry cached)
         {
+            if (cached.IsFastTransferResult)
+            {
+                // DEV-V5-05: the cached answer of a fast-transfer request is
+                // the message-10 frame — never the container pair, never a
+                // mapping frame (replaying across kinds would be a protocol lie).
+                SendFastTransferResult(session, token, requestId, cached.Result, cached.ReasonCode);
+                return;
+            }
             if (cached.IsContainerTidy)
             {
                 SendContainerResult(session, token, requestId, cached.Result, cached.ReasonCode);
@@ -913,6 +1000,118 @@ namespace BetterUnturnedExperience.Lit
             }
         }
 
+        // ── DEV-V5-05: server fast-transfer recover admission + execution ──
+        // The SAME session token, request ledger and per-player lease as the
+        // button tidy and container flows: one tidy-class transaction at a time
+        // per peer (a concurrent second request answers Busy), replays hit the
+        // cached fast-transfer result, and the authority re-verifies the 03
+        // session claim + re-reads the source jar before ANY mutation. No
+        // hotkey restore, no TidyCompleted publish — a recovery is not a
+        // player-initiated tidy (V5-T5 Q5).
+
+        private void HandleFastTransferRequest(IConnectionSession session, byte[] body)
+        {
+            if (!LitTidyWireCodec.TryReadFastTransferRequest(body, out var token, out var requestId,
+                    out var sourcePage, out var sourceX, out var sourceY, out var kindByte, out var fingerprint, out var sortDescending))
+            {
+                LitRuntime.LogWarning("[快速转移恢复] 服务器收到畸形 RequestFastTransferRecover，拒绝（peer=" + session.PeerSteamId + "）");
+                return;
+            }
+            var peer = session.PeerSteamId; // the session is the identity authority — never a payload field
+            var generation = session.SessionId;
+            var admitted = admission.TryAdmit(peer, generation, token, requestId, out var cached);
+            switch (admitted)
+            {
+                case LitAdmissionGate.AdmissionKind.InFlight:
+                    return; // the original recover request is still executing — silent
+                case LitAdmissionGate.AdmissionKind.Cached:
+                    ReplayCached(session, token, requestId, cached);
+                    return;
+                case LitAdmissionGate.AdmissionKind.BusyDifferent:
+                case LitAdmissionGate.AdmissionKind.Rejected:
+                    SendFastTransferResult(session, token, requestId, TidyCommitResult.Rejected, (byte)LitContainerTidyReason.Busy);
+                    return;
+            }
+            var captured = new LitFastTransferRequestContext
+            {
+                PeerSteamId = peer,
+                ConnectionGeneration = generation,
+                SessionToken = token,
+                RequestId = requestId,
+                Kind = (LitContainerTidyKind)kindByte,
+                Fingerprint = fingerprint,
+                SourcePage = sourcePage,
+                SourceX = sourceX,
+                SourceY = sourceY,
+                SortDescending = sortDescending,
+            };
+            var queued = new QueuedTidyRequest
+            {
+                Work = () => ExecuteServerFastTransferOnMainThread(captured),
+                Cancel = () =>
+                {
+                    // Stop drain / enqueue failure: ledger Failed + a terminal
+                    // Rejected with an honest reason — never a silent nothing.
+                    admission.CancelNew(peer, generation, token, requestId);
+                    SendFastTransferResult(ResolveLiveSession(generation), token, requestId, TidyCommitResult.Rejected, (byte)LitContainerTidyReason.FeatureUnavailable);
+                },
+                Tag = "FastTransferRequest peer=" + peer + " reqId=" + requestId,
+            };
+            if (!MainThreadDispatcher.TryEnqueue(queued))
+            {
+                admission.CancelNew(peer, generation, token, requestId);
+                SendFastTransferResult(session, token, requestId, TidyCommitResult.Rejected, (byte)LitContainerTidyReason.FeatureUnavailable);
+            }
+        }
+
+        private void ExecuteServerFastTransferOnMainThread(LitFastTransferRequestContext req)
+        {
+            var session = ResolveLiveSession(req.ConnectionGeneration);
+            try
+            {
+                if (!faultBook.IsAllowed(req.PeerSteamId))
+                {
+                    ledger.MarkFastTransferResult(req.PeerSteamId, req.ConnectionGeneration, req.SessionToken, req.RequestId,
+                        LitRequestLedger.RequestState.Failed, TidyCommitResult.Rejected, (byte)LitContainerTidyReason.FeatureUnavailable);
+                    SendFastTransferResult(session, req.SessionToken, req.RequestId, TidyCommitResult.Rejected, (byte)LitContainerTidyReason.FeatureUnavailable);
+                    return;
+                }
+                LitContainerAuthorityResult result;
+                try { result = authority.ExecuteServerFastTransferRecover(req); }
+                catch (Exception error)
+                {
+                    faultBook.Open(req.PeerSteamId, "fast-transfer authority crash: " + error.Message, temporary: false);
+                    ledger.MarkFastTransferResult(req.PeerSteamId, req.ConnectionGeneration, req.SessionToken, req.RequestId,
+                        LitRequestLedger.RequestState.Failed, TidyCommitResult.CriticalFailure, (byte)LitContainerTidyReason.InternalFailure);
+                    SendFastTransferResult(session, req.SessionToken, req.RequestId, TidyCommitResult.CriticalFailure, (byte)LitContainerTidyReason.InternalFailure);
+                    return;
+                }
+                if (result == null || result.Outcome == null)
+                    result = new LitContainerAuthorityResult { Outcome = TidyOperationOutcome.RejectedNoMutation, Reason = LitContainerTidyReason.InternalFailure };
+                var outcome = result.Outcome;
+                var reason = result.Reason;
+                if (outcome.Result == TidyCommitResult.Committed) reason = LitContainerTidyReason.None;
+                else if (reason == LitContainerTidyReason.None) reason = LitContainerTidyReason.LayoutFailed; // never an unnamed refusal
+                var terminal = outcome.Result == TidyCommitResult.Committed
+                    ? LitRequestLedger.RequestState.Committed
+                    : LitRequestLedger.RequestState.Failed;
+                if (outcome.Result == TidyCommitResult.CriticalFailure)
+                    faultBook.Open(req.PeerSteamId, outcome.FailureReason ?? "fast-transfer CriticalFailure", temporary: outcome.FullRestorationVerified);
+                else if (outcome.Result == TidyCommitResult.ConcurrentMutationAfterCommit)
+                    faultBook.Open(req.PeerSteamId, outcome.FailureReason ?? "fast-transfer ConcurrentMutationAfterCommit", temporary: false);
+                ledger.MarkFastTransferResult(req.PeerSteamId, req.ConnectionGeneration, req.SessionToken, req.RequestId,
+                    terminal, outcome.Result, (byte)reason);
+                SendFastTransferResult(session, req.SessionToken, req.RequestId, outcome.Result, (byte)reason);
+                TidyDiagnosticLog.Info("fast-transfer-authority",
+                    "[快速转移恢复] 权威处理完成（peer=" + req.PeerSteamId + ", reqId=" + req.RequestId +
+                    ", result=" + outcome.Result + ", reason=" + reason + "）。");
+            }
+            finally
+            {
+                leases.Release(req.PeerSteamId, req.RequestId);
+            }
+        }
+
         // ── server: hotkey flow ack → restore → result ─────────────
 
         private void HandleHotkeyFlowAck(IConnectionSession session, byte[] body)
@@ -983,10 +1182,12 @@ namespace BetterUnturnedExperience.Lit
             // DEV-V5-03: a player-page committed frame must not consume a
             // CONTAINER pending (and the container handler mirrors this
             // guard) — a mismatched pair is a protocol lie from the wire,
-            // dropped with a warning.
-            if (clientPending.TryGetPending(generation, token, requestId, out var pendingEntry) && pendingEntry.IsContainerRequest)
+            // dropped with a warning. DEV-V5-05: same law for FAST-TRANSFER
+            // pendings (three kinds, each frame only consumes its own).
+            if (clientPending.TryGetPending(generation, token, requestId, out var pendingEntry)
+                    && (pendingEntry.IsContainerRequest || pendingEntry.IsFastTransferRequest))
             {
-                LitRuntime.LogWarning("[TidyNet] 收到服装页 TidyCommitted 但待确认登记为容器请求（reqId=" + requestId + "），忽略。");
+                LitRuntime.LogWarning("[TidyNet] 收到服装页 TidyCommitted 但待确认登记为" + pendingEntry.Kind + "请求（reqId=" + requestId + "），忽略。");
                 return;
             }
             if (result != TidyCommitResult.Committed)
@@ -1112,7 +1313,9 @@ namespace BetterUnturnedExperience.Lit
             }
             if (!entry.IsContainerRequest)
             {
-                LitRuntime.LogWarning("[Tidy容器] 收到容器结果帧但待确认登记为服装页请求（reqId=" + requestId + "），忽略。");
+                // DEV-V5-05: the marker is now the explicit request kind (a
+                // fast-transfer entry may also reference page 7 — as SOURCE).
+                LitRuntime.LogWarning("[Tidy容器] 收到容器结果帧但待确认登记为" + entry.Kind + "请求（reqId=" + requestId + "），忽略。");
                 return;
             }
             clientPending.ClearPending(generation, token, requestId);
@@ -1125,6 +1328,44 @@ namespace BetterUnturnedExperience.Lit
             if (result == TidyCommitResult.CriticalFailure || result == TidyCommitResult.ConcurrentMutationAfterCommit)
                 LitRuntime.LogError("[Tidy容器] 服务器报告 " + result + "（reqId=" + requestId + "）");
             LitContainerFeedback.ShowReason("服务器重验未通过（reqId=" + requestId + "）", reason);
+        }
+
+        /// <summary>
+        /// DEV-V5-05 (client): consume one fast-transfer recover result. The
+        /// pending entry must exist AND be a fast-transfer request (kind
+        /// mismatch = a wire lie — dropped with a warning, never consumed).
+        /// The answer is DIAGNOSTIC ONLY by design: a successful recovery is
+        /// visible through vanilla's own item fan-out, and a refused one keeps
+        /// the original silent-failure semantics (this is a recovery trigger
+        /// off a right-click, not a button — T4's「可点必须回执」law belongs to
+        /// buttons; 04's insert recovery answers the same way).
+        /// </summary>
+        private void HandleFastTransferResult(IConnectionSession session, byte[] body)
+        {
+            if (!LitTidyWireCodec.TryReadFastTransferResult(body, out var token, out var requestId, out var result, out var reasonByte)) return;
+            var generation = session.SessionId;
+            if (!clientPending.TryGetPending(generation, token, requestId, out var entry))
+            {
+                LitRuntime.LogWarning("[快速转移恢复] 收到未发出的恢复响应（generation=" + generation + ", reqId=" + requestId + "），忽略（旧响应或伪造）。");
+                return;
+            }
+            if (!entry.IsFastTransferRequest)
+            {
+                LitRuntime.LogWarning("[快速转移恢复] 收到快速转移结果帧但待确认登记为" + entry.Kind + "请求（reqId=" + requestId + "），忽略。");
+                return;
+            }
+            clientPending.ClearPending(generation, token, requestId);
+            LitContainerTidyReasons.TryFromWire(reasonByte, out var reason);
+            if (result == TidyCommitResult.Committed)
+            {
+                TidyDiagnosticLog.Info("fast-transfer-recover-result",
+                    "[快速转移恢复] 服务器已原子提交（reqId=" + requestId + "）：物品随原版同步落位，未发布整理完成。");
+                return;
+            }
+            if (result == TidyCommitResult.CriticalFailure || result == TidyCommitResult.ConcurrentMutationAfterCommit)
+                LitRuntime.LogError("[快速转移恢复] 服务器报告 " + result + "（reqId=" + requestId + "）");
+            // 拒绝 = 保持原版静默（物品留在原处是原版的失败语义，不是本票要改的行为）。
+            LitRuntime.LogInfo("[快速转移恢复] 服务器重验未通过（reqId=" + requestId + ", reason=" + reason + "）：保持原版。");
         }
 
         // ── shared send / publish helpers ───────────────────────────
@@ -1162,6 +1403,21 @@ namespace BetterUnturnedExperience.Lit
             }
             if (session != null)
                 LitRuntime.LogInfo("[Tidy容器] -> 客机 ContainerTidyResult(reqId=" + requestId + ", result=" + result + ", reason=" + reasonCode + ")。");
+        }
+
+        /// <summary>DEV-V5-05: the fast-transfer recover terminal frame —
+        /// reliable like the container pair; a failed send leaves the ledger
+        /// cache so the client's duplicate request replays it.</summary>
+        private void SendFastTransferResult(IConnectionSession session, ulong token, uint requestId, TidyCommitResult result, byte reasonCode)
+        {
+            var sendResult = TrySendToSession(session, LitTidyWireCodec.BuildFastTransferResult(token, requestId, result, reasonCode));
+            if (sendResult != NetworkSendResult.Sent)
+            {
+                LitRuntime.LogWarning("[快速转移恢复] 结果帧可靠发送未送达（reqId=" + requestId + ", result=" + sendResult + "），账本缓存保留，等待客户端重发命中 Cached 路径");
+                return;
+            }
+            if (session != null)
+                LitRuntime.LogInfo("[快速转移恢复] -> 客机 FastTransferRecoverResult(reqId=" + requestId + ", result=" + result + ", reason=" + reasonCode + ")。");
         }
 
         private void SendHotkeyResult(IConnectionSession session, ulong token, uint requestId, byte restored, byte cleared, byte failed, byte verified, List<byte> failedIndices)

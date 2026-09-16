@@ -49,6 +49,13 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     var savedRole = LitTidyProductionAuthority.ServerRoleProbeForTests;
                     var savedLabel = ItemUseSignalsProvider.ResolveForTests;
                     var savedHeadless = BetterUnturnedExperience.Plugin.BueRuntimeCompletionChain.HeadlessDecision;
+                    // DEV-V5-05 existing-test adaptation: Start now arms the
+                    // fast-transfer pair beside this trio (same ID, same all-or-
+                    // none gate). Without the second seam the host would attempt
+                    // a real Harmony bind and — via the mutual-revoke rule this
+                    // ticket's catch implements — tear this surface down too.
+                    var savedFastInstaller = InventoryTidyModule.FastTransferPatchInstallerForTests;
+                    InventoryTidyModule.FastTransferPatchInstallerForTests = _ => true;
                     InsertRecoverScope.ResetForTests();
                     try { body(); }
                     catch (Exception error) when (collectAllFailures)
@@ -67,6 +74,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                         LitTidyProductionAuthority.ServerRoleProbeForTests = savedRole;
                         ItemUseSignalsProvider.ResolveForTests = savedLabel;
                         BetterUnturnedExperience.Plugin.BueRuntimeCompletionChain.HeadlessDecision = savedHeadless;
+                        InventoryTidyModule.FastTransferPatchInstallerForTests = savedFastInstaller;
                         InsertRecoverScope.ResetForTests();
                     }
                 }
@@ -925,6 +933,10 @@ namespace BetterUnturnedExperience.Plugin.Tests
             { return LitAuthorityResult.From(TidyOperationOutcome.Committed); }
             public LitContainerAuthorityResult ExecuteServerContainerTidy(LitContainerTidyRequestContext request)
             { return new LitContainerAuthorityResult { Outcome = TidyOperationOutcome.RejectedNoMutation, Reason = LitContainerTidyReason.None }; }
+            /// <summary>DEV-V5-05 interface extension: this 04 fixture never
+            /// serves fast-transfer recover — answering loudly on a call.</summary>
+            public LitContainerAuthorityResult ExecuteServerFastTransferRecover(LitFastTransferRequestContext request)
+            { throw new NotSupportedException("V54NoopAuthority does not serve fast-transfer recover"); }
             public LitHotkeyRestoreResult RestoreServerHotkeys(ulong peerSteamId, List<HotkeyRestoreEntry> entries)
             { return new LitHotkeyRestoreResult { Restored = 0, Verified = 0, Cleared = 0, FailedIndices = new List<byte>() }; }
             public bool VerifyClientConvergence(List<LitNewPositionMapping> mappings) { return true; }

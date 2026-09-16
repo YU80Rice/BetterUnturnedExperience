@@ -1,0 +1,106 @@
+diff --git a/tests/BetterUnturnedExperience.Plugin.Tests/BetterUnturnedExperience.Plugin.Tests.csproj b/tests/BetterUnturnedExperience.Plugin.Tests/BetterUnturnedExperience.Plugin.Tests.csproj
+index faa25c3..502d183 100644
+--- a/tests/BetterUnturnedExperience.Plugin.Tests/BetterUnturnedExperience.Plugin.Tests.csproj
++++ b/tests/BetterUnturnedExperience.Plugin.Tests/BetterUnturnedExperience.Plugin.Tests.csproj
+@@ -4,6 +4,6 @@
+     <ProjectGuid>{4E2A7B6C-4AA2-4F84-B7C0-0A0000000001}</ProjectGuid><OutputType>Exe</OutputType><RootNamespace>BetterUnturnedExperience.Plugin.Tests</RootNamespace><AssemblyName>BetterUnturnedExperience.Plugin.Tests</AssemblyName><TargetFrameworkVersion>v4.7.2</TargetFrameworkVersion><LangVersion>10.0</LangVersion><Deterministic>true</Deterministic><OutputPath>bin\Release\</OutputPath><Optimize>true</Optimize><DebugType>none</DebugType><WarningLevel>4</WarningLevel><TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+   </PropertyGroup>
+   <ItemGroup><Reference Include="System" /><Reference Include="BepInEx"><HintPath>..\..\..\Libs\BepInEx.dll</HintPath><Private>True</Private></Reference><Reference Include="HarmonyLib"><HintPath>..\..\..\Libs\0Harmony.dll</HintPath><Private>True</Private></Reference><Reference Include="Assembly-CSharp"><HintPath>..\..\..\Libs\Assembly-CSharp.dll</HintPath><Private>True</Private></Reference><Reference Include="SDG.NetTransport"><HintPath>..\..\..\Libs\SDG.NetTransport.dll</HintPath><Private>True</Private></Reference><Reference Include="SDG.Glazier.Runtime"><HintPath>..\..\..\Libs\SDG.Glazier.Runtime.dll</HintPath><Private>True</Private></Reference><Reference Include="UnityEngine"><HintPath>..\..\..\Libs\UnityEngine.dll</HintPath><Private>True</Private></Reference><Reference Include="UnityEngine.CoreModule"><HintPath>..\..\..\Libs\UnityEngine.CoreModule.dll</HintPath><Private>True</Private></Reference><ProjectReference Include="..\..\src\BetterUnturnedExperience.Plugin\BetterUnturnedExperience.Plugin.csproj"><Project>{D2A52D07-B5A5-4F1F-8D80-5F48FBD4D5D7}</Project><Name>BetterUnturnedExperience.Plugin</Name></ProjectReference><ProjectReference Include="..\..\src\BetterUnturnedExperience.NoOpFixture\BetterUnturnedExperience.NoOpFixture.csproj"><Project>{4E2A7B6C-4AA2-4F84-B7C0-0B0000000001}</Project><Name>BetterUnturnedExperience.NoOpFixture</Name></ProjectReference></ItemGroup>
+-  <ItemGroup><Compile Include="Program.cs" /><Compile Include="DevV4ExternalConfigParityTests.cs" /><Compile Include="DevTicket04UpmTagParsingTests.cs" /><Compile Include="DevV5ContainerSessionTests.cs" /><Compile Include="DevV5InsertRecoverTests.cs" /><None Include="Fixtures\dev16d-r36-no-preview.log.txt" CopyToOutputDirectory="PreserveNewest" /><None Include="Fixtures\dev16d-fixed-preview.log.txt" CopyToOutputDirectory="PreserveNewest" /></ItemGroup>
++  <ItemGroup><Compile Include="Program.cs" /><Compile Include="DevV4ExternalConfigParityTests.cs" /><Compile Include="DevTicket04UpmTagParsingTests.cs" /><Compile Include="DevV5ContainerSessionTests.cs" /><Compile Include="DevV5InsertRecoverTests.cs" /><Compile Include="DevV5FastTransferRecoverTests.cs" /><None Include="Fixtures\dev16d-r36-no-preview.log.txt" CopyToOutputDirectory="PreserveNewest" /><None Include="Fixtures\dev16d-fixed-preview.log.txt" CopyToOutputDirectory="PreserveNewest" /></ItemGroup>
+   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+ </Project>
+diff --git a/tests/BetterUnturnedExperience.Plugin.Tests/DevV5ContainerSessionTests.cs b/tests/BetterUnturnedExperience.Plugin.Tests/DevV5ContainerSessionTests.cs
+index 6962c37..13a682b 100644
+--- a/tests/BetterUnturnedExperience.Plugin.Tests/DevV5ContainerSessionTests.cs
++++ b/tests/BetterUnturnedExperience.Plugin.Tests/DevV5ContainerSessionTests.cs
+@@ -640,6 +640,14 @@ namespace BetterUnturnedExperience.Plugin.Tests
+                 };
+             }
+ 
++            /// <summary>DEV-V5-05: the container fake never serves the
++            /// fast-transfer chain — a call here would mean the two paths
++            /// crossed, so it answers loudly.</summary>
++            public LitContainerAuthorityResult ExecuteServerFastTransferRecover(LitFastTransferRequestContext request)
++            {
++                throw new NotSupportedException("DevV5ContainerAuthority does not serve fast-transfer recover");
++            }
++
+             public LitHotkeyRestoreResult RestoreServerHotkeys(ulong peerSteamId, List<HotkeyRestoreEntry> entries)
+             {
+                 return new LitHotkeyRestoreResult { Restored = 0, Verified = 0, Cleared = 0, FailedIndices = new List<byte>() };
+diff --git a/tests/BetterUnturnedExperience.Plugin.Tests/DevV5InsertRecoverTests.cs b/tests/BetterUnturnedExperience.Plugin.Tests/DevV5InsertRecoverTests.cs
+index bcefcb1..37e2c53 100644
+--- a/tests/BetterUnturnedExperience.Plugin.Tests/DevV5InsertRecoverTests.cs
++++ b/tests/BetterUnturnedExperience.Plugin.Tests/DevV5InsertRecoverTests.cs
+@@ -49,6 +49,13 @@ namespace BetterUnturnedExperience.Plugin.Tests
+                     var savedRole = LitTidyProductionAuthority.ServerRoleProbeForTests;
+                     var savedLabel = ItemUseSignalsProvider.ResolveForTests;
+                     var savedHeadless = BetterUnturnedExperience.Plugin.BueRuntimeCompletionChain.HeadlessDecision;
++                    // DEV-V5-05 existing-test adaptation: Start now arms the
++                    // fast-transfer pair beside this trio (same ID, same all-or-
++                    // none gate). Without the second seam the host would attempt
++                    // a real Harmony bind and — via the mutual-revoke rule this
++                    // ticket's catch implements — tear this surface down too.
++                    var savedFastInstaller = InventoryTidyModule.FastTransferPatchInstallerForTests;
++                    InventoryTidyModule.FastTransferPatchInstallerForTests = _ => true;
+                     InsertRecoverScope.ResetForTests();
+                     try { body(); }
+                     catch (Exception error) when (collectAllFailures)
+@@ -67,6 +74,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
+                         LitTidyProductionAuthority.ServerRoleProbeForTests = savedRole;
+                         ItemUseSignalsProvider.ResolveForTests = savedLabel;
+                         BetterUnturnedExperience.Plugin.BueRuntimeCompletionChain.HeadlessDecision = savedHeadless;
++                        InventoryTidyModule.FastTransferPatchInstallerForTests = savedFastInstaller;
+                         InsertRecoverScope.ResetForTests();
+                     }
+                 }
+@@ -925,6 +933,10 @@ namespace BetterUnturnedExperience.Plugin.Tests
+             { return LitAuthorityResult.From(TidyOperationOutcome.Committed); }
+             public LitContainerAuthorityResult ExecuteServerContainerTidy(LitContainerTidyRequestContext request)
+             { return new LitContainerAuthorityResult { Outcome = TidyOperationOutcome.RejectedNoMutation, Reason = LitContainerTidyReason.None }; }
++            /// <summary>DEV-V5-05 interface extension: this 04 fixture never
++            /// serves fast-transfer recover — answering loudly on a call.</summary>
++            public LitContainerAuthorityResult ExecuteServerFastTransferRecover(LitFastTransferRequestContext request)
++            { throw new NotSupportedException("V54NoopAuthority does not serve fast-transfer recover"); }
+             public LitHotkeyRestoreResult RestoreServerHotkeys(ulong peerSteamId, List<HotkeyRestoreEntry> entries)
+             { return new LitHotkeyRestoreResult { Restored = 0, Verified = 0, Cleared = 0, FailedIndices = new List<byte>() }; }
+             public bool VerifyClientConvergence(List<LitNewPositionMapping> mappings) { return true; }
+diff --git a/tests/BetterUnturnedExperience.Plugin.Tests/Program.cs b/tests/BetterUnturnedExperience.Plugin.Tests/Program.cs
+index 102b6cf..cc2e972 100644
+--- a/tests/BetterUnturnedExperience.Plugin.Tests/Program.cs
++++ b/tests/BetterUnturnedExperience.Plugin.Tests/Program.cs
+@@ -303,6 +303,11 @@ namespace BetterUnturnedExperience.Plugin.Tests
+                     DevV5InsertRecoverTests.Run(collectAllFailures: true);
+                     return 0;
+                 }
++                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--bue-v5-05-fast-transfer-recover-red")
++                {
++                    DevV5FastTransferRecoverTests.Run(collectAllFailures: true);
++                    return 0;
++                }
+                 if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--bue-v2-send-semantics-red")
+                 {
+                     AssertBueV2SessionDrivenSendSemantics(collectAllFailures: true);
+@@ -484,6 +489,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
+                 AssertDevV502TaggedRowBand();
+                 DevV5ContainerSessionTests.Run();
+                 DevV5InsertRecoverTests.Run();
++                DevV5FastTransferRecoverTests.Run();
+                 AssertRuntimeCompletionBarrierIsolates();
+                 AssertManagementPanelConsumesRuntimeCatalog();
+                 AssertManagementPanelOpenHooks();
+@@ -3709,6 +3715,13 @@ namespace BetterUnturnedExperience.Plugin.Tests
+                 throw new NotSupportedException("FakeLitAuthority does not serve container tidy");
+             }
+ 
++            /// <summary>DEV-V5-05: same law for the fast-transfer recover —
++            /// its chain rides DevV5FastTransferRecoverTests.</summary>
++            public LitContainerAuthorityResult ExecuteServerFastTransferRecover(LitFastTransferRequestContext request)
++            {
++                throw new NotSupportedException("FakeLitAuthority does not serve fast-transfer recover");
++            }
++
+             public bool VerifyClientConvergence(List<LitNewPositionMapping> mappings)
+             {
+                 ConvergenceCount++;

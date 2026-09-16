@@ -1,0 +1,15 @@
+BUILD_OK=True
+EXIT=1
+CAUGHT_EXPECTED_FAIL=True
+--- stdout ---
+DEV-V5-05 fast-transfer-recover tests: FAIL
+DEV-14 official registration parity tests: FAIL
+System.InvalidOperationException: DEV-V5-05 red collection (6): һ����ҳԭ������[Դҳ����볡, �����Ű�+��ת�Ƽ�]��Դ��Ŀ���=ԭ�� remove-then-add ͬ�� || Դ�� = Leave ���壨�ų���һ�������� 8 ������ڼƻ��ڡ����Ű棩 || ������ = 02 �ƻ� + ��ת����Ʒ��Pending ���� 04 ���壩 || [���߾�����ֻ�������ղ�] UNEXPECTED NullReferenceException: δ�������������õ������ʵ���� || ��������� = ���� computed �� 02 �ƻ���ͬ����ͬ�ƻ����ָ��������㷨�� || ��ת����Ʒ�ı�ǩ���� 02 �������죨��ϻ�β����Ű棬������ id �£�
+   �� BetterUnturnedExperience.Plugin.Tests.DevV5FastTransferRecoverTests.Run(Boolean collectAllFailures)
+   �� BetterUnturnedExperience.Plugin.Tests.Program.Main()
+DEV-V5-05 fast-transfer-recover tests: FAIL
+DEV-14 official registration parity tests: FAIL
+System.InvalidOperationException: DEV-V5-05 red collection (6): 一笔两页原子事务：[源页恒等离场, 容器排版+待转移件]（源先目标后=原版 remove-then-add 同序） || 源侧 = Leave 语义（排除这一件，其余 8 件逐格在计划内、不排版） || 容器侧 = 02 计划 + 待转移物品（Pending 复用 04 语义） || [决策矩阵与只整理接收侧] UNEXPECTED NullReferenceException: 未将对象引用设置到对象的实例。 || 容器侧逐格 = 独立 computed 的 02 计划（同输入同计划，恢复不复制算法） || 待转移物品的标签消费 02 分类器缝（弹匣段参与排版，不单看 id 猜）
+   在 BetterUnturnedExperience.Plugin.Tests.DevV5FastTransferRecoverTests.Run(Boolean collectAllFailures)
+   在 BetterUnturnedExperience.Plugin.Tests.Program.Main()
+

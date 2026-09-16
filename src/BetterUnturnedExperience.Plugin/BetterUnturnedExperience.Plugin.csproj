@@ -103,6 +103,11 @@
     <Compile Include="..\BetterUnturnedExperience.Lit\Recovery\InsertRecoverAdapter.cs"><Link>EmbeddedLit\Recovery\InsertRecoverAdapter.cs</Link></Compile>
     <Compile Include="..\BetterUnturnedExperience.Lit\Recovery\InsertRecoverEngine.cs"><Link>EmbeddedLit\Recovery\InsertRecoverEngine.cs</Link></Compile>
     <Compile Include="..\BetterUnturnedExperience.Lit\Recovery\InsertRecoverPatches.cs"><Link>EmbeddedLit\Recovery\InsertRecoverPatches.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Lit\Recovery\FastTransferIntentScope.cs"><Link>EmbeddedLit\Recovery\FastTransferIntentScope.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Lit\Recovery\FastTransferRecoverPlanner.cs"><Link>EmbeddedLit\Recovery\FastTransferRecoverPlanner.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Lit\Recovery\FastTransferRecoverAdapter.cs"><Link>EmbeddedLit\Recovery\FastTransferRecoverAdapter.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Lit\Recovery\FastTransferRecoverEngine.cs"><Link>EmbeddedLit\Recovery\FastTransferRecoverEngine.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Lit\Recovery\FastTransferRecoverPatches.cs"><Link>EmbeddedLit\Recovery\FastTransferRecoverPatches.cs</Link></Compile>
     <!-- DEV-V2-22: embed the migrated LIR (in-place reload) domain into the single runtime assembly.
          The old plugin's BepInEx identity, LMN dependency and the cross-plugin TidyServicePostfixPatch
          (replaced by the TidyCompleted feature event) are NOT in this list. -->

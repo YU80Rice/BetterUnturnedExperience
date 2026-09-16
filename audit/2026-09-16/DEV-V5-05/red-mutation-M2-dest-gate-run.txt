@@ -1,0 +1,10 @@
+BUILD_OK=True
+EXIT=1
+CAUGHT_EXPECTED_FAIL=True
+--- stdout ---
+DEV-V5-05 fast-transfer-recover tests: FAIL
+DEV-14 official registration parity tests: FAIL
+System.InvalidOperationException: DEV-V5-05 red collection (1): 目标 200 件满 = 原版同闸拒绝（恢复不越原版放置条件）
+   在 BetterUnturnedExperience.Plugin.Tests.DevV5FastTransferRecoverTests.Run(Boolean collectAllFailures)
+   在 BetterUnturnedExperience.Plugin.Tests.Program.Main()
+

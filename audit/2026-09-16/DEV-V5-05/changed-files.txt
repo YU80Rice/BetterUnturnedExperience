@@ -1,0 +1,15 @@
+# DEV-V5-05 R1 变更面（工作树，基线=HEAD eb8f308）
+## tracked (git diff --stat)
+ .../DevV5ContainerSessionTests.cs                  |   8 +
+ .../DevV5InsertRecoverTests.cs                     |  12 +
+ .../Program.cs                                     |  13 +
+ 14 files changed, 951 insertions(+), 55 deletions(-)
+## new files
+src/BetterUnturnedExperience.Lit/Recovery/FastTransferIntentScope.cs
+src/BetterUnturnedExperience.Lit/Recovery/FastTransferRecoverAdapter.cs
+src/BetterUnturnedExperience.Lit/Recovery/FastTransferRecoverEngine.cs
+src/BetterUnturnedExperience.Lit/Recovery/FastTransferRecoverPatches.cs
+src/BetterUnturnedExperience.Lit/Recovery/FastTransferRecoverPlanner.cs
+tests/BetterUnturnedExperience.Plugin.Tests/DevV5FastTransferRecoverTests.cs
+## gate-adjacent notes
+NoUiTokens-Contracts hit = ContractTypes.cs:Glazier (V2-02 existing-comment baseline, identical to DEV-V5-03/04 records; NOT this ticket's increment)
