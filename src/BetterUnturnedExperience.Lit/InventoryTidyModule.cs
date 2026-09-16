@@ -201,6 +201,21 @@ namespace BetterUnturnedExperience.Lit
         internal bool ShuttingDown { get; private set; }
         internal string StartGateDiagnostics { get; private set; } = string.Empty;
 
+        /// <summary>DEV-V5-04: the insert-recovery patch trio (scope openers +
+        /// the tryAddItemAuto behavior point) is its OWN registration — an
+        /// AUTHORITY patch set, armed on U3DS too (story 25: 权威行为主机必须
+        /// 真做, the Headless decision gate covers only 画面类). Kept separate
+        /// from PatchesInstalled so a headless/UI-failure generation still
+        /// proves the recovery surface state honestly.</summary>
+        internal bool RecoverPatchesInstalled { get; private set; }
+        internal string RecoverStartGateDiagnostics { get; private set; } = string.Empty;
+
+        /// <summary>Host-test seam (the installer/observer family): replaces
+        /// the real Harmony processor per patch type (true = installed). Null
+        /// = production patching. Pins install order, the all-or-none rollback,
+        /// and the U3DS arming without JITting engine methods in the test host.</summary>
+        internal static Func<Type, bool> RecoverPatchInstallerForTests;
+
         /// <summary>Last completed transaction outcome, observable for the future TidyCompleted publisher (DEV-V2-19/21).</summary>
         internal TidyOperationOutcome LastLocalOutcome { get; set; }
 
@@ -748,6 +763,11 @@ namespace BetterUnturnedExperience.Lit
 
         private void InstallPatches()
         {
+            // DEV-V5-04: the recovery trio is an AUTHORITY patch set — it arms
+            // on every surface including U3DS (V5-T1 Headless 裁决只砍画面),
+            // BEFORE and independent of the UI decision gate below.
+            InstallRecoverPatches();
+
             // DEV-V4-06: U3DS never arms the Glazier injection (T1 Q17) — a
             // DECISION gate recorded as an honest diagnostic, never an
             // exception pretending to be a gate.
@@ -774,22 +794,85 @@ namespace BetterUnturnedExperience.Lit
                 StartGateDiagnostics = "patch-install-failed: " + e.GetType().Name + ":" + e.Message;
                 LitRuntime.LogError("[Tidy] 整理按钮补丁安装失败（整理功能不可用）: " + e.Message);
                 // 半装回滚：处理器可能已挂上部分补丁，失败即整体撤销自身。
+                // DEV-V5-04：UnpatchSelf 按 Harmony ID 全撤，恢复三件套同被摘除
+                // ——两面的在册状态必须同步归零（不留「补丁没了、登记还在」）。
                 try { if (harmony != null) harmony.UnpatchSelf(); } catch (Exception) { }
                 InventoryTidyUiPatch.ActiveModule = null;
+                RecoverPatchesInstalled = false;
+                InsertRecoverAdapter.ActiveModule = null;
+            }
+        }
+
+        /// <summary>DEV-V5-04: register the insert-recovery trio (pickup scope
+        /// opener → craft scope opener → tryAddItemAuto behavior point) and
+        /// hand the adapter this generation. The surface list and the exact
+        /// method binding live in InsertRecoverBinder (single source,
+        /// host-verifiable — see the R2 binding note there). All-or-none: if
+        /// any point fails, everything under this Harmony id is rolled back
+        /// and NO half trigger surface stays live (the environment-gate
+        /// diagnostic rides RecoverStartGateDiagnostics, separate from the UI
+        /// 口径).</summary>
+        private void InstallRecoverPatches()
+        {
+            if (RecoverPatchesInstalled) return;
+            var types = InsertRecoverBinder.PatchSurface;
+            try
+            {
+                if (harmony == null) harmony = new Harmony(LitRuntime.FeatureIdValue);
+                for (var i = 0; i < types.Count; i++)
+                {
+                    var seam = RecoverPatchInstallerForTests;
+                    if (seam != null)
+                    {
+                        if (!seam(types[i])) throw new InvalidOperationException("recover patch refused: " + types[i].Name);
+                        continue;
+                    }
+                    InsertRecoverBinder.Bind(harmony, types[i]);
+                }
+                InsertRecoverAdapter.ActiveModule = this;
+                RecoverPatchesInstalled = true;
+                RecoverStartGateDiagnostics = string.Empty;
+                LitRuntime.LogInfo("[入包恢复] 恢复补丁已登记（Harmony ID=" + LitRuntime.FeatureIdValue + "）");
+            }
+            catch (Exception e)
+            {
+                RecoverStartGateDiagnostics = "recover-patch-install-failed: " + e.GetType().Name + ":" + e.Message;
+                LitRuntime.LogError("[入包恢复] 恢复补丁登记失败（入包保持原版，不半装）: " + e.Message);
+                // 半装 = 整体撤销（含先装的按钮面尚未装——本方法在 UI 安装前运行）。
+                try { if (harmony != null) harmony.UnpatchSelf(); } catch (Exception) { }
+                InsertRecoverAdapter.ActiveModule = null;
+                RecoverPatchesInstalled = false;
             }
         }
 
         private void UninstallPatches()
         {
-            if (!PatchesInstalled) return;
+            if (!PatchesInstalled && !RecoverPatchesInstalled) return;
+            // DEV-V5-04: the unpatch itself is guarded — reversing applied IL
+            // re-JITs the ORIGINAL method bodies, which in a host without the
+            // Unity runtime throws (the Mono ECall rule). The stop boundary
+            // must never throw into the lifecycle machine, and the bookkeeping
+            // below has to land either way: the registration (ActiveModule /
+            // installed flags) is the functional switch, and it is always
+            // revoked — a stuck live IL hook with no registration answers as
+            // plain refusal through the adapter gates, while a failed reversal
+            // stays observable in the log.
             try
             {
                 if (harmony != null) harmony.UnpatchSelf();
+            }
+            catch (Exception e)
+            {
+                LitRuntime.LogError("[Tidy] 补丁撤销异常（登记已强制收回，功能面按停用运行）: " + e.Message);
             }
             finally
             {
                 PatchesInstalled = false;
                 InventoryTidyUiPatch.ActiveModule = null;
+                // DEV-V5-04: Stop/隔离 = 恢复面注销——补丁没了、登记也交还，
+                // 「功能停路径不执行」由这条注销保证（无补丁内死开关）。
+                RecoverPatchesInstalled = false;
+                InsertRecoverAdapter.ActiveModule = null;
                 LitRuntime.LogInfo("[Tidy] 整理按钮补丁已撤销（原生回退）");
             }
         }

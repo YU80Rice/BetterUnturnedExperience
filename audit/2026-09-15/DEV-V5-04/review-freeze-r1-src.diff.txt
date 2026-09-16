@@ -1,0 +1,457 @@
+diff --git a/src/BetterUnturnedExperience.Lit/InventoryTidyModule.cs b/src/BetterUnturnedExperience.Lit/InventoryTidyModule.cs
+index 991a256..ba64b0c 100644
+--- a/src/BetterUnturnedExperience.Lit/InventoryTidyModule.cs
++++ b/src/BetterUnturnedExperience.Lit/InventoryTidyModule.cs
+@@ -201,6 +201,21 @@ namespace BetterUnturnedExperience.Lit
+         internal bool ShuttingDown { get; private set; }
+         internal string StartGateDiagnostics { get; private set; } = string.Empty;
+ 
++        /// <summary>DEV-V5-04: the insert-recovery patch trio (scope openers +
++        /// the tryAddItemAuto behavior point) is its OWN registration — an
++        /// AUTHORITY patch set, armed on U3DS too (story 25: 权威行为主机必须
++        /// 真做, the Headless decision gate covers only 画面类). Kept separate
++        /// from PatchesInstalled so a headless/UI-failure generation still
++        /// proves the recovery surface state honestly.</summary>
++        internal bool RecoverPatchesInstalled { get; private set; }
++        internal string RecoverStartGateDiagnostics { get; private set; } = string.Empty;
++
++        /// <summary>Host-test seam (the installer/observer family): replaces
++        /// the real Harmony processor per patch type (true = installed). Null
++        /// = production patching. Pins install order, the all-or-none rollback,
++        /// and the U3DS arming without JITting engine methods in the test host.</summary>
++        internal static Func<Type, bool> RecoverPatchInstallerForTests;
++
+         /// <summary>Last completed transaction outcome, observable for the future TidyCompleted publisher (DEV-V2-19/21).</summary>
+         internal TidyOperationOutcome LastLocalOutcome { get; set; }
+ 
+@@ -748,6 +763,11 @@ namespace BetterUnturnedExperience.Lit
+ 
+         private void InstallPatches()
+         {
++            // DEV-V5-04: the recovery trio is an AUTHORITY patch set — it arms
++            // on every surface including U3DS (V5-T1 Headless 裁决只砍画面),
++            // BEFORE and independent of the UI decision gate below.
++            InstallRecoverPatches();
++
+             // DEV-V4-06: U3DS never arms the Glazier injection (T1 Q17) — a
+             // DECISION gate recorded as an honest diagnostic, never an
+             // exception pretending to be a gate.
+@@ -774,22 +794,83 @@ namespace BetterUnturnedExperience.Lit
+                 StartGateDiagnostics = "patch-install-failed: " + e.GetType().Name + ":" + e.Message;
+                 LitRuntime.LogError("[Tidy] 整理按钮补丁安装失败（整理功能不可用）: " + e.Message);
+                 // 半装回滚：处理器可能已挂上部分补丁，失败即整体撤销自身。
++                // DEV-V5-04：UnpatchSelf 按 Harmony ID 全撤，恢复三件套同被摘除
++                // ——两面的在册状态必须同步归零（不留「补丁没了、登记还在」）。
+                 try { if (harmony != null) harmony.UnpatchSelf(); } catch (Exception) { }
+                 InventoryTidyUiPatch.ActiveModule = null;
++                RecoverPatchesInstalled = false;
++                InsertRecoverAdapter.ActiveModule = null;
++            }
++        }
++
++        /// <summary>DEV-V5-04: register the insert-recovery trio (pickup scope
++        /// opener → craft scope opener → tryAddItemAuto behavior point) and
++        /// hand the adapter this generation. All-or-none: if any processor
++        /// fails, everything under this Harmony id is rolled back and NO half
++        /// trigger surface stays live (the environment-gate diagnostic rides
++        /// RecoverStartGateDiagnostics, separate from the UI 口径).</summary>
++        private void InstallRecoverPatches()
++        {
++            if (RecoverPatchesInstalled) return;
++            var types = new[]
++            {
++                typeof(InsertRecoverPickupScopePatch),
++                typeof(InsertRecoverCraftScopePatch),
++                typeof(InsertRecoverAutoAddPatch),
++            };
++            try
++            {
++                if (harmony == null) harmony = new Harmony(LitRuntime.FeatureIdValue);
++                for (var i = 0; i < types.Length; i++)
++                {
++                    var seam = RecoverPatchInstallerForTests;
++                    var installed = seam != null ? seam(types[i]) : (harmony.CreateClassProcessor(types[i]).Patch() != null);
++                    if (!installed) throw new InvalidOperationException("recover patch refused: " + types[i].Name);
++                }
++                InsertRecoverAdapter.ActiveModule = this;
++                RecoverPatchesInstalled = true;
++                RecoverStartGateDiagnostics = string.Empty;
++                LitRuntime.LogInfo("[入包恢复] 恢复补丁已登记（Harmony ID=" + LitRuntime.FeatureIdValue + "）");
++            }
++            catch (Exception e)
++            {
++                RecoverStartGateDiagnostics = "recover-patch-install-failed: " + e.GetType().Name + ":" + e.Message;
++                LitRuntime.LogError("[入包恢复] 恢复补丁登记失败（入包保持原版，不半装）: " + e.Message);
++                // 半装 = 整体撤销（含先装的按钮面尚未装——本方法在 UI 安装前运行）。
++                try { if (harmony != null) harmony.UnpatchSelf(); } catch (Exception) { }
++                InsertRecoverAdapter.ActiveModule = null;
++                RecoverPatchesInstalled = false;
+             }
+         }
+ 
+         private void UninstallPatches()
+         {
+-            if (!PatchesInstalled) return;
++            if (!PatchesInstalled && !RecoverPatchesInstalled) return;
++            // DEV-V5-04: the unpatch itself is guarded — reversing applied IL
++            // re-JITs the ORIGINAL method bodies, which in a host without the
++            // Unity runtime throws (the Mono ECall rule). The stop boundary
++            // must never throw into the lifecycle machine, and the bookkeeping
++            // below has to land either way: the registration (ActiveModule /
++            // installed flags) is the functional switch, and it is always
++            // revoked — a stuck live IL hook with no registration answers as
++            // plain refusal through the adapter gates, while a failed reversal
++            // stays observable in the log.
+             try
+             {
+                 if (harmony != null) harmony.UnpatchSelf();
+             }
++            catch (Exception e)
++            {
++                LitRuntime.LogError("[Tidy] 补丁撤销异常（登记已强制收回，功能面按停用运行）: " + e.Message);
++            }
+             finally
+             {
+                 PatchesInstalled = false;
+                 InventoryTidyUiPatch.ActiveModule = null;
++                // DEV-V5-04: Stop/隔离 = 恢复面注销——补丁没了、登记也交还，
++                // 「功能停路径不执行」由这条注销保证（无补丁内死开关）。
++                RecoverPatchesInstalled = false;
++                InsertRecoverAdapter.ActiveModule = null;
+                 LitRuntime.LogInfo("[Tidy] 整理按钮补丁已撤销（原生回退）");
+             }
+         }
+diff --git a/src/BetterUnturnedExperience.Lit/Tidy/LocalTidyExecutor.cs b/src/BetterUnturnedExperience.Lit/Tidy/LocalTidyExecutor.cs
+index 877392b..630e4b7 100644
+--- a/src/BetterUnturnedExperience.Lit/Tidy/LocalTidyExecutor.cs
++++ b/src/BetterUnturnedExperience.Lit/Tidy/LocalTidyExecutor.cs
+@@ -128,7 +128,12 @@ namespace BetterUnturnedExperience.Lit
+         // 提交成功：按新坐标恢复热键（移植 ManualTidyNetwork ACK 恢复链）
+         // ─────────────────────────────────────────────────────────────
+ 
+-        private static void RestoreHotkeysToNewPositions(Player player,
++        /// <summary>
++        /// DEV-V5-04: internal — the insert-recovery success tail reuses this
++        /// EXACT chain (single source, same rule as TryResolveExactHotkeyTarget
++        /// was made internal for the network ACK path).
++        /// </summary>
++        internal static void RestoreHotkeysToNewPositions(Player player,
+             Dictionary<ItemJar, HotkeySnapshot> resolved,
+             Dictionary<ItemJar, ItemFingerprint> trusted,
+             Dictionary<ItemJar, NewPosition> outMapping)
+diff --git a/src/BetterUnturnedExperience.Lit/Tidy/ManualTidyService.cs b/src/BetterUnturnedExperience.Lit/Tidy/ManualTidyService.cs
+index b6f3b1a..4ff5f4e 100644
+--- a/src/BetterUnturnedExperience.Lit/Tidy/ManualTidyService.cs
++++ b/src/BetterUnturnedExperience.Lit/Tidy/ManualTidyService.cs
+@@ -301,6 +301,12 @@ namespace BetterUnturnedExperience.Lit
+         public Items ItemsInstance;
+         public byte Width;
+         public byte Height;
++        /// <summary>DEV-V5-04: the item-to-be-added riding this page's plan
++        /// (insert recovery only — Tag = the vanilla Item, no jar yet, and the
++        /// whole validation/commit/conservation chain treats it as part of the
++        /// page's expected content). Null = the button-tidy shape: byte-for-byte
++        /// the pre-DEV-V5-04 semantics.</summary>
++        public PackableItem Pending;
+     }
+ 
+     /// <summary>
+@@ -400,6 +406,33 @@ namespace BetterUnturnedExperience.Lit
+                 return TidyOperationOutcome.RejectedNoMutation;
+             }
+ 
++            // DEV-V5-04：Commit/Verify/回滚阶段整体提取为 CommitPreparations
++            // （行为逐字节不变），供按钮全身整理与入包恢复共用同一原子事务出口。
++            return CommitPreparations(preparations, outMapping);
++        }
++
++        /// <summary>
++        /// The ONE all-pages atomic transaction exit (DEV-V5-04 extraction —
++        /// the code below is TidyAllPlayerPages' v2.0.6.x commit/verify/rollback
++        /// chain moved verbatim): commit the given preparations atomically
++        /// (all-or-nothing with journal-verified rollback and fingerprint
++        /// conservation), page by page in list order. Both the button 全身整理
++        /// (through TidyAllPlayerPages) and the insert recovery (through
++        /// InsertRecoverAdapter, with a pending-bound preparation) commit here —
++        /// no second transaction, no copied failure semantics. An empty list is
++        /// refused, never a false success.
++        /// </summary>
++        internal static TidyOperationOutcome CommitPreparations(
++            List<PagePreparation> preparations, Dictionary<ItemJar, NewPosition> outMapping)
++        {
++            // 空提交集不伪报成功（调用方各自在前置层已守，本防御与
++            // TidyAllPlayerPages 的「无活动页拒绝」同律）。
++            if (preparations == null || preparations.Count == 0)
++            {
++                LitRuntime.LogWarning("[Tidy] CommitPreparations rejected: empty preparation set (no false success).");
++                return TidyOperationOutcome.RejectedNoMutation;
++            }
++
+             // v2.0.6.4：Commit 阶段使用 CommitPageResult 返回值，不再依赖 try-catch 控制流。
+             // lastCommittedIndex 追踪已成功 Committed 的页面索引（用于原子性回滚）。
+             int lastCommittedIndex = -1;
+@@ -678,6 +711,18 @@ namespace BetterUnturnedExperience.Lit
+         // Prepare 层的形状可无 Unity 观察；提交链仍由 TidyPage/TidyAllPlayerPages
+         // 的事务层承担，本缝不复制算法、不写库存。
+         internal static PagePreparation PreparePage(Items items, byte page, bool sortDescending, TidyMode mode, ITidyStrategy strategy)
++        {
++            return PreparePage(items, page, sortDescending, mode, strategy, null);
++        }
++
++        /// <summary>DEV-V5-04: the optional <paramref name="pending"/> is the
++        /// item-to-be-added of an insert-recovery attempt (Tag = the vanilla
++        /// Item, no jar yet). It enters the SAME unified-layout plan, must be
++        /// placed for the preparation to be valid (禁吞物：报成功却没放入的
++        /// v1.4.0 形状在这里就是非法), and joins the fingerprint/Tag
++        /// conservation checks. pending = null reproduces the button path
++        /// exactly.</summary>
++        internal static PagePreparation PreparePage(Items items, byte page, bool sortDescending, TidyMode mode, ITidyStrategy strategy, PackableItem pending)
+         {
+             var prep = new PagePreparation
+             {
+@@ -737,6 +782,16 @@ namespace BetterUnturnedExperience.Lit
+ 
+             prep.BeforeJars = jars;
+ 
++            // DEV-V5-04: the item-to-be-added joins the stream AFTER the page's
++            // own jars (capture order = count) and binds to this preparation —
++            // every downstream check (placement completeness, Tag consistency,
++            // fingerprint multiset) counts it.
++            if (pending != null)
++            {
++                prep.Pending = pending;
++                packList.Add(pending);
++            }
++
+             if (packList.Count == 0)
+             {
+                 prep.Valid = true;  // 空页面视为合法
+@@ -778,16 +833,19 @@ namespace BetterUnturnedExperience.Lit
+                 return prep;
+             }
+ 
+-            // 静态验证 2：result 中的 Tag 与 before 中的 ItemJar 一一对应（无外来/重复/遗漏）
+-            if (!ValidateTagConsistency(plan.Placements, jars))
++            // 静态验证 2：result 中的 Tag 与 before 中的 ItemJar 一一对应（无外来/重复/遗漏）；
++            // DEV-V5-04：待加入物品以 Item 引用恰出现一次（多了=外来、少了=吞物、Placed=false
++            // 已被上面的未放置计数拒绝）。
++            if (!ValidateTagConsistency(plan.Placements, jars, pending))
+             {
+                 LitRuntime.LogError(
+                     $"[Tidy] page {page}: 静态验证失败（Tag 一致性）");
+                 return prep;
+             }
+ 
+-            // 静态验证 3：指纹多重集合匹配（result 中所有物品的指纹 = before 中所有物品的指纹）
+-            if (!ValidateFingerprintMultiset(plan.Placements, jars))
++            // 静态验证 3：指纹多重集合匹配（result 中所有物品的指纹 = before 中所有物品的指纹；
++            // DEV-V5-04 有 pending 时并入该件指纹一次）
++            if (!ValidateFingerprintMultiset(plan.Placements, jars, pending))
+             {
+                 LitRuntime.LogError(
+                     $"[Tidy] page {page}: 静态验证失败（指纹多重集不匹配）");
+@@ -801,10 +859,12 @@ namespace BetterUnturnedExperience.Lit
+         /// <summary>
+         /// v2.0.2 修订：验证 result 中每个 Placed 物品的 Tag 都来自 before 列表的 OriginalJar，
+         /// 且每个 before jar 恰好出现一次。防止外来 Jar / 重复 Jar / 遗漏 Jar 通过验证。
++        /// DEV-V5-04：pending 非空时，其 Tag（vanilla Item 引用，尚无 jar）必须在
++        /// Placed 条目中恰好出现一次——多一次=外来、少一次=吞物，都直接非法。
+         /// </summary>
+-        private static bool ValidateTagConsistency(IReadOnlyList<PackableItem> result, List<JarSnapshot> before)
++        private static bool ValidateTagConsistency(IReadOnlyList<PackableItem> result, List<JarSnapshot> before, PackableItem pending)
+         {
+-            if (result == null) return true;
++            if (result == null) return pending == null;
+ 
+             // 构建 before OriginalJar 引用集合（用于验证 Tag 来自 before）
+             var beforeSet = new HashSet<ItemJar>(ReferenceEqualityComparer<ItemJar>.Instance);
+@@ -814,39 +874,58 @@ namespace BetterUnturnedExperience.Lit
+                     beforeSet.Add(before[i].OriginalJar);
+             }
+ 
++            object pendingTag = pending == null ? null : pending.Tag;
+             var seen = new HashSet<ItemJar>(ReferenceEqualityComparer<ItemJar>.Instance);
++            var pendingSeen = 0;
+             for (int i = 0; i < result.Count; i++)
+             {
+                 PackableItem p = result[i];
+                 if (p == null || !p.Placed) continue;
+-                if (!(p.Tag is ItemJar jar)) return false;
+-                if (jar?.item == null) return false;
+-                // v2.0.2：Tag 必须来自 before 集合（防止外来 Jar）
+-                if (!beforeSet.Contains(jar)) return false;
+-                if (!seen.Add(jar)) return false;  // 重复
+-            }
+-            // result 中 Placed 物品数 = before 数（无遗漏）
+-            return seen.Count == before.Count;
++                if (p.Tag is ItemJar jar)
++                {
++                    if (jar.item == null) return false;
++                    // v2.0.2：Tag 必须来自 before 集合（防止外来 Jar）
++                    if (!beforeSet.Contains(jar)) return false;
++                    if (!seen.Add(jar)) return false;  // 重复
++                    continue;
++                }
++                // DEV-V5-04：唯一允许的非 jar Tag = 待加入物品本体（引用相等）。
++                if (pendingTag == null || !ReferenceEquals(p.Tag, pendingTag)) return false;
++                pendingSeen++;
++            }
++            // result 中 Placed 物品数 = before 数（无遗漏），且该件恰好一次。
++            return seen.Count == before.Count && pendingSeen == (pending != null ? 1 : 0);
+         }
+ 
+         /// <summary>
+         /// 验证 result 中所有 Placed 物品的指纹多重集合 = before 中所有物品的指纹多重集合。
+         /// 这是删除前的静态守恒验证。v2.0.2：使用 JarSnapshot 值字段而非可变 Item 引用。
++        /// DEV-V5-04：pending 的指纹并入 before 侧（提交后的页面必须多它一件）。
+         /// </summary>
+-        private static bool ValidateFingerprintMultiset(IReadOnlyList<PackableItem> result, List<JarSnapshot> before)
++        private static bool ValidateFingerprintMultiset(IReadOnlyList<PackableItem> result, List<JarSnapshot> before, PackableItem pending)
+         {
+-            if (result == null) return true;
+-            var beforeList = new List<ItemFingerprint>(before.Count);
++            if (result == null) return pending == null;
++            var beforeList = new List<ItemFingerprint>(before.Count + 1);
+             for (int i = 0; i < before.Count; i++)
+                 beforeList.Add(before[i].Fingerprint);
++            // DEV-V5-04：待加入物品的指纹进期望侧（提交后的页面 = 原内容 + 它）。
++            if (pending != null && pending.Tag is Item pendingItem)
++                beforeList.Add(new ItemFingerprint(pendingItem));
+ 
+-            var afterList = new List<ItemFingerprint>(before.Count);
++            object pendingTag = pending == null ? null : pending.Tag;
++            var afterList = new List<ItemFingerprint>(before.Count + 1);
+             for (int i = 0; i < result.Count; i++)
+             {
+                 PackableItem p = result[i];
+                 if (p == null || !p.Placed) continue;
+-                if (!(p.Tag is ItemJar jar) || jar?.item == null) return false;
+-                afterList.Add(new ItemFingerprint(jar.item));
++                if (p.Tag is ItemJar jar)
++                {
++                    if (jar?.item == null) return false;
++                    afterList.Add(new ItemFingerprint(jar.item));
++                    continue;
++                }
++                if (pendingTag == null || !ReferenceEquals(p.Tag, pendingTag)) return false;
++                afterList.Add(new ItemFingerprint((Item)p.Tag));
+             }
+ 
+             if (beforeList.Count != afterList.Count) return false;
+@@ -979,20 +1058,36 @@ namespace BetterUnturnedExperience.Lit
+ 
+                 // v2.0.6.7：每个 addItem 前记录 journal 条目
+                 // v2.0.6.8：每个 addItem 后验证实际状态匹配 ExpectedStateAfter
++                // DEV-V5-04：待加入物品（Tag=Item 引用）也走同一 journal 协议
++                // ——它的 addItem 失败/静默失配同样进入 MutationMayHaveStarted
++                // 可验证回滚域；该件没有旧 jar，不进快捷键映射。
++                object pendingTag = prep.Pending == null ? null : prep.Pending.Tag;
+                 for (int i = 0; i < prep.Result.Count; i++)
+                 {
+                     PackableItem p = prep.Result[i];
+-                    if (!(p.Tag is ItemJar jar) || jar.item == null) continue;
+                     if (!p.Placed) continue;
++                    Item addTarget;
++                    ItemJar jar = null;
++                    if (p.Tag is ItemJar pageJar)
++                    {
++                        if (pageJar.item == null) continue;
++                        jar = pageJar;
++                        addTarget = pageJar.item;
++                    }
++                    else if (pendingTag != null && ReferenceEquals(p.Tag, pendingTag))
++                    {
++                        addTarget = (Item)p.Tag; // 待加入物品本体（生产=Items.addItem 新建 jar）
++                    }
++                    else continue;
+ 
+                     // 捕获 before 状态
+                     var stateBefore = CaptureLightweightState(items);
+ 
+-                    // 计算 after 状态：添加 (p.ResultX, p.ResultY, p.ResultRot, jar.item 指纹)
++                    // 计算 after 状态：添加 (p.ResultX, p.ResultY, p.ResultRot, 物品指纹)
+                     var stateAfter = new List<(byte x, byte y, byte rot, ItemFingerprint fp)>(stateBefore.Count + 1);
+                     for (int j = 0; j < stateBefore.Count; j++)
+                         stateAfter.Add(stateBefore[j]);
+-                    stateAfter.Add((p.ResultX, p.ResultY, p.ResultRot, new ItemFingerprint(jar.item)));
++                    stateAfter.Add((p.ResultX, p.ResultY, p.ResultRot, new ItemFingerprint(addTarget)));
+ 
+                     // 在调用 addItem 前记录 journal 条目
+                     prep.MutationJournal.Add(new MutationJournalEntry
+@@ -1006,7 +1101,7 @@ namespace BetterUnturnedExperience.Lit
+                     });
+ 
+                     // 执行 addItem（可能在内部抛异常）
+-                    items.addItem(p.ResultX, p.ResultY, p.ResultRot, jar.item);
++                    items.addItem(p.ResultX, p.ResultY, p.ResultRot, addTarget);
+ 
+                     // v2.0.6.8 模板 D：post-call 状态验证
+                     var actualAfterAdd = CaptureLightweightState(items);
+@@ -1020,7 +1115,7 @@ namespace BetterUnturnedExperience.Lit
+                     // v2.0.6.10：Codex v2.0.6.9 审计 §三 P0-2 故障注入钩子
+                     // v2.0.6.11：Codex v2.0.6.10 审计 §三 P0-1 修复：#if 包裹，Release no-op
+ 
+-                    if (outMapping != null)
++                    if (outMapping != null && jar != null)
+                         outMapping[jar] = new NewPosition(prep.Page, p.ResultX, p.ResultY, p.ResultRot);
+                 }
+ 
+@@ -1333,10 +1428,15 @@ namespace BetterUnturnedExperience.Lit
+             Items items = prep.ItemsInstance;
+             if (items == null) return true;
+ 
+-            // 空页面直接通过
+-            if (prep.BeforeJars == null || prep.BeforeJars.Count == 0) return true;
++            // DEV-V5-04：待加入物品计入期望多重集（提交后页面必须多它一件；
++            // 空页 + pending 也走完整守恒，不再被「空页面直接通过」短路）。
++            int expectedCount = (prep.BeforeJars == null ? 0 : prep.BeforeJars.Count)
++                + (prep.Pending == null ? 0 : 1);
++
++            // 空页面直接通过（仅当既无旧物也无 pending）
++            if (expectedCount == 0) return true;
+ 
+-            var after = new List<ItemFingerprint>(prep.BeforeJars.Count);
++            var after = new List<ItemFingerprint>(expectedCount);
+             byte count = items.getItemCount();
+             for (byte i = 0; i < count; i++)
+             {
+@@ -1345,16 +1445,19 @@ namespace BetterUnturnedExperience.Lit
+                 after.Add(new ItemFingerprint(jar.item));
+             }
+ 
+-            if (after.Count != prep.BeforeJars.Count)
++            if (after.Count != expectedCount)
+             {
+                 LitRuntime.LogError(
+-                    $"[Tidy] page {prep.Page} 守恒失败：before={prep.BeforeJars.Count}, after={after.Count}");
++                    $"[Tidy] page {prep.Page} 守恒失败：before={(prep.BeforeJars == null ? 0 : prep.BeforeJars.Count)}" +
++                    (prep.Pending != null ? "+pending" : "") + $", after={after.Count}");
+                 return false;
+             }
+ 
+-            var beforeList = new List<ItemFingerprint>(prep.BeforeJars.Count);
+-            for (int i = 0; i < prep.BeforeJars.Count; i++)
++            var beforeList = new List<ItemFingerprint>(expectedCount);
++            for (int i = 0; i < (prep.BeforeJars == null ? 0 : prep.BeforeJars.Count); i++)
+                 beforeList.Add(prep.BeforeJars[i].Fingerprint);
++            if (prep.Pending != null && prep.Pending.Tag is Item pendingItem)
++                beforeList.Add(new ItemFingerprint(pendingItem));
+ 
+             beforeList.Sort(CompareFingerprint);
+             after.Sort(CompareFingerprint);
+diff --git a/src/BetterUnturnedExperience.Plugin/BetterUnturnedExperience.Plugin.csproj b/src/BetterUnturnedExperience.Plugin/BetterUnturnedExperience.Plugin.csproj
+index 8e543ad..0464c51 100644
+--- a/src/BetterUnturnedExperience.Plugin/BetterUnturnedExperience.Plugin.csproj
++++ b/src/BetterUnturnedExperience.Plugin/BetterUnturnedExperience.Plugin.csproj
+@@ -98,6 +98,11 @@
+     <Compile Include="..\BetterUnturnedExperience.Lit\Container\LitContainerTidy.cs"><Link>EmbeddedLit\Container\LitContainerTidy.cs</Link></Compile>
+     <Compile Include="..\BetterUnturnedExperience.Lit\Container\LitContainerTidyExecution.cs"><Link>EmbeddedLit\Container\LitContainerTidyExecution.cs</Link></Compile>
+     <Compile Include="..\BetterUnturnedExperience.Lit\Container\LitContainerSessionProbe.cs"><Link>EmbeddedLit\Container\LitContainerSessionProbe.cs</Link></Compile>
++    <Compile Include="..\BetterUnturnedExperience.Lit\Recovery\InsertRecoverScope.cs"><Link>EmbeddedLit\Recovery\InsertRecoverScope.cs</Link></Compile>
++    <Compile Include="..\BetterUnturnedExperience.Lit\Recovery\InsertRecoverPlanner.cs"><Link>EmbeddedLit\Recovery\InsertRecoverPlanner.cs</Link></Compile>
++    <Compile Include="..\BetterUnturnedExperience.Lit\Recovery\InsertRecoverAdapter.cs"><Link>EmbeddedLit\Recovery\InsertRecoverAdapter.cs</Link></Compile>
++    <Compile Include="..\BetterUnturnedExperience.Lit\Recovery\InsertRecoverEngine.cs"><Link>EmbeddedLit\Recovery\InsertRecoverEngine.cs</Link></Compile>
++    <Compile Include="..\BetterUnturnedExperience.Lit\Recovery\InsertRecoverPatches.cs"><Link>EmbeddedLit\Recovery\InsertRecoverPatches.cs</Link></Compile>
+     <!-- DEV-V2-22: embed the migrated LIR (in-place reload) domain into the single runtime assembly.
+          The old plugin's BepInEx identity, LMN dependency and the cross-plugin TidyServicePostfixPatch
+          (replaced by the TidyCompleted feature event) are NOT in this list. -->

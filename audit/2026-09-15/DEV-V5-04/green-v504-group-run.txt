@@ -1,0 +1,2 @@
+DEV-V5-04 insert-recover collection: ALL GREEN (0 failures) — groups: 触发面与接线范围/生命周期登记即开关/恢复决策与五页范围/统一排版出口消费/事务层待加入物品语义/不发整理完成
+DEV-V5-04 insert-recover tests: PASS

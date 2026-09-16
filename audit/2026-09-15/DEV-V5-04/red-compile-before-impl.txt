@@ -1,0 +1,3 @@
+  BetterUnturnedExperience.Plugin -> D:\Agent-工作目录\DevelopMyUNMultiplayerModAndModloader\更好的UN体验\src\BetterUnturnedExperience.Plugin\bin\Release\BetterUnturnedExperience.dll
+  BetterUnturnedExperience.NoOpFixture -> D:\Agent-工作目录\DevelopMyUNMultiplayerModAndModloader\更好的UN体验\src\BetterUnturnedExperience.NoOpFixture\bin\Release\BetterUnturnedExperience.NoOpFixture.dll
+D:\Agent-工作目录\DevelopMyUNMultiplayerModAndModloader\更好的UN体验\tests\BetterUnturnedExperience.Plugin.Tests\DevV5InsertRecoverTests.cs(159,24): error CS0246: 未能找到类型或命名空间名“InsertRecoverAdapter”(是否缺少 using 指令或程序集引用?) [D:\Agent-工作目录\DevelopMyUNMultiplayerModAndModloader\更好的UN体验\tests\BetterUnturnedExperience.Plugin.Tests\BetterUnturnedExperience.Plugin.Tests.csproj]

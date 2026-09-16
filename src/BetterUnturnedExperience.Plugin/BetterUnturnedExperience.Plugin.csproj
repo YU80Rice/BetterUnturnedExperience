@@ -98,6 +98,11 @@
     <Compile Include="..\BetterUnturnedExperience.Lit\Container\LitContainerTidy.cs"><Link>EmbeddedLit\Container\LitContainerTidy.cs</Link></Compile>
     <Compile Include="..\BetterUnturnedExperience.Lit\Container\LitContainerTidyExecution.cs"><Link>EmbeddedLit\Container\LitContainerTidyExecution.cs</Link></Compile>
     <Compile Include="..\BetterUnturnedExperience.Lit\Container\LitContainerSessionProbe.cs"><Link>EmbeddedLit\Container\LitContainerSessionProbe.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Lit\Recovery\InsertRecoverScope.cs"><Link>EmbeddedLit\Recovery\InsertRecoverScope.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Lit\Recovery\InsertRecoverPlanner.cs"><Link>EmbeddedLit\Recovery\InsertRecoverPlanner.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Lit\Recovery\InsertRecoverAdapter.cs"><Link>EmbeddedLit\Recovery\InsertRecoverAdapter.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Lit\Recovery\InsertRecoverEngine.cs"><Link>EmbeddedLit\Recovery\InsertRecoverEngine.cs</Link></Compile>
+    <Compile Include="..\BetterUnturnedExperience.Lit\Recovery\InsertRecoverPatches.cs"><Link>EmbeddedLit\Recovery\InsertRecoverPatches.cs</Link></Compile>
     <!-- DEV-V2-22: embed the migrated LIR (in-place reload) domain into the single runtime assembly.
          The old plugin's BepInEx identity, LMN dependency and the cross-plugin TidyServicePostfixPatch
          (replaced by the TidyCompleted feature event) are NOT in this list. -->

@@ -128,7 +128,12 @@ namespace BetterUnturnedExperience.Lit
         // 提交成功：按新坐标恢复热键（移植 ManualTidyNetwork ACK 恢复链）
         // ─────────────────────────────────────────────────────────────
 
-        private static void RestoreHotkeysToNewPositions(Player player,
+        /// <summary>
+        /// DEV-V5-04: internal — the insert-recovery success tail reuses this
+        /// EXACT chain (single source, same rule as TryResolveExactHotkeyTarget
+        /// was made internal for the network ACK path).
+        /// </summary>
+        internal static void RestoreHotkeysToNewPositions(Player player,
             Dictionary<ItemJar, HotkeySnapshot> resolved,
             Dictionary<ItemJar, ItemFingerprint> trusted,
             Dictionary<ItemJar, NewPosition> outMapping)

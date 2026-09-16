@@ -1,0 +1,2 @@
+DEV-10 registration runtime tests: PASS
+Contracts exit=0

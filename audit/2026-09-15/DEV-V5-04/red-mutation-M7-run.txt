@@ -1,0 +1,5 @@
+DEV-V5-04 insert-recover tests: FAIL
+DEV-14 official registration parity tests: FAIL
+System.InvalidOperationException: DEV-V5-04 red collection (1): 接线范围：合成开合器绑到 GUID 重载（ONLY_FROM_OWNER 执行侧；[Obsolete] ushort 转发 stub 被显式排除——R1-Spec 追问后的精确绑定）
+   在 BetterUnturnedExperience.Plugin.Tests.DevV5InsertRecoverTests.Run(Boolean collectAllFailures)
+   在 BetterUnturnedExperience.Plugin.Tests.Program.Main()

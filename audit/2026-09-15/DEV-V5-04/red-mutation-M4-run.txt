@@ -1,0 +1,5 @@
+DEV-V5-04 insert-recover tests: FAIL
+DEV-14 official registration parity tests: FAIL
+System.InvalidOperationException: DEV-V5-04 red collection (2): 不发整理完成：恢复成功零 TidyCompleted（不当成点了整理；LIR 压弹/合匣不触发） || 不发整理完成：恢复不占用按钮整理的事务身份账（不是被冒充成一次点整理的新路径）
+   在 BetterUnturnedExperience.Plugin.Tests.DevV5InsertRecoverTests.Run(Boolean collectAllFailures)
+   在 BetterUnturnedExperience.Plugin.Tests.Program.Main()

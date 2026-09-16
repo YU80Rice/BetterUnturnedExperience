@@ -301,6 +301,12 @@ namespace BetterUnturnedExperience.Lit
         public Items ItemsInstance;
         public byte Width;
         public byte Height;
+        /// <summary>DEV-V5-04: the item-to-be-added riding this page's plan
+        /// (insert recovery only — Tag = the vanilla Item, no jar yet, and the
+        /// whole validation/commit/conservation chain treats it as part of the
+        /// page's expected content). Null = the button-tidy shape: byte-for-byte
+        /// the pre-DEV-V5-04 semantics.</summary>
+        public PackableItem Pending;
     }
 
     /// <summary>
@@ -397,6 +403,33 @@ namespace BetterUnturnedExperience.Lit
             {
                 LitRuntime.LogWarning(
                     "[Tidy] ALL_PAGES rejected: no active inventory pages exist in range 2..6.");
+                return TidyOperationOutcome.RejectedNoMutation;
+            }
+
+            // DEV-V5-04：Commit/Verify/回滚阶段整体提取为 CommitPreparations
+            // （行为逐字节不变），供按钮全身整理与入包恢复共用同一原子事务出口。
+            return CommitPreparations(preparations, outMapping);
+        }
+
+        /// <summary>
+        /// The ONE all-pages atomic transaction exit (DEV-V5-04 extraction —
+        /// the code below is TidyAllPlayerPages' v2.0.6.x commit/verify/rollback
+        /// chain moved verbatim): commit the given preparations atomically
+        /// (all-or-nothing with journal-verified rollback and fingerprint
+        /// conservation), page by page in list order. Both the button 全身整理
+        /// (through TidyAllPlayerPages) and the insert recovery (through
+        /// InsertRecoverAdapter, with a pending-bound preparation) commit here —
+        /// no second transaction, no copied failure semantics. An empty list is
+        /// refused, never a false success.
+        /// </summary>
+        internal static TidyOperationOutcome CommitPreparations(
+            List<PagePreparation> preparations, Dictionary<ItemJar, NewPosition> outMapping)
+        {
+            // 空提交集不伪报成功（调用方各自在前置层已守，本防御与
+            // TidyAllPlayerPages 的「无活动页拒绝」同律）。
+            if (preparations == null || preparations.Count == 0)
+            {
+                LitRuntime.LogWarning("[Tidy] CommitPreparations rejected: empty preparation set (no false success).");
                 return TidyOperationOutcome.RejectedNoMutation;
             }
 
@@ -679,6 +712,18 @@ namespace BetterUnturnedExperience.Lit
         // 的事务层承担，本缝不复制算法、不写库存。
         internal static PagePreparation PreparePage(Items items, byte page, bool sortDescending, TidyMode mode, ITidyStrategy strategy)
         {
+            return PreparePage(items, page, sortDescending, mode, strategy, null);
+        }
+
+        /// <summary>DEV-V5-04: the optional <paramref name="pending"/> is the
+        /// item-to-be-added of an insert-recovery attempt (Tag = the vanilla
+        /// Item, no jar yet). It enters the SAME unified-layout plan, must be
+        /// placed for the preparation to be valid (禁吞物：报成功却没放入的
+        /// v1.4.0 形状在这里就是非法), and joins the fingerprint/Tag
+        /// conservation checks. pending = null reproduces the button path
+        /// exactly.</summary>
+        internal static PagePreparation PreparePage(Items items, byte page, bool sortDescending, TidyMode mode, ITidyStrategy strategy, PackableItem pending)
+        {
             var prep = new PagePreparation
             {
                 Page = page,
@@ -737,6 +782,16 @@ namespace BetterUnturnedExperience.Lit
 
             prep.BeforeJars = jars;
 
+            // DEV-V5-04: the item-to-be-added joins the stream AFTER the page's
+            // own jars (capture order = count) and binds to this preparation —
+            // every downstream check (placement completeness, Tag consistency,
+            // fingerprint multiset) counts it.
+            if (pending != null)
+            {
+                prep.Pending = pending;
+                packList.Add(pending);
+            }
+
             if (packList.Count == 0)
             {
                 prep.Valid = true;  // 空页面视为合法
@@ -778,16 +833,19 @@ namespace BetterUnturnedExperience.Lit
                 return prep;
             }
 
-            // 静态验证 2：result 中的 Tag 与 before 中的 ItemJar 一一对应（无外来/重复/遗漏）
-            if (!ValidateTagConsistency(plan.Placements, jars))
+            // 静态验证 2：result 中的 Tag 与 before 中的 ItemJar 一一对应（无外来/重复/遗漏）；
+            // DEV-V5-04：待加入物品以 Item 引用恰出现一次（多了=外来、少了=吞物、Placed=false
+            // 已被上面的未放置计数拒绝）。
+            if (!ValidateTagConsistency(plan.Placements, jars, pending))
             {
                 LitRuntime.LogError(
                     $"[Tidy] page {page}: 静态验证失败（Tag 一致性）");
                 return prep;
             }
 
-            // 静态验证 3：指纹多重集合匹配（result 中所有物品的指纹 = before 中所有物品的指纹）
-            if (!ValidateFingerprintMultiset(plan.Placements, jars))
+            // 静态验证 3：指纹多重集合匹配（result 中所有物品的指纹 = before 中所有物品的指纹；
+            // DEV-V5-04 有 pending 时并入该件指纹一次）
+            if (!ValidateFingerprintMultiset(plan.Placements, jars, pending))
             {
                 LitRuntime.LogError(
                     $"[Tidy] page {page}: 静态验证失败（指纹多重集不匹配）");
@@ -801,10 +859,12 @@ namespace BetterUnturnedExperience.Lit
         /// <summary>
         /// v2.0.2 修订：验证 result 中每个 Placed 物品的 Tag 都来自 before 列表的 OriginalJar，
         /// 且每个 before jar 恰好出现一次。防止外来 Jar / 重复 Jar / 遗漏 Jar 通过验证。
+        /// DEV-V5-04：pending 非空时，其 Tag（vanilla Item 引用，尚无 jar）必须在
+        /// Placed 条目中恰好出现一次——多一次=外来、少一次=吞物，都直接非法。
         /// </summary>
-        private static bool ValidateTagConsistency(IReadOnlyList<PackableItem> result, List<JarSnapshot> before)
+        private static bool ValidateTagConsistency(IReadOnlyList<PackableItem> result, List<JarSnapshot> before, PackableItem pending)
         {
-            if (result == null) return true;
+            if (result == null) return pending == null;
 
             // 构建 before OriginalJar 引用集合（用于验证 Tag 来自 before）
             var beforeSet = new HashSet<ItemJar>(ReferenceEqualityComparer<ItemJar>.Instance);
@@ -814,39 +874,58 @@ namespace BetterUnturnedExperience.Lit
                     beforeSet.Add(before[i].OriginalJar);
             }
 
+            object pendingTag = pending == null ? null : pending.Tag;
             var seen = new HashSet<ItemJar>(ReferenceEqualityComparer<ItemJar>.Instance);
+            var pendingSeen = 0;
             for (int i = 0; i < result.Count; i++)
             {
                 PackableItem p = result[i];
                 if (p == null || !p.Placed) continue;
-                if (!(p.Tag is ItemJar jar)) return false;
-                if (jar?.item == null) return false;
-                // v2.0.2：Tag 必须来自 before 集合（防止外来 Jar）
-                if (!beforeSet.Contains(jar)) return false;
-                if (!seen.Add(jar)) return false;  // 重复
+                if (p.Tag is ItemJar jar)
+                {
+                    if (jar.item == null) return false;
+                    // v2.0.2：Tag 必须来自 before 集合（防止外来 Jar）
+                    if (!beforeSet.Contains(jar)) return false;
+                    if (!seen.Add(jar)) return false;  // 重复
+                    continue;
+                }
+                // DEV-V5-04：唯一允许的非 jar Tag = 待加入物品本体（引用相等）。
+                if (pendingTag == null || !ReferenceEquals(p.Tag, pendingTag)) return false;
+                pendingSeen++;
             }
-            // result 中 Placed 物品数 = before 数（无遗漏）
-            return seen.Count == before.Count;
+            // result 中 Placed 物品数 = before 数（无遗漏），且该件恰好一次。
+            return seen.Count == before.Count && pendingSeen == (pending != null ? 1 : 0);
         }
 
         /// <summary>
         /// 验证 result 中所有 Placed 物品的指纹多重集合 = before 中所有物品的指纹多重集合。
         /// 这是删除前的静态守恒验证。v2.0.2：使用 JarSnapshot 值字段而非可变 Item 引用。
+        /// DEV-V5-04：pending 的指纹并入 before 侧（提交后的页面必须多它一件）。
         /// </summary>
-        private static bool ValidateFingerprintMultiset(IReadOnlyList<PackableItem> result, List<JarSnapshot> before)
+        private static bool ValidateFingerprintMultiset(IReadOnlyList<PackableItem> result, List<JarSnapshot> before, PackableItem pending)
         {
-            if (result == null) return true;
-            var beforeList = new List<ItemFingerprint>(before.Count);
+            if (result == null) return pending == null;
+            var beforeList = new List<ItemFingerprint>(before.Count + 1);
             for (int i = 0; i < before.Count; i++)
                 beforeList.Add(before[i].Fingerprint);
+            // DEV-V5-04：待加入物品的指纹进期望侧（提交后的页面 = 原内容 + 它）。
+            if (pending != null && pending.Tag is Item pendingItem)
+                beforeList.Add(new ItemFingerprint(pendingItem));
 
-            var afterList = new List<ItemFingerprint>(before.Count);
+            object pendingTag = pending == null ? null : pending.Tag;
+            var afterList = new List<ItemFingerprint>(before.Count + 1);
             for (int i = 0; i < result.Count; i++)
             {
                 PackableItem p = result[i];
                 if (p == null || !p.Placed) continue;
-                if (!(p.Tag is ItemJar jar) || jar?.item == null) return false;
-                afterList.Add(new ItemFingerprint(jar.item));
+                if (p.Tag is ItemJar jar)
+                {
+                    if (jar?.item == null) return false;
+                    afterList.Add(new ItemFingerprint(jar.item));
+                    continue;
+                }
+                if (pendingTag == null || !ReferenceEquals(p.Tag, pendingTag)) return false;
+                afterList.Add(new ItemFingerprint((Item)p.Tag));
             }
 
             if (beforeList.Count != afterList.Count) return false;
@@ -979,20 +1058,36 @@ namespace BetterUnturnedExperience.Lit
 
                 // v2.0.6.7：每个 addItem 前记录 journal 条目
                 // v2.0.6.8：每个 addItem 后验证实际状态匹配 ExpectedStateAfter
+                // DEV-V5-04：待加入物品（Tag=Item 引用）也走同一 journal 协议
+                // ——它的 addItem 失败/静默失配同样进入 MutationMayHaveStarted
+                // 可验证回滚域；该件没有旧 jar，不进快捷键映射。
+                object pendingTag = prep.Pending == null ? null : prep.Pending.Tag;
                 for (int i = 0; i < prep.Result.Count; i++)
                 {
                     PackableItem p = prep.Result[i];
-                    if (!(p.Tag is ItemJar jar) || jar.item == null) continue;
                     if (!p.Placed) continue;
+                    Item addTarget;
+                    ItemJar jar = null;
+                    if (p.Tag is ItemJar pageJar)
+                    {
+                        if (pageJar.item == null) continue;
+                        jar = pageJar;
+                        addTarget = pageJar.item;
+                    }
+                    else if (pendingTag != null && ReferenceEquals(p.Tag, pendingTag))
+                    {
+                        addTarget = (Item)p.Tag; // 待加入物品本体（生产=Items.addItem 新建 jar）
+                    }
+                    else continue;
 
                     // 捕获 before 状态
                     var stateBefore = CaptureLightweightState(items);
 
-                    // 计算 after 状态：添加 (p.ResultX, p.ResultY, p.ResultRot, jar.item 指纹)
+                    // 计算 after 状态：添加 (p.ResultX, p.ResultY, p.ResultRot, 物品指纹)
                     var stateAfter = new List<(byte x, byte y, byte rot, ItemFingerprint fp)>(stateBefore.Count + 1);
                     for (int j = 0; j < stateBefore.Count; j++)
                         stateAfter.Add(stateBefore[j]);
-                    stateAfter.Add((p.ResultX, p.ResultY, p.ResultRot, new ItemFingerprint(jar.item)));
+                    stateAfter.Add((p.ResultX, p.ResultY, p.ResultRot, new ItemFingerprint(addTarget)));
 
                     // 在调用 addItem 前记录 journal 条目
                     prep.MutationJournal.Add(new MutationJournalEntry
@@ -1006,7 +1101,7 @@ namespace BetterUnturnedExperience.Lit
                     });
 
                     // 执行 addItem（可能在内部抛异常）
-                    items.addItem(p.ResultX, p.ResultY, p.ResultRot, jar.item);
+                    items.addItem(p.ResultX, p.ResultY, p.ResultRot, addTarget);
 
                     // v2.0.6.8 模板 D：post-call 状态验证
                     var actualAfterAdd = CaptureLightweightState(items);
@@ -1020,7 +1115,7 @@ namespace BetterUnturnedExperience.Lit
                     // v2.0.6.10：Codex v2.0.6.9 审计 §三 P0-2 故障注入钩子
                     // v2.0.6.11：Codex v2.0.6.10 审计 §三 P0-1 修复：#if 包裹，Release no-op
 
-                    if (outMapping != null)
+                    if (outMapping != null && jar != null)
                         outMapping[jar] = new NewPosition(prep.Page, p.ResultX, p.ResultY, p.ResultRot);
                 }
 
@@ -1333,10 +1428,15 @@ namespace BetterUnturnedExperience.Lit
             Items items = prep.ItemsInstance;
             if (items == null) return true;
 
-            // 空页面直接通过
-            if (prep.BeforeJars == null || prep.BeforeJars.Count == 0) return true;
+            // DEV-V5-04：待加入物品计入期望多重集（提交后页面必须多它一件；
+            // 空页 + pending 也走完整守恒，不再被「空页面直接通过」短路）。
+            int expectedCount = (prep.BeforeJars == null ? 0 : prep.BeforeJars.Count)
+                + (prep.Pending == null ? 0 : 1);
 
-            var after = new List<ItemFingerprint>(prep.BeforeJars.Count);
+            // 空页面直接通过（仅当既无旧物也无 pending）
+            if (expectedCount == 0) return true;
+
+            var after = new List<ItemFingerprint>(expectedCount);
             byte count = items.getItemCount();
             for (byte i = 0; i < count; i++)
             {
@@ -1345,16 +1445,19 @@ namespace BetterUnturnedExperience.Lit
                 after.Add(new ItemFingerprint(jar.item));
             }
 
-            if (after.Count != prep.BeforeJars.Count)
+            if (after.Count != expectedCount)
             {
                 LitRuntime.LogError(
-                    $"[Tidy] page {prep.Page} 守恒失败：before={prep.BeforeJars.Count}, after={after.Count}");
+                    $"[Tidy] page {prep.Page} 守恒失败：before={(prep.BeforeJars == null ? 0 : prep.BeforeJars.Count)}" +
+                    (prep.Pending != null ? "+pending" : "") + $", after={after.Count}");
                 return false;
             }
 
-            var beforeList = new List<ItemFingerprint>(prep.BeforeJars.Count);
-            for (int i = 0; i < prep.BeforeJars.Count; i++)
+            var beforeList = new List<ItemFingerprint>(expectedCount);
+            for (int i = 0; i < (prep.BeforeJars == null ? 0 : prep.BeforeJars.Count); i++)
                 beforeList.Add(prep.BeforeJars[i].Fingerprint);
+            if (prep.Pending != null && prep.Pending.Tag is Item pendingItem)
+                beforeList.Add(new ItemFingerprint(pendingItem));
 
             beforeList.Sort(CompareFingerprint);
             after.Sort(CompareFingerprint);

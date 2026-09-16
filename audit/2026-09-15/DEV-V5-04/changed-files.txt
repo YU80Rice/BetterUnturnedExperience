@@ -1,0 +1,18 @@
+# DEV-V5-04 changed files (R1 freeze, 2026-09-15)
+
+modified:
+  src/BetterUnturnedExperience.Lit/InventoryTidyModule.cs
+  src/BetterUnturnedExperience.Lit/Tidy/LocalTidyExecutor.cs
+  src/BetterUnturnedExperience.Lit/Tidy/ManualTidyService.cs
+  src/BetterUnturnedExperience.Plugin/BetterUnturnedExperience.Plugin.csproj
+  tests/BetterUnturnedExperience.Plugin.Tests/BetterUnturnedExperience.Plugin.Tests.csproj
+  tests/BetterUnturnedExperience.Plugin.Tests/Program.cs
+new (untracked, full text in review-freeze-r1-new-recovery-files.txt / r1-new-test-file.txt):
+  src/BetterUnturnedExperience.Lit/Recovery/InsertRecoverAdapter.cs
+  src/BetterUnturnedExperience.Lit/Recovery/InsertRecoverEngine.cs
+  src/BetterUnturnedExperience.Lit/Recovery/InsertRecoverPatches.cs
+  src/BetterUnturnedExperience.Lit/Recovery/InsertRecoverPlanner.cs
+  src/BetterUnturnedExperience.Lit/Recovery/InsertRecoverScope.cs
+  tests/BetterUnturnedExperience.Plugin.Tests/DevV5InsertRecoverTests.cs
+
+not-in-scope note: docs/third-party/unturned-plugin-dev/ is a pre-existing untracked dir from an earlier session, NOT part of this ticket's increment.
