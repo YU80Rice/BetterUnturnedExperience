@@ -88,6 +88,45 @@ namespace BetterUnturnedExperience.Lir
         /// for the ammo-HUD surface (false = refuse → whole install rolls back).</summary>
         internal static Func<Type, bool> HudPatchInstallerForTests;
 
+        // ── DEV-V5-07：换弹技能 0～2（进度=等级账 / 运行状态=冷却窗+自动轮 /
+        // 呈现=分区与回执）——三层分家，全部经本模块编排。──
+
+        /// <summary>进度层（Start 建、从自有文件恢复；Stop 不清账）。</summary>
+        internal ReloadSkillRuntime SkillRuntime { get; private set; }
+
+        /// <summary>运行状态层：2 级自动压弹的待压表（Stop 即清，不过代际）。</summary>
+        internal ReloadAutoRoundScheduler AutoRounds { get; } = new ReloadAutoRoundScheduler();
+
+        /// <summary>技能引擎缝（测试假件或生产实现）。</summary>
+        internal ILirSkillHooks SkillHooks { get; private set; }
+
+        /// <summary>分区画面面在册位（与两压弹面/HUD 面同代际共存互撤）。</summary>
+        internal bool SkillPatchInstalled { get; private set; }
+        internal string SkillStartGateDiagnostics { get; private set; } = string.Empty;
+
+        /// <summary>DEV-V5-07: host-test seam for the surface-A install (false
+        /// = refuse → the whole four-face install rolls back — 04/05/06 同律).</summary>
+        internal static Func<Type, bool> SkillPatchInstallerForTests;
+
+        /// <summary>DEV-V5-07: host-test seams — fake hooks (the production
+        /// LirSkillEngineHooks touches engine types; host tests replace it
+        /// wholesale), manual clock (production = Stopwatch 单调秒), and
+        /// persistence (production = 自有文件；测试 = 内存假件).</summary>
+        internal ILirSkillHooks SkillHooksForTests;
+        internal Func<double> SkillClockForTests;
+        internal IReloadSkillPersistence SkillPersistenceForTests;
+
+        /// <summary>技能秒源（单调；与压弹闸门的重放窗同源口径，纯托管零引擎）。</summary>
+        private double SkillNowSeconds
+        {
+            get
+            {
+                var seam = SkillClockForTests;
+                if (seam != null) return seam();
+                return System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
+            }
+        }
+
         /// <summary>DEV-V5-06: host-test seam for the two pre-existing reload
         /// surfaces (the same all-or-none installer pattern as 04/05 — without
         /// it the host can never even REACH the HUD surface install, because a
@@ -161,6 +200,27 @@ namespace BetterUnturnedExperience.Lir
             NetService.BindMainThread(MainThread);
             if (ToastSink == null) ToastSink = LirToast.Show;
             NetService.BindToastSink(ToastSink);
+            // DEV-V5-07 技能面装配：进度层从自有文件恢复（读失败=空账继续，
+            // 提交时全账重写——绝不拿脏账当权威），运行状态层全新（窗/轮不过
+            // 代际），引擎缝 = 测试假件或生产实现。绑定到网络服务后，双击成交
+            // 的技能窗、升级执行、2 级自动压弹全部生效。
+            var persistence = SkillPersistenceForTests ?? (IReloadSkillPersistence)new ReloadSkillFilePersistence(
+                System.IO.Path.Combine(
+                    BetterUnturnedExperience.Plugin.BueSettingsRuntime.ProductionSettingsRoot,
+                    ReloadSkillFilePersistence.FileName));
+            var store = new ReloadSkillStore();
+            if (!persistence.TryLoad(out var savedRecords, out var loadError))
+            {
+                LirRuntime.LogError("[ReloadSkill] 等级账读取失败（本代以空账继续）: " + loadError);
+            }
+            var applied = store.Restore(savedRecords ?? new List<ReloadSkillRecord>(), out var rejectedRecords);
+            if (rejectedRecords > 0)
+            {
+                LirRuntime.LogWarning("[ReloadSkill] 等级账恢复丢弃坏记录 " + rejectedRecords + " 条（应用 " + applied + " 条）");
+            }
+            SkillRuntime = new ReloadSkillRuntime(store, ReadSkillClockSeconds, persistence);
+            SkillHooks = SkillHooksForTests ?? new LirSkillEngineHooks(SkillRuntime);
+            NetService.BindSkillHooks(this, SkillHooks);
             // The consumer resolves the event's generation → target player:
             // 0 = the local player, a session generation = that session's peer.
             Consumer = new TidyCompletedConsumer(new AutoReloadAfterTidyAction(this), ResolveReloadTarget);
@@ -201,10 +261,16 @@ namespace BetterUnturnedExperience.Lir
 
             // 3) The gate is feature-generation state: cooldowns, the replay
             //    window and quarantines all clear at the stop boundary.
+            //    DEV-V5-07: 技能运行状态层同律（冷却窗+自动轮不过代际；等级账
+            //    在 Store/自有文件，跨代际存活——Stop 绝不写账）。
             LirRepackGate.ResetForGeneration();
+            SkillRuntime?.ResetForGeneration();
+            AutoRounds.ResetForGeneration();
             Guard.Reset();
             Consumer = null;
             InputDriver = null;
+            SkillHooks = null;
+            SkillRuntime = null;
             multiplayerInitObserved = false;
             MultiplayerReady = false;
             LirRuntime.LogInfo("[Lir] 模块停止：网络服务已注销、队列与闸门已清、补丁已撤（原生回退）");
@@ -259,6 +325,7 @@ namespace BetterUnturnedExperience.Lir
                     NetService.Drain();
                 }
                 InputDriver?.Tick(tick);
+                PumpSkillRuntime();
             }
             catch (Exception error)
             {
@@ -384,7 +451,9 @@ namespace BetterUnturnedExperience.Lir
                 InstallCoreReloadPatches();
                 // DEV-V5-06: 三面同代共存——HUD 面失败 = 整体互撤归零（04/05
                 // 同律，禁半装；headless 跳过画面面是决策不是失败）。
+                // DEV-V5-07: 第四面（技能分区）入列，互撤纪律不变。
                 InstallAmmoReserveHud();
+                InstallReloadSkillSurface();
                 PatchesInstalled = true;
                 StartGateDiagnostics = string.Empty;
                 LirRuntime.LogInfo("[Lir] 原位换弹补丁已安装（Harmony ID=" + LirRuntime.FeatureIdValue + "）");
@@ -399,9 +468,13 @@ namespace BetterUnturnedExperience.Lir
                 ActiveModule = null;
                 PatchesInstalled = false;
                 // DEV-V5-06: 在册同步归零 + 呈现即时收（不留「补丁没了、登记
-                // 还在」的半态；HUD 面从未注入 = RevokeAll 空表零操作）。
+                // 还在」的半态；HUD/技能面从未注入 = 注销空表零操作）。
+                // DEV-V5-07: 技能面同律入互撤。
                 HudPatchInstalled = false;
                 AmmoReserveHudAdapter.RevokeAll();
+                SkillPatchInstalled = false;
+                ReloadSkillDashboardAdapter.Unregister();
+                ReloadSkillLevelMirror.Clear();
             }
         }
 
@@ -457,7 +530,7 @@ namespace BetterUnturnedExperience.Lir
 
         private void UninstallPatches()
         {
-            if (!PatchesInstalled && !HudPatchInstalled) return;
+            if (!PatchesInstalled && !HudPatchInstalled && !SkillPatchInstalled) return;
             try
             {
                 if (harmony != null) harmony.UnpatchSelf();
@@ -475,7 +548,187 @@ namespace BetterUnturnedExperience.Lir
                 // DEV-V5-06: 注销=不画（登记交还 + 在枪上的残留读数即时收）。
                 HudPatchInstalled = false;
                 AmmoReserveHudAdapter.RevokeAll();
+                // DEV-V5-07: 技能分区面同律注销；等级确认镜像=连接态，随面收。
+                SkillPatchInstalled = false;
+                ReloadSkillDashboardAdapter.Unregister();
+                ReloadSkillLevelMirror.Clear();
                 LirRuntime.LogInfo("[Lir] 原位换弹补丁已撤销（原生回退，仅撤自身 Harmony ID）");
+            }
+        }
+
+        // ── DEV-V5-07：换弹技能面 ────────────────────────────────────────
+
+        /// <summary>分区面登记（第四画面面；headless 不武装=决策非失败；
+        /// 表面 A 探测接不上=降级表面 B 在注册侧接管，本面静默缺席零抛）。</summary>
+        private void InstallReloadSkillSurface()
+        {
+            if (SkillPatchInstalled) return;
+            if (BetterUnturnedExperience.Plugin.BueRuntimeCompletionChain.HeadlessDecision)
+            {
+                SkillStartGateDiagnostics = "reload-skill-headless-not-armed";
+                LirRuntime.LogInfo("[ReloadSkill] U3DS headless：不武装换弹技能分区（Headless 决策门禁；技能权威/账/自动压弹不受影响）");
+                return;
+            }
+            if (!ReloadSkillDashboardBinder.ProbeSurfaceA())
+            {
+                SkillStartGateDiagnostics = "reload-skill-surface-a-not-probed(fallback=settings-page)";
+                LirRuntime.LogInfo("[ReloadSkill] 表面 A 接不上：等级面降级为该功能设置页（注册侧已挂 facet）");
+                return;
+            }
+            var seam = SkillPatchInstallerForTests;
+            if (seam != null)
+            {
+                if (!seam(typeof(ReloadSkillDashboardPatch)))
+                    throw new InvalidOperationException("reload-skill surface-A patch refused");
+            }
+            else
+            {
+                ReloadSkillDashboardBinder.Bind(harmony, typeof(ReloadSkillDashboardPatch));
+            }
+            ReloadSkillDashboardAdapter.Register();
+            SkillPatchInstalled = true;
+            SkillStartGateDiagnostics = string.Empty;
+            LirRuntime.LogInfo("[ReloadSkill] 换弹技能分区已登记（Harmony ID=" + LirRuntime.FeatureIdValue + "）");
+        }
+
+        private double ReadSkillClockSeconds() { return SkillNowSeconds; }
+
+        /// <summary>主机帧泵：本机等级自确认（SP/房主直读自账，与客机线确认同
+        /// 语义）+ 自动轮到点重检触发。每拍 O(pending) 且空表零操作。</summary>
+        internal void PumpSkillRuntime()
+        {
+            var hooks = SkillHooks;
+            if (hooks == null) return;
+            if (!ReloadSkillLevelMirror.HasConfirmed && hooks.TryResolveLocalLevel(out var selfLevel))
+            {
+                ReloadSkillLevelMirror.ConfirmLevel(selfLevel);
+            }
+            AutoRounds.Tick(SkillNowSeconds, TryFireAutoRound);
+        }
+
+        /// <summary>到点重检（票面裁决 4）：等级仍 2 ∧ 同枪同匣指纹 ∧ 玩家可
+        /// 解析；任一不满足=取消不强制（条目已被调度器消耗，不重试）。通过则
+        /// 走同一权威入口（自动轮也吃技能窗与闸门，2 级无额外窗=与手动同速）。</summary>
+        private bool TryFireAutoRound(ulong steamId, object capturedFingerprint)
+        {
+            var hooks = SkillHooks;
+            if (hooks == null || !Started || ShuttingDown || !Enabled) return false;
+            if (hooks.GetLevelFor(steamId) < ReloadSkillPolicy.MaxSkillLevel) return false;
+            var fresh = hooks.CaptureFingerprint(steamId);
+            if (fresh == null || !hooks.FingerprintMatches(capturedFingerprint, fresh)) return false;
+            NetService?.ExecuteRepackFor(steamId, LirRepackNetwork.NextRequestId(), true);
+            return true;
+        }
+
+        /// <summary>网络服务在手动双击成交（Committed∧total&gt;0）且等级=2 时
+        /// 交来指纹：排固定等待的一轮（同玩家再排=替换——每成功至多一轮）。</summary>
+        internal void ScheduleAutoRoundAfterManualSuccess(ulong steamId, object fingerprint)
+        {
+            AutoRounds.Schedule(steamId, fingerprint, SkillNowSeconds + ReloadSkillPolicy.AutoRoundDelaySeconds);
+            LirRuntime.LogDiagnostic("[ReloadSkill] 2 级自动压弹已排队（steam=" + steamId + "，等待 "
+                + ReloadSkillPolicy.AutoRoundDelaySeconds + "s）");
+        }
+
+        /// <summary>升级请求唯一入口（表面 A 按钮 / 表面 B 档位 / 测试直调共用）：
+        /// 主机角色本地执行（校验+扣原版经验+落账+回执呈现），纯客机发功能私有
+        /// 线请求，回执路径做镜像/toast/行复位。无三级目标。</summary>
+        internal void HandleSkillUpgradeRequest(byte targetLevel)
+        {
+            if (!Started || !Enabled || ShuttingDown) return;
+            if (targetLevel == 0 || targetLevel > ReloadSkillPolicy.MaxSkillLevel) return;
+            var hooks = SkillHooks;
+            if (hooks == null || Authority == null) return;
+            try
+            {
+                var isServer = RoleProbeForTests ?? LirProductionAuthority.IsServerRole;
+                if (isServer())
+                {
+                    if (Authority.TryResolveLocalPlayerSteamId(out var localId) && localId != 0UL)
+                    {
+                        var decision = hooks.ExecuteUpgrade(localId, targetLevel);
+                        if (decision.Accepted)
+                        {
+                            ReloadSkillLevelMirror.ConfirmLevel(decision.NewLevel);
+                            ShowSkillToast(ReloadSkillPolicy.MakeUpgradeAcceptedToast(decision.NewLevel, decision.Cost));
+                        }
+                        else
+                        {
+                            ShowSkillToast(ReloadSkillPolicy.MakeUpgradeRejectedToast(decision.Reason, targetLevel));
+                        }
+                        ResetSkillSettingsRow();
+                        NotifySkillLevelConfirmed(ReloadSkillLevelMirror.ConfirmedLevel);
+                        return;
+                    }
+                    LirRuntime.LogDiagnostic("[ReloadSkill] 本机玩家不可解析（headless），升级无面可收（U3DS 不经此路）");
+                    return;
+                }
+                NetService?.RequestUpgradeFromServer(targetLevel);
+            }
+            catch (Exception error)
+            {
+                LirRuntime.LogError("[ReloadSkill] 升级请求异常（已隔离）: " + error.Message);
+            }
+        }
+
+        /// <summary>表面 B 的 OnSettingsApplied 出口（注册侧 facet 挂这里）：把
+        /// 「请求升级到 N」档翻译成升级请求并发完即复位。面板不是第二事实源。</summary>
+        internal void HandleSkillSettingsApplied()
+        {
+            if (!Started || !Enabled || ShuttingDown) return;
+            var view = SettingsView;
+            if (view == null) return; // 表面 B 未装备（facet 未注册或无 view）
+            try
+            {
+                if (!view.TryGet(ReloadSkillPolicy.UpgradeSettingId, out var value, out _)) return;
+                var target = ReloadSkillSettingsSurface.MapOptionToTargetLevel(value.Text);
+                if (target <= 0) return;
+                HandleSkillUpgradeRequest((byte)target);
+            }
+            catch (Exception error)
+            {
+                LirRuntime.LogError("[ReloadSkill] 设置页请求处理异常（已隔离）: " + error.Message);
+            }
+        }
+
+        /// <summary>请求发出后行复位「维持」（ClientLocal 写回；失败只留诊断——
+        /// 等级真相在主机账/回执，行复位丢一帧无害）。</summary>
+        internal void ResetSkillSettingsRow()
+        {
+            var view = SettingsView;
+            if (view == null) return;
+            try
+            {
+                if (!view.TryGet(ReloadSkillPolicy.UpgradeSettingId, out _, out var revision)) return;
+                var request = ReloadSkillSettingsSurface.BuildResetRequest(Feature, LirRepackNetwork.NextRequestId(), revision);
+                if (request == null) return;
+                var result = view.Submit(request.Value);
+                if (!result.Accepted)
+                {
+                    LirRuntime.LogDiagnostic("[ReloadSkill] 升级行复位被拒（等级真相仍以主机回执为准）");
+                }
+            }
+            catch (Exception error)
+            {
+                LirRuntime.LogDiagnostic("[ReloadSkill] 升级行复位异常（忽略）: " + error.Message);
+            }
+        }
+
+        /// <summary>网络服务/本地路径的 toast 出口（登记在案的 ToastSink，测试=记录器）。</summary>
+        internal void ShowSkillToast(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return;
+            try { ToastSink?.Invoke(text); }
+            catch (Exception error) { LirRuntime.LogDiagnostic("[ReloadSkill] toast 呈现异常（忽略）: " + error.Message); }
+        }
+
+        /// <summary>等级确认后的分区即时重建（不重建=旧镜像挂到下次原版重建）。</summary>
+        internal void NotifySkillLevelConfirmed(byte level)
+        {
+            _ = level;
+            try { ReloadSkillDashboardAdapter.RequestRebuild(); }
+            catch (Exception error)
+            {
+                LirRuntime.LogDiagnostic("[ReloadSkill] 分区重建异常（下次原版重建自然生效）: " + error.Message);
             }
         }
 

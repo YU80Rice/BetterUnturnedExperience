@@ -102,7 +102,8 @@ namespace BetterUnturnedExperience.Lir
         /// connected-client scan through the silent-reflection resolver — the
         /// SteamPlayer wrapper's Player lives one property deeper.
         /// </summary>
-        private static Player ResolvePlayerBySteamId(ulong steamId)
+        /// <summary>internal 化（07 技能钩子共用同一身份解析形状：先本机后在线客扫描）。</summary>
+        internal static Player ResolvePlayerBySteamId(ulong steamId)
         {
             if (steamId == 0UL) return null;
             if (IsServerRole())

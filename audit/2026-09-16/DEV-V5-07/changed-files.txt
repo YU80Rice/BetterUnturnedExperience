@@ -1,0 +1,16 @@
+ M .scratch/bue-v2-phase5-official-optimization/issues/DEV-V5-01-developer-handbook.md
+ M .scratch/bue-v2-phase5-official-optimization/issues/DEV-V5-07-reload-skill-0-to-2.md
+ M docs/BetterUnturnedExperience-Player-Handbook.md
+ M src/BetterUnturnedExperience.Lir/InPlaceReloadModule.cs
+ M src/BetterUnturnedExperience.Lir/Net/LirRepackNetwork.cs
+ M src/BetterUnturnedExperience.Lir/Net/LirRepackWireCodec.cs
+ M src/BetterUnturnedExperience.Lir/Service/LirProductionAuthority.cs
+ M src/BetterUnturnedExperience.Plugin/BetterUnturnedExperience.Plugin.csproj
+ M src/BetterUnturnedExperience.Plugin/InPlaceReloadFeatureRegistration.cs
+ M tests/BetterUnturnedExperience.Plugin.Tests/BetterUnturnedExperience.Plugin.Tests.csproj
+ M tests/BetterUnturnedExperience.Plugin.Tests/Program.cs
+?? .scratch/upm-sync-20260912/
+?? audit/2026-09-10/DEV-V3-06/green-fullsuite-Plugin-run.txt
+?? docs/third-party/unturned-plugin-dev/
+?? src/BetterUnturnedExperience.Lir/Skill/
+?? tests/BetterUnturnedExperience.Plugin.Tests/DevV5ReloadSkillTests.cs

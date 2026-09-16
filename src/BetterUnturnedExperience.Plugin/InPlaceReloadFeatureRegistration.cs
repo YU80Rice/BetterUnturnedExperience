@@ -20,10 +20,22 @@ namespace BetterUnturnedExperience.Plugin
 
         internal static InPlaceReloadModule WiredModule { get; set; }
 
+        /// <summary>DEV-V5-07 两表面至多其一的注册期判定：U 菜单分区（表面 A）
+        /// 探测接得上=维持无 facet 的诚实注册（等级不造设置项）；接不上=注册
+        /// 带设置面（等级请求行，OnSettingsApplied 走模块 HandleSkillSettingsApplied）。
+        /// 探测=纯反射零引擎（Binder 缓存结果），headless 与两表面正交——
+        /// U3DS 不画任何面，权威账照常。</summary>
+        internal static IFeatureRegistration NewRegistration(InPlaceReloadModule moduleForFactory)
+        {
+            return ReloadSkillDashboardBinder.ProbeSurfaceA()
+                ? (IFeatureRegistration)new Registration(moduleForFactory)
+                : new RegistrationWithSkillSettingsPage(moduleForFactory);
+        }
+
         internal static FeatureRegistrationResult Register()
         {
             var module = ArmNewModule();
-            var result = BueRuntimeHost.Register(new Registration(module));
+            var result = BueRuntimeHost.Register(NewRegistration(module));
             if (result.Accepted)
             {
                 WiredModule = module;
@@ -47,7 +59,7 @@ namespace BetterUnturnedExperience.Plugin
         /// <summary>The official definition, extracted for host tests (the payload digest must validate).</summary>
         internal static IFeatureRegistration CreateRegistration(InPlaceReloadModule moduleForFactory = null)
         {
-            return new Registration(moduleForFactory);
+            return NewRegistration(moduleForFactory);
         }
 
         private static FeatureDefinitionArtifact CreateDefinition()
@@ -83,6 +95,44 @@ namespace BetterUnturnedExperience.Plugin
             public IFeatureModuleFactory ModuleFactory { get { return new ModuleFactory(moduleForFactory); } }
 
             public IClientUiSatelliteRegistration ClientUi { get { return null; } }
+        }
+
+        /// <summary>DEV-V5-07 表面 B（降级设置页）：仅当 U 菜单分区探测接不上
+        /// 时被实例化。schema = 功能自持的一条升级请求 Choice 行（LIT facet
+        /// 同律：面板只是编辑适配，等级真相恒在 LIR 主机账/回执镜像——行的
+        /// OnSettingsApplied 把档位翻译成主机校验的升级请求，随即复位「维持」）。
+        /// 契约仍 2.1：facet 是 DEV-V3-06 既有可选面，零扩面。</summary>
+        private sealed class RegistrationWithSkillSettingsPage : IFeatureRegistration, IFeatureSettingsRegistration
+        {
+            private readonly InPlaceReloadModule moduleForFactory;
+
+            internal RegistrationWithSkillSettingsPage(InPlaceReloadModule moduleForFactory)
+            {
+                this.moduleForFactory = moduleForFactory;
+            }
+
+            public FeatureDefinitionArtifact Definition { get { return CreateDefinition(); } }
+
+            public ContractVersion MinimumBueContract { get { return new ContractVersion(2, 0); } }
+
+            public IFeatureModuleFactory ModuleFactory { get { return new ModuleFactory(moduleForFactory); } }
+
+            public IClientUiSatelliteRegistration ClientUi { get { return null; } }
+
+            public IReadOnlyList<SettingDescriptor> SettingDescriptors
+            {
+                get { return ReloadSkillSettingsSurface.CreateDescriptors(new FeatureId(FeatureIdValue)); }
+            }
+
+            public Action OnSettingsApplied
+            {
+                get
+                {
+                    var module = moduleForFactory ?? WiredModule;
+                    if (module == null) return null;
+                    return () => module.HandleSkillSettingsApplied();
+                }
+            }
         }
 
         private sealed class ModuleFactory : IFeatureModuleFactory

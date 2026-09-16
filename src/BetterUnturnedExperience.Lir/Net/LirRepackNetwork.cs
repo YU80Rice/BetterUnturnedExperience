@@ -54,8 +54,28 @@ namespace BetterUnturnedExperience.Lir
         private readonly HashSet<ulong> pendingRequestIds = new HashSet<ulong>();
         private readonly Queue<ulong> pendingRequestOrder = new Queue<ulong>();
 
-        private bool initialized;
+        // DEV-V5-07 技能面：钩子绑定（null=未接线代际——纯闸门/纯压弹行为与
+        // 接生前逐字相同）；升级请求的待确认表（id→目标级，回执按 id 消费）；
+        // 技能操作经入站解析线程只入队、主线程消费（引擎接触零跨界，与压弹
+        // 业务队列同律）；等级求取每会话一次（客机只显示主机确认等级）。
+        private ILirSkillHooks skillHooks;
+        private InPlaceReloadModule skillModule;
+        private readonly Dictionary<ulong, byte> pendingUpgradeRequests = new Dictionary<ulong, byte>();
+        private readonly Queue<ulong> pendingUpgradeOrder = new Queue<ulong>();
+        private readonly object skillOpsSync = new object();
+        private readonly List<Action> skillOps = new List<Action>();
+        private int skillOpsDropped;
+        private bool levelStateRequested;
         private bool stopped;
+
+        private bool initialized;
+
+        /// <summary>DEV-V5-07 绑定技能面（模块 Start 期；一次代际一次绑定）。</summary>
+        internal void BindSkillHooks(InPlaceReloadModule module, ILirSkillHooks hooks)
+        {
+            skillModule = module;
+            skillHooks = hooks;
+        }
 
         internal LirRepackNetwork(IBueNetworkApi network, ILirRepackAuthority authority, Func<bool> isServerRole)
         {
@@ -135,10 +155,22 @@ namespace BetterUnturnedExperience.Lir
             {
                 if (!seen.Contains(pair.Key)) (dead ??= new List<ulong>()).Add(pair.Key);
             }
-            if (dead == null) return;
-            for (var i = 0; i < dead.Count; i++)
+            if (dead != null)
             {
-                liveSessions.Remove(dead[i]);
+                for (var i = 0; i < dead.Count; i++)
+                {
+                    liveSessions.Remove(dead[i]);
+                }
+            }
+
+            // DEV-V5-07: the client asks for its confirmed level exactly once
+            // per generation once a session exists（未确认=分区不画，绝不猜级）。
+            if (!levelStateRequested && skillHooks != null && !isServerRole() && liveSessions.Count > 0)
+            {
+                if (RequestLevelStateFromServer() == LirRepackRequestResult.Dispatched)
+                {
+                    levelStateRequested = true;
+                }
             }
         }
 
@@ -177,7 +209,7 @@ namespace BetterUnturnedExperience.Lir
             // 投递空 drain——空 DrainOnce 无工作，投递只会让 dispatcher 每拍 emit
             // 一行 result=posted 诊断（U3DS 实机 ~60 行/秒）。有实际待办才投递，
             // 投递被拒仍下一拍重投（队未清=HasPendingWork 仍真）。
-            if (!dispatcher.HasPendingWork) return;
+            if (!dispatcher.HasPendingWork && !HasSkillOps) return;
             var posted = seam.Post(DrainOnce);
             if (!posted.Posted)
             {
@@ -188,7 +220,10 @@ namespace BetterUnturnedExperience.Lir
 
         /// <summary>The drain body: queued requests execute, queued replies
         /// toast (module's ToastSink). Runs on the host main thread — via the
-        /// platform dispatcher pump when the seam is wired.</summary>
+        /// platform dispatcher pump when wired. DEV-V5-07: the skill-op tail
+        /// (upgrade replies / level state / cooldown notices, inbound-parsed
+        /// on any thread) applies here too — engine/UI contact stays on the
+        /// host frame.</summary>
         internal void DrainOnce()
         {
             if (stopped) return;
@@ -197,6 +232,47 @@ namespace BetterUnturnedExperience.Lir
                 var sink = moduleToast;
                 sink?.Invoke(SuccessToast(total));
             });
+            DrainSkillOps();
+        }
+
+        private bool HasSkillOps
+        {
+            get { lock (skillOpsSync) return skillOps.Count > 0; }
+        }
+
+        private void EnqueueSkillOp(Action op)
+        {
+            lock (skillOpsSync)
+            {
+                if (stopped) return;
+                if (skillOps.Count >= ReloadRuntimePolicy.QueueLimit)
+                {
+                    skillOpsDropped++;
+                    if (skillOpsDropped == 1 || skillOpsDropped % 32 == 0)
+                        LirRuntime.LogError("[RepackNet] CRITICAL: 技能操作队列达上限 " + ReloadRuntimePolicy.QueueLimit + "，本条丢弃");
+                    return;
+                }
+                skillOps.Add(op);
+            }
+        }
+
+        private void DrainSkillOps()
+        {
+            List<Action> batch = null;
+            lock (skillOpsSync)
+            {
+                if (skillOps.Count == 0) return;
+                batch = new List<Action>(skillOps);
+                skillOps.Clear();
+            }
+            for (var i = 0; i < batch.Count; i++)
+            {
+                try { batch[i](); }
+                catch (Exception error)
+                {
+                    LirRuntime.LogError("[RepackNet] 技能操作异常（已隔离）: " + error.Message);
+                }
+            }
         }
 
         /// <summary>The success toast text — ONE source (R1-Standards SMELL-3).</summary>
@@ -277,7 +353,14 @@ namespace BetterUnturnedExperience.Lir
             {
                 pendingRequestIds.Clear();
                 pendingRequestOrder.Clear();
+                pendingUpgradeRequests.Clear(); // DEV-V5-07：技能待确认同代际清
+                pendingUpgradeOrder.Clear();
             }
+            lock (skillOpsSync)
+            {
+                skillOps.Clear(); // DEV-V5-07：未消费的技能操作不过代际
+            }
+            levelStateRequested = false;
             Started = false;
             LirRuntime.LogInfo("[RepackNet] 服务已停止（频道注销、会话簿与待确认表已清）");
         }
@@ -287,10 +370,35 @@ namespace BetterUnturnedExperience.Lir
         private void HandleRequestFrame(IConnectionSession session, byte[] payload)
         {
             if (stopped) return;
-            if (session == null || !LirRepackWireCodec.TryReadRequest(payload, out var requestId))
+            if (session == null)
             {
                 dispatcher.IncrementParseErrors();
-                LirRuntime.LogDiagnostic("[RepackNet] 服务器收到畸形 RequestRepackAmmo，拒绝");
+                LirRuntime.LogDiagnostic("[RepackNet] 服务器收到无会话来源的入站帧，拒绝");
+                return;
+            }
+            // DEV-V5-07: kind dispatch on the payload byte — parse-only here,
+            // every engine/UI contact rides the skill-op drain (main thread).
+            if (LirRepackWireCodec.TryReadLevelStateRequest(payload))
+            {
+                var peer = session.PeerSteamId;
+                EnqueueSkillOp(() =>
+                {
+                    var hooks = skillHooks;
+                    if (hooks == null) return;
+                    SendToPeer(session, LirRepackWireCodec.BuildLevelState(hooks.GetLevelFor(peer)));
+                });
+                return;
+            }
+            if (LirRepackWireCodec.TryReadUpgradeRequest(payload, out var upRequestId, out var targetLevel))
+            {
+                var peer = session.PeerSteamId;
+                EnqueueSkillOp(() => ExecuteUpgradeFor(peer, upRequestId, targetLevel, session));
+                return;
+            }
+            if (!LirRepackWireCodec.TryReadRequest(payload, out var requestId))
+            {
+                dispatcher.IncrementParseErrors();
+                LirRuntime.LogDiagnostic("[RepackNet] 服务器收到未知或畸形入站帧，拒绝");
                 return;
             }
             // The session is the identity authority — never a payload field.
@@ -303,12 +411,60 @@ namespace BetterUnturnedExperience.Lir
         private void HandleSuccessFrame(IConnectionSession session, byte[] payload)
         {
             if (stopped) return;
+            var hooks = skillHooks;
+            if (LirRepackWireCodec.TryReadUpgradeResult(payload, out var upReqId, out var accepted, out var newLevel, out var reasonCode))
+            {
+                byte requestedTarget;
+                lock (pendingSync)
+                {
+                    if (!pendingUpgradeRequests.TryGetValue(upReqId, out requestedTarget))
+                    {
+                        dispatcher.IncrementParseErrors();
+                        LirRuntime.LogDiagnostic("[ReloadSkill] 收到未知或重复的升级回执 id=" + upReqId + "，忽略");
+                        return;
+                    }
+                    pendingUpgradeRequests.Remove(upReqId);
+                }
+                var capturedTarget = requestedTarget;
+                EnqueueSkillOp(() =>
+                {
+                    var module = skillModule;
+                    if (accepted)
+                    {
+                        ReloadSkillLevelMirror.ConfirmLevel(newLevel);
+                        module?.NotifySkillLevelConfirmed(newLevel);
+                        var cost = ReloadSkillPolicy.CostForUpgrade(newLevel - 1);
+                        module?.ShowSkillToast(ReloadSkillPolicy.MakeUpgradeAcceptedToast(newLevel, cost));
+                    }
+                    else
+                    {
+                        module?.ShowSkillToast(ReloadSkillPolicy.MakeUpgradeRejectedToast((ReloadSkillUpgradeReject)reasonCode, capturedTarget));
+                    }
+                    module?.ResetSkillSettingsRow();
+                });
+                return;
+            }
+            if (LirRepackWireCodec.TryReadLevelState(payload, out var level))
+            {
+                EnqueueSkillOp(() =>
+                {
+                    ReloadSkillLevelMirror.ConfirmLevel(level);
+                    skillModule?.NotifySkillLevelConfirmed(level);
+                });
+                return;
+            }
+            if (LirRepackWireCodec.TryReadSkillCooldownNotice(payload, out var remainingMs))
+            {
+                EnqueueSkillOp(() => skillModule?.ShowSkillToast(ReloadSkillPolicy.MakeCooldownToast(remainingMs / 1000d)));
+                return;
+            }
             if (!LirRepackWireCodec.TryReadSuccess(payload, out var requestId, out var totalTransferred))
             {
                 dispatcher.IncrementParseErrors();
-                LirRuntime.LogDiagnostic("[RepackNet] 客机收到畸形 RepackSuccess，拒绝");
+                LirRuntime.LogDiagnostic("[RepackNet] 客机收到未知或畸形下行帧，拒绝");
                 return;
             }
+            _ = hooks;
             lock (pendingSync)
             {
                 if (!pendingRequestIds.Remove(requestId))
@@ -321,6 +477,102 @@ namespace BetterUnturnedExperience.Lir
             dispatcher.TryEnqueueSuccess(requestId, totalTransferred);
         }
 
+        // ── DEV-V5-07 技能面：客侧请求 + 主线程执行/呈现 ────────────
+
+        /// <summary>客机升级请求（主机校验并扣原版经验，回执带确认等级）。</summary>
+        internal LirRepackRequestResult RequestUpgradeFromServer(byte targetLevel)
+        {
+            if (stopped || !Started) return LirRepackRequestResult.RejectedNoSession;
+            var requestId = NextRequestId();
+            lock (pendingSync)
+            {
+                while (pendingUpgradeOrder.Count >= ReloadRuntimePolicy.QueueLimit)
+                {
+                    pendingUpgradeRequests.Remove(pendingUpgradeOrder.Dequeue());
+                }
+                pendingUpgradeOrder.Enqueue(requestId);
+                pendingUpgradeRequests[requestId] = targetLevel;
+            }
+            NetworkSendResult sent;
+            try { sent = network.SendToServer(Channel, LirRepackWireCodec.BuildUpgradeRequest(requestId, targetLevel), reliable: true); }
+            catch (Exception) { sent = NetworkSendResult.LocalTransportUnavailable; }
+            if (sent != NetworkSendResult.Sent)
+            {
+                lock (pendingSync) pendingUpgradeRequests.Remove(requestId);
+                LirRuntime.LogWarning("[ReloadSkill] 升级请求发送失败（result=" + sent + "），未建立待确认。");
+                return LirRepackRequestResult.RejectedSendFailed;
+            }
+            LirRuntime.LogInfo("[ReloadSkill] -> 服务器: RequestUpgrade(reqId=" + requestId + ", target=" + targetLevel + ")");
+            return LirRepackRequestResult.Dispatched;
+        }
+
+        /// <summary>客机一次性求取确认等级（会话建立后；未确认=分区不画）。</summary>
+        internal LirRepackRequestResult RequestLevelStateFromServer()
+        {
+            if (stopped || !Started) return LirRepackRequestResult.RejectedNoSession;
+            NetworkSendResult sent;
+            try { sent = network.SendToServer(Channel, LirRepackWireCodec.BuildLevelStateRequest(), reliable: true); }
+            catch (Exception) { sent = NetworkSendResult.LocalTransportUnavailable; }
+            return sent == NetworkSendResult.Sent
+                ? LirRepackRequestResult.Dispatched
+                : LirRepackRequestResult.RejectedSendFailed;
+        }
+
+        /// <summary>主线程：主机侧升级执行（校验+扣减+落账全在钩子里；这里只路由回执）。</summary>
+        private void ExecuteUpgradeFor(ulong steamId, ulong requestId, byte targetLevel, IConnectionSession session)
+        {
+            var hooks = skillHooks;
+            if (hooks == null) return;
+            ReloadSkillUpgradeDecision decision;
+            try { decision = hooks.ExecuteUpgrade(steamId, targetLevel); }
+            catch (Exception error)
+            {
+                LirRuntime.LogError("[ReloadSkill] 升级执行异常（拒绝回执）: " + error.Message);
+                decision = new ReloadSkillUpgradeDecision { Accepted = false, Reason = ReloadSkillUpgradeReject.LevelDrift };
+            }
+            var reply = LirRepackWireCodec.BuildUpgradeResult(requestId, decision.Accepted,
+                decision.Accepted ? decision.NewLevel : hooks.GetLevelFor(steamId), (byte)decision.Reason);
+            SendToPeer(session, reply);
+        }
+
+        /// <summary>技能窗拒绝的呈现路由：本机=直接红色 toast；远端=定向 kind 6
+        /// （剩余毫秒按主机时钟口径发出，客机只呈现）。</summary>
+        private void DeliverSkillCooldownNotice(ulong steamId, double remainingSeconds)
+        {
+            if (remainingSeconds <= 0d) return;
+            if (authority.TryResolveLocalPlayerSteamId(out var localSteamId) && localSteamId == steamId)
+            {
+                var sink = moduleToast;
+                sink?.Invoke(ReloadSkillPolicy.MakeCooldownToast(remainingSeconds));
+                return;
+            }
+            var ms = (int)Math.Ceiling(remainingSeconds * 1000d);
+            if (ms <= 0) return;
+            IConnectionSession session = null;
+            foreach (var pair in liveSessions)
+            {
+                if (pair.Value != null && pair.Value.PeerSteamId == steamId) { session = pair.Value; break; }
+            }
+            if (session == null)
+            {
+                LirRuntime.LogDiagnostic("[ReloadSkill] 冷却回执目标会话不存在（steam=" + steamId + "），本机外静默");
+                return;
+            }
+            SendToPeer(session, LirRepackWireCodec.BuildSkillCooldownNotice(ms));
+        }
+
+        private void SendToPeer(IConnectionSession session, byte[] payload)
+        {
+            if (session == null) return;
+            NetworkSendResult sent;
+            try { sent = network.SendToClient(Channel, session, payload, reliable: true); }
+            catch (Exception) { sent = NetworkSendResult.LocalTransportUnavailable; }
+            if (sent != NetworkSendResult.Sent)
+            {
+                LirRuntime.LogDiagnostic("[ReloadSkill] 技能帧定向发送未送达（result=" + sent + "）");
+            }
+        }
+
         // ── main-thread execution (the drain callbacks) ────────────
 
         /// <summary>
@@ -331,14 +583,42 @@ namespace BetterUnturnedExperience.Lir
         /// </summary>
         internal void ExecuteRepackFor(ulong senderSteamId, ulong requestId)
         {
+            ExecuteRepackFor(senderSteamId, requestId, false);
+        }
+
+        /// <summary>DEV-V5-07: the 技能窗 sits BEFORE the authority transaction
+        /// (0 级合并窗 = 技术闸+额外——窗内拒绝连技术闸都不消费)；manual success
+        /// with rounds transferred hands the 2 级 auto-round decision to the
+        /// module (the service keeps no skill policy of its own).</summary>
+        internal void ExecuteRepackFor(ulong senderSteamId, ulong requestId, bool isAuto)
+        {
             if (stopped) return;
+            var hooks = skillHooks;
+            if (hooks != null && !hooks.TryBeginRepackWindow(senderSteamId, out var remainingSeconds))
+            {
+                DeliverSkillCooldownNotice(senderSteamId, remainingSeconds);
+                return;
+            }
             // The gate is the authority's engine-side discipline (cooldown /
             // replay / quarantine) — the service only routes outcomes.
             var result = authority.ExecuteRepack(senderSteamId, requestId);
             switch (result.Outcome)
             {
                 case LirRepackOutcome.Committed:
-                    if (result.TotalTransferred > 0) DeliverSuccess(senderSteamId, requestId, result.TotalTransferred);
+                    if (result.TotalTransferred > 0)
+                    {
+                        DeliverSuccess(senderSteamId, requestId, result.TotalTransferred);
+                        if (!isAuto && hooks != null
+                            && hooks.GetLevelFor(senderSteamId) == ReloadSkillPolicy.MaxSkillLevel)
+                        {
+                            var fingerprint = hooks.CaptureFingerprint(senderSteamId);
+                            if (fingerprint != null)
+                            {
+                                var module = skillModule;
+                                module?.ScheduleAutoRoundAfterManualSuccess(senderSteamId, fingerprint);
+                            }
+                        }
+                    }
                     break;
                 case LirRepackOutcome.PlayerMissing:
                     dispatcher.IncrementMissingPlayer();
