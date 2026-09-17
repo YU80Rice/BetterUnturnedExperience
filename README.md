@@ -10,8 +10,8 @@
 | 功能 | 说明 |
 |---|---|
 | 更好的物品交互（BII） | 背包内直接拖拽物品，拖拽预览与保活由 BUE 接管 |
-| 背包整理（LIT） | 标题栏「整理」按钮；Ctrl+点击按已保存的全局模式与方向整理全身（不含仓储栏）；模式（同类/空间/大件）与方向在管理面板里改 |
-| 更好的换弹体验（LIR） | 持枪双击换弹键一键压弹（toast 显示压入发数），整理后自动压弹 |
+| 背包整理（LIT） | 标题栏「整理」；Ctrl+点击整理全身（只动身上五页）；打开世界箱子或已授权后备箱时容器标题栏也有「整理」。只有一种排法：按用途分段、空位收在右下。旧三模式已退役 |
+| 更好的换弹体验（LIR） | 持枪双击换弹键一键压弹；整理后自动压弹。弹药旁显示备匣/备弹。换弹技能 0～2 级（原版经验升级；没有超限弹匣） |
 | 更好的尸潮播报（LHT） | 服务器管理员 `/horde` 启动尸潮，全体玩家 HUD 实时显示爆发地点与剩余数 |
 
 - 管理面板：官方功能中文名与一句话说明、未保存草稿（改完点「保存配置」）、循环切换、功能级启停、外部插件配置同等编辑；
@@ -20,9 +20,9 @@
 
 ## 当前版本
 
-- **Phase-4 可视化体验正式交付版 + POST-P4 可见修复**（2026-09-13，阶段工单 DEV-V4-01..09 与关单后 01–08 全部闭环；对外契约仍为 **2.1**）
-- `BetterUnturnedExperience.dll` SHA-256：`AF1F50C990954F315F0823BC9E39698979D5E491E25E2D8EB1682EC35A9D16D0`（641536 字节，三轮确定性重建逐字节一致）
-- 身份与门禁台账：[`audit/RELEASES.md`](audit/RELEASES.md) 行 13；正式交付包：[`publish/第4阶段-正式交付版本/`](publish/第4阶段-正式交付版本/)
+- **Phase-5 现有官方功能优化正式交付版**（2026-09-17，阶段工单 DEV-V5-01..08 全部闭环；对外契约仍为 **2.1**）
+- `BetterUnturnedExperience.dll` SHA-256：`F334657ABA2C6AD7CAC8E39E7A36C19FB38DCC19E60DCC575BF20D9777380D45`（726016 字节，三轮确定性重建逐字节一致）
+- 身份与门禁台账：[`audit/RELEASES.md`](audit/RELEASES.md) 行 14；正式交付包：[`publish/第五阶段-正式交付版本/`](publish/第五阶段-正式交付版本/)
 
 ## 快速开始
 
@@ -39,7 +39,7 @@ BUE 的功能分两层：**官方功能**（上表四件）是源码模块，构
 - **给人看的开发手册（先读这里）**：[`docs/developer/README.md`](docs/developer/README.md)——一张总图 + 三短章（模块结构 / 最小接入流程 / NoOp 范例导读），解释平台怎么搭、先看哪里；它不定义契约，与 SDK 不一致以 SDK 为准；
 - **开发者契约（唯一事实源）**：[`docs/sdk/BetterUnturnedExperience-SDK-Assembly-Identity.md`](docs/sdk/BetterUnturnedExperience-SDK-Assembly-Identity.md)——程序集身份冻结面与三段式承诺、编译期引用规则（引用主 DLL、`CopyLocal=false`、禁止捆绑）、防双装处置、公开注册桥 `BueRuntimeHost.Register` 用法、契约版本演化登记；
 - **生态活样板**：[`src/BetterUnturnedExperience.NoOpFixture/`](src/BetterUnturnedExperience.NoOpFixture/)（独立 GUID + HardDependency 前置 + 经公开桥注册，被宿主测试长期验证）；
-- **平台 API 面**：`BueNetworkApi`（方向订阅/会话/定向与会话驱动组播）、功能事件（`TidyCompleted`）、宿主时钟（`HostTick`）、设置、诊断与隔离缝。Phase-4 未新增公开契约成员；生态模块继续按 2.1 接入。
+- **平台 API 面**：`BueNetworkApi`（方向订阅/会话/定向与会话驱动组播）、功能事件（`TidyCompleted`）、宿主时钟（`HostTick`）、设置、诊断与隔离缝。Phase-5 未新增公开契约成员；生态模块继续按 2.1 接入。
 
 ## 仓库结构
 
