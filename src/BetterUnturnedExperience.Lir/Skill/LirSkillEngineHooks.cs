@@ -52,6 +52,18 @@ namespace BetterUnturnedExperience.Lir
             }
         }
 
+        public void ArmRepackWindowAfterCommit(ulong steamId)
+        {
+            try
+            {
+                runtime.ArmWindowAfterCommit(steamId, CharacterKeyOf(steamId));
+            }
+            catch (Exception)
+            {
+                // 身份解析不出 = 不武装（fail-closed；下一次双击仍可用）
+            }
+        }
+
         public byte GetLevelFor(ulong steamId)
         {
             try
@@ -151,8 +163,18 @@ namespace BetterUnturnedExperience.Lir
         [MethodImpl(MethodImplOptions.NoInlining)]
         private static string CharacterKeyOfPlayer(Player player)
         {
-            var owner = player.channel.owner; // SteamPlayer
-            return owner == null || owner.playerID == null ? null : ReloadSkillStore.NormalizeCharKey(owner.playerID.characterName);
+            // 宿主红线（08 实机钉死）：SDG.Unturned.SteamPlayerID 的自定义 == 运算符
+            // 无判空（op_Equality 两侧直接 callvirt get_steamID），`playerID == null`
+            // 写法无论实值是否为 null 必抛 NRE=真机技能窗/升级链 100% 断。判等一律
+            // `is null`（IL 引用比较，不经运算符；Lht OwnerResolver 生产先例同律）。
+            if (player is null) return null;
+            var channel = player.channel;
+            if (channel is null) return null;
+            var owner = channel.owner; // SteamPlayer
+            if (owner is null) return null;
+            var pid = owner.playerID;
+            if (pid is null) return null;
+            return ReloadSkillStore.NormalizeCharKey(pid.characterName);
         }
 
         [MethodImpl(MethodImplOptions.NoInlining)]

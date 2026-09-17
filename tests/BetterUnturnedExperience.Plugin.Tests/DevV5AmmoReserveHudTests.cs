@@ -574,7 +574,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
 
         private sealed class V56Authority : ILirRepackAuthority
         {
-            public LirRepackExecution ExecuteRepack(ulong senderSteamId, ulong requestId)
+            public LirRepackExecution ExecuteRepack(ulong senderSteamId, ulong requestId, bool hostInitiated = false)
             { return new LirRepackExecution { Outcome = LirRepackOutcome.NoChange, TotalTransferred = 0 }; }
 
             public LirMergeExecution ExecuteMerge(ulong targetSteamId, ulong requestId)

@@ -25,12 +25,12 @@ namespace BetterUnturnedExperience.Lir
             catch (Exception) { return false; }
         }
 
-        public LirRepackExecution ExecuteRepack(ulong senderSteamId, ulong requestId)
+        public LirRepackExecution ExecuteRepack(ulong senderSteamId, ulong requestId, bool hostInitiated = false)
         {
             // Enqueueing is not authorization: the player is resolved again
             // here (the old merged-entry rule), then the gate, then the
             // transaction.
-            var admission = Admit(senderSteamId, requestId, out var player);
+            var admission = Admit(senderSteamId, requestId, hostInitiated, out var player);
             if (admission != GateAdmission.Proceed)
             {
                 return new LirRepackExecution { Outcome = admission == GateAdmission.PlayerMissing ? LirRepackOutcome.PlayerMissing : LirRepackOutcome.RejectedCooldown };
@@ -55,7 +55,7 @@ namespace BetterUnturnedExperience.Lir
 
         public LirMergeExecution ExecuteMerge(ulong targetSteamId, ulong requestId)
         {
-            var admission = Admit(targetSteamId, requestId, out var player);
+            var admission = Admit(targetSteamId, requestId, false, out var player);
             if (admission != GateAdmission.Proceed)
             {
                 return new LirMergeExecution { Outcome = admission == GateAdmission.PlayerMissing ? LirMergeOutcome.PlayerMissing : LirMergeOutcome.RejectedCooldown };
@@ -88,11 +88,14 @@ namespace BetterUnturnedExperience.Lir
         private enum GateAdmission : byte { Proceed, PlayerMissing, RejectedCooldown }
 
         /// <summary>The shared admission pair (R1-Standards SMELL-2): player re-resolution THEN the request gate.</summary>
-        private GateAdmission Admit(ulong steamId, ulong requestId, out Player player)
+        private GateAdmission Admit(ulong steamId, ulong requestId, bool hostInitiated, out Player player)
         {
             player = ResolvePlayerBySteamId(steamId);
             if (player == null || player.inventory == null) return GateAdmission.PlayerMissing;
-            if (!LirRepackGate.TryAcquire(steamId, requestId, out _)) return GateAdmission.RejectedCooldown;
+            var acquired = hostInitiated
+                ? LirRepackGate.TryAcquireHostInitiated(steamId, out _)
+                : LirRepackGate.TryAcquire(steamId, requestId, out _);
+            if (!acquired) return GateAdmission.RejectedCooldown;
             return GateAdmission.Proceed;
         }
 

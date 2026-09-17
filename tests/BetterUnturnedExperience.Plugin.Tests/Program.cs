@@ -318,6 +318,11 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     DevV5ReloadSkillTests.Run(collectAllFailures: true);
                     return 0;
                 }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--bue-v5-08-identity-il-guard-red")
+                {
+                    DevV508IdentityIlGuardTests.Run(collectAllFailures: true);
+                    return 0;
+                }
                 if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--bue-v2-send-semantics-red")
                 {
                     AssertBueV2SessionDrivenSendSemantics(collectAllFailures: true);
@@ -502,6 +507,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 DevV5FastTransferRecoverTests.Run();
                 DevV5AmmoReserveHudTests.Run();
                 DevV5ReloadSkillTests.Run();
+                DevV508IdentityIlGuardTests.Run();
                 AssertRuntimeCompletionBarrierIsolates();
                 AssertManagementPanelConsumesRuntimeCatalog();
                 AssertManagementPanelOpenHooks();
@@ -5884,7 +5890,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
             public ulong LocalSteamId = 2002UL;
             public bool LocalKnown = true;
 
-            public LirRepackExecution ExecuteRepack(ulong senderSteamId, ulong requestId)
+            public LirRepackExecution ExecuteRepack(ulong senderSteamId, ulong requestId, bool hostInitiated = false)
             {
                 RepackCount++;
                 LastRepackSteamId = senderSteamId;

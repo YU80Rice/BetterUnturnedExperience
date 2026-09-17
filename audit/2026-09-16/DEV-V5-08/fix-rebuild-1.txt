@@ -1,0 +1,20 @@
+  BetterUnturnedExperience.Contracts -> D:\Agent-工作目录\DevelopMyUNMultiplayerModAndModloader\更好的UN体验\src\BetterUnturnedExperience.Contracts\bin\Release\BetterUnturnedExperience.Contracts.dll
+  BetterUnturnedExperience.Release -> D:\Agent-工作目录\DevelopMyUNMultiplayerModAndModloader\更好的UN体验\src\BetterUnturnedExperience.Release\bin\Release\BetterUnturnedExperience.Release.dll
+  BetterUnturnedExperience.Core -> D:\Agent-工作目录\DevelopMyUNMultiplayerModAndModloader\更好的UN体验\src\BetterUnturnedExperience.Core\bin\Release\BetterUnturnedExperience.Core.dll
+  BetterUnturnedExperience.Plugin -> D:\Agent-工作目录\DevelopMyUNMultiplayerModAndModloader\更好的UN体验\src\BetterUnturnedExperience.Plugin\bin\Release\BetterUnturnedExperience.dll
+  BetterUnturnedExperience.Release.Tests -> D:\Agent-工作目录\DevelopMyUNMultiplayerModAndModloader\更好的UN体验\tests\BetterUnturnedExperience.Release.Tests\bin\Release\BetterUnturnedExperience.Release.Tests.exe
+  BetterUnturnedExperience.Contracts.Tests -> D:\Agent-工作目录\DevelopMyUNMultiplayerModAndModloader\更好的UN体验\tests\BetterUnturnedExperience.Contracts.Tests\bin\Release\BetterUnturnedExperience.Contracts.Tests.exe
+  BetterUnturnedExperience.Placement.Tests -> D:\Agent-工作目录\DevelopMyUNMultiplayerModAndModloader\更好的UN体验\tests\BetterUnturnedExperience.Placement.Tests\bin\Release\BetterUnturnedExperience.Placement.Tests.exe
+  BetterUnturnedExperience.Transport -> D:\Agent-工作目录\DevelopMyUNMultiplayerModAndModloader\更好的UN体验\src\BetterUnturnedExperience.Transport\bin\Release\BetterUnturnedExperience.Transport.dll
+  BetterUnturnedExperience.Settings.Tests -> D:\Agent-工作目录\DevelopMyUNMultiplayerModAndModloader\更好的UN体验\tests\BetterUnturnedExperience.Settings.Tests\bin\Release\BetterUnturnedExperience.Settings.Tests.exe
+  BetterUnturnedExperience.ClientUi -> D:\Agent-工作目录\DevelopMyUNMultiplayerModAndModloader\更好的UN体验\src\BetterUnturnedExperience.ClientUi\bin\Release\BetterUnturnedExperience.ClientUi.dll
+  BetterUnturnedExperience.NoOpFixture -> D:\Agent-工作目录\DevelopMyUNMultiplayerModAndModloader\更好的UN体验\src\BetterUnturnedExperience.NoOpFixture\bin\Release\BetterUnturnedExperience.NoOpFixture.dll
+  BetterUnturnedExperience.Network.Tests -> D:\Agent-工作目录\DevelopMyUNMultiplayerModAndModloader\更好的UN体验\tests\BetterUnturnedExperience.Network.Tests\bin\Release\BetterUnturnedExperience.Network.Tests.exe
+  BetterUnturnedExperience.ClientUi.Tests -> D:\Agent-工作目录\DevelopMyUNMultiplayerModAndModloader\更好的UN体验\tests\BetterUnturnedExperience.ClientUi.Tests\bin\Release\BetterUnturnedExperience.ClientUi.Tests.exe
+  BetterUnturnedExperience.Plugin.Tests -> D:\Agent-工作目录\DevelopMyUNMultiplayerModAndModloader\更好的UN体验\tests\BetterUnturnedExperience.Plugin.Tests\bin\Release\BetterUnturnedExperience.Plugin.Tests.exe
+---
+# runner footer（执行期观察，2026-09-17）
+# command: dotnet msbuild BetterUnturnedExperience.sln -t:Rebuild -p:Configuration=Release -v:m -nologo
+# exit code: 0
+# grep -cE 'warning|error' 本日志 = 0
+# 本轮后候选 DLL SHA-256: d7549806da41ae88cc4a866e839b28d371b84972c386fff7d6b66f75c1326ba0  size=725504

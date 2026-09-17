@@ -77,8 +77,20 @@ namespace BetterUnturnedExperience.Lir
                 remainingSeconds = readyAt - now;
                 return false; // 拒绝不推进窗
             }
+            return true; // 放行；窗只在 ArmWindowAfterCommit（权威成交 >0 发）后武装
+        }
+
+        /// <summary>权威事务成交（压进 &gt;0 发）后才武装 0 级合并窗。≥1 级 extra=0
+        /// 本层永不武装。已在窗内不刷新（拒绝不推进窗的对称：成交才开、开了不叠）。</summary>
+        internal void ArmWindowAfterCommit(ulong steamId, string charKey)
+        {
+            if (steamId == 0UL) return;
+            var extra = ReloadSkillPolicy.ExtraCooldownSeconds(store.GetLevel(steamId, charKey));
+            if (extra <= 0d) return;
+            var now = clockSeconds();
+            double readyAt;
+            if (windowReadyAt.TryGetValue(steamId, out readyAt) && now < readyAt) return;
             windowReadyAt[steamId] = now + ReloadRuntimePolicy.CooldownSeconds + extra;
-            return true;
         }
 
         /// <summary>只读校验（不落账、不扣费）：authorize 是纯函数，写路径只在 Commit。</summary>

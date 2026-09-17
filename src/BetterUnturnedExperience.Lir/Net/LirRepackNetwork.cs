@@ -467,7 +467,7 @@ namespace BetterUnturnedExperience.Lir
             _ = hooks;
             lock (pendingSync)
             {
-                if (!pendingRequestIds.Remove(requestId))
+                if (requestId != 0UL && !pendingRequestIds.Remove(requestId))
                 {
                     dispatcher.IncrementParseErrors();
                     LirRuntime.LogDiagnostic("[RepackNet] 收到未知或重复 requestId=" + requestId + " 的回包，忽略");
@@ -601,13 +601,14 @@ namespace BetterUnturnedExperience.Lir
             }
             // The gate is the authority's engine-side discipline (cooldown /
             // replay / quarantine) — the service only routes outcomes.
-            var result = authority.ExecuteRepack(senderSteamId, requestId);
+            var result = authority.ExecuteRepack(senderSteamId, requestId, isAuto);
             switch (result.Outcome)
             {
                 case LirRepackOutcome.Committed:
                     if (result.TotalTransferred > 0)
                     {
-                        DeliverSuccess(senderSteamId, requestId, result.TotalTransferred);
+                        hooks?.ArmRepackWindowAfterCommit(senderSteamId);
+                        DeliverSuccess(senderSteamId, requestId, result.TotalTransferred, isAuto);
                         if (!isAuto && hooks != null
                             && hooks.GetLevelFor(senderSteamId) == ReloadSkillPolicy.MaxSkillLevel)
                         {
@@ -638,7 +639,7 @@ namespace BetterUnturnedExperience.Lir
             }
         }
 
-        private void DeliverSuccess(ulong senderSteamId, ulong requestId, int totalTransferred)
+        private void DeliverSuccess(ulong senderSteamId, ulong requestId, int totalTransferred, bool isAuto)
         {
             // Toast ownership: the local player sees the toast here; a remote
             // client gets the targeted reliable reply (U3DS is headless — the
@@ -649,10 +650,10 @@ namespace BetterUnturnedExperience.Lir
                 sink?.Invoke(SuccessToast(totalTransferred));
                 return;
             }
-            SendRepackSuccess(senderSteamId, requestId, totalTransferred);
+            SendRepackSuccess(senderSteamId, requestId, totalTransferred, isAuto);
         }
 
-        private void SendRepackSuccess(ulong senderSteamId, ulong requestId, int totalTransferred)
+        private void SendRepackSuccess(ulong senderSteamId, ulong requestId, int totalTransferred, bool isAuto)
         {
             if (totalTransferred <= 0) return;
             IConnectionSession session = null;
@@ -665,8 +666,11 @@ namespace BetterUnturnedExperience.Lir
                 LirRuntime.LogWarning("[RepackNet] 回包目标会话已不存在（sender=" + senderSteamId + ", reqId=" + requestId + "），客户端将按待确认表无果");
                 return;
             }
+            // 自动轮由主机排程，客机 pending 表无此 requestId。回包 id=0 = 主机发起的
+            // 成交通知（非对手动请求的应答），客机按「未登记 id」放行 toast，不走待确认表。
+            var wireId = isAuto ? 0UL : requestId;
             NetworkSendResult sent;
-            try { sent = network.SendToClient(Channel, session, LirRepackWireCodec.BuildSuccess(requestId, totalTransferred), reliable: true); }
+            try { sent = network.SendToClient(Channel, session, LirRepackWireCodec.BuildSuccess(wireId, totalTransferred), reliable: true); }
             catch (Exception) { sent = NetworkSendResult.LocalTransportUnavailable; }
             if (sent != NetworkSendResult.Sent)
             {
@@ -674,7 +678,7 @@ namespace BetterUnturnedExperience.Lir
             }
             else
             {
-                LirRuntime.LogInfo("[RepackNet] -> 客机 RepackSuccess(reqId=" + requestId + ", total=" + totalTransferred + ")");
+                LirRuntime.LogInfo("[RepackNet] -> 客机 RepackSuccess(reqId=" + wireId + ", total=" + totalTransferred + (isAuto ? ", auto=1" : "") + ")");
             }
         }
     }

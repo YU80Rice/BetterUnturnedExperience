@@ -139,12 +139,15 @@ namespace BetterUnturnedExperience.Plugin.Tests
             public List<(ulong SteamId, byte Target)> Upgrades = new List<(ulong, byte)>();
             public ReloadSkillUpgradeDecision UpgradeDecision;
 
+            public int ArmCalls;
             public bool TryBeginRepackWindow(ulong steamId, out double remainingSeconds)
             {
                 WindowChecks++;
                 remainingSeconds = RemainingOnReject < 0d ? 0d : RemainingOnReject;
                 return RemainingOnReject < 0d;
             }
+
+            public void ArmRepackWindowAfterCommit(ulong steamId) { ArmCalls++; }
 
             public ReloadSkillUpgradeDecision ExecuteUpgrade(ulong steamId, byte targetLevel)
             {
@@ -182,9 +185,11 @@ namespace BetterUnturnedExperience.Plugin.Tests
             public int RepackCalls;
             public ulong LocalId;
 
-            public LirRepackExecution ExecuteRepack(ulong senderSteamId, ulong requestId)
+            public int HostInitiatedCalls;
+            public LirRepackExecution ExecuteRepack(ulong senderSteamId, ulong requestId, bool hostInitiated = false)
             {
                 RepackCalls++;
+                if (hostInitiated) HostInitiatedCalls++;
                 return new LirRepackExecution { Outcome = Outcome, TotalTransferred = Total };
             }
 
@@ -636,6 +641,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
             check(authority.RepackCalls == 1, "手动双击成交走同一权威入口（官方先行）");
             check(module.AutoRounds.PendingCount == 1, "2 级手动成功 = 排一轮自动压弹");
             check(toasts.Count == 1 && toasts[0].Contains("成功压入"), "本地成功 toast 现网语义不变");
+            check(hooks.ArmCalls == 1, "权威成交 >0 发才武装技能窗（0 发/闸拒不武装）");
 
             V57Pump(module, clock, 1UL, (float)(ReloadSkillPolicy.AutoRoundDelaySeconds - 0.5d), firstTick: 1UL);
             check(authority.RepackCalls == 1 && module.AutoRounds.PendingCount == 1,
@@ -644,6 +650,57 @@ namespace BetterUnturnedExperience.Plugin.Tests
             module.OnHostTick(V57Tick(2UL, 1f));
             check(authority.RepackCalls == 2 && module.AutoRounds.PendingCount == 0,
                 "到点再压一轮，且只一轮（自动成功不再续排）");
+            check(hooks.ArmCalls == 2, "自动轮成交同样武装（2 级 extra=0 本层仍调用，生产实现空操作）");
+            check(authority.HostInitiatedCalls == 1, "自动轮走主机发起门（跳过客户端 requestId 回放比较）");
+            module.Stop(FeatureStopReason.PluginStopping);
+
+            // 4a-gate. U3DS 探针 #5：手动 id 很大之后，自动轮不得被回放闸拒绝。
+            LirRepackGate.NowSecondsForTests = () => 1000f;
+            LirRepackGate.ResetForGeneration();
+            int retry;
+            check(LirRepackGate.TryAcquire(77UL, 639252135186329770UL, out retry), "装配：先记一笔客机手动大 id");
+            LirRepackGate.NowSecondsForTests = () => 1002f; // 过 1.5s 技术闸
+            check(!LirRepackGate.TryAcquire(77UL, 100UL, out retry), "小于最高观察 id 的客户端请求仍拒（回放闸保持）");
+            check(LirRepackGate.TryAcquireHostInitiated(77UL, out retry), "主机发起自动轮：跳过回放比较，冷却过后放行");
+            LirRepackGate.NowSecondsForTests = () => 1002.1f;
+            check(!LirRepackGate.TryAcquireHostInitiated(77UL, out retry), "主机发起仍吃 1.5s 技术闸");
+            LirRepackGate.ResetForGeneration();
+            LirRepackGate.NowSecondsForTests = null;
+
+            // 4a-P2P. 自动轮回包 id=0：客机 pending 表无此 id，仍要 toast（探针 #3：
+            // 主机成交 6 发但客机「未知 requestId」丢包）。
+            clock = new V57Clock();
+            hooks = new V57Hooks { Level = 2, Fingerprint = "gun-A", FreshFingerprint = "gun-A" };
+            authority = new V57Authority { Outcome = LirRepackOutcome.Committed, Total = 6, LocalId = 1UL };
+            net = new V57Network();
+            net.LiveSessions.Add(new V57Session(5UL, 9UL));
+            module = V57StartModule(hooks, authority, net, clock, new V57Persistence(), isServer: true, out _, check);
+            module.OnHostTick(V57Tick(1UL, 0.1f));
+            module.NetService.ExecuteRepackFor(9UL, 961UL, isAuto: false);
+            clock.Advance(ReloadSkillPolicy.AutoRoundDelaySeconds + 0.1d);
+            module.OnHostTick(V57Tick(2UL, 0.1f));
+            var autoFrames = 0;
+            ulong autoWireId = 1UL;
+            var autoTotal = 0;
+            for (var i = 0; i < net.Sent.Count; i++)
+            {
+                if (!LirRepackWireCodec.TryReadSuccess(net.Sent[i].Payload, out var rid, out var tot)) continue;
+                if (rid == 0UL) { autoFrames++; autoWireId = rid; autoTotal = tot; }
+            }
+            check(autoFrames >= 1 && autoWireId == 0UL && autoTotal == 6,
+                "自动轮回包 wireId=0（绕开客机 pending 表）且 total 随成交");
+            var clientNet = new V57Network();
+            var clientAuth = new V57Authority { LocalId = 9UL };
+            var clientToasts = default(List<string>);
+            var client = V57StartModule(new V57Hooks { Level = 2 }, clientAuth, clientNet, new V57Clock(), new V57Persistence(), isServer: false, out clientToasts, check);
+            client.OnHostTick(V57Tick(1UL, 0.1f));
+            clientNet.DispatchInbound(ChannelDirection.FromServer, new V57Session(5UL, 1UL), LirRepackWireCodec.BuildSuccess(0UL, 6));
+            client.OnHostTick(V57Tick(2UL, 0.1f));
+            var sawAutoToast = false;
+            for (var i = 0; i < clientToasts.Count; i++)
+                if (clientToasts[i].Contains("成功压入") && clientToasts[i].Contains("6")) sawAutoToast = true;
+            check(sawAutoToast, "客机对 wireId=0 的自动轮回包弹成功 toast（不再当未知 requestId 丢掉）");
+            client.Stop(FeatureStopReason.PluginStopping);
             module.Stop(FeatureStopReason.PluginStopping);
 
             // 4b. 到点条件不满足 = 取消，不强制、不重试。
@@ -684,6 +741,11 @@ namespace BetterUnturnedExperience.Plugin.Tests
             module.NetService.ExecuteRepackFor(7UL, 905UL, isAuto: false);
             check(module.AutoRounds.PendingCount == 0, "1 级成交不排自动轮（自动压弹是 2 级专属）");
             module.NetService.ExecuteRepackFor(7UL, 906UL, isAuto: false);
+            var armsBeforeZero = hooks.ArmCalls;
+            authority.Outcome = LirRepackOutcome.Committed;
+            authority.Total = 0;
+            module.NetService.ExecuteRepackFor(7UL, 9061UL, isAuto: false);
+            check(hooks.ArmCalls == armsBeforeZero, "Committed total=0 不武装技能窗（P2P 0 级「没压进却进 CD」的权威路径钉）");
             hooks.Level = 2;
             authority.Outcome = LirRepackOutcome.NoChange;
             module.NetService.ExecuteRepackFor(7UL, 907UL, isAuto: false);
@@ -732,12 +794,17 @@ namespace BetterUnturnedExperience.Plugin.Tests
             check(runtime.TryAdmitDoubleTap(7UL, "Alice", out var rem0), "0 级第一次双击成交放行（技能窗未开）");
             check(rem0 <= 0d, "放行时剩余秒非正（不伪造冷却）");
 
-            // 2b. 合并窗 = 技术闸 + 额外段：再击拒绝、剩余秒如实。
+            // 2a'. DEV-V5-08 P2P：放行 ≠ 武装。0 发/闸拒不得开窗，再击仍放行。
             clock.Advance(1d);
+            check(runtime.TryAdmitDoubleTap(7UL, "Alice", out var remIdle) && remIdle <= 0d,
+                "未武装：再击仍放行（0 发成交不得进 9.5s CD）");
+
+            // 2b. 权威成交 >0 发后才武装合并窗：再击拒绝、剩余秒如实。
+            runtime.ArmWindowAfterCommit(7UL, "Alice");
             check(!runtime.TryAdmitDoubleTap(7UL, "Alice", out var rem1) && rem1 > 0d,
                 "0 级窗内再双击 = 技能侧拒绝（带正剩余秒，主机为准）");
-            check(Math.Abs(rem1 - (ReloadRuntimePolicy.CooldownSeconds + ReloadSkillPolicy.Level0ExtraCooldownSeconds - 1d)) < 0.001d,
-                "剩余秒 = 合并窗（技术闸 1.5 + 额外 8）递减——最终可用时间公式冻结");
+            check(Math.Abs(rem1 - (ReloadRuntimePolicy.CooldownSeconds + ReloadSkillPolicy.Level0ExtraCooldownSeconds)) < 0.001d,
+                "剩余秒 = 刚武装的合并窗（技术闸 1.5 + 额外 8）——最终可用时间公式冻结");
 
             // 2c. 拒绝不推进窗（连点不罚更长）。
             var before = rem1;
@@ -745,10 +812,12 @@ namespace BetterUnturnedExperience.Plugin.Tests
             check(!runtime.TryAdmitDoubleTap(7UL, "Alice", out var rem2), "窗内再连点仍拒绝");
             check(rem2 < before - 1.99d && rem2 > before - 2.01d, "拒绝不刷新窗：剩余只随时间递减");
 
-            // 2d. 窗尽再击 = 成交开新窗。
+            // 2d. 窗尽再击 = 放行；须再次成交才开新窗。
             clock.Advance(rem2);
             check(runtime.TryAdmitDoubleTap(7UL, "Alice", out var rem3), "0 级冷却窗结束后双击恢复可用");
             check(rem3 <= 0d, "新窗放行时剩余非正");
+            check(runtime.TryAdmitDoubleTap(7UL, "Alice", out var rem3b) && rem3b <= 0d,
+                "窗尽后未再成交：仍不武装（对称 2a'）");
 
             // 2e. 1 级额外冷却消失：升到 1 级后窗秒秒可击（技术闸另在闸门，不在本层）。
             check(store.TrySetLevel(7UL, "Alice", 1), "测试装配：直接写 1 级（升级路径另组）");
@@ -766,7 +835,8 @@ namespace BetterUnturnedExperience.Plugin.Tests
             // 正面断言）；41 号 0 级新键开新窗后在窗中；8 号首击放行不连坐。
             check(runtime.TryAdmitDoubleTap(7UL, "Alice", out _), "1 级玩家即使在 0 级旧窗时段也不拒（额外段取消）");
             check(runtime.TryAdmitDoubleTap(41UL, "Zoe", out _), "41 号 0 级首击放行");
-            check(!runtime.TryAdmitDoubleTap(41UL, "Zoe", out _), "41 号新窗内再击拒绝");
+            runtime.ArmWindowAfterCommit(41UL, "Zoe");
+            check(!runtime.TryAdmitDoubleTap(41UL, "Zoe", out _), "41 号成交武装后窗内再击拒绝");
             check(runtime.TryAdmitDoubleTap(8UL, "Bob", out _), "冷却窗按玩家隔离：他号不受连坐");
 
             // 2g. 功能 A 合匣不吃技能窗（窗只由 B 双击成交开启）。
@@ -836,8 +906,9 @@ namespace BetterUnturnedExperience.Plugin.Tests
             module = V57StartModule(hooks, authority, new V57Network(), clock, persistence2, isServer: true, out _, check);
             check(module.SkillRuntime.Store.GetLevel(31UL, "G") == 1, "新代际 Start：等级账从自有文件恢复");
             check(module.AutoRounds.PendingCount == 0, "新代际自动轮表为空（旧代条目不过代际）");
-            module.SkillRuntime.TryAdmitDoubleTap(41UL, "Z", out _); // (41,Z) 新档 0 级=会开合并窗
-            check(!module.SkillRuntime.TryAdmitDoubleTap(41UL, "Z", out _), "装配：本代 0 级窗已开");
+            module.SkillRuntime.TryAdmitDoubleTap(41UL, "Z", out _);
+            module.SkillRuntime.ArmWindowAfterCommit(41UL, "Z");
+            check(!module.SkillRuntime.TryAdmitDoubleTap(41UL, "Z", out _), "装配：本代 0 级窗已开（成交后武装）");
             module.Stop(FeatureStopReason.PluginStopping);
             var module2 = V57StartModule(hooks, authority, new V57Network(), clock, persistence2, isServer: true, out _, check);
             check(module2.SkillRuntime.TryAdmitDoubleTap(41UL, "Z", out _), "技能冷却窗不过代际：新模块首击放行");

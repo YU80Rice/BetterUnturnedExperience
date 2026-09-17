@@ -25,7 +25,7 @@ Spec: `../spec.md`（「给人看的开发手册（V5-T2 → DEV-V5-01）」节 
 - [x] 官方先行消费：README 开发者入口指向新目录
 - [x] 双轴独立审查（standards-reviewer / Spec-Reviewer，每轮全新实例）CLEAN
 - [x] **候选纪律**：本票不产正式候选 DLL、不更新 RELEASES、不授 CaseId
-- [ ] 用户目视可外发后，第三方评审由用户另请；评审不挡 02..08 开工（→ 交用户：评审包=`docs/developer/`+README 开发者入口）
+- [x] 用户目视可外发后，第三方评审由用户另请；评审不挡 02..08 开工（→ 交用户：评审包=`docs/developer/`+README 开发者入口）
 
 ## Answer
 
@@ -39,4 +39,10 @@ Spec: `../spec.md`（「给人看的开发手册（V5-T2 → DEV-V5-01）」节 
 
 **提交**：685ca31（第五阶段开图工件补录入库）+ 81e2dfc（本票实施）+ 本关单提交。**候选纪律**：不产候选、不更 RELEASES、不授 CaseId（diff 实证无 publish//RELEASES/DLL）。
 
-**下站**：01 已闭，前沿=DEV-V5-02（排版模块）/06/07 可开工；第三方评审由用户外请、不挡实施。
+**下站**：01 已闭。用户顺序=评审过了再开官方功能票，故 02/06/07 仍等用户开口。
+
+## Comments
+
+- 2026-09-14 用户交回两份第三方评审（对象=手册入口+平台内核是否成立；基线 `9c2f394`）。Claude Sonnet 5：目标基本达成，不是文档空转；手册隔离写宽、`BUE-HOST-001` 未入附录 B、总图冻结相位与生产不完全逐字。GPT-5.6-Sol：Forge-like **平台内核**达成，**成熟 Forge** 未达成；最大缺口=仓库外只引用发布 DLL 的第三方消费者。原文与收口表：`audit/2026-09-14/DEV-V5-01/third-party-review-intake.md`。收口项不塞进 DEV-V5-02..08。
+- 2026-09-14 第三份更严成熟度评审入库（`third-party-review-03-strict-maturity.md`）：内核已成，「敢依赖」还缺仓外 canary、SDK 编译期包、`bue-validate`、Harmony 生命周期所有权。前三阻断=仓外证据 / SDK 构建入口 / 自管 Harmony。路线四段与 Phase-3「不预造浅 interface、不自建 loader」同向。仍不塞进 02–08；用户未开口前不开官方功能票。
+- 2026-09-14 第四份生态外围评审入库（`third-party-review-04-eco-periphery.md`）：短板不在内核，而在五件外围——仓内自证样本量、手拷 DLL、无 Major 迁移剧本、能力协商未启用/无 CLI、开发者文档无英文。评审亦写明这些有意不在当前官方功能优化阶段。不塞进 02–08。

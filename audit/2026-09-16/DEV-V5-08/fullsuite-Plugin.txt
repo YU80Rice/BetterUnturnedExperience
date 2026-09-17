@@ -1,0 +1,8 @@
+DEV-V5-03 container session tests: PASS
+DEV-V5-04 insert-recover tests: PASS
+DEV-V5-05 fast-transfer-recover tests: PASS
+DEV-V5-06 ammo-reserve-hud tests: PASS
+DEV-V5-07 reload-skill tests: PASS
+DEV-V4-08 Plugin.Tests adapter tests: PASS
+POST-P4-04 Plugin.Tests UPM tag parsing tests: PASS
+DEV-14/DEV-16B plugin runtime tests: PASS

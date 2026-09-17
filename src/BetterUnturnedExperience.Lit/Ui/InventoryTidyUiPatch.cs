@@ -582,8 +582,14 @@ namespace BetterUnturnedExperience.Lit
             try
             {
                 if (s_ISleekElementType == null) WarmupReflection();
-                if (s_IsVisible == null) return; // 宿主/漂移：可见性同步缺位=保守不闪（按钮初始已藏）
-                s_IsVisible.SetValue(button, visible, null);
+                // U3DS 客机：对 ISleekElement.IsVisible 接口属性 SetValue(GlazierButton_uGUI)
+                // 抛 TargetInvocationException/NRE（SP/P2P 同路径偶发）。实现类型上的
+                // 同名属性 setter 才是 uGUI 按钮的真身（背包页按钮从不走接口 setter）。
+                var prop = button.GetType().GetProperty("IsVisible",
+                    BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase)
+                    ?? s_IsVisible;
+                if (prop == null || !prop.CanWrite) return;
+                prop.SetValue(button, visible, null);
             }
             catch (Exception e) { LogError("容器整理按钮显隐设置失败: " + e.Message); }
         }

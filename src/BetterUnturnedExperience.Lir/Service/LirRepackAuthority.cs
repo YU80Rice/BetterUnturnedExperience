@@ -46,8 +46,9 @@ namespace BetterUnturnedExperience.Lir
 
     internal interface ILirRepackAuthority
     {
-        /// <summary>Server/main-thread: the repack-from-ammo-boxes transaction for one sender (功能 B).</summary>
-        LirRepackExecution ExecuteRepack(ulong senderSteamId, ulong requestId);
+        /// <summary>Server/main-thread: the repack-from-ammo-boxes transaction for one sender (功能 B).
+        /// hostInitiated=true：2 级自动轮（跳过客户端 requestId 回放比较，仍吃技术闸）。</summary>
+        LirRepackExecution ExecuteRepack(ulong senderSteamId, ulong requestId, bool hostInitiated = false);
 
         /// <summary>Main-thread: the merge-same-id-magazines transaction for one target (功能 A, the tidy follow-up).</summary>
         LirMergeExecution ExecuteMerge(ulong targetSteamId, ulong requestId);

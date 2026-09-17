@@ -18,6 +18,11 @@ namespace BetterUnturnedExperience.Lir
     {
         bool TryBeginRepackWindow(ulong steamId, out double remainingSeconds);
 
+        /// <summary>0 级合并窗只在权威事务成交（压进 &gt;0 发）后武装。窗前拒绝
+        /// （闸门/无可压/静默失败）不得开窗——否则客机「没压进子弹却进 9.5s CD」。
+        /// DEV-V5-08 P2P 探针 #3 实证：第一次双击 0 发仍武装窗。</summary>
+        void ArmRepackWindowAfterCommit(ulong steamId);
+
         ReloadSkillUpgradeDecision ExecuteUpgrade(ulong steamId, byte targetLevel);
 
         byte GetLevelFor(ulong steamId);

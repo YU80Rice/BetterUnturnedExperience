@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 using UnityEngine;
 
 namespace BetterUnturnedExperience.Lir
@@ -28,6 +29,11 @@ namespace BetterUnturnedExperience.Lir
         /// <summary>Quarantined steam ids: any TryAcquire refuses until ReleaseQuarantine.</summary>
         private static readonly HashSet<ulong> Quarantined = new HashSet<ulong>();
 
+        /// <summary>宿主测试时钟（秒）。null = 生产走 Time.realtimeSinceStartup。
+        /// 闸门方法体仍含 Unity 类型引用，但 Now 注入后冷却/回放分支可在无引擎
+        /// 进程断言（08 U3DS 自动轮红测需要）。</summary>
+        internal static Func<float> NowSecondsForTests;
+
         private readonly struct ReplayEntry
         {
             internal readonly ulong RequestId;
@@ -44,18 +50,39 @@ namespace BetterUnturnedExperience.Lir
         /// Tries to acquire a cooldown slot. false = cooling down / quarantined
         /// / capacity cap hit / invalid request id. Main thread only.
         /// </summary>
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static float ReadEngineNowSeconds()
+        {
+            return Time.realtimeSinceStartup;
+        }
+
         internal static bool TryAcquire(ulong id, ulong requestId, out int retryAfterMs)
         {
-            float now = Time.realtimeSinceStartup;
+            return TryAcquire(id, requestId, false, out retryAfterMs);
+        }
+
+        /// <summary>主机发起（2 级自动轮）：跳过客户端 requestId 回放比较，仍吃
+        /// 1.5s 技术闸与隔离。U3DS 探针 #5：自动轮 NextRequestId 常小于客机上次
+        /// 手动 id → 回放闸 rejected=1，到点提交零成交。</summary>
+        internal static bool TryAcquireHostInitiated(ulong id, out int retryAfterMs)
+        {
+            return TryAcquire(id, 0UL, true, out retryAfterMs);
+        }
+
+        private static bool TryAcquire(ulong id, ulong requestId, bool hostInitiated, out int retryAfterMs)
+        {
+            float now = NowSecondsForTests != null ? NowSecondsForTests() : ReadEngineNowSeconds();
             long nowTicks = System.Diagnostics.Stopwatch.GetTimestamp();
 
-            if (id == 0UL || requestId == 0UL)
+            if (id == 0UL || (!hostInitiated && requestId == 0UL))
             {
                 retryAfterMs = -3;
                 return false;
             }
             PurgeExpiredReplayEntries(nowTicks);
-            if (HighestObservedRequestIds.TryGetValue(id, out var previous) && requestId <= previous.RequestId)
+            if (!hostInitiated
+                && HighestObservedRequestIds.TryGetValue(id, out var previous)
+                && requestId <= previous.RequestId)
             {
                 retryAfterMs = -3;
                 return false;
@@ -63,13 +90,17 @@ namespace BetterUnturnedExperience.Lir
 
             // Record the new id BEFORE the quarantine/cooldown decision — a
             // rejected request must never become replayable on a later packet.
-            if (!HighestObservedRequestIds.ContainsKey(id) && HighestObservedRequestIds.Count >= ReloadRuntimePolicy.GateMaxEntries)
+            // 主机发起不写入回放表（自动轮 id 与客机手动 id 不在同一序号空间）。
+            if (!hostInitiated)
             {
-                LirRuntime.LogError("[RepackGate] CRITICAL: replay 表已达上限 " + ReloadRuntimePolicy.GateMaxEntries + "，拒绝新请求");
-                retryAfterMs = -1;
-                return false;
+                if (!HighestObservedRequestIds.ContainsKey(id) && HighestObservedRequestIds.Count >= ReloadRuntimePolicy.GateMaxEntries)
+                {
+                    LirRuntime.LogError("[RepackGate] CRITICAL: replay 表已达上限 " + ReloadRuntimePolicy.GateMaxEntries + "，拒绝新请求");
+                    retryAfterMs = -1;
+                    return false;
+                }
+                HighestObservedRequestIds[id] = new ReplayEntry(requestId, nowTicks);
             }
-            HighestObservedRequestIds[id] = new ReplayEntry(requestId, nowTicks);
 
             // 0) Quarantine first (highest priority — only a release lifts it).
             if (Quarantined.Contains(id))
@@ -83,7 +114,7 @@ namespace BetterUnturnedExperience.Lir
             // by the capacity check for new ids).
             if (NextAllowedAt.TryGetValue(id, out float next) && now < next)
             {
-                retryAfterMs = Mathf.CeilToInt((next - now) * 1000f);
+                retryAfterMs = (int)((next - now) * 1000f) + 1;
                 return false;
             }
 
