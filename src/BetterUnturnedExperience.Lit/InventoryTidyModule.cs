@@ -201,6 +201,21 @@ namespace BetterUnturnedExperience.Lit
         internal bool ShuttingDown { get; private set; }
         internal string StartGateDiagnostics { get; private set; } = string.Empty;
 
+        // ── DEV-V6-11：补丁所有权（V6-T5 Q2 追加裁决）─────────────────────────────
+        // 本功能只有一个 Harmony 身份（全部补丁面共用同一 Harmony 实例/ID），因此只对应
+        // 一枚句柄：一个 Harmony 身份=一个补丁所有权事实。句柄经启动口袋进既有资源账，
+        // 受理即把拆除所有权移交平台；此后模块在正常停止路径不再 UnpatchSelf。
+        // 缺口袋/登记被拒/半装失败=立即自拆，平台账外零补丁（票面：不得自管补丁账）。
+
+        /// <summary>启动代际捕获的补丁口（null=老宿主/裸 bootstrap：不给口袋，则不带补丁）。</summary>
+        private IFeaturePatching patching;
+
+        /// <summary>平台账受理后的补丁句柄（null=未移交）。</summary>
+        internal TidyPatchHandle PatchRegistration { get; private set; }
+
+        /// <summary>拆除所有权是否已移交平台账（true=平台在停止/隔离边界释放句柄）。</summary>
+        internal bool PatchTeardownDelegated { get; private set; }
+
         /// <summary>DEV-V5-04: the insert-recovery patch trio (scope openers +
         /// the tryAddItemAuto behavior point) is its OWN registration — an
         /// AUTHORITY patch set, armed on U3DS too (story 25: 权威行为主机必须
@@ -226,6 +241,21 @@ namespace BetterUnturnedExperience.Lit
 
         /// <summary>DEV-V5-05 seam for the fast-transfer pair (same family).</summary>
         internal static Func<Type, bool> FastTransferPatchInstallerForTests;
+
+        /// <summary>DEV-V6-11 seam for the UI patch face (same family as the two
+        /// above): in the host test process this patch's install outcome depends
+        /// on the game assembly's shape (a drift faults it, and the all-or-none
+        /// rule then rolls every face back) — the seam pins「哪一面武装」so the
+        /// registration/ownership assertions do not go red on game-DLL drift.</summary>
+        internal static Func<Type, bool> UiPatchInstallerForTests;
+
+        /// <summary>DEV-V6-11 seam for the Harmony reversal (same family): the host
+        /// cannot re-JIT engine method bodies, so the real reversal is unreachable
+        /// there. false = the reversal faulted — the account-bound release must let
+        /// that fault reach the account pipeline (BUE-LIFE-006, no release line, the
+        /// frozen DEV-V6-05 semantics), while the arm-time self-teardown keeps its
+        /// guard (V5-04 discipline: never throws into Start).</summary>
+        internal static Func<bool> PatchRevertForTests;
 
         /// <summary>Last completed transaction outcome, observable for the future TidyCompleted publisher (DEV-V2-19/21).</summary>
         internal TidyOperationOutcome LastLocalOutcome { get; set; }
@@ -309,7 +339,19 @@ namespace BetterUnturnedExperience.Lit
             // tidy click reads comes through it) and binds BEFORE the patches
             // arm.
             AttachSettingsView(bootstrap.Settings); // DEV-V3-06: bind BEFORE arming
+            // DEV-V6-11（V6-T5 Q2 追加裁决）：武装与登记都只发生在生命周期内——
+            // 工厂路径不再提前武装（ModuleFactory.Create 只交付惰性模块），代际开启、
+            // 补丁武装、经启动口袋登记三件事在这里按序完成；缺口袋/拒绝即立即自拆。
+            patching = bootstrap.Patching;
+            PatchTeardownDelegated = false;
+            PatchRegistration = null;
             EnsureStarted();
+            ArmPatches();
+            // DEV-V6-11：节拍走冻结的宿主时钟事件缝（与换弹/尸潮同一缝）——宿主完成链
+            // 不再泵动整理的运行实例，本模块自己订阅平台公开的 HostTick。停机边界的
+            // 退订由宿主停止交接（bus UnsubscribeAll after Stop）完成；视图缺席（裸
+            // bootstrap）= 无节拍来源，诚实缺席而不是自建泵。
+            if (bootstrap.Events != null) bootstrap.Events.Subscribe<HostTick>(OnHostTick);
             // DEV-V2-21: the fault scope book binds the feature-private disk
             // persistence (JSON key structure unchanged); the production
             // context provider resolves map/slot at scope time.
@@ -393,7 +435,10 @@ namespace BetterUnturnedExperience.Lit
             // invalidated the projection reconciles it on the same beat (any
             // outcome: a compensated failure has also moved items back). The
             // dispatcher is engine-gated and a no-op off the listen host.
-            ClientUi.Internal.ListenHostProjectionReconciler.OnTidyPagesCommitted(firstPage, lastPage);
+            // DEV-V6-02B (V6-T2 硬项拆法): the reconcile request rides the
+            // HOST-BOUND relay port — the feature never names the UI layer;
+            // the assembly root binds the port to the projection reconciler.
+            LitFeatureAssembly.RelayProjectionReconcile(firstPage, lastPage);
         }
 
         /// <summary>
@@ -436,10 +481,11 @@ namespace BetterUnturnedExperience.Lit
             MainThreadDispatcher.Shutdown();
             LitRuntime.LogInfo("[Tidy] 模块停止：阶段 2/3 dispatcher 关停完成");
 
-            // 阶段 3：完全关停 — 撤销自身补丁 + 拆除已注入按钮（移除对象/解绑
+            // 阶段 3：完全关停 — 补丁所有权交接（登记成功=平台账在停止边界拆除，模块
+            // 不再自拆；未移交才 fail-closed 自拆）+ 拆除已注入按钮（移除对象/解绑
             // 回调/清引用，Q55：停用后已打开页面不留死按钮）+ 清空功能代际静态
             // 表 + 解绑日志缝（解绑放在收尾日志之后，阶段完成信息仍可见）。
-            UninstallPatches();
+            ReleasePatchOwnership();
             InventoryTidyUiPatch.RemoveInjectedButtons();
             // DEV-V5-03: the production container-tidy toast is bound by the UI
             // when it actually draws (never in Start, so host recorders are not
@@ -453,24 +499,25 @@ namespace BetterUnturnedExperience.Lit
             NetService?.Stop();
             NetService = null;
             FaultBook = null;
-            // 阶段 3 收尾日志按拆除事实如实区分：全部清干净 vs 仍有失败页引用
-            // 在册待重试（Q55 红线：不把停用伪装成拆除成功）。
+            // 阶段 3 收尾日志按拆除事实如实区分：补丁登记面已归零、按钮全清 vs 仍有
+            // 失败页引用在册待重试（Q55 红线：不把停用伪装成拆除成功）。DEV-V6-11：
+            // 已移交平台账的补丁在停止边界（CompleteStop）被账逆序拆除——本行不声称
+            // 「补丁已撤」，那是平台账的动作，其释放行自会落（BUE-LIT-PATCH-004）。
             if (InventoryTidyUiPatch.HasTrackedButtons)
-                LitRuntime.LogInfo("[Tidy] 模块停止：阶段 3/3 完全关停（补丁已撤；部分按钮引用因移除失败仍在册，待下次拆除重试 diagnosticId=BUE-LIT-TEARDOWN）");
+                LitRuntime.LogInfo("[Tidy] 模块停止：阶段 3/3 完全关停（补丁登记已注销；部分按钮引用因移除失败仍在册，待下次拆除重试 diagnosticId=BUE-LIT-TEARDOWN）");
             else
-                LitRuntime.LogInfo("[Tidy] 模块停止：阶段 3/3 完全关停（补丁已撤、按钮引用已清）");
+                LitRuntime.LogInfo("[Tidy] 模块停止：阶段 3/3 完全关停（补丁登记已注销、按钮引用已清）");
             LitRuntime.LogSink = null;
             LitRuntime.ErrorLogSink = null;
         }
 
         /// <summary>
         /// Idempotent start: caches the main-thread id for the transaction
-        /// service and arms the UI patch for this module generation (the
-        /// lifecycle machine is the only switch; a shutting-down generation
-        /// and U3DS headless never arm). Production binds this at Awake
-        /// (the host start path that drives IFeatureModule.Start belongs to
-        /// a later ticket); Start forwards here so the module behaves
-        /// correctly when that path exists.
+        /// service and opens this module generation's dispatcher queue. Called
+        /// ONLY from Start (the lifecycle owns the generation boundary) — a
+        /// shutting-down generation never serves, and arming is NOT this
+        /// method's business any more (DEV-V6-11: ArmPatches follows inside
+        /// Start, where the bootstrap's patch pocket is in hand).
         /// </summary>
         internal void EnsureStarted()
         {
@@ -480,13 +527,20 @@ namespace BetterUnturnedExperience.Lit
             // generation owns (a previous generation's Stop closed it).
             MainThreadDispatcher.EnsureOpen();
             Started = true;
-            if (!ShuttingDown)
-            {
-                // DEV-V4-06: the lifecycle machine is the ONLY switch (the
-                // legacy enabled master switch is retired) — arming follows
-                // the module generation, U3DS headless never arms (T1 Q17).
-                InstallPatches();
-            }
+        }
+
+        /// <summary>
+        /// DEV-V6-11: the ONE host-frame entry — subscribed to the frozen
+        /// HostTick event seam at Start (the LIR/LHT shape; the host completion
+        /// chain no longer pumps this feature). A stopped or shutting-down
+        /// generation serves nothing: the seam keeps delivering until the host
+        /// drops the subscription at the stop boundary, and this gate makes
+        /// that window honest.
+        /// </summary>
+        internal void OnHostTick(HostTick tick)
+        {
+            if (!Started || ShuttingDown) return;
+            Tick();
         }
 
         internal LitTidyRequestResult RequestLocalTidy(byte page, TidyMode mode, bool sortDescending)
@@ -837,27 +891,62 @@ namespace BetterUnturnedExperience.Lit
             return System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "BetterUnturnedExperience", "inventory-tidy", "fault_scopes");
         }
 
+        /// <summary>DEV-V6-02B (V6-T2 硬项拆法): the production log sinks are the
+        /// HOST-INJECTED delegates (bound once at composition, rebindable per
+        /// generation) — the feature never names the host log type. Unbound
+        /// (test host) = the LitRuntime null-conditional swallow contract,
+        /// unchanged.</summary>
         internal void BindProductionLog()
         {
-            LitRuntime.LogSink = line => BetterUnturnedExperience.Plugin.BueRuntimeLog.Runtime(line);
-            LitRuntime.ErrorLogSink = line => BetterUnturnedExperience.Plugin.BueRuntimeLog.Error(line);
+            LitRuntime.LogSink = LitFeatureAssembly.HostRuntimeLogSink;
+            LitRuntime.ErrorLogSink = LitFeatureAssembly.HostErrorLogSink;
         }
 
-        private void InstallPatches()
+        /// <summary>
+        /// DEV-V6-11: the ONE arming entry — called from Start only (the
+        /// lifecycle owns arming; the factory path delivers a born-inert
+        /// module). Order is load-bearing: the two AUTHORITY sets arm on every
+        /// surface (U3DS included — V5-T1 裁决只砍画面), the picture set is the
+        /// decision-gated one, and the single ownership handover runs LAST so
+        /// it covers exactly the faces that really got armed (all of them, or
+        /// nothing after an all-or-none rollback).
+        /// </summary>
+        private void ArmPatches()
         {
             // DEV-V5-04: the recovery trio is an AUTHORITY patch set — it arms
             // on every surface including U3DS (V5-T1 Headless 裁决只砍画面),
             // BEFORE and independent of the UI decision gate below.
             InstallRecoverPatches();
+            // DEV-V6-11（Spec 轴 R1 收口）：半装失败 = 立即自拆 AND the arming
+            // transaction STOPS here — the remaining faces are not armed either, so
+            // a half-installed feature never ends up half-running (票面「半装失败：
+            // 模块立即自拆，不留半装」按模块级读，不按补丁套级读)。
+            if (!RecoverPatchesInstalled) return;
             // DEV-V5-05: the fast-transfer pair likewise arms on every surface
             // (its authoritative half = the admitted-request execution; the
             // intent window simply never opens headless — no dashboard UI).
             InstallFastTransferPatches();
+            if (!FastTransferPatchesInstalled) return;
+            // DEV-V4-06: the picture face is the ONLY decision-gated one.
+            InstallUiPatch();
+            // DEV-V6-11 (V6-T5 Q2 追加裁决): armed ⇒ registered. The platform
+            // is the single owner of the orderly teardown from here on; a
+            // pocket that is missing or refuses means the module tears its own
+            // patches down IMMEDIATELY (no half install, nothing left outside
+            // the platform account).
+            HandOverPatchOwnership();
+        }
 
+        private void InstallUiPatch()
+        {
             // DEV-V4-06: U3DS never arms the Glazier injection (T1 Q17) — a
             // DECISION gate recorded as an honest diagnostic, never an
-            // exception pretending to be a gate.
-            if (BetterUnturnedExperience.Plugin.BueRuntimeCompletionChain.HeadlessDecision)
+            // exception pretending to be a gate. DEV-V6-02B (V6-T2 硬项拆法):
+            // the headless fact is the HOST-INJECTED decision (absent = test
+            // host = not headless, arming proceeds through the installer
+            // seams as before).
+            var headlessDecision = LitFeatureAssembly.HostHeadlessDecision;
+            if (headlessDecision != null && headlessDecision())
             {
                 StartGateDiagnostics = "headless-ui-not-armed";
                 LitRuntime.LogInfo("[Tidy] U3DS headless：不武装整理按钮补丁（Headless 决策门禁）");
@@ -867,7 +956,18 @@ namespace BetterUnturnedExperience.Lit
             try
             {
                 if (harmony == null) harmony = new Harmony(LitRuntime.FeatureIdValue);
-                harmony.CreateClassProcessor(typeof(InventoryTidyUiPatch)).Patch();
+                // DEV-V6-11: the seam keeps「哪一面武装」machine-checkable in the
+                // host (the face's real install depends on the game assembly's
+                // shape there); production runs the real class processor.
+                var seam = UiPatchInstallerForTests;
+                if (seam != null)
+                {
+                    if (!seam(typeof(InventoryTidyUiPatch))) throw new InvalidOperationException("ui patch refused: InventoryTidyUiPatch");
+                }
+                else
+                {
+                    harmony.CreateClassProcessor(typeof(InventoryTidyUiPatch)).Patch();
+                }
                 InventoryTidyUiPatch.ActiveModule = this;
                 PatchesInstalled = true;
                 StartGateDiagnostics = string.Empty;
@@ -875,21 +975,151 @@ namespace BetterUnturnedExperience.Lit
             }
             catch (Exception e)
             {
-                // 环境闸（宿主测试进程无法装真机补丁 / 游戏版本漂移）：记录
-                // 结构化诊断而非静默失败——按钮不可用是可观察状态。
+                // 环境闸（游戏版本漂移 / 宿主环境装不上这条画面补丁）：记录结构化
+                // 诊断而非静默失败——按钮不可用是可观察状态。
                 StartGateDiagnostics = "patch-install-failed: " + e.GetType().Name + ":" + e.Message;
                 LitRuntime.LogError("[Tidy] 整理按钮补丁安装失败（整理功能不可用）: " + e.Message);
-                // 半装回滚：处理器可能已挂上部分补丁，失败即整体撤销自身。
-                // DEV-V5-04：UnpatchSelf 按 Harmony ID 全撤，恢复三件套同被摘除
-                // ——两面的在册状态必须同步归零（不留「补丁没了、登记还在」）。
-                // DEV-V5-05：快速转移两面同闸同理（三面在册一起归零）。
-                try { if (harmony != null) harmony.UnpatchSelf(); } catch (Exception) { }
-                InventoryTidyUiPatch.ActiveModule = null;
-                RecoverPatchesInstalled = false;
-                InsertRecoverAdapter.ActiveModule = null;
-                FastTransferPatchesInstalled = false;
-                FastTransferRecoverAdapter.ActiveModule = null;
+                // DEV-V6-11: 半装 = 立即整体自拆（UnpatchSelf 按 Harmony ID 全撤，三面
+                // 在册状态一并归零），此后不登记、不留平台账外补丁。
+                SelfUnpatch("ui-patch-install-failed");
             }
+        }
+
+        /// <summary>
+        /// DEV-V6-11（V6-T5 Q2 + 2026-09-18 追加裁决）：把武装好的补丁交给启动口袋。
+        /// 受理 ⇒ 拆除所有权移交平台账（此后模块在正常停止路径不再 UnpatchSelf）；
+        /// 缺口袋 ⇒ 立即自拆（不自管补丁账）；拒绝 ⇒ 立即自拆并留拒绝原因与码。
+        /// 一个 Harmony 身份（本功能全部补丁面共用同一实例/ID）对应一枚句柄。
+        /// </summary>
+        private void HandOverPatchOwnership()
+        {
+            if (!PatchesInstalled && !RecoverPatchesInstalled && !FastTransferPatchesInstalled) return;
+            var pocket = patching;
+            if (pocket == null)
+            {
+                SelfUnpatch("patch-pocket-missing");
+                LitRuntime.LogError("[Tidy] 启动口袋未提供补丁口：已武装补丁立即自拆（平台账外不留补丁） diagnosticId=BUE-LIT-PATCH-003");
+                return;
+            }
+            var handle = new TidyPatchHandle(LitRuntime.FeatureIdValue, ReleasePatchesFromPlatform,
+                LitFeatureAssembly.HostRuntimeLogSink);
+            FeaturePatchRegistrationResult result;
+            try
+            {
+                result = pocket.Register(handle);
+            }
+            catch (Exception e)
+            {
+                LitRuntime.LogError("[Tidy] 补丁口登记异常：" + e.GetType().Name + " → 已武装补丁立即自拆（不留半装） diagnosticId=BUE-LIT-PATCH-002");
+                SelfUnpatch("patch-pocket-register-faulted");
+                return;
+            }
+            if (result.Registered)
+            {
+                PatchRegistration = handle;
+                PatchTeardownDelegated = true;
+                LitRuntime.LogInfo("[Tidy] 补丁经启动口袋登记（拆除所有权移交平台账，句柄=" + handle.HarmonyId
+                    + "，代际=" + result.LifecycleGeneration + "） diagnosticId=BUE-LIT-PATCH-001");
+                return;
+            }
+            LitRuntime.LogError("[Tidy] 补丁口登记被拒 reason=" + result.Reason + " pocketCode=" + result.DiagnosticId
+                + "：已武装补丁立即自拆（不留半装） diagnosticId=BUE-LIT-PATCH-002");
+            SelfUnpatch("patch-pocket-rejected");
+        }
+
+        /// <summary>
+        /// DEV-V6-11: the platform account's release path — the handle's
+        /// Dispose (stop/isolation boundary), i.e. THE normal teardown point
+        /// once registration was accepted. The unpatch is NOT swallowed here
+        /// (Spec 轴 R1 收口): a faulting UnpatchSelf propagates to the
+        /// account's release pipeline, which isolates it into BUE-LIFE-006 —
+        /// the frozen DEV-V6-05 semantics, and the reason the handle writes its
+        /// release line only after this returns. The bookkeeping still lands in
+        /// the finally: the registration is the functional switch and is always
+        /// revoked, so a stuck live hook (if any) answers as plain refusal
+        /// through the adapter gates instead of serving.
+        /// </summary>
+        private void ReleasePatchesFromPlatform()
+        {
+            try
+            {
+                if (!RevertPatches())
+                    throw new InvalidOperationException("harmony unpatch faulted (UnpatchSelf)");
+            }
+            finally
+            {
+                ClearPatchBookkeeping();
+            }
+        }
+
+        /// <summary>
+        /// DEV-V6-11: the ONE Harmony-id reversal call. false = the reversal
+        /// faulted; how that travels is each boundary's own frozen discipline —
+        /// the account-bound release lets it reach the account pipeline (see
+        /// ReleasePatchesFromPlatform), the arm-time self-teardown guards it
+        /// (see UnpatchSelfGuarded).
+        /// </summary>
+        private bool RevertPatches()
+        {
+            var seam = PatchRevertForTests;
+            if (seam != null) return seam();
+            if (harmony != null) harmony.UnpatchSelf();
+            return true;
+        }
+
+        /// <summary>
+        /// DEV-V6-11: the module's own teardown, reachable ONLY outside the
+        /// platform account (half-install failure, registration refusal,
+        /// missing pocket) — after a successful handover this path must never
+        /// run on the normal stop, or the patches would be torn down twice.
+        /// Leaves a trace line so the red tests can pin its absence.
+        /// </summary>
+        private void SelfUnpatch(string reason)
+        {
+            UnpatchSelfGuarded(reason);
+            ClearPatchBookkeeping();
+            LitRuntime.LogInfo("[Tidy] 整理补丁自拆（平台账外）reason=" + reason + " diagnosticId=BUE-LIT-PATCH-005");
+        }
+
+        /// <summary>
+        /// DEV-V5-04: the arm-time unpatch is guarded — reversing applied IL
+        /// re-JITs the ORIGINAL method bodies, which in a host without the
+        /// Unity runtime throws (the Mono ECall rule). This path runs OUTSIDE
+        /// the platform account (the install it undoes just failed), and it
+        /// must never throw into the module's own Start: the bookkeeping is the
+        /// functional switch and is revoked either way, while a failed reversal
+        /// stays observable in the log. The ACCOUNT-bound release
+        /// (ReleasePatchesFromPlatform) deliberately does NOT swallow — there
+        /// the account pipeline is the isolation point (BUE-LIFE-006).
+        /// </summary>
+        private void UnpatchSelfGuarded(string reason)
+        {
+            try
+            {
+                if (!RevertPatches())
+                    LitRuntime.LogError("[Tidy] 补丁撤销失败（登记已强制收回，功能面按停用运行）reason=" + reason);
+            }
+            catch (Exception e)
+            {
+                LitRuntime.LogError("[Tidy] 补丁撤销异常（登记已强制收回，功能面按停用运行）reason=" + reason + ": " + e.Message);
+            }
+        }
+
+        /// <summary>The one revocation of every armed face's registration
+        /// (05-04/05-05 在册同步律): UnpatchSelf is by Harmony ID, so one
+        /// removal revokes all faces — the bookkeeping follows it, never the
+        /// other way round.</summary>
+        private void ClearPatchBookkeeping()
+        {
+            PatchesInstalled = false;
+            InventoryTidyUiPatch.ActiveModule = null;
+            // DEV-V5-04: Stop/隔离 = 恢复面注销——补丁没了、登记也交还，
+            // 「功能停路径不执行」由这条注销保证（无补丁内死开关）。
+            RecoverPatchesInstalled = false;
+            InsertRecoverAdapter.ActiveModule = null;
+            // DEV-V5-05: 快速转移面同款注销（两恢复面同闸同代，交还一起交还）。
+            FastTransferPatchesInstalled = false;
+            FastTransferRecoverAdapter.ActiveModule = null;
         }
 
         /// <summary>DEV-V5-04: register the insert-recovery trio (pickup scope
@@ -927,10 +1157,8 @@ namespace BetterUnturnedExperience.Lit
             {
                 RecoverStartGateDiagnostics = "recover-patch-install-failed: " + e.GetType().Name + ":" + e.Message;
                 LitRuntime.LogError("[入包恢复] 恢复补丁登记失败（入包保持原版，不半装）: " + e.Message);
-                // 半装 = 整体撤销（含先装的按钮面尚未装——本方法在 UI 安装前运行）。
-                try { if (harmony != null) harmony.UnpatchSelf(); } catch (Exception) { }
-                InsertRecoverAdapter.ActiveModule = null;
-                RecoverPatchesInstalled = false;
+                // 半装 = 立即整体自拆（含先装的按钮面尚未装——本方法在 UI 安装前运行）。
+                SelfUnpatch("recover-patch-install-failed");
             }
         }
 
@@ -965,51 +1193,41 @@ namespace BetterUnturnedExperience.Lit
             {
                 FastTransferStartGateDiagnostics = "fast-transfer-patch-install-failed: " + e.GetType().Name + ":" + e.Message;
                 LitRuntime.LogError("[快速转移恢复] 恢复补丁登记失败（快速转移保持原版，不半装）: " + e.Message);
-                try { if (harmony != null) harmony.UnpatchSelf(); } catch (Exception) { }
-                FastTransferRecoverAdapter.ActiveModule = null;
-                FastTransferPatchesInstalled = false;
-                // UnpatchSelf 同 ID 全撤：另一恢复面与 UI 的在册状态必须同步归零
-                //（04 同款在册同步律）。
-                RecoverPatchesInstalled = false;
-                InsertRecoverAdapter.ActiveModule = null;
-                PatchesInstalled = false;
-                InventoryTidyUiPatch.ActiveModule = null;
+                // DEV-V6-11：半装 = 立即整体自拆。UnpatchSelf 按 Harmony ID 全撤：另一
+                // 恢复面与 UI 的在册状态同步归零（04 同款在册同步律）。
+                SelfUnpatch("fast-transfer-patch-install-failed");
             }
         }
 
-        private void UninstallPatches()
+        /// <summary>
+        /// DEV-V6-11（V6-T5 Q2 追加裁决）: the stop-boundary patch handoff.
+        /// Registration accepted ⇒ the PLATFORM is the single owner of the
+        /// orderly teardown (its account releases the handle at CompleteStop,
+        /// after this method returns) and the module must NOT unpatch here —
+        /// tearing down twice is the defect this ticket removes. No handover
+        /// on record ⇒ the module still owns its patches and fails closed
+        /// (immediate self-teardown; the arm-time legs already tore down, so
+        /// this is the defensive path).
+        /// </summary>
+        private void ReleasePatchOwnership()
         {
-            if (!PatchesInstalled && !RecoverPatchesInstalled && !FastTransferPatchesInstalled) return;
-            // DEV-V5-04: the unpatch itself is guarded — reversing applied IL
-            // re-JITs the ORIGINAL method bodies, which in a host without the
-            // Unity runtime throws (the Mono ECall rule). The stop boundary
-            // must never throw into the lifecycle machine, and the bookkeeping
-            // below has to land either way: the registration (ActiveModule /
-            // installed flags) is the functional switch, and it is always
-            // revoked — a stuck live IL hook with no registration answers as
-            // plain refusal through the adapter gates, while a failed reversal
-            // stays observable in the log.
-            try
+            var armed = PatchesInstalled || RecoverPatchesInstalled || FastTransferPatchesInstalled;
+            if (armed && !PatchTeardownDelegated)
             {
-                if (harmony != null) harmony.UnpatchSelf();
+                SelfUnpatch("stop-without-handover");
             }
-            catch (Exception e)
+            else
             {
-                LitRuntime.LogError("[Tidy] 补丁撤销异常（登记已强制收回，功能面按停用运行）: " + e.Message);
+                if (armed)
+                {
+                    LitRuntime.LogInfo("[Tidy] 补丁拆除在平台账上：模块停止不自行拆除（代际=" + LifecycleGeneration + "）");
+                }
+                // The functional switch goes off here either way — the patches
+                // themselves are the platform's business from now on.
+                ClearPatchBookkeeping();
             }
-            finally
-            {
-                PatchesInstalled = false;
-                InventoryTidyUiPatch.ActiveModule = null;
-                // DEV-V5-04: Stop/隔离 = 恢复面注销——补丁没了、登记也交还，
-                // 「功能停路径不执行」由这条注销保证（无补丁内死开关）。
-                RecoverPatchesInstalled = false;
-                InsertRecoverAdapter.ActiveModule = null;
-                // DEV-V5-05: 快速转移面同款注销（两恢复面同闸同代，交还一起交还）。
-                FastTransferPatchesInstalled = false;
-                FastTransferRecoverAdapter.ActiveModule = null;
-                LitRuntime.LogInfo("[Tidy] 整理按钮补丁已撤销（原生回退）");
-            }
+            PatchTeardownDelegated = false;
+            PatchRegistration = null;
         }
 
         /// <summary>DEV-V3-06: bind the host-injected scoped settings view

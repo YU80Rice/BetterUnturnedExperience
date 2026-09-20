@@ -62,6 +62,8 @@ namespace BetterUnturnedExperience.Plugin
         // DEV-V2-10 seam: the official definitions extracted from the private
         // Registration so tests can drive them through the real registration
         // runtime (the payload digest must validate, never go unchecked).
+        // The digest is computed through the contract's public helper
+        // (DEV-V6-06 single source) — never transcribed by hand (BUE-REG-004).
         internal static FeatureDefinitionArtifact CreateNetworkDefinition()
         {
             var payload = new byte[] { 66, 85, 69, 45, 78, 69, 84, 45, 86, 49 }; // "BUE-NET-V1"
@@ -70,7 +72,7 @@ namespace BetterUnturnedExperience.Plugin
                 1,
                 "bue-network-v1",
                 new Digest256(1UL, 0UL, 0UL, 16UL),
-                ComputePayloadDigest(payload),
+                FeatureDefinitionDigest.ComputeArtifactPayloadDigest(payload),
                 payload);
         }
 
@@ -87,26 +89,8 @@ namespace BetterUnturnedExperience.Plugin
                 1,
                 "bue-network-v1compat-v1",
                 new Digest256(1UL, 0UL, 0UL, 17UL),
-                ComputePayloadDigest(payload),
+                FeatureDefinitionDigest.ComputeArtifactPayloadDigest(payload),
                 payload);
-        }
-
-        // The artifact payload digest is COMPUTED from the payload bytes
-        // (SHA-256, 4 little-endian uint64 parts — the runtime's Digest256
-        // convention), never transcribed by hand: the real machine rejected
-        // the network registration (BUE-REG-004) because its baked constants
-        // did not match the payload's actual hash.
-        internal static Digest256 ComputePayloadDigest(byte[] payload)
-        {
-            using (var sha = System.Security.Cryptography.SHA256.Create())
-            {
-                var hash = sha.ComputeHash(payload);
-                return new Digest256(
-                    BitConverter.ToUInt64(hash, 0),
-                    BitConverter.ToUInt64(hash, 8),
-                    BitConverter.ToUInt64(hash, 16),
-                    BitConverter.ToUInt64(hash, 24));
-            }
         }
 
         internal static IFeatureRegistration[] CreateOfficialRegistrations()
@@ -150,22 +134,28 @@ namespace BetterUnturnedExperience.Plugin
         // RETIRE with the V4 migration (spec「成功后旧字段从 schema 与面板
         // 退役」) — no facet, no panel row; the durable disable intent lives
         // in the lifecycle intent store and the adapter consults it.
-        private sealed class Registration : IFeatureRegistration
+        private sealed class Registration : IFeatureRegistration, IFeaturePresentationRegistration
         {
             public FeatureDefinitionArtifact Definition { get { return CreateNetworkDefinition(); } }
 
             public ContractVersion MinimumBueContract { get { return new ContractVersion(2, 0); } }
             public IFeatureModuleFactory ModuleFactory { get { return new ModuleFactory(); } }
             public IClientUiSatelliteRegistration ClientUi { get { return null; } }
+            // DEV-V6-05 (V6-T5 Q1): the facet self-reports the panel copy the
+            // host's hardcoded official name map used to hold (作废票 05).
+            public string DisplayName { get { return "BUE 网络模块"; } }
+            public bool DirectPresentation { get { return true; } }
         }
 
-        private sealed class V1CompatRegistration : IFeatureRegistration
+        private sealed class V1CompatRegistration : IFeatureRegistration, IFeaturePresentationRegistration
         {
             public FeatureDefinitionArtifact Definition { get { return CreateV1CompatDefinition(); } }
 
             public ContractVersion MinimumBueContract { get { return new ContractVersion(2, 0); } }
             public IFeatureModuleFactory ModuleFactory { get { return new ModuleFactory(); } }
             public IClientUiSatelliteRegistration ClientUi { get { return null; } }
+            public string DisplayName { get { return "BUE V1 兼容层"; } }
+            public bool DirectPresentation { get { return true; } }
         }
 
         private sealed class ModuleFactory : IFeatureModuleFactory

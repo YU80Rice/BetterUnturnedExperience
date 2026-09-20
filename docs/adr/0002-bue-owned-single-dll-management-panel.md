@@ -31,3 +31,4 @@ BUE 仓库必须保留作者、仓库、采用提交和致谢信息，详见 `do
 - 正面：玩家只需部署一个 BUE DLL；官方功能与第三方功能使用同一管理体验；后续功能可复用统一面板和设置契约。
 - 代价：BUE 必须维护 Unity/Glazier/Unturned 版本适配、UI 重建、ConfigEntry 边界和 Headless 隔离；吸收代码时必须持续保留来源与贡献记录。
 - 门禁：DEV-16A～DEV-16E 必须分别通过编译、独立审计、Gemini 前端复核和真实环境验证；新 DLL 产生后，旧 CandidateBuild 与运行证据全部失效。
+- 澄清（V6-T1，2026-09-17）：Decision §1 锁的是玩家侧发布物为一个 `BetterUnturnedExperience.dll`（发布面），不锁编译期必须为单程序集（构建面）。构建期真分工程、发布期合并回单 DLL 不构成推翻本 ADR；合并工具由第六阶段工程结构票裁。

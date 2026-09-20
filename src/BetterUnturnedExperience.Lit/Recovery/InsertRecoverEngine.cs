@@ -133,7 +133,9 @@ namespace BetterUnturnedExperience.Lit
             }
             try
             {
-                BetterUnturnedExperience.ClientUi.Internal.ListenHostProjectionReconciler.OnTidyPagesCommitted(
+                // DEV-V6-02B (V6-T2 硬项拆法): the reconcile request rides the
+                // HOST-BOUND relay port — the feature never names the UI layer.
+                LitFeatureAssembly.RelayProjectionReconcile(
                     HotkeySnapshotUtil.TIDYABLE_PAGE_MIN, HotkeySnapshotUtil.TIDYABLE_PAGE_MAX);
             }
             catch (Exception error)

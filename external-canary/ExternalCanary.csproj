@@ -1,0 +1,27 @@
+﻿<Project ToolsVersion="Current" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Release</Configuration>
+    <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
+    <ProjectGuid>{9A0A7D7B-6B4B-4B13-9A0A-090000000001}</ProjectGuid>
+    <OutputType>Library</OutputType>
+    <RootNamespace>ExternalCanary</RootNamespace>
+    <AssemblyName>ExternalCanary</AssemblyName>
+    <TargetFrameworkVersion>v4.7.2</TargetFrameworkVersion>
+    <LangVersion>10.0</LangVersion>
+    <Deterministic>true</Deterministic>
+    <DebugType>none</DebugType>
+    <BuePublishedDll Condition=" '$(BuePublishedDll)' == '' ">$(MSBuildThisFileDirectory)..\artifacts\repack\external-canary\BetterUnturnedExperience.dll</BuePublishedDll>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
+    <Optimize>true</Optimize><OutputPath>bin\Release\</OutputPath><DefineConstants>TRACE</DefineConstants><WarningLevel>4</WarningLevel><TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="System" />
+    <Reference Include="BepInEx"><HintPath>..\..\Libs\BepInEx.dll</HintPath><Private>False</Private></Reference>
+    <Reference Include="UnityEngine"><HintPath>..\..\Libs\UnityEngine.dll</HintPath><Private>False</Private></Reference>
+    <Reference Include="UnityEngine.CoreModule"><HintPath>..\..\Libs\UnityEngine.CoreModule.dll</HintPath><Private>False</Private></Reference>
+    <Reference Include="BetterUnturnedExperience"><HintPath>$(BuePublishedDll)</HintPath><Private>False</Private></Reference>
+    <Compile Include="ExternalCanaryPlugin.cs" />
+  </ItemGroup>
+  <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+</Project>

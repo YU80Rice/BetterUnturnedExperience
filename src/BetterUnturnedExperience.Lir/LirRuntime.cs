@@ -7,9 +7,10 @@ namespace BetterUnturnedExperience.Lir
     /// BepInEx identity (the same shape as the LIT migration). The old
     /// LaunchInPlaceReloadPlugin statics (Instance, Logger, LogNormalDiagnostic)
     /// are gone with [BepInPlugin]; the domain reads them from here, and the
-    /// host composition binds the sinks to BueRuntimeLog's channels at
-    /// registration time. Unbound sinks swallow silently — the same
-    /// null-conditional contract the old plugin had.
+    /// host composition binds the sinks through the injected composition facts
+    /// at registration time (DEV-V6-02C: the feature no longer names the host).
+    /// Unbound sinks swallow silently — the same null-conditional contract the
+    /// old plugin had.
     /// </summary>
     internal static class LirRuntime
     {
@@ -30,6 +31,20 @@ namespace BetterUnturnedExperience.Lir
 
         /// <summary>Cached Unity main-thread id; the deferred network init and the transaction paths compare against it.</summary>
         internal static int MainThreadId;
+
+        // ── DEV-V6-02C 宿主组合事实（V6-T2 硬项拆法：注入方向=宿主→换弹）──
+        // 换弹工程不引用宿主：日志口、无画面判定、Steam 身份、设置根由组装根在
+        // 登记前经 LirFeatureAssembly.BindHostComposition 注入，落点在本运行缝
+        // （域内唯一事实面，与上面两个日志 sink 同一家族）。缺席语义各自诚实退化：
+        // 日志静默（既有「未绑定即吞」契约）、无画面判定不裁剪（与原宿主字段默认
+        // false 同）、Steam 解析跳过本地分支/远端 wrapper null（与测试宿主原值同）、
+        // 设置根缺席=fail-closed（Start 显式失败，绝不静默发明持久化路径）。
+        internal static Action<string> HostRuntimeLogSink;
+        internal static Action<string> HostErrorLogSink;
+        internal static Func<bool> HostHeadlessDecision;
+        internal static Func<ulong> HostLocalSteamId;
+        internal static Func<ulong, object> HostFindSteamPlayer;
+        internal static Func<string> HostSettingsRoot;
 
         // The old LogNormalDiagnostic throttle (5s window, repeat counter),
         // migrated off Unity's Time.realtimeSinceStartup onto a monotonic

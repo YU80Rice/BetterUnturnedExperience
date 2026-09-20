@@ -81,7 +81,11 @@ namespace BetterUnturnedExperience.Lir
             level = 0;
             try
             {
-                var localId = BetterUnturnedExperience.Plugin.BueEngineNet.LocalSteamId();
+                // DEV-V6-02C: Steam identity rides the host-injected resolver
+                // (unbound = 0UL = unresolvable = no local level — the former
+                // test-host default, the feature never names the host).
+                var resolver = LirRuntime.HostLocalSteamId;
+                var localId = resolver != null ? resolver() : 0UL;
                 if (localId == 0UL) return false;
                 level = GetLevelFor(localId);
                 return true;

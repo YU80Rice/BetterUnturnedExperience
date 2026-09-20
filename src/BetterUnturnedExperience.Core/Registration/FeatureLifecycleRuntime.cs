@@ -43,6 +43,20 @@ namespace BetterUnturnedExperience.Core.Registration
         /// <summary>The tracked-resource bound per feature per generation (DEV-V3-03's ticket-fixed number; observable and testable).</summary>
         internal const int MaxTrackedResourcesPerGeneration = 64;
 
+        /// <summary>DEV-V6-05: the track pipeline's rejection vocabulary (the bool
+        /// TryTrack is this enum collapsed to "None"; the patch pocket maps it
+        /// into FeaturePatchRegistrationReason).</summary>
+        internal enum TrackRejection
+        {
+            None = 0,
+            NullRegistration = 1,
+            UnknownFeature = 2,
+            FeatureNotRunning = 3,
+            StaleGeneration = 4,
+            DuplicateRegistration = 5,
+            CapacityExceeded = 6
+        }
+
         private readonly FeatureRegistrationRuntime registrations;
         private readonly FeatureEventBus bus;
         private readonly Action<string> diagnosticSink;
@@ -384,34 +398,52 @@ namespace BetterUnturnedExperience.Core.Registration
         /// </summary>
         internal bool TryTrack(FeatureId feature, ulong viewGeneration, IDisposable registration)
         {
+            return Track(feature, viewGeneration, registration) == TrackRejection.None;
+        }
+
+        /// <summary>
+        /// DEV-V6-05: the track pipeline's structured form — the platform patch
+        /// pocket rides this SAME pipeline (one account, one generation rule,
+        /// one reverse-order release) and maps the rejection into its own
+        /// contract reason instead of re-deriving it from a bool. Diagnostics
+        /// and order are byte-identical to the bool form above.
+        /// </summary>
+        internal TrackRejection Track(FeatureId feature, ulong viewGeneration, IDisposable registration)
+        {
             if (registration == null)
             {
                 Emit("event=feature-resource result=track-rejected feature=" + feature.Value
                     + " reason=null-registration diagnosticId=BUE-LIFE-001");
-                return false;
+                return TrackRejection.NullRegistration;
             }
+            var rejection = TrackRejection.None;
             string rejectReason = null;
             lock (sync)
             {
                 if (!registrations.TryGetRecord(feature.Value, out var record))
                 {
                     rejectReason = "unknown-feature";
+                    rejection = TrackRejection.UnknownFeature;
                 }
                 else if (record.State != FeatureState.Starting && record.State != FeatureState.Running)
                 {
                     rejectReason = record.Isolated ? "feature-isolated" : "feature-not-running";
+                    rejection = TrackRejection.FeatureNotRunning;
                 }
                 else if (record.LifecycleGeneration != viewGeneration)
                 {
                     rejectReason = "stale-generation";
+                    rejection = TrackRejection.StaleGeneration;
                 }
                 else if (record.OwnedResources.IndexOf(registration) >= 0)
                 {
                     rejectReason = "duplicate-registration";
+                    rejection = TrackRejection.DuplicateRegistration;
                 }
                 else if (record.OwnedResources.Count >= MaxTrackedResourcesPerGeneration)
                 {
                     rejectReason = "capacity-exceeded";
+                    rejection = TrackRejection.CapacityExceeded;
                 }
                 else
                 {
@@ -426,11 +458,11 @@ namespace BetterUnturnedExperience.Core.Registration
                     : "BUE-LIFE-003";
                 Emit("event=feature-resource result=track-rejected feature=" + feature.Value
                     + " generation=" + viewGeneration + " reason=" + rejectReason + " diagnosticId=" + diagnosticId);
-                return false;
+                return rejection;
             }
             Emit("event=feature-resource result=tracked feature=" + feature.Value + " generation=" + viewGeneration
                 + " diagnosticId=BUE-LIFE-ACCEPT");
-            return true;
+            return TrackRejection.None;
         }
 
         private void Emit(string line)

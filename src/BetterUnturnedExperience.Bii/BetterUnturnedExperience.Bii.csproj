@@ -1,0 +1,47 @@
+<Project ToolsVersion="Current" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <!-- DEV-V6-02A 骨架 → DEV-V6-04 BII（更好的物品交互）真分工程迁移（V6-T3）：清单恰等目录
+       文件集（防火墙 R2）；引用只许经契约 + 宿主游戏库（Harmony/Assembly-CSharp/Glazier/
+       UnityEngine，Private=False 不外溢进玩家合并；拖拽/生命周期两适配器直用 Harmony 补丁、
+       Glazier 标签类型与原生库存类型——引用面与 02C/02D 同形）。不引用宿主或界面工程（禁方向
+       由防火墙 R1 与 DevV604 红测双守——迁移前先断对界面内部的直呼：日志口/表面协调/设置快照
+       全走组装根注入 BindHostComposition/BindInterfaceComposition，T3 追加裁决）。宿主经唯一
+       公开组装类型 BiiFeatureAssembly 接线；内部类型经 InternalsVisibleTo 只对 *.Tests 开放
+       （02A 组 3 形态，见 Properties/AssemblyInfo.cs）。 -->
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Release</Configuration><Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
+    <ProjectGuid>{4E2A7B6C-4AA2-4F84-B7C0-0C0000000004}</ProjectGuid><OutputType>Library</OutputType>
+    <RootNamespace>BetterUnturnedExperience.Bii</RootNamespace><AssemblyName>BetterUnturnedExperience.Bii</AssemblyName>
+    <TargetFrameworkVersion>v4.7.2</TargetFrameworkVersion><LangVersion>10.0</LangVersion><Deterministic>true</Deterministic><DebugType>none</DebugType>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' "><Optimize>true</Optimize><OutputPath>bin\Release\</OutputPath><DefineConstants>TRACE</DefineConstants><WarningLevel>4</WarningLevel><TreatWarningsAsErrors>true</TreatWarningsAsErrors></PropertyGroup>
+  <ItemGroup>
+    <Reference Include="System" /><Reference Include="System.Core" />
+    <Reference Include="HarmonyLib"><HintPath>..\..\..\Libs\0Harmony.dll</HintPath><Private>False</Private></Reference>
+    <Reference Include="Assembly-CSharp"><HintPath>..\..\..\Libs\Assembly-CSharp.dll</HintPath><Private>False</Private></Reference>
+    <Reference Include="SDG.Glazier.Runtime"><HintPath>..\..\..\Libs\SDG.Glazier.Runtime.dll</HintPath><Private>False</Private></Reference>
+    <Reference Include="UnityEngine"><HintPath>..\..\..\Libs\UnityEngine.dll</HintPath><Private>False</Private></Reference>
+    <Reference Include="UnityEngine.CoreModule"><HintPath>..\..\..\Libs\UnityEngine.CoreModule.dll</HintPath><Private>False</Private></Reference>
+    <Reference Include="UnityEngine.InputLegacyModule"><HintPath>..\..\..\Libs\UnityEngine.InputLegacyModule.dll</HintPath><Private>False</Private></Reference>
+    <Reference Include="UnityEngine.TextRenderingModule"><HintPath>..\..\..\Libs\UnityEngine.TextRenderingModule.dll</HintPath><Private>False</Private></Reference>
+    <ProjectReference Include="..\BetterUnturnedExperience.Contracts\BetterUnturnedExperience.Contracts.csproj"><Project>{B9A11F3D-3CF7-4C7A-9B04-0B6F2B35B9A1}</Project><Name>BetterUnturnedExperience.Contracts</Name></ProjectReference>
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="BiiFeatureAssembly.cs" />
+    <Compile Include="BiiRegistration.cs" />
+    <Compile Include="BiiInteractionRig.cs" />
+    <Compile Include="HarmonyPatchHandle.cs" />
+    <Compile Include="ItemInteractionUiComponent.cs" />
+    <Compile Include="InventoryDragPreviewAdapter.cs" />
+    <Compile Include="InventorySurfaceLifecycleAdapter.cs" />
+    <Compile Include="NativeInventoryInteractionAdapter.cs" />
+    <Compile Include="NativeItemGridOccupancySnapshot.cs" />
+    <Compile Include="InventoryLifecycle.cs" />
+    <Compile Include="BetterItemInteractionLifecycle.cs" />
+    <Compile Include="InventoryPreviewWiring.cs" />
+    <Compile Include="InventoryDragPresenter.cs" />
+    <Compile Include="InventoryProjectionRelay.cs" />
+    <Compile Include="InventoryProjectionSink.cs" />
+    <Compile Include="Properties\AssemblyInfo.cs" />
+  </ItemGroup>
+  <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+</Project>

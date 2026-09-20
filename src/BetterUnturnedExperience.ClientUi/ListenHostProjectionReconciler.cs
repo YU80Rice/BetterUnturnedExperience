@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Reflection;
 using System.Runtime.CompilerServices;
-using BetterUnturnedExperience.Plugin;
 using HarmonyLib;
 using SDG.Unturned;
 
@@ -99,6 +98,15 @@ namespace BetterUnturnedExperience.ClientUi.Internal
         internal const string DiagnosticId = "BUE-LIT-001";
         internal const string AbortDiagnosticId = "BUE-LIT-002";
 
+        // DEV-V6-02E (宿主日志口, V6-T2 硬项拆法): the host log mouths are
+        // injected here instead of naming the host project's internal logger
+        // (the pre-move source edge of the ClientUi→Plugin ring). Bound by
+        // ClientUiFeatureAssembly.BindHostComposition at composition time;
+        // unbound = honest swallow, the same absent-seam contract as the
+        // 02B/C/D feature runtimes (未绑定即吞).
+        internal static Action<string> HostLogSink = null;
+        internal static Action<string> HostWarnSink = null;
+
         // Production-only engine path (bound in Plugin.Awake). Never set on
         // the host test path — see the class comment for the JIT rationale.
         internal static Action<byte, byte> EngineDispatcher = null;
@@ -125,9 +133,27 @@ namespace BetterUnturnedExperience.ClientUi.Internal
                 engine(firstPage, lastPage);
         }
 
-        internal static void OnDashboardSurfaceOpened()
+        // DEV-V6-02B (宿主转达, V6-T2): the tidyable page range is bound by the
+        // assembly root at Awake from the tidy feature's public seam — the UI
+        // layer never names the feature project, and both consumers read the
+        // ONE frozen source (unbound 0/0 keeps every gate fail-closed, the
+        // same no-op family as an unbound engine dispatcher).
+        internal static byte TidyablePageMin;
+        internal static byte TidyablePageMax;
+
+        /// <summary>宿主组合绑定：范围来自整理工程公开缝（组装根 Awake，与引擎分派器绑定
+        /// 同一时刻；未绑定=所有门 fail-closed，测试宿主引擎路径本就静默 no-op）。</summary>
+        internal static void BindTidyableRange(byte min, byte max)
         {
-            OnTidyPagesCommitted(BetterUnturnedExperience.Lit.HotkeySnapshotUtil.TIDYABLE_PAGE_MIN, BetterUnturnedExperience.Lit.HotkeySnapshotUtil.TIDYABLE_PAGE_MAX);
+            TidyablePageMin = min;
+            TidyablePageMax = max;
+        }
+
+        internal static void OnDashboardSurfaceOpened(byte firstPage, byte lastPage)
+        {
+            // DEV-V6-02B：页码范围由宿主传参（单源=整理工程公开缝，组装根绑定）——界面层
+            // 不再指回整理工程内部常量（ClientUi→整理方向摘除）。
+            OnTidyPagesCommitted(firstPage, lastPage);
         }
 
         /// <summary>
@@ -167,11 +193,13 @@ namespace BetterUnturnedExperience.ClientUi.Internal
 
                 view.RepairFromAuthoritative();
                 repaired++;
-                BueRuntimeLog.Runtime("[Tidy] listen-host 投影对账修复 page=" + view.Page
-                    + " authoritative=" + authoritative.Count
-                    + " renderedBefore=" + rendered.Count
-                    + " pendingBefore=" + pending.Count
-                    + " diagnosticId=" + DiagnosticId);
+                var hostLog = HostLogSink;
+                if (hostLog != null)
+                    hostLog("[Tidy] listen-host 投影对账修复 page=" + view.Page
+                        + " authoritative=" + authoritative.Count
+                        + " renderedBefore=" + rendered.Count
+                        + " pendingBefore=" + pending.Count
+                        + " diagnosticId=" + DiagnosticId);
             }
             return repaired;
         }
@@ -193,13 +221,14 @@ namespace BetterUnturnedExperience.ClientUi.Internal
         /// <summary>
         /// Dashboard page range gate — the tidyable mirror of
         /// PlayerInventory.SLOTS..PAGES-1 (2..6), single-sourced from the
-        /// Lit tidy constants so the engine clamp and the open-trigger range
-        /// can never drift apart.
+        /// host-bound range (DEV-V6-02B 宿主转达: the assembly root binds it
+        /// from the tidy feature's public seam) so the engine clamp and the
+        /// open-trigger range can never drift apart.
         /// </summary>
         internal static bool IsReconcilablePage(int page)
         {
-            return page >= BetterUnturnedExperience.Lit.HotkeySnapshotUtil.TIDYABLE_PAGE_MIN
-                && page <= BetterUnturnedExperience.Lit.HotkeySnapshotUtil.TIDYABLE_PAGE_MAX;
+            return page >= TidyablePageMin
+                && page <= TidyablePageMax;
         }
 
         // ---- Engine path (SDG-touching; NoInlining; never JIT'd by tests) ----
@@ -224,9 +253,11 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             {
                 // UI repair must never interrupt its callers (tidy publish /
                 // inventory open): one Warning line, then carry on.
-                BueRuntimeLog.Warn("[Tidy] listen-host 投影对账中止 errorType=" + error.GetType().Name
-                    + " message=" + error.Message
-                    + " diagnosticId=" + AbortDiagnosticId);
+                var hostWarn = HostWarnSink;
+                if (hostWarn != null)
+                    hostWarn("[Tidy] listen-host 投影对账中止 errorType=" + error.GetType().Name
+                        + " message=" + error.Message
+                        + " diagnosticId=" + AbortDiagnosticId);
             }
         }
 

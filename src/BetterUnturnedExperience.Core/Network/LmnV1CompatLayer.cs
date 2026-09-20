@@ -21,8 +21,13 @@ namespace BetterUnturnedExperience.Core.Network
         /// Host wiring binds this to the runtime log (the Core itself never
         /// touches host types); tests capture the lines. Every diagnostic
         /// line carries diagnosticId=BUE-V1COMPAT-001.
+        /// DEV-V6-02E: public since the true-project split — Core compiles
+        /// as its own assembly now, so the assembly root (and the harness)
+        /// reach this seam across the assembly boundary instead of through
+        /// the old same-assembly embed. Core is not a one-public-type
+        /// feature project (V6-T2 追加名单只锁功能/界面工程).
         /// </summary>
-        internal static Action<string> DiagnosticLogSink = null;
+        public static Action<string> DiagnosticLogSink = null;
 
         private const string DiagnosticId = "BUE-V1COMPAT-001";
 

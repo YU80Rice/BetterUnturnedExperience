@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Reflection;
 using BetterUnturnedExperience.Contracts;
@@ -42,7 +42,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     var savedInstaller = InPlaceReloadModule.SkillPatchInstallerForTests;
                     var savedCoreInstaller = InPlaceReloadModule.CorePatchInstallerForTests;
                     var savedHudInstaller = InPlaceReloadModule.HudPatchInstallerForTests;
-                    var savedHeadless = BetterUnturnedExperience.Plugin.BueRuntimeCompletionChain.HeadlessDecision;
+                    var savedHeadless = LirRuntime.HostHeadlessDecision; // DEV-V6-02C: headless 决策经宿主注入缝读入
                     try { body(); }
                     catch (Exception error) when (collectAllFailures)
                     {
@@ -59,7 +59,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                         InPlaceReloadModule.SkillPatchInstallerForTests = savedInstaller;
                         InPlaceReloadModule.CorePatchInstallerForTests = savedCoreInstaller;
                         InPlaceReloadModule.HudPatchInstallerForTests = savedHudInstaller;
-                        BetterUnturnedExperience.Plugin.BueRuntimeCompletionChain.HeadlessDecision = savedHeadless;
+                        LirRuntime.HostHeadlessDecision = savedHeadless;
                         ReloadSkillLevelMirror.Clear();
                     }
                 }
@@ -277,8 +277,11 @@ namespace BetterUnturnedExperience.Plugin.Tests
             module.SkillClockForTests = clock == null ? (Func<double>)null : clock.Read;
             module.SkillPersistenceForTests = persistence ?? new V57Persistence();
             module.ToastSink = line => { lock (sink) sink.Add(line); }; // 前置绑定，避开 LirToast.Show 引擎面
-            var bootstrap = new FeatureBootstrap(default(FeatureScopeIdentity), 1UL, null,
-                bus.Subscriber(feature), bus.Publisher(feature), bus.EventRegistry(feature), null, null, null, network);
+            // DEV-V6-12：武装 ⇒ 经启动口袋登记（缺口袋=立即自拆），老套件按生产组合同形给真账户。
+            var pocket = LirTestPocket.Open();
+            var bootstrap = new FeatureBootstrap(default(FeatureScopeIdentity), pocket.Generation, null,
+                bus.Subscriber(feature), bus.Publisher(feature), bus.EventRegistry(feature), null, null, null, network,
+                null, pocket.Patching);
             var result = module.Start(bootstrap);
             check(result.Started, "harness: LIR 模块 Start 失败: " + result.DiagnosticId);
             return module;
@@ -870,7 +873,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
             module.Stop(FeatureStopReason.PluginStopping);
             check(!module.SkillPatchInstalled, "Stop 注销：分区面撤回（原生回退）");
 
-            BetterUnturnedExperience.Plugin.BueRuntimeCompletionChain.HeadlessDecision = true;
+            LirRuntime.HostHeadlessDecision = () => true; // DEV-V6-02C: 经注入缝模拟 headless
             var persistence = new V57Persistence();
             module = V57StartModule(hooks, authority, new V57Network(), clock, persistence, isServer: true, out _, check);
             check(!module.SkillPatchInstalled && module.SkillStartGateDiagnostics.Contains("headless-not-armed"),
@@ -882,7 +885,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 "headless 技能权威照常：等级门/自动压弹/升级账不受画面裁决牵连");
             module.Stop(FeatureStopReason.PluginStopping);
             check(persistence.SaveCalls == 0, "Stop 不写持久化（账只在提交时落——生命周期不发明第二写点）");
-            BetterUnturnedExperience.Plugin.BueRuntimeCompletionChain.HeadlessDecision = false;
+            LirRuntime.HostHeadlessDecision = null;
 
             // 6b. 四面互撤：技能面拒装 = 全零；HUD 面拒装 = 技能面也归零（共存）。
             module = V57StartModule(hooks, authority, new V57Network(), clock, new V57Persistence(), isServer: true, out _, check,

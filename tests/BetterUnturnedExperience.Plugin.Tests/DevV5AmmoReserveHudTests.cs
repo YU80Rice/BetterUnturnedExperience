@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Reflection;
 using BetterUnturnedExperience.Contracts;
@@ -45,7 +45,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     var savedHideAll = AmmoReserveHudAdapter.HideAllForTests;
                     var savedHudInstaller = InPlaceReloadModule.HudPatchInstallerForTests;
                     var savedCoreInstaller = InPlaceReloadModule.CorePatchInstallerForTests;
-                    var savedHeadless = BetterUnturnedExperience.Plugin.BueRuntimeCompletionChain.HeadlessDecision;
+                    var savedHeadless = LirRuntime.HostHeadlessDecision; // DEV-V6-02C: headless 决策经宿主注入缝读入
                     try { body(); }
                     catch (Exception error) when (collectAllFailures)
                     {
@@ -64,7 +64,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                         AmmoReserveHudAdapter.HideAllForTests = savedHideAll;
                         InPlaceReloadModule.HudPatchInstallerForTests = savedHudInstaller;
                         InPlaceReloadModule.CorePatchInstallerForTests = savedCoreInstaller;
-                        BetterUnturnedExperience.Plugin.BueRuntimeCompletionChain.HeadlessDecision = savedHeadless;
+                        LirRuntime.HostHeadlessDecision = savedHeadless;
                     }
                 }
 
@@ -342,6 +342,9 @@ namespace BetterUnturnedExperience.Plugin.Tests
             check(module.HudPatchInstalled && ReferenceEquals(InPlaceReloadModule.ActiveModule, module),
                 "HudPatchInstalled 随登记为真；ActiveModule = 本代际");
             check(module.Started, "harness: 模块已启动");
+            // DEV-V6-12：武装 ⇒ 已登记（一个 Harmony 身份一枚句柄进既有资源账）。
+            check(V56Pocket.Accepted.Count == 1 && module.PatchTeardownDelegated && module.PatchRegistration != null,
+                "登记入账：恰一枚句柄经启动口袋进账、拆除所有权移交平台（官方与生态同一公开接入面）");
 
             // 4b. 真持枪形状走 LIR 链：postfix 入口 → 登记闸 → 观察 → 纯投影 → 呈现。
             var applied = new List<AmmoReserveResult>();
@@ -375,6 +378,8 @@ namespace BetterUnturnedExperience.Plugin.Tests
             module.Stop(FeatureStopReason.PluginStopping);
             check(!module.HudPatchInstalled && InPlaceReloadModule.ActiveModule == null,
                 "Stop 后 HUD 面注销（补丁没了、登记也交还——功能停不画由注销保证）");
+            check(module.PatchRegistration == null && !module.PatchTeardownDelegated,
+                "Stop：登记交还模块（补丁本体在平台账上等边界释放，模块不自拆）");
             check(hideAll == 1, "Stop 触发一次 HideAll（在枪上的残留读数即时消失）");
             applied.Clear();
             scans = 0;
@@ -389,10 +394,21 @@ namespace BetterUnturnedExperience.Plugin.Tests
             module2.RefreshSwitches();
             check(hudInstalled.Count == 0 && !module2.HudPatchInstalled && hideAll == 1,
                 "开关 off = 注销 + HideAll（原版数字回到裸态）");
+            // DEV-V6-12：off = 经句柄撤销（同一拆除动作，不双拆）；登记是代际级的——
+            // 账上仍恰一条账项、零已拆句柄（句柄在边界才释放）。
+            var toggleHandle = module2.PatchRegistration;
+            check(toggleHandle != null && ReferenceEquals(module2.PatchRegistration, toggleHandle)
+                    && V56Pocket.LiveCount == 1 && V56Pocket.GhostCount == 0 && V56Pocket.ReleasedCount == 0,
+                "开关 off：撤销经句柄、登记不动（一代一条账项、零已拆句柄），实际 live=" + V56Pocket.LiveCount
+                + " ghost=" + V56Pocket.GhostCount + " accountReleases=" + V56Pocket.ReleasedCount);
             view.Enabled = true;
             module2.RefreshSwitches();
             check(hudInstalled.Count == 1 && hudInstalled[0] == typeof(AmmoReserveHudPatch) && module2.HudPatchInstalled,
                 "开关 on = 重登记（同代际重挂，无第三次握手残留）");
+            check(ReferenceEquals(module2.PatchRegistration, toggleHandle) && V56Pocket.Accepted.Count == 1
+                    && V56Pocket.LiveCount == 1,
+                "开关 on：重新武装而不新增账项（账与武装状态一致），实际 live=" + V56Pocket.LiveCount
+                + " accepted=" + V56Pocket.Accepted.Count);
             module2.Stop(FeatureStopReason.PluginStopping);
 
             // 4e. 冷关：停用状态下 Start 根本不武装。
@@ -402,18 +418,22 @@ namespace BetterUnturnedExperience.Plugin.Tests
             var cold = V56StartModule(coldView, check);
             check(hudInstalled.Count == 0 && !cold.HudPatchInstalled && InPlaceReloadModule.ActiveModule == null,
                 "冷关 Start：HUD 面不登记（开关在生命周期外层，补丁体无第二把锁）");
+            check(cold.PatchRegistration == null && V56Pocket.Accepted.Count == 0,
+                "冷关 Start：零句柄进账（关闭态不虚占账位）");
             cold.Stop(FeatureStopReason.PluginStopping);
 
             // 4f. U3DS headless：画面闸不挡功能——HUD 面不武装 + 诚实诊断。
-            BetterUnturnedExperience.Plugin.BueRuntimeCompletionChain.HeadlessDecision = true;
+            LirRuntime.HostHeadlessDecision = () => true; // DEV-V6-02C: 经注入缝模拟 headless
             hudInstalled.Clear();
             var headless = V56StartModule(new V56SettingsView(), check);
             check(hudInstalled.Count == 0 && !headless.HudPatchInstalled && headless.Started,
                 "U3DS：弹药 HUD 不武装（画面类，T1 Headless 裁决只砍画面）");
             check(headless.HudStartGateDiagnostics == "ammo-hud-headless-not-armed",
                 "headless 跳过登记 = 结构化诊断，不是静默");
+            check(headless.PatchRegistration != null && V56Pocket.Accepted.Count == 1,
+                "headless：权威压弹面的句柄照进平台账（缺画面不减所有权移交）");
             headless.Stop(FeatureStopReason.PluginStopping);
-            BetterUnturnedExperience.Plugin.BueRuntimeCompletionChain.HeadlessDecision = false;
+            LirRuntime.HostHeadlessDecision = null;
 
             // 4g. 半装互撤：HUD 面被拒 = 全面回滚（不留半装；登记交还、在册归零）。
             InPlaceReloadModule.HudPatchInstallerForTests = t => false;
@@ -421,6 +441,8 @@ namespace BetterUnturnedExperience.Plugin.Tests
             check(!half.PatchesInstalled && !half.HudPatchInstalled && InPlaceReloadModule.ActiveModule == null,
                 "HUD 拒装 = 三面（两压弹面+HUD 面）互撤归零，禁半装");
             check(half.StartGateDiagnostics.Contains("ammo-hud patch refused"), "拒装原因落结构化诊断");
+            check(half.PatchRegistration == null && V56Pocket.Accepted.Count == 0,
+                "HUD 拒装：零句柄进账（平台账外零补丁，武装事务终止）");
             half.Stop(FeatureStopReason.PluginStopping);
 
             // 4h. 补丁面无自身功能 bool（登记=唯一开关的反证面：类型里找不到开关位）。
@@ -530,6 +552,10 @@ namespace BetterUnturnedExperience.Plugin.Tests
             return true;
         }
 
+        /// <summary>本组最近一次 Start 用的启动口袋（DEV-V6-12：宿主已给口袋=等价起点；
+        /// 断言「恰一枚句柄进账 / 开关后账与武装状态一致」用）。</summary>
+        private static LirTestPocket V56Pocket;
+
         private static InPlaceReloadModule V56StartModule(V56SettingsView view, System.Action<bool, string> check, bool isServer = false)
         {
             var bus = new BetterUnturnedExperience.Core.Events.FeatureEventBus();
@@ -539,8 +565,12 @@ namespace BetterUnturnedExperience.Plugin.Tests
             module.NetServiceFactoryForTests = (m, net) => new LirRepackNetwork(net, m.Authority, () => isServer);
             module.KeyDownProviderForTests = () => false;
             module.RoleProbeForTests = () => false;
-            var bootstrap = new FeatureBootstrap(default(FeatureScopeIdentity), 1UL, view,
-                bus.Subscriber(feature), bus.Publisher(feature), bus.EventRegistry(feature), null, null, null, new V56Network());
+            // DEV-V6-12：本票之后武装 ⇒ 经启动口袋登记（缺口袋=立即自拆），老套件按生产
+            // 组合同形地给真账户（真登记目录 + 真代际机 + 真补丁口视图）。
+            V56Pocket = LirTestPocket.Open();
+            var bootstrap = new FeatureBootstrap(default(FeatureScopeIdentity), V56Pocket.Generation, view,
+                bus.Subscriber(feature), bus.Publisher(feature), bus.EventRegistry(feature), null, null, null, new V56Network(),
+                null, V56Pocket.Patching);
             var result = module.Start(bootstrap);
             check(result.Started, "harness: LIR 模块 Start 失败: " + result.DiagnosticId);
             return module;

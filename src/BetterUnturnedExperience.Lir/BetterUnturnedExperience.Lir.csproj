@@ -1,0 +1,69 @@
+<Project ToolsVersion="Current" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <!-- DEV-V6-02A 工程图扩展 → DEV-V6-02C Lir（原位换弹）真分工程迁移（V6-T2）：清单恰等目录
+       文件集（防火墙 R2 收编，02A→02C 过渡态熄火）；引用只许经契约 + 宿主游戏库
+       （Harmony/Assembly-CSharp/UnityEngine，Private=False 不外溢进玩家合并）；不引用宿主或
+       界面工程（禁方向由防火墙 R1 与 DevV602C 红测双守——宿主日志口/设置根/无画面门禁/Steam
+       身份改宿主组合注入 BindHostComposition）。宿主经唯一公开组装类型 LirFeatureAssembly
+       接线；内部类型经 InternalsVisibleTo 只对 *.Tests 开放（02A 组 3 形态，
+       见 Properties/AssemblyInfo.cs）。 -->
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Release</Configuration><Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
+    <ProjectGuid>{4E2A7B6C-4AA2-4F84-B7C0-0C0000000002}</ProjectGuid><OutputType>Library</OutputType>
+    <RootNamespace>BetterUnturnedExperience.Lir</RootNamespace><AssemblyName>BetterUnturnedExperience.Lir</AssemblyName>
+    <TargetFrameworkVersion>v4.7.2</TargetFrameworkVersion><LangVersion>10.0</LangVersion><Deterministic>true</Deterministic><DebugType>none</DebugType>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' "><Optimize>true</Optimize><OutputPath>bin\Release\</OutputPath><DefineConstants>TRACE</DefineConstants><WarningLevel>4</WarningLevel><TreatWarningsAsErrors>true</TreatWarningsAsErrors></PropertyGroup>
+  <ItemGroup>
+    <Reference Include="System" /><Reference Include="System.Core" />
+    <Reference Include="HarmonyLib"><HintPath>..\..\..\Libs\0Harmony.dll</HintPath><Private>False</Private></Reference>
+    <Reference Include="SDG.Glazier.Runtime"><HintPath>..\..\..\Libs\SDG.Glazier.Runtime.dll</HintPath><Private>False</Private></Reference>
+    <Reference Include="Assembly-CSharp"><HintPath>..\..\..\Libs\Assembly-CSharp.dll</HintPath><Private>False</Private></Reference>
+    <Reference Include="UnityEngine"><HintPath>..\..\..\Libs\UnityEngine.dll</HintPath><Private>False</Private></Reference>
+    <Reference Include="UnityEngine.CoreModule"><HintPath>..\..\..\Libs\UnityEngine.CoreModule.dll</HintPath><Private>False</Private></Reference>
+    <ProjectReference Include="..\BetterUnturnedExperience.Contracts\BetterUnturnedExperience.Contracts.csproj"><Project>{B9A11F3D-3CF7-4C7A-9B04-0B6F2B35B9A1}</Project><Name>BetterUnturnedExperience.Contracts</Name></ProjectReference>
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="LirFeatureAssembly.cs" />
+    <Compile Include="LirRuntime.cs" />
+    <Compile Include="LirReloadRegistration.cs" />
+    <Compile Include="InPlaceReloadModule.cs" />
+    <Compile Include="LirPatchHandle.cs" />
+    <Compile Include="ReloadRuntimePolicy.cs" />
+    <Compile Include="Hud\AmmoReserveProjection.cs" />
+    <Compile Include="Hud\AmmoReserveHudEngine.cs" />
+    <Compile Include="Hud\AmmoReserveHudSurface.cs" />
+    <Compile Include="Hud\AmmoReserveHudAdapter.cs" />
+    <Compile Include="Hud\AmmoReserveHudBinder.cs" />
+    <Compile Include="Hud\AmmoReserveHudPatch.cs" />
+    <Compile Include="Net\LirRepackWireCodec.cs" />
+    <Compile Include="Net\LirRepackDispatcher.cs" />
+    <Compile Include="Net\LirRepackNetwork.cs" />
+    <Compile Include="Patches\UseableGunReceiveAttachMagazinePatch.cs" />
+    <Compile Include="Patches\ForceAddItemPatch.cs" />
+    <Compile Include="Reload\IReloadAction.cs" />
+    <Compile Include="Reload\ReloadContextGuard.cs" />
+    <Compile Include="Reload\TidyCompletedConsumer.cs" />
+    <Compile Include="Reload\ReloadInputDriver.cs" />
+    <Compile Include="Reload\AutoReloadAfterTidyAction.cs" />
+    <Compile Include="Service\LirRepackAuthority.cs" />
+    <Compile Include="Service\LirRepackGate.cs" />
+    <Compile Include="Service\LirProductionAuthority.cs" />
+    <Compile Include="Service\AmmoRepackService.cs" />
+    <Compile Include="Service\LirToast.cs" />
+    <Compile Include="Skill\ReloadSkillPolicy.cs" />
+    <Compile Include="Skill\ReloadSkillStore.cs" />
+    <Compile Include="Skill\ReloadSkillRuntime.cs" />
+    <Compile Include="Skill\ReloadAutoRoundScheduler.cs" />
+    <Compile Include="Skill\ReloadSkillLevelMirror.cs" />
+    <Compile Include="Skill\ReloadSkillSectionModel.cs" />
+    <Compile Include="Skill\ReloadSkillSettingsSurface.cs" />
+    <Compile Include="Skill\ILirSkillHooks.cs" />
+    <Compile Include="Skill\LirSkillEngineHooks.cs" />
+    <Compile Include="Skill\ReloadSkillFilePersistence.cs" />
+    <Compile Include="Skill\Ui\ReloadSkillDashboardBinder.cs" />
+    <Compile Include="Skill\Ui\ReloadSkillDashboardPatch.cs" />
+    <Compile Include="Skill\Ui\ReloadSkillDashboardAdapter.cs" />
+    <Compile Include="Properties\AssemblyInfo.cs" />
+  </ItemGroup>
+  <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+</Project>

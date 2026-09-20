@@ -20,9 +20,9 @@
 
 ## 当前版本
 
-- **Phase-5 现有官方功能优化正式交付版**（2026-09-17，阶段工单 DEV-V5-01..08 全部闭环；对外契约仍为 **2.1**）
-- `BetterUnturnedExperience.dll` SHA-256：`F334657ABA2C6AD7CAC8E39E7A36C19FB38DCC19E60DCC575BF20D9777380D45`（726016 字节，三轮确定性重建逐字节一致）
-- 身份与门禁台账：[`audit/RELEASES.md`](audit/RELEASES.md) 行 14；正式交付包：[`publish/第五阶段-正式交付版本/`](publish/第五阶段-正式交付版本/)
+- **Phase-6 工程边界成真与平台闭包正式交付版**（2026-09-20；对外契约仍为 **2.1**）
+- `BetterUnturnedExperience.dll` SHA-256：`3E3B2DC0665EC0D9E36ED881E4B86574A6CA8D96F4F758084E7DA2881A2D4CE9`（752640 字节，三轮确定性重建逐字节一致）
+- 身份与门禁台账：[`audit/RELEASES.md`](audit/RELEASES.md) 行 15；正式交付包：[`publish/第六阶段-正式交付版本/`](publish/第六阶段-正式交付版本/)
 
 ## 快速开始
 
@@ -36,19 +36,21 @@
 
 BUE 的功能分两层：**官方功能**（上表四件）是源码模块，构建期聚合进唯一主 DLL；**生态功能**是您交付的独立 BepInEx 插件 DLL——BUE 扮演您插件的前置库与运行时平台。
 
-- **给人看的开发手册（先读这里）**：[`docs/developer/README.md`](docs/developer/README.md)——一张总图 + 三短章（模块结构 / 最小接入流程 / NoOp 范例导读），解释平台怎么搭、先看哪里；它不定义契约，与 SDK 不一致以 SDK 为准；
+- **给人看的开发手册（先读这里）**：[`docs/developer/README.md`](docs/developer/README.md)——一张总图 + 三短章（模块结构 / 最小接入流程 / HelloFeature 与探针导读），解释平台怎么搭、先看哪里；它不定义契约，与 SDK 不一致以 SDK 为准；
 - **开发者契约（唯一事实源）**：[`docs/sdk/BetterUnturnedExperience-SDK-Assembly-Identity.md`](docs/sdk/BetterUnturnedExperience-SDK-Assembly-Identity.md)——程序集身份冻结面与三段式承诺、编译期引用规则（引用主 DLL、`CopyLocal=false`、禁止捆绑）、防双装处置、公开注册桥 `BueRuntimeHost.Register` 用法、契约版本演化登记；
-- **生态活样板**：[`src/BetterUnturnedExperience.NoOpFixture/`](src/BetterUnturnedExperience.NoOpFixture/)（独立 GUID + HardDependency 前置 + 经公开桥注册，被宿主测试长期验证）；
-- **平台 API 面**：`BueNetworkApi`（方向订阅/会话/定向与会话驱动组播）、功能事件（`TidyCompleted`）、宿主时钟（`HostTick`）、设置、诊断与隔离缝。Phase-5 未新增公开契约成员；生态模块继续按 2.1 接入。
+- **HelloFeature 最小例子**：[`docs/developer/HelloFeature.cs`](docs/developer/HelloFeature.cs)——可整段复制的独立插件骨架；
+- **NoOp 合规探针**：[`src/BetterUnturnedExperience.NoOpFixture/`](src/BetterUnturnedExperience.NoOpFixture/)（独立 GUID + HardDependency 前置 + 经公开桥注册，被宿主测试长期验证；需要测缝时再读）；
+- **平台 API 面**：`BueNetworkApi`（方向订阅/会话/定向与会话驱动组播）、功能事件（`TidyCompleted`）、宿主时钟（`HostTick`）、设置、诊断与隔离缝。Phase-6 契约仍为 2.1（加性：digest 公开函数、补丁口袋、可选显示名）；生态模块继续按 2.1 接入。
 
 ## 仓库结构
 
 ```
-src/        源码（Plugin 宿主 / Core / Contracts / Lit / ClientUi / NoOpFixture 样板 …）
-docs/       玩家手册、SDK 契约、attribution 署名、ADR 架构决策
-audit/      发布台账 RELEASES.md + 各工单审计证据（哈希/红绿链/实机验收）
+src/        源码（Plugin 宿主 / Core / Contracts / 官方功能工程 / ClientUi / NoOpFixture …）
+tests/      七套测试
+docs/       玩家手册、SDK 契约、attribution 署名、ADR
+audit/      发布台账 RELEASES.md（日期证据不在默认 clone）
 publish/    正式交付包（按阶段归档）
-.scratch/   本地工单与规格（issue tracker）
+external-canary/  仓外样品（只引用发布 DLL）
 ```
 
 ## 来源与致谢

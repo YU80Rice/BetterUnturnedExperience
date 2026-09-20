@@ -323,8 +323,11 @@ namespace BetterUnturnedExperience.Lit
         /// Peer → Player resolution (the migrated P0-3 rule): the local
         /// authority identity first (listen host / single player), then the
         /// connected-client scan; a remote id is never mis-mapped to the
-        /// local player. Steam identity flows through the silent-reflection
-        /// resolvers — the plugin keeps zero Steamworks compile reference.
+        /// local player. Steam identity flows through the HOST-INJECTED
+        /// resolvers (DEV-V6-02B, V6-T2 硬项拆法: Steam 身份由宿主注入) — the
+        /// feature keeps zero Steamworks compile reference and never names a
+        /// host internal type. Unbound (test host) = the resolver honestly
+        /// skips the local-identity branch and finds no remote wrapper.
         /// </summary>
         private static Player ResolvePlayerBySteamId(ulong steamId)
         {
@@ -333,7 +336,8 @@ namespace BetterUnturnedExperience.Lit
             {
                 try
                 {
-                    if (BetterUnturnedExperience.Plugin.BueEngineNet.LocalSteamId() == steamId)
+                    var localSteamId = LitFeatureAssembly.HostLocalSteamId;
+                    if (localSteamId != null && localSteamId() == steamId)
                     {
                         var localPlayer = Player.LocalPlayer;
                         if (localPlayer != null) return localPlayer;
@@ -347,7 +351,8 @@ namespace BetterUnturnedExperience.Lit
             // R3-Standards B4: the resolver returns the SteamPlayer wrapper —
             // the Player lives one property deeper; an `as Player` here would
             // be null for EVERY remote peer.
-            var steamPlayer = BetterUnturnedExperience.Plugin.BueEngineNet.FindSteamPlayer(steamId) as SteamPlayer;
+            var findSteamPlayer = LitFeatureAssembly.HostFindSteamPlayer;
+            var steamPlayer = (findSteamPlayer != null ? findSteamPlayer(steamId) : null) as SteamPlayer;
             return steamPlayer?.player;
         }
     }

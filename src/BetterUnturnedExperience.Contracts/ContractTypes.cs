@@ -44,6 +44,28 @@ namespace BetterUnturnedExperience.Contracts
         }
     }
 
+    // DEV-V6-06 (V6-T6 Q5 + 2026-09-18 追加裁决): the ONE public artifact-payload
+    // digest generator. The author path is: build the canonical payload bytes,
+    // ask this function for the digest, hand both to FeatureDefinitionArtifact
+    // (no hand-rolled SHA-256 in ecosystem code). The host's admission gate
+    // re-computes through this very function — single source, so a documented
+    // digest and an accepted digest cannot drift apart. Algorithm frozen:
+    // SHA-256 over the payload bytes, folded little-endian into the four
+    // Digest256 64-bit parts (Part0 = hash bytes 0..7, Part1 = 8..15, ...).
+    // Empty payload is a plain hash of nothing; the admission gate separately
+    // requires a non-empty payload (BUE-REG-004).
+    public static class FeatureDefinitionDigest
+    {
+        public static Digest256 ComputeArtifactPayloadDigest(IEnumerable<byte> canonicalPayload)
+        {
+            if (canonicalPayload == null) throw new ArgumentNullException(nameof(canonicalPayload));
+            var bytes = canonicalPayload as byte[] ?? new List<byte>(canonicalPayload).ToArray();
+            byte[] hash;
+            using (var sha256 = System.Security.Cryptography.SHA256.Create()) hash = sha256.ComputeHash(bytes);
+            return new Digest256(BitConverter.ToUInt64(hash, 0), BitConverter.ToUInt64(hash, 8), BitConverter.ToUInt64(hash, 16), BitConverter.ToUInt64(hash, 24));
+        }
+    }
+
     public interface IFeatureModuleFactory { IFeatureModule Create(); }
     public interface IClientUiSatelliteRegistration
     {
@@ -84,6 +106,26 @@ namespace BetterUnturnedExperience.Contracts
         // already on the single runtime; the hook only propagates them into
         // the feature's working state.
         Action OnSettingsApplied { get; }
+    }
+    // DEV-V6-05 (V6-T5 Q1): the OPTIONAL presentation-metadata facet (Minor 2.1
+    // additive). Discovered by type test during Register — never a member on
+    // IFeatureRegistration, for the same implementer-side reason as the
+    // settings facet above. A feature that implements it SELF-REPORTS how the
+    // management panel names it and whether it paints into the game directly;
+    // a feature WITHOUT the facet keeps the honest fallback (the panel draws
+    // the raw FeatureId, and a missing ClientUi satellite still reads as
+    // degraded presentation). The host copies both values at admission —
+    // declaring them is optional, telling the truth is not.
+    public interface IFeaturePresentationRegistration
+    {
+        // The display name the panel draws for this feature. Null/empty/
+        // whitespace = no self-report (never a blank row: the panel falls
+        // back to the FeatureId).
+        string DisplayName { get; }
+        // True = the feature paints directly into the game (native dashboard/
+        // flow patches) instead of shipping a ClientUi satellite — the panel
+        // must NOT report degraded presentation for the missing attachment.
+        bool DirectPresentation { get; }
     }
     public interface IBueFeatureRegistrationHost
     {
@@ -156,6 +198,49 @@ namespace BetterUnturnedExperience.Contracts
         // thread handoff. A module must tolerate null here until its host
         // wires it (the stage-baseline rule).
         IFeatureMainThread MainThread { get; }
+        // DEV-V6-05 (V6-T5 Q2): the platform patch pocket (availability matrix
+        // row: composed non-null by the host start path from DEV-V6-05 on —
+        // the MainThread precedent; an old module that never touches the slot
+        // keeps running, and a module must tolerate null until its host wires
+        // it, the stage-baseline rule). A module registers the teardown of the
+        // patches it installs here; the PLATFORM then owns their release at
+        // the stop/isolation boundary. Honesty: patches hung outside this
+        // pocket are NOT guaranteed to be torn down by the platform (no
+        // sandbox is claimed).
+        IFeaturePatching Patching { get; }
+    }
+    // DEV-V6-05 (V6-T5 Q2 + 2026-09-18 追加裁决): the patch pocket contract.
+    // The handle is a plain IDisposable — the SAME resource shape the existing
+    // tracking account takes (不新增契约句柄类型): disposing it must undo the
+    // patch (the module's own UnpatchSelf). Every accepted handle enters that
+    // ONE account under (FeatureId, LifecycleGeneration): same generation as
+    // every other tracked resource, same reverse-order release at the stop/
+    // isolation boundary, same per-generation capacity. Rejections are
+    // explicit results with diagnostics — the call never throws across the
+    // module boundary.
+    public enum FeaturePatchRegistrationReason : byte
+    {
+        None = 0,
+        InvalidPatch = 1,
+        FeatureNotRunning = 2,
+        GenerationInvalid = 3,
+        DuplicatePatch = 4,
+        CapacityExceeded = 5
+    }
+    public readonly struct FeaturePatchRegistrationResult
+    {
+        public bool Registered { get; }
+        public FeaturePatchRegistrationReason Reason { get; }
+        public string DiagnosticId { get; }
+        // The lifecycle generation the handle was bound to (the view's own
+        // binding; the account releases the handle when that generation ends).
+        public ulong LifecycleGeneration { get; }
+        public FeaturePatchRegistrationResult(bool registered, FeaturePatchRegistrationReason reason, string diagnosticId, ulong lifecycleGeneration)
+        { Registered = registered; Reason = reason; DiagnosticId = diagnosticId ?? string.Empty; LifecycleGeneration = lifecycleGeneration; }
+    }
+    public interface IFeaturePatching
+    {
+        FeaturePatchRegistrationResult Register(IDisposable patchTeardown);
     }
     // DEV-V3-04: the main-thread dispatcher contract (Minor 2.1 additive).
     // The minimal behavior surface is frozen here (the ticket fixed the type

@@ -1,11 +1,11 @@
 ﻿# Gate: the human-facing developer handbook layer (DEV-V5-01 / V5-T2 frozen shape).
 # A first-time ecosystem plugin author must land on docs/developer/ (one overview
 # diagram + three short chapters) and be led onward to the SDK (the single source
-# of contract truth) and the NoOp fixture (the only runnable example) — instead of
+# of contract truth) and the NoOp fixture (the retained seam probe) — instead of
 # falling into retired .scratch long-form specs. This gate pins:
 #   1. both handbook-layer files exist and are non-empty (short-chapter size caps);
 #   2. the handbook carries the required shape anchors (总图 / 模块结构 /
-#      最小接入流程 / NoOp 范例导读 + a fenced diagram block);
+#      最小接入流程 / HelloFeature 与探针导读 + a fenced diagram block);
 #   3. both files link onward to the SDK and the NoOp fixture (guide, never island);
 #   4. the human-facing text copies no contract bookkeeping: no diagnostic-code
 #      tokens, no phase/ticket ids, no version-ledger phrasing;
@@ -39,11 +39,27 @@ function Check-Has([string]$id, [string]$text, [string]$needle, [string]$where) 
 
 $entryRel     = 'docs/developer/README.md'
 $handbookRel  = 'docs/developer/BetterUnturnedExperience-Developer-Handbook.md'
+$helloRel     = 'docs/developer/HelloFeature.cs'
 $readmeRel    = 'README.md'
 
 $entry    = Read-Utf8Raw $entryRel
 $handbook = Read-Utf8Raw $handbookRel
+$hello    = Read-Utf8Raw $helloRel
 $readme   = Read-Utf8Raw $readmeRel
+
+# --- 0. the copyable entry sample is the minimum implementation ---
+if ([string]::IsNullOrWhiteSpace($hello)) {
+    Fail 'HELLO-FILE' ($helloRel + ' missing or empty')
+}
+$minimalNoOpBan = '(?:最小(?:可运行)?实现(?:的姿势)?\s*(?:等于|就是|是|以[^\r\n。]{0,16}为准)\s*(?:NoOp|探针)|(?:NoOp|探针)\s*(?:就是|作为)\s*最小(?:可运行)?实现)'
+foreach ($file in @(@{ id = 'BAN-MINIMAL-IS-NOOP'; rel = $entryRel; text = $entry },
+                   @{ id = 'BAN-MINIMAL-IS-NOOP'; rel = $handbookRel; text = $handbook },
+                   @{ id = 'BAN-MINIMAL-IS-NOOP'; rel = $readmeRel; text = $readme })) {
+    if (-not [string]::IsNullOrWhiteSpace($file.text) -and
+        [regex]::IsMatch($file.text, $minimalNoOpBan)) {
+        Fail $file.id ($file.rel + ' still presents NoOp as the minimum implementation')
+    }
+}
 
 # --- 1. existence + size caps (short-chapter discipline) ---
 if ([string]::IsNullOrWhiteSpace($entry))    { Fail 'H-ENTRY' ($entryRel + ' missing or empty') }
@@ -58,11 +74,27 @@ if (-not [string]::IsNullOrWhiteSpace($handbook)) {
 }
 
 # --- 2. shape anchors inside the handbook ---
+Check-Has 'HELLO-SHAPE' $hello '[BepInPlugin(' $helloRel
+Check-Has 'HELLO-SHAPE' $hello 'BepInDependency' $helloRel
+Check-Has 'HELLO-SHAPE' $hello 'BueRuntimeHost.Register' $helloRel
+Check-Has 'HELLO-SHAPE' $hello 'Start(' $helloRel
+Check-Has 'HELLO-SHAPE' $hello 'Stop(' $helloRel
+if (-not [string]::IsNullOrWhiteSpace($hello)) {
+    if ($hello.IndexOf('IFeaturePatching', [System.StringComparison]::Ordinal) -ge 0) {
+        Fail 'HELLO-NO-PATCH' ($helloRel + ' must not demonstrate the optional patch seam')
+    }
+    if ($hello.IndexOf('IFeatureMetadata', [System.StringComparison]::Ordinal) -ge 0) {
+        Fail 'HELLO-NO-METADATA' ($helloRel + ' must not demonstrate optional metadata')
+    }
+    if (($hello -split "`r?`n").Count -gt 60) {
+        Fail 'HELLO-SIZE' ($helloRel + ' exceeds 60 lines')
+    }
+}
 Check-Has 'HB-DIAGRAM'       $handbook '总图'              $handbookRel
 Check-Has 'HB-DIAGRAM-BLOCK' $handbook '```text'           $handbookRel
 Check-Has 'HB-CH1'           $handbook '模块结构'          $handbookRel
 Check-Has 'HB-CH2'           $handbook '最小接入流程'      $handbookRel
-Check-Has 'HB-CH3'           $handbook 'NoOp 范例导读'     $handbookRel
+Check-Has 'HB-CH3'           $handbook 'HelloFeature 与探针导读' $handbookRel
 
 # --- 3. guide onward: SDK + NoOp links in BOTH files; entry links the handbook ---
 Check-Has 'LINK-SDK-HB'  $handbook 'sdk/BetterUnturnedExperience-SDK-Assembly-Identity.md' $handbookRel

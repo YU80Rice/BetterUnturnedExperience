@@ -214,8 +214,9 @@ namespace BetterUnturnedExperience.Lit
             {
                 if (touchedPlayerPage < HotkeySnapshotUtil.TIDYABLE_PAGE_MIN || touchedPlayerPage > HotkeySnapshotUtil.TIDYABLE_PAGE_MAX)
                     return; // 容器页不在投影域
-                BetterUnturnedExperience.ClientUi.Internal.ListenHostProjectionReconciler.OnTidyPagesCommitted(
-                    touchedPlayerPage, touchedPlayerPage);
+                // DEV-V6-02B (V6-T2 硬项拆法): the reconcile request rides the
+                // HOST-BOUND relay port — the feature never names the UI layer.
+                LitFeatureAssembly.RelayProjectionReconcile(touchedPlayerPage, touchedPlayerPage);
             }
             catch (Exception error)
             {

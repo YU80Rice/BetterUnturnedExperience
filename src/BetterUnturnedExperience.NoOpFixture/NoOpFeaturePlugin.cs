@@ -1,5 +1,8 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Security.Cryptography;
+using System.Text;
 using BepInEx;
 using BetterUnturnedExperience.Contracts;
 using BetterUnturnedExperience.Plugin;
@@ -12,8 +15,34 @@ namespace BetterUnturnedExperience.NoOpFixture
     {
         public static FeatureRegistrationResult RegisterWithBue() { return NoOpFeatureRegistration.Register(); }
 
+        /// <summary>
+        /// DEV-V6-08: the device-side load marker. Overwrites the probe sidecar
+        /// with the V1 header (event=probe-loaded + this assembly's sha256) so
+        /// every boot starts a fresh result file and the U3DS device can bind
+        /// the runtime-loaded bytes to the deployed ones. Fault-isolated: an
+        /// IO failure simply leaves the header missing, which the device
+        /// judge reports as probe-not-loaded (never a host crash).
+        /// </summary>
+        public static void WriteProbeLoadedHeader()
+        {
+            try
+            {
+                var hash = "unavailable";
+                var location = typeof(NoOpFeaturePlugin).Assembly.Location;
+                if (!string.IsNullOrEmpty(location) && File.Exists(location))
+                {
+                    using (var sha = SHA256.Create())
+                    using (var stream = File.OpenRead(location))
+                        hash = BitConverter.ToString(sha.ComputeHash(stream)).Replace("-", string.Empty);
+                }
+                File.WriteAllText(NoOpFeatureRegistration.ProbeSidecarPath, NoOpFeatureRegistration.ProbeResultLinePrefix + " event=probe-loaded sha256=" + hash + Environment.NewLine, new UTF8Encoding(false));
+            }
+            catch (Exception) { }
+        }
+
         private void Awake()
         {
+            WriteProbeLoadedHeader();
             var result = new NoOpFeatureBootstrap().Awake();
             Logger.LogInfo("BUE no-op fixture featureId=" + (result.Feature.Value ?? string.Empty) + " accepted=" + result.Accepted + " reason=" + result.Reason + " diagnosticId=" + result.DiagnosticId);
         }
@@ -150,6 +179,15 @@ namespace BetterUnturnedExperience.NoOpFixture
             public ProbeStepOutcome HostTickStep = ProbeStepOutcome.NotRun;
             public ProbeStepOutcome SettingsStep = ProbeStepOutcome.NotRun;
             public ProbeStepOutcome LoggerStep = ProbeStepOutcome.NotRun;
+            // ── DEV-V6-05 第八缝步（补丁口袋，V6-T5 Q2/Q3）：假钩子经口登记
+            // （不碰游戏原生方法）→ 停用 → 确认拆过。登记判据在 Start 期即可定
+            // （口袋在座+受理+绑定本代际）；「拆过」由宿主停止边界驱动，写回
+            // PatchTeardownObserved —— 宿主测试在停止后断言（缺口袋或句柄不进
+            // 账时该步为红）。第八步只在测试宿主开关下运行（真机第一期仍七步）。
+            public ProbeStepOutcome PatchStep = ProbeStepOutcome.NotRun;
+            public bool PatchRegistered;
+            public bool PatchGenerationBound;
+            public bool PatchTeardownObserved;
             // 失败分 seam 可定位的诊断详情（一步一段 token，宿主测试按段核对）。
             public readonly List<string> StepMismatches = new List<string>();
             // Bootstrap 缝步：票后终态矩阵快照（08 附录 A.1 的活出处）。
@@ -184,6 +222,45 @@ namespace BetterUnturnedExperience.NoOpFixture
 
         public static ProbeState LastProbe { get; private set; }
 
+        // ── DEV-V6-08: the seven-seam sidecar (U3DS device protocol, V1). ──
+        // Every probe chain step appends one machine-readable line next to this
+        // assembly; the U3DS device script (eng/Run-U3dsSevenSeam.ps1) judges
+        // the file so no human has to click platform seams. Sample fixture
+        // surface, not SDK contract.
+
+        /// <summary>DEV-V6-08: V1 line prefix — the judge parses only lines
+        /// starting with this exact token (a version bump invalidates old files).</summary>
+        public const string ProbeResultLinePrefix = "BUE-NOOP-PROBE-V1";
+
+        /// <summary>DEV-V6-08: the sidecar file name (the device contract binds
+        /// fixture emission and script collection to this one name).</summary>
+        public const string ProbeResultFileName = "BUE-NoOpProbe-results.txt";
+
+        /// <summary>DEV-V6-08: the sidecar lands next to the fixture assembly
+        /// (in the game: BepInEx/plugins/, where the device deploys and polls).</summary>
+        public static string ProbeSidecarPath
+        {
+            get
+            {
+                var directory = Path.GetDirectoryName(typeof(NoOpFeaturePlugin).Assembly.Location);
+                return Path.Combine(string.IsNullOrEmpty(directory) ? "." : directory, ProbeResultFileName);
+            }
+        }
+
+        /// <summary>DEV-V6-08: fault-isolated append — an IO failure must never
+        /// break the probe chain; the device judge reports missing lines as
+        /// collection failure instead.</summary>
+        public static void AppendProbeResultLine(string line)
+        {
+            try { File.AppendAllText(ProbeSidecarPath, line + Environment.NewLine, new UTF8Encoding(false)); }
+            catch (Exception) { }
+        }
+
+        private static void AppendStepLine(string step, ProbeStepOutcome outcome)
+        {
+            AppendProbeResultLine(ProbeResultLinePrefix + " step=" + step + " outcome=" + outcome);
+        }
+
         /// <summary>
         /// DEV-V3-08: the probe's own event identity — derived from the
         /// probe FeatureId per the frozen &lt;owner&gt;/&lt;event-name&gt; rule,
@@ -211,6 +288,13 @@ namespace BetterUnturnedExperience.NoOpFixture
         /// Sample fixture surface, not SDK contract.</summary>
         public static NoOpProbeFault NextProbeFault = NoOpProbeFault.None;
 
+        /// <summary>DEV-V6-05: host-test opt-in for the EIGHTH seam step (the
+        /// patch pocket). Default false keeps the device's first-phase chain
+        /// at the frozen seven steps (V6-T5 Q3/T7: 第八步只在测试宿主); the host
+        /// suite flips it before driving the catalog. Sample fixture surface,
+        /// not SDK contract.</summary>
+        public static bool PatchSeamStepEnabled;
+
         /// <summary>DEV-V3-08: host-test hygiene seam — clear the observability
         /// record so a rejected registration proves the chain never ran
         /// (LastProbe stays null; NotRun is never conflated with Passed).</summary>
@@ -228,7 +312,10 @@ namespace BetterUnturnedExperience.NoOpFixture
 
         private sealed class NoOpRegistration : IFeatureRegistration, IFeatureSettingsRegistration
         {
-            public FeatureDefinitionArtifact Definition { get; } = new FeatureDefinitionArtifact(new FeatureId("io.github.yu80rice.bue.noop"), 1, "bue-noop", new Digest256(1, 2, 3, 4), new Digest256(5317555933983313923UL, 8642148531063968556UL, 2942485310001909708UL, 9366110643396117629UL), new byte[] { 1, 2, 3 });
+            // DEV-V6-06：活样板演示公开摘要函数——载荷字节 + 函数输出一起进工件，
+            // 不手抄 SHA-256（SDK §4「登记工件」的机器化替身）。
+            private static readonly byte[] ProbeDefinitionPayload = { 1, 2, 3 };
+            public FeatureDefinitionArtifact Definition { get; } = new FeatureDefinitionArtifact(new FeatureId("io.github.yu80rice.bue.noop"), 1, "bue-noop", new Digest256(1, 2, 3, 4), FeatureDefinitionDigest.ComputeArtifactPayloadDigest(ProbeDefinitionPayload), ProbeDefinitionPayload);
             public ContractVersion MinimumBueContract { get { return new ContractVersion(2, 0); } }
             public IFeatureModuleFactory ModuleFactory { get { return new NoOpFactory(); } }
             public IClientUiSatelliteRegistration ClientUi { get { return null; } }
@@ -306,13 +393,36 @@ namespace BetterUnturnedExperience.NoOpFixture
                     // every step stays NotRun — proving NotRun≠Passed.
                     throw new InvalidOperationException("DEV-V3-08 probe knob: simulated Start crash");
                 }
+                // DEV-V6-08: per-seam sidecar emission — each step appends its
+                // own outcome line the moment it is final, so a chain that dies
+                // mid-flight leaves the later seams absent on disk (NotRun is
+                // never conflated with Passed) and the device judge stays
+                // per-seam locatable.
                 RunBootstrapStep(probe, bootstrap);
+                AppendStepLine("bootstrap", probe.BootstrapStep);
                 RunEventsStep(probe, bootstrap);
+                AppendStepLine("events", probe.EventsStep);
                 RunLifecycleStep(probe, bootstrap);
+                AppendStepLine("lifecycle", probe.LifecycleStep);
                 RunNetworkStep(probe, bootstrap);
+                AppendStepLine("network", probe.NetworkStep);
                 RunHostTickStep(probe, bootstrap);
+                AppendStepLine("hosttick", probe.HostTickStep);
                 RunSettingsStep(probe, bootstrap);
+                AppendStepLine("settings", probe.SettingsStep);
                 RunLoggerStep(probe, bootstrap);
+                AppendStepLine("logger", probe.LoggerStep);
+                if (PatchSeamStepEnabled)
+                {
+                    // DEV-V6-05 第八步（测试宿主专属，V6-T5 Q3）：假钩子经补丁口
+                    // 登记；「拆过」在宿主停止边界写回（宿主测试断言）。不碰游戏
+                    // 原生方法、不武装真 Harmony。
+                    RunPatchStep(probe, bootstrap);
+                    AppendStepLine("patch", probe.PatchStep);
+                }
+                foreach (var mismatch in probe.StepMismatches)
+                    AppendProbeResultLine(ProbeResultLinePrefix + " mismatch=" + mismatch);
+                AppendProbeResultLine(ProbeResultLinePrefix + " event=chain-complete");
                 probe.Started = true;
                 return new FeatureStartResult(true, FrameworkErrorCode.None, "BUE-NOOP-START");
             }
@@ -342,7 +452,12 @@ namespace BetterUnturnedExperience.NoOpFixture
                         && bootstrap.LifecycleGeneration != 0UL
                         && bootstrap.Events != null && bootstrap.OwnedEvents != null && bootstrap.EventRegistry != null
                         && bootstrap.Network != null && bootstrap.Lifetime != null && bootstrap.Dependencies != null
-                        && bootstrap.MainThread != null && bootstrap.Logger != null && bootstrap.Settings != null;
+                        && bootstrap.MainThread != null && bootstrap.Logger != null && bootstrap.Settings != null
+                        // DEV-V6-05: the patch pocket joins the availability
+                        // matrix (composed non-null by the host start path from
+                        // this ticket on; the row is part of the terminal
+                        // matrix this step guards).
+                        && bootstrap.Patching != null;
                     probe.BootstrapStep = allWired ? ProbeStepOutcome.Passed : ProbeStepOutcome.Mismatch;
                     if (!allWired) Mismatch(probe, "bootstrap", "matrix-member-missing");
                 }
@@ -439,9 +554,23 @@ namespace BetterUnturnedExperience.NoOpFixture
                         probe.MainThreadAvailable = true;
                         probe.MainThreadPosted = bootstrap.MainThread.Post(() => { }).Posted;
                     }
+                    // DEV-V6-08 实机缝隙: on the real dedicated server the
+                    // catalog start rides the scene-loaded drive, which beats
+                    // the network arm every boot — so at module Start the
+                    // feature-facing facade is the NEVER-ATTACHED
+                    // DeferredBueNetworkApi, whose frozen not-ready projection
+                    // answers NoSession for every send. Both NoSession and
+                    // ChannelNotRegistered are explicit non-delivery answers;
+                    // the LIVE-gate branch (ChannelNotRegistered) stays pinned
+                    // by the host suite's attached-loopback runs, while the
+                    // device's own criterion accepts either projection (the
+                    // observed values stay on the mismatch detail line).
+                    var wrongExplicitNonDelivery = probe.NetworkWrongChannelObserved
+                        == BetterUnturnedExperience.Contracts.BueNetwork.NetworkSendResult.ChannelNotRegistered
+                        || probe.NetworkWrongChannelObserved == BetterUnturnedExperience.Contracts.BueNetwork.NetworkSendResult.NoSession;
                     var ok = probe.NetworkChannelOwned && probe.NetworkSessionsAtStart == 0
                         && probe.NetworkSendObserved == BetterUnturnedExperience.Contracts.BueNetwork.NetworkSendResult.NoSession
-                        && probe.NetworkWrongChannelObserved == BetterUnturnedExperience.Contracts.BueNetwork.NetworkSendResult.ChannelNotRegistered
+                        && wrongExplicitNonDelivery
                         && probe.MainThreadPosted;
                     probe.NetworkStep = ok ? ProbeStepOutcome.Passed : ProbeStepOutcome.Mismatch;
                     if (!ok)
@@ -583,6 +712,58 @@ namespace BetterUnturnedExperience.NoOpFixture
                     Mismatch(probe, "logger", error.GetType().Name);
                 }
             }
+
+            // ── Patch pocket seam (DEV-V6-05, V6-T5 Q2/Q3; test host only):
+            // register a FAKE hook through the bootstrap pocket — no game
+            // method is ever touched (the real Harmony arm belongs to the
+            // device run, 02D/04 named-seam precedent). The 判据 settles at
+            // Start: pocket present + the registration accepted + bound to
+            // THIS lifecycle generation. The teardown half is the platform's
+            // release at the host stop boundary — the fake handle records it
+            // into PatchTeardownObserved, which the host test asserts after
+            // StopAll (缺口袋或句柄不进账时该步为红). ──
+            private void RunPatchStep(ProbeState probe, IFeatureBootstrap bootstrap)
+            {
+                try
+                {
+                    var pocket = bootstrap.Patching;
+                    if (pocket == null)
+                    {
+                        probe.PatchStep = ProbeStepOutcome.Mismatch;
+                        Mismatch(probe, "patch", "pocket-missing");
+                        return;
+                    }
+                    var fakeHook = new ProbePatchHandle(probe);
+                    var registration = pocket.Register(fakeHook);
+                    probe.PatchRegistered = registration.Registered;
+                    probe.PatchGenerationBound = registration.Registered
+                        && registration.LifecycleGeneration == bootstrap.LifecycleGeneration;
+                    var ok = probe.PatchRegistered && probe.PatchGenerationBound;
+                    probe.PatchStep = ok ? ProbeStepOutcome.Passed : ProbeStepOutcome.Mismatch;
+                    if (!ok)
+                        Mismatch(probe, "patch", "registered=" + probe.PatchRegistered
+                            + " generationBound=" + probe.PatchGenerationBound
+                            + " reason=" + registration.Reason + " diagnosticId=" + registration.DiagnosticId);
+                }
+                catch (Exception error)
+                {
+                    probe.PatchStep = ProbeStepOutcome.Mismatch;
+                    Mismatch(probe, "patch", error.GetType().Name);
+                }
+            }
+        }
+
+        /// <summary>DEV-V6-05: the eighth step's FAKE hook — a plain disposable
+        /// whose release records itself (no Harmony, no game method). The
+        /// platform tears it down through the existing resource account at the
+        /// stop boundary; the host test reads the record.</summary>
+        private sealed class ProbePatchHandle : IDisposable
+        {
+            private readonly ProbeState owner;
+
+            internal ProbePatchHandle(ProbeState owner) { this.owner = owner; }
+
+            public void Dispose() { owner.PatchTeardownObserved = true; }
         }
 
         private sealed class ProbeResource : IDisposable

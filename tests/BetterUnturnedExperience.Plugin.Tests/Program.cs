@@ -5,7 +5,8 @@ using BetterUnturnedExperience.Contracts.BueNetwork;
 using BetterUnturnedExperience.Core.Registration;
 using BetterUnturnedExperience.NoOpFixture;
 using BetterUnturnedExperience.Plugin;
-using BetterUnturnedExperience.ClientUi.Internal;
+using BetterUnturnedExperience.Bii;
+using BetterUnturnedExperience.ClientUi.Internal; // DEV-V6-04: BII types live in BetterUnturnedExperience.Bii now (IVT friend)
 using BetterUnturnedExperience.Lit;
 using BetterUnturnedExperience.Lir;
 using BetterUnturnedExperience.Lht;
@@ -323,6 +324,96 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     DevV508IdentityIlGuardTests.Run(collectAllFailures: true);
                     return 0;
                 }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--bue-v6-01-firewall-red")
+                {
+                    DevV6FirewallFullsuiteTests.Run(collectAllFailures: true);
+                    Console.WriteLine("DEV-V6-01 firewall/fullsuite red-group: PASS");
+                    return 0;
+                }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--bue-v6-02a-project-graph-red")
+                {
+                    DevV602AProjectGraphTests.Run(collectAllFailures: true);
+                    Console.WriteLine("DEV-V6-02A project-graph red-group: PASS");
+                    return 0;
+                }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--bue-v6-02b-lit-project-red")
+                {
+                    DevV602BLitTrueProjectTests.Run(collectAllFailures: true);
+                    Console.WriteLine("DEV-V6-02B lit-project red-group: PASS");
+                    return 0;
+                }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--bue-v6-02c-lir-project-red")
+                {
+                    DevV602CLirTrueProjectTests.Run(collectAllFailures: true);
+                    Console.WriteLine("DEV-V6-02C lir-project red-group: PASS");
+                    return 0;
+                }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--bue-v6-02d-lht-project-red")
+                {
+                    DevV602DLhtTrueProjectTests.Run(collectAllFailures: true);
+                    Console.WriteLine("DEV-V6-02D lht-project red-group: PASS");
+                    return 0;
+                }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--bue-v6-02e-cycle-red")
+                {
+                    DevV602EClientUiPluginCycleTests.Run(collectAllFailures: true);
+                    Console.WriteLine("DEV-V6-02E cycle red-group: PASS");
+                    return 0;
+                }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--bue-v6-02f-repack-guard-red")
+                {
+                    DevV602FRepackGuardTests.Run(collectAllFailures: true);
+                    Console.WriteLine("DEV-V6-02F repack/guard red-group: PASS");
+                    return 0;
+                }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--bue-v6-04-bii-project-red")
+                {
+                    DevV604BiiTrueProjectTests.Run(collectAllFailures: true);
+                    Console.WriteLine("DEV-V6-04 bii-project red-group: PASS");
+                    return 0;
+                }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--bue-v6-03-frozen-linker-red")
+                {
+                    DevV603CatalogFrozenLinkerTests.Run(collectAllFailures: true);
+                    Console.WriteLine("DEV-V6-03 catalog-frozen/linker red-group: PASS");
+                    return 0;
+                }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--bue-v6-05-metadata-patching-red")
+                {
+                    DevV605MetadataPatchingTests.Run(collectAllFailures: true);
+                    Console.WriteLine("DEV-V6-05 metadata/patching red-group: PASS");
+                    return 0;
+                }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--bue-v6-06-contract-docs-red")
+                {
+                    DevV606ContractDocsTests.Run(collectAllFailures: true);
+                    Console.WriteLine("DEV-V6-06 contract-docs red-group: PASS");
+                    return 0;
+                }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--bue-v6-08-u3ds-device-red")
+                {
+                    DevV6U3dsSevenSeamDeviceTests.Run(collectAllFailures: true);
+                    Console.WriteLine("DEV-V6-08 u3ds-device red-group: PASS");
+                    return 0;
+                }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--bue-v6-11-lit-deprivilege-red")
+                {
+                    DevV611LitDeprivilegeTests.Run(collectAllFailures: true);
+                    Console.WriteLine("DEV-V6-11 lit-deprivilege red-group: PASS");
+                    return 0;
+                }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--bue-v6-12-lir-deprivilege-red")
+                {
+                    DevV612LirDeprivilegeTests.Run(collectAllFailures: true);
+                    Console.WriteLine("DEV-V6-12 lir-deprivilege red-group: PASS");
+                    return 0;
+                }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--bue-v6-13-lht-deprivilege-red")
+                {
+                    DevV613LhtDeprivilegeTests.Run(collectAllFailures: true);
+                    Console.WriteLine("DEV-V6-13 lht-deprivilege red-group: PASS");
+                    return 0;
+                }
                 if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--bue-v2-send-semantics-red")
                 {
                     AssertBueV2SessionDrivenSendSemantics(collectAllFailures: true);
@@ -398,6 +489,12 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     AssertBueV2PlatformSelfCheck(collectAllFailures: true);
                     return 0;
                 }
+                // DEV-V6-02C: the test host composes the LIR feature's host-owned
+                // facts — the settings root is the only seam the production
+                // persistence path consumes in harnesses (log sinks, the headless
+                // decision and Steam identity stay unbound = honest degraded
+                // semantics; the 02C group exercises the bound consumption itself).
+                LirFeatureAssembly.BindHostComposition(null, null, null, null, null, LirHostSettingsRootForHarness);
                 AssertSingleDllAssemblyClosure();
                 AssertExternalSdkAssemblyIdentity();
                 Assert(BootstrapGuard.Decide(false, false, true) == BootstrapDecision.Client, "client decision");
@@ -508,6 +605,34 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 DevV5AmmoReserveHudTests.Run();
                 DevV5ReloadSkillTests.Run();
                 DevV508IdentityIlGuardTests.Run();
+                DevV6FirewallFullsuiteTests.Run();
+                DevV602AProjectGraphTests.Run();
+                DevV602BLitTrueProjectTests.Run();
+                DevV602CLirTrueProjectTests.Run();
+                DevV602DLhtTrueProjectTests.Run();
+                DevV602EClientUiPluginCycleTests.Run();
+                DevV602FRepackGuardTests.Run();
+                // DEV-V6-04：BII 语义面随类型迁入（原 UI 套件；spec 166 行「插件套件锁
+                // BII 开工收工后的可观察启停」——作废票 04）。
+                Dev15ANativeDragAdapterTests.Run();
+                Dev15BTests.Run();
+                Dev15CTests.Run();
+                Dev15DTests.Run();
+                Dev16BTests.Run();
+                DevV4BiiRetireTests.Run();
+                DevV6U3dsSevenSeamDeviceTests.Run();
+                DevV604BiiTrueProjectTests.Run();
+                // DEV-V6-03：启动经目录冻结 + 链接器离开玩家文件（V6-T4 Q1/Q5）。
+                DevV603CatalogFrozenLinkerTests.Run();
+                // DEV-V6-05：显示名自报与补丁口（V6-T5 Q1/Q2/Q3/Q4）。
+                DevV605MetadataPatchingTests.Run();
+                DevV611LitDeprivilegeTests.Run();
+                // DEV-V6-12：换弹官方消费者降权与资源所有权归一（V6-T5 Q2 追加裁决）。
+                DevV612LirDeprivilegeTests.Run();
+                // DEV-V6-13：尸潮官方消费者降权与资源所有权归一（V6-T5 Q2 追加裁决）。
+                DevV613LhtDeprivilegeTests.Run();
+                // DEV-V6-06：契约文档精确度门禁 + 公开摘要函数的官方先行消费（V6-T6）。
+                DevV606ContractDocsTests.Run();
                 AssertRuntimeCompletionBarrierIsolates();
                 AssertManagementPanelConsumesRuntimeCatalog();
                 AssertManagementPanelOpenHooks();
@@ -672,7 +797,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
             var component = new BetterItemInteractionUiComponent(
                 new InventoryPreviewPresenter(new InventoryDragPresenter(new FixedCandidateEvaluator())),
                 new NativeInventoryInteractionAdapter(2, 8));
-            component.OnUiInitialized(new TestRoot());
+            component.OnUiInitialized(true, false);
             var backpack = CreateTestSurface(ContainerKind.PlayerInventory, 3, 901);
             var storage = CreateTestSurface(ContainerKind.Storage, 7, 901);
             component.OnInventoryOpened(backpack);
@@ -698,7 +823,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
             var component = new BetterItemInteractionUiComponent(
                 new InventoryPreviewPresenter(new InventoryDragPresenter(new FixedCandidateEvaluator())),
                 new NativeInventoryInteractionAdapter(2, 8));
-            component.OnUiInitialized(new TestRoot());
+            component.OnUiInitialized(true, false);
             var backpack = new TestSurfaceContext(new ContainerReference(ContainerKind.PlayerInventory, 3, 903),
                 new TestVisualContainer(), new TestVisualContainer(),
                 new InventoryGridViewport(0f, 0f, 8, 6, 0f, 0f, 400f, 300f),
@@ -747,7 +872,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
             var component = new BetterItemInteractionUiComponent(
                 new InventoryPreviewPresenter(new InventoryDragPresenter(new FixedCandidateEvaluator())),
                 new NativeInventoryInteractionAdapter(2, 8));
-            component.OnUiInitialized(new TestRoot());
+            component.OnUiInitialized(true, false);
             var surface = CreateTestSurface(ContainerKind.PlayerInventory, 3, 902);
             component.OnInventoryOpened(surface);
             component.OnDragStarted(91, ItemAssetIdentity.FromItemId(363),
@@ -802,10 +927,10 @@ namespace BetterUnturnedExperience.Plugin.Tests
             var component = new BetterItemInteractionUiComponent(
                 new InventoryPreviewPresenter(new InventoryDragPresenter(new FixedCandidateEvaluator())),
                 new NativeInventoryInteractionAdapter(2, 8));
-            component.OnUiInitialized(new TestRoot());
+            component.OnUiInitialized(true, false);
 
             var detachedPages = new List<byte>();
-            var lifecycle = new InventorySurfaceLifecycleAdapter(null,
+            var lifecycle = new InventorySurfaceLifecycleAdapter(
                 surface => { },
                 () => { },
                 null,
@@ -882,7 +1007,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
             var component = new BetterItemInteractionUiComponent(
                 new InventoryPreviewPresenter(new InventoryDragPresenter(new FixedCandidateEvaluator())),
                 new NativeInventoryInteractionAdapter(2, 8));
-            component.OnUiInitialized(new TestRoot());
+            component.OnUiInitialized(true, false);
 
             var nativeBackpackCalls = 0;
             var nativeStorageCalls = 0;
@@ -895,7 +1020,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
             component.OnInventoryOpened(backpack);
             component.OnInventoryOpened(storage);
 
-            var adapter = new InventoryDragPreviewAdapter(null, component);
+            var adapter = new InventoryDragPreviewAdapter(component);
             Assert(adapter.AttachNativeGrid(backpackGrid, 3),
                 "native Backpack grid can be attached through the production seam");
             Assert(adapter.AttachNativeGrid(storageGrid, 7),
@@ -913,7 +1038,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
             Assert(component.TrySelectSurfaceForPage(7),
                 "Storage is selected as the live target while Backpack remains the source");
 
-            var lifecycle = new InventorySurfaceLifecycleAdapter(null,
+            var lifecycle = new InventorySurfaceLifecycleAdapter(
                 surface => { },
                 () => { },
                 null,
@@ -1288,7 +1413,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
             var component = new BetterItemInteractionUiComponent(
                 new InventoryPreviewPresenter(new InventoryDragPresenter(new FixedCandidateEvaluator())),
                 new NativeInventoryInteractionAdapter(2, 8));
-            component.OnUiInitialized(new TestRoot());
+            component.OnUiInitialized(true, false);
             var backpack = CreateTestSurface(ContainerKind.PlayerInventory, 3, 1101);
             component.OnInventoryOpened(backpack);
 
@@ -1323,14 +1448,14 @@ namespace BetterUnturnedExperience.Plugin.Tests
             var component = new BetterItemInteractionUiComponent(
                 new InventoryPreviewPresenter(new InventoryDragPresenter(new FixedCandidateEvaluator())),
                 new NativeInventoryInteractionAdapter(2, 8));
-            component.OnUiInitialized(new TestRoot());
+            component.OnUiInitialized(true, false);
             var vest = CreateTestSurface(ContainerKind.PlayerInventory, 4, 1102);
             component.OnInventoryOpened(vest);
             Assert(component.TryGetLiveSurface(4, out _),
                 "target vest: VEST(4) registers as a live enhanced target surface");
 
             var vestGrid = CreateNativeSleekItems(4, (page, x, y) => { });
-            var adapter = new InventoryDragPreviewAdapter(null, component);
+            var adapter = new InventoryDragPreviewAdapter(component);
             Assert(adapter.AttachNativeGrid(vestGrid, 4),
                 "target vest: native VEST(4) grid attaches through the production seam");
             Assert(adapter.DetachGrid(4),
@@ -1369,7 +1494,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
             var component = new BetterItemInteractionUiComponent(
                 new InventoryPreviewPresenter(new InventoryDragPresenter(new FixedCandidateEvaluator())),
                 new NativeInventoryInteractionAdapter(2, 8));
-            component.OnUiInitialized(new TestRoot());
+            component.OnUiInitialized(true, false);
             var backpack = CreateTestSurface(ContainerKind.PlayerInventory, 3, 1103);
             component.OnInventoryOpened(backpack);
 
@@ -1406,7 +1531,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
             var component = new BetterItemInteractionUiComponent(
                 new InventoryPreviewPresenter(new InventoryDragPresenter(new FixedCandidateEvaluator())),
                 new NativeInventoryInteractionAdapter(2, 8));
-            component.OnUiInitialized(new TestRoot());
+            component.OnUiInitialized(true, false);
             var backpack = CreateTestSurface(ContainerKind.PlayerInventory, 3, 1104);
             component.OnInventoryOpened(backpack);
 
@@ -1685,7 +1810,11 @@ namespace BetterUnturnedExperience.Plugin.Tests
             BetterUnturnedExperience.Plugin.BueRuntimeLog.Recorder = line => recorded.Add(line);
             try
             {
-                var sink = new LoggingInventoryProjectionSink(new BepInEx.Logging.ManualLogSource("test"));
+                // DEV-V6-02E 测试适配（作废票：02E）：投影槽迁入界面工程后日志改注入缝——
+                // harness 把缝接回 BueRuntimeLog.Runtime（Recorder 路由语义逐字保留）。
+                // DEV-V6-04（作废票：04）：宿主日志源随迁移摘除——直接注入 runtime 口。
+                var sink = new LoggingInventoryProjectionSink(
+                    line => BetterUnturnedExperience.Plugin.BueRuntimeLog.Runtime(line));
                 sink.OnProjectionTimedOut();
                 Assert(recorded.Count == 1,
                     "projection timeout emits exactly one line");
@@ -3079,7 +3208,17 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 }
 
                 var adapterRoot = Path.Combine(Path.GetTempPath(), "bue-v2net-red-" + Guid.NewGuid().ToString("N"));
-                var composition = new BueClientUiCompositionRoot(new NetworkModuleAdapter(adapterRoot, () => false, () => null, () => null, () => { }));
+                // DEV-V6-02E: the composition root no longer holds a
+                // NetworkModuleAdapter (the vestigial host-ring holding fields
+                // were retired with the ring); the evaluator factory rides the
+                // contract interface. The catalog→panel projection rides the
+                // injected host delegates — the harness binds the SAME host
+                // projection the entry binds in production.
+                var hostServices = new BetterUnturnedExperience.ClientUi.Internal.ClientUiHostServices();
+                hostServices.GetCatalogEntries = BueClientUiHostProjection.GetCatalogRows;
+                hostServices.TryGetMachineStatus = BueClientUiHostProjection.TryGetMachineStatus;
+                hostServices.GetFacetSnapshot = BueClientUiHostProjection.GetFacetSnapshot;
+                var composition = new BueClientUiCompositionRoot(hostServices); // DEV-V6-04: 评估器工厂随组件迁 Bii（作废票 04）
                 Assert(composition.Initialize(false, false, true), "setup: the composition initializes");
                 var beforeCompletion = composition.ManagementPanel.Model.GetEntries();
                 Assert(!HasManagementEntry(beforeCompletion, "io.github.yu80rice.bue.network", "BUE 网络模块")
@@ -4364,9 +4503,41 @@ namespace BetterUnturnedExperience.Plugin.Tests
             Assert(module.RequestLocalTidy(3, TidyMode.SameType, true) == LitTidyRequestResult.NativeFallback,
                 "module: before start the tidy request falls back to native (not started, no patches)");
 
-            module.EnsureStarted();
-            Assert(module.PatchesInstalled || module.StartGateDiagnostics.Length > 0,
-                "module: start installs the UI patch or records the environment gate diagnostic (no silent state)");
+            // DEV-V6-11: arming happens INSIDE the lifecycle and must go through the
+            // bootstrap's patch pocket — the retired EnsureStarted-only path armed
+            // patches outside the platform account. Start the generation for real.
+            module.ScopeDirectoryForTests = NewLitFaultDirectory();
+            module.FaultContextForTests = () => new LitFaultScopeContext("TestMap", 1);
+            var litPocket = LitTestPocket.Open("io.github.yu80rice.bue.inventory-tidy");
+            var litBus = new BetterUnturnedExperience.Core.Events.FeatureEventBus();
+            var litPair = BetterUnturnedExperience.Core.Network.LocalLoopbackTransport.CreatePair();
+            var litNetwork = new BetterUnturnedExperience.Core.Network.BueNetworkRuntime(litPair.First, new ContractVersion(2, 0), 1901UL);
+            var savedRecoverInstaller = InventoryTidyModule.RecoverPatchInstallerForTests;
+            var savedFastInstaller = InventoryTidyModule.FastTransferPatchInstallerForTests;
+            var savedUiInstaller = InventoryTidyModule.UiPatchInstallerForTests;
+            FeatureStartResult litStart;
+            try
+            {
+                // 安装器缝（宿主装不上真机引擎补丁）：本组判的是生命周期内武装 + 经口登记，
+                // 不是引擎绑定本身（后者由 V5-04/05 组以 binder 面另锁）。
+                InventoryTidyModule.RecoverPatchInstallerForTests = _ => true;
+                InventoryTidyModule.FastTransferPatchInstallerForTests = _ => true;
+                InventoryTidyModule.UiPatchInstallerForTests = _ => true;
+                litStart = module.Start(new FeatureBootstrap(default(FeatureScopeIdentity), litPocket.Generation, settingsView,
+                    litBus.Subscriber(settingsFeature), litBus.Publisher(settingsFeature), litBus.EventRegistry(settingsFeature),
+                    null, null, null, litNetwork, null, litPocket.Patching));
+            }
+            finally
+            {
+                InventoryTidyModule.RecoverPatchInstallerForTests = savedRecoverInstaller;
+                InventoryTidyModule.FastTransferPatchInstallerForTests = savedFastInstaller;
+                InventoryTidyModule.UiPatchInstallerForTests = savedUiInstaller;
+            }
+            Assert(litStart.Started, "module: the host lifecycle starts the module generation (lifecycle-internal arming, DEV-V6-11)");
+            Assert(module.PatchesInstalled && module.RecoverPatchesInstalled && module.FastTransferPatchesInstalled,
+                "module: every tidy patch face arms inside the lifecycle (start owns arming)");
+            Assert(litPocket.Accepted.Count == 1 && module.PatchTeardownDelegated,
+                "module: the armed patch set enters the platform account through the pocket (single ownership handover)");
 
             // DEV-V4-06: the click seam reads the SAVED ClientPreference
             // snapshot (never the panel draft, never per-page memory) — the
@@ -4429,8 +4600,12 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 solutionRoot = solutionRoot.Parent;
             Assert(solutionRoot != null, "exclusion: solution root located from the test base directory");
             var pluginCsproj = File.ReadAllText(Path.Combine(solutionRoot.FullName, "src", "BetterUnturnedExperience.Plugin", "BetterUnturnedExperience.Plugin.csproj"));
-            Assert(pluginCsproj.Contains("EmbeddedLit\\Layout\\TaggedRowBandLayout.cs"),
-                "exclusion: the Plugin compile list is the real production list (positive control: migrated Lit sources present)");
+            // DEV-V6-02B 照相机翻转（作废票：02B 真分工程）：迁移源的正控从宿主平铺清单改到
+            // Lit 工程清单——宿主不再平铺 Lit 源码，Lit csproj 自持全量整理源。
+            var litCsproj = File.ReadAllText(Path.Combine(solutionRoot.FullName, "src", "BetterUnturnedExperience.Lit", "BetterUnturnedExperience.Lit.csproj"));
+            Assert(litCsproj.Contains("Layout\\TaggedRowBandLayout.cs"),
+                "exclusion: the Lit project manifest is the real production list (positive control: migrated Lit sources present)");
+            Assert(!pluginCsproj.Contains("EmbeddedLit\\"), "exclusion: the host flat list no longer embeds the Lit domain (DEV-V6-02B true project split)");
             var excludedSources = new[]
             {
                 "AutoTestDriver.cs", "CommandTidyAutoTest.cs", "CommandTidyFaults.cs", "CommandTidyFaultInjectionTest.cs",
@@ -4479,7 +4654,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
             // ── 5. Registration, panel entry and settings identity. ──
             var runtime = new FeatureRegistrationRuntime();
             runtime.OpenRegistration();
-            var registration = InventoryTidyFeatureRegistration.CreateRegistration();
+            var registration = LitFeatureAssembly.CreateRegistration();
             Assert(PayloadText(registration.Definition) == "BUE-LIT-V1",
                 "registration: the definition payload is exactly the documented 'BUE-LIT-V1' text");
             Assert(registration.Definition.Feature.Value == "io.github.yu80rice.bue.inventory-tidy",
@@ -4499,9 +4674,9 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 hostRuntime.OpenRegistration();
                 Assert(BetterItemInteractionFeatureRegistration.Register().Accepted,
                     "setup: the official BII registration is accepted through the host bridge");
-                Assert(BueRuntimeHost.Register(InventoryTidyFeatureRegistration.CreateRegistration()).Accepted,
+                Assert(BueRuntimeHost.Register(LitFeatureAssembly.CreateRegistration()).Accepted,
                     "setup: the official LIT registration is accepted through the host bridge");
-                var composition = new BueClientUiCompositionRoot();
+                var composition = NewHostComposedComposition();
                 Assert(composition.Initialize(false, false, true), "setup: the composition initializes");
                 Assert(hostRuntime.CompleteRuntime(), "setup: the host barrier completes");
                 composition.RefreshManagementPanel();
@@ -4975,13 +5150,17 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 v5SolutionRoot = v5SolutionRoot.Parent;
             Assert(v5SolutionRoot != null, "retirement: solution root located");
             var v5Csproj = File.ReadAllText(Path.Combine(v5SolutionRoot.FullName, "src", "BetterUnturnedExperience.Plugin", "BetterUnturnedExperience.Plugin.csproj"));
-            Assert(v5Csproj.Contains("Layout\\TaggedRowBandLayout.cs") && v5Csproj.Contains("TaggedRowBandV1Strategy.cs"),
+            // DEV-V6-02B 照相机翻转（作废票：02B 真分工程）：统一布局正控随迁移源改读 Lit 工程清单。
+            var v5LitCsproj = File.ReadAllText(Path.Combine(v5SolutionRoot.FullName, "src", "BetterUnturnedExperience.Lit", "BetterUnturnedExperience.Lit.csproj"));
+            Assert(v5LitCsproj.Contains("Layout\\TaggedRowBandLayout.cs") && v5LitCsproj.Contains("TaggedRowBandV1Strategy.cs"),
                 "retirement: the unified layout module is in the production compile list (positive control)");
             Assert(!v5Csproj.Contains("DefaultGridV1Strategy.cs") && !v5Csproj.Contains("InventorySolver.cs")
                 && !v5Csproj.Contains("LayoutCandidate.cs"),
                 "retirement: the old solver trio is gone from the compile list (不保留旧实现并行)");
             var v5AsmTypes = new HashSet<string>();
             foreach (var type in typeof(BetterUnturnedExperiencePlugin).Assembly.GetTypes()) v5AsmTypes.Add(type.Name);
+            // DEV-V6-02B 照相机翻转（作废票：02B 真分工程）：生产面=宿主+Lit 两程序集（02F 合并回单文件）。
+            foreach (var type in typeof(BetterUnturnedExperience.Lit.LitFeatureAssembly).Assembly.GetTypes()) v5AsmTypes.Add(type.Name);
             Assert(!v5AsmTypes.Contains("InventorySolver") && !v5AsmTypes.Contains("LayoutCandidate")
                 && !v5AsmTypes.Contains("DefaultGridV1Strategy"),
                 "retirement: the old solver trio carries no type in the shipped assembly either");
@@ -5991,6 +6170,26 @@ namespace BetterUnturnedExperience.Plugin.Tests
         }
 
         /// <summary>Builds a started LIR module on a fresh bus with the given fake authority (no patches land: host-test process).</summary>
+        // DEV-V6-02C: the harness settings root — a lazily created temp dir the
+        // LIR production persistence composes from (missing file = empty skill
+        // account, the same observable the pre-split BaseDirectory root had).
+        private static string lirHarnessSettingsRoot;
+
+        /// <summary>DEV-V6-12：NewLirModule 最近一次用的启动口袋（老 harness 的「宿主已给口袋」
+        /// 等价起点）——持引用即可，账户记录在代际机里（测试断言直接读它）。</summary>
+        private static LirTestPocket lirHarnessPocket;
+
+        private static string LirHostSettingsRootForHarness()
+        {
+            if (lirHarnessSettingsRoot == null)
+            {
+                var dir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "bue-02c-harness-root-" + Guid.NewGuid().ToString("N"));
+                System.IO.Directory.CreateDirectory(dir);
+                lirHarnessSettingsRoot = dir;
+            }
+            return lirHarnessSettingsRoot;
+        }
+
         private static InPlaceReloadModule NewLirModule(BetterUnturnedExperience.Core.Events.FeatureEventBus bus, IBueNetworkApi network, FakeLirAuthority authority, bool isServer, out FakeLirAuthority wired)
         {
             var feature = new FeatureId(LirRuntime.FeatureIdValue);
@@ -6003,7 +6202,10 @@ namespace BetterUnturnedExperience.Plugin.Tests
             var lirSettings = new FeatureSettingsRegistry(new InMemorySettingsPersistence(), () => true, null);
             lirSettings.GetOrCreateRuntime(feature, InPlaceReloadModule.CreateSettingsDescriptors(feature));
             lirSettings.OpenGeneration(feature, 1UL);
-            var bootstrap = new FeatureBootstrap(default(FeatureScopeIdentity), 1UL, lirSettings.CreateView(feature, 1UL), bus.Subscriber(feature), bus.Publisher(feature), bus.EventRegistry(feature), null, null, null, network);
+            // DEV-V6-12：武装 ⇒ 经启动口袋登记（缺口袋=立即自拆），本 harness 按生产组合同形给真账户。
+            var pocket = LirTestPocket.Open();
+            lirHarnessPocket = pocket;
+            var bootstrap = new FeatureBootstrap(default(FeatureScopeIdentity), pocket.Generation, lirSettings.CreateView(feature, pocket.Generation), bus.Subscriber(feature), bus.Publisher(feature), bus.EventRegistry(feature), null, null, null, network, null, pocket.Patching);
             var result = module.Start(bootstrap);
             if (!result.Started) throw new InvalidOperationException("harness: LIR module start failed: " + result.DiagnosticId);
             wired = authority;
@@ -6274,7 +6476,10 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 module.NetServiceFactoryForTests = (m, net) => new LirRepackNetwork(net, m.Authority, () => isServer);
                 module.RoleProbeForTests = () => isServer;
                 module.ToastSink = message => toasts.Add(message);
-                var bootstrap = new FeatureBootstrap(default(FeatureScopeIdentity), 1UL, null, bus.Subscriber(feature), bus.Publisher(feature), bus.EventRegistry(feature), null, null, null, runtime);
+                // DEV-V6-12：武装 ⇒ 经启动口袋登记（缺口袋=立即自拆）。
+                var pocket = LirTestPocket.Open();
+                lirHarnessPocket = pocket;
+                var bootstrap = new FeatureBootstrap(default(FeatureScopeIdentity), pocket.Generation, null, bus.Subscriber(feature), bus.Publisher(feature), bus.EventRegistry(feature), null, null, null, runtime, null, pocket.Patching);
                 var result = module.Start(bootstrap);
                 if (!result.Started) throw new InvalidOperationException("harness: LIR module start failed: " + result.DiagnosticId);
                 return module;
@@ -7393,13 +7598,17 @@ namespace BetterUnturnedExperience.Plugin.Tests
         private static void AssertPreviewUpdateTransientFaultIsAbsorbedAndVisible()
         {
             var transientEmitted = new List<KeyValuePair<string, ClientUiCompositionRoot.ClientUiDiagnosticLevel>>();
-            ClientUiCompositionRoot.DiagnosticSink = (line, level) => transientEmitted.Add(new KeyValuePair<string, ClientUiCompositionRoot.ClientUiDiagnosticLevel>(line, level));
+            // DEV-V6-04（作废票：04）：组件预览故障诊断改注入双口（迁移前经组合静态 sink）——
+            // 记录器按口分级还原原断言语义（runtime 口=Debug、error 口=Error）。
+            void RecordTransient(string line, bool error) => transientEmitted.Add(new KeyValuePair<string, ClientUiCompositionRoot.ClientUiDiagnosticLevel>(
+                line, error ? ClientUiCompositionRoot.ClientUiDiagnosticLevel.Error : ClientUiCompositionRoot.ClientUiDiagnosticLevel.Debug));
             try
             {
                 var component = new BetterItemInteractionUiComponent(
                     new InventoryPreviewPresenter(new InventoryDragPresenter(new ThrowOnceThenFixedCandidateEvaluator())),
-                    new NativeInventoryInteractionAdapter(2, 8));
-                component.OnUiInitialized(new TestRoot());
+                    new NativeInventoryInteractionAdapter(2, 8),
+                    null, line => RecordTransient(line, false), line => RecordTransient(line, true));
+                component.OnUiInitialized(true, false);
                 var surface = new TestSurfaceContext(
                     new ContainerReference(ContainerKind.PlayerInventory, 3, 941),
                     new TestVisualContainer(), new TestVisualContainer(),
@@ -7433,11 +7642,13 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     "FB1 fault gate: recovery after absorbed faults emits a one-shot BUE-DRAG-004 Debug recovery line and no doubled id");
 
                 var persistentEmitted = new List<KeyValuePair<string, ClientUiCompositionRoot.ClientUiDiagnosticLevel>>();
-                ClientUiCompositionRoot.DiagnosticSink = (line, level) => persistentEmitted.Add(new KeyValuePair<string, ClientUiCompositionRoot.ClientUiDiagnosticLevel>(line, level));
+                void RecordPersistent(string line, bool error) => persistentEmitted.Add(new KeyValuePair<string, ClientUiCompositionRoot.ClientUiDiagnosticLevel>(
+                    line, error ? ClientUiCompositionRoot.ClientUiDiagnosticLevel.Error : ClientUiCompositionRoot.ClientUiDiagnosticLevel.Debug));
                 var persistent = new BetterItemInteractionUiComponent(
                     new InventoryPreviewPresenter(new InventoryDragPresenter(new ThrowingCandidateEvaluator())),
-                    new NativeInventoryInteractionAdapter(2, 8));
-                persistent.OnUiInitialized(new TestRoot());
+                    new NativeInventoryInteractionAdapter(2, 8),
+                    null, line => RecordPersistent(line, false), line => RecordPersistent(line, true));
+                persistent.OnUiInitialized(true, false);
                 var persistentSurface = new TestSurfaceContext(
                     new ContainerReference(ContainerKind.PlayerInventory, 3, 942),
                     new TestVisualContainer(), new TestVisualContainer(),
@@ -7482,8 +7693,9 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 // 60th consecutive frame and would isolate).
                 var resumed = new BetterItemInteractionUiComponent(
                     new InventoryPreviewPresenter(new InventoryDragPresenter(new ThrowingCandidateEvaluator())),
-                    new NativeInventoryInteractionAdapter(2, 8));
-                resumed.OnUiInitialized(new TestRoot());
+                    new NativeInventoryInteractionAdapter(2, 8),
+                    null, line => RecordPersistent(line, false), line => RecordPersistent(line, true));
+                resumed.OnUiInitialized(true, false);
                 var resumedSurface = new TestSurfaceContext(
                     new ContainerReference(ContainerKind.PlayerInventory, 3, 945),
                     new TestVisualContainer(), new TestVisualContainer(),
@@ -7516,7 +7728,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
             }
             finally
             {
-                ClientUiCompositionRoot.DiagnosticSink = null;
+                // DEV-V6-04（作废票：04）：诊断口随组件注入——静态 sink 复位不再需要。
             }
         }
 
@@ -7532,7 +7744,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
             var component = new BetterItemInteractionUiComponent(
                 new InventoryPreviewPresenter(new InventoryDragPresenter(new FixedCandidateEvaluator())),
                 new NativeInventoryInteractionAdapter(2, 8));
-            component.OnUiInitialized(new TestRoot());
+            component.OnUiInitialized(true, false);
             var surface = new TestSurfaceContext(
                 new ContainerReference(ContainerKind.PlayerInventory, 3, 943),
                 topLevel, gridPanel,
@@ -7639,7 +7851,9 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 ListenHostProjectionReconciler.OnTidyPagesCommitted(3, 3);
                 Assert(routedCount == 1 && routedFirst == 3 && routedLast == 3,
                     "F-B1c: the tidy-commit dispatcher routes the committed page range to the reconcile hook");
-                ListenHostProjectionReconciler.OnDashboardSurfaceOpened();
+                // DEV-V6-02B：页码范围经宿主转达传参（单源=整理工程公开缝，生产由组装根绑定）。
+                ListenHostProjectionReconciler.OnDashboardSurfaceOpened(
+                    LitFeatureAssembly.TidyablePageMin, LitFeatureAssembly.TidyablePageMax);
                 Assert(routedCount == 2 && routedFirst == HotkeySnapshotUtil.TIDYABLE_PAGE_MIN && routedLast == HotkeySnapshotUtil.TIDYABLE_PAGE_MAX,
                     "F-B1c: the dashboard-open dispatcher reconciles the whole tidyable page range");
             }
@@ -7698,11 +7912,13 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 "F-B1c: the open-trigger range consults exactly the five dashboard pages 2..6");
 
             // 组 4：诊断行 — 修复发生时一条 Debug 行，携带 BUE-LIT-001 身份与计数。
-            var previousRecorder = BueRuntimeLog.Recorder;
+            // DEV-V6-02E 测试适配（作废票：02E）：协调文件迁入界面工程后，宿主日志口改
+            // BindHostComposition 注入缝（HostLogSink）——harness 直绑该缝，行内容断言逐字不变。
+            var previousHostLogSink = ListenHostProjectionReconciler.HostLogSink;
             var captured = new List<string>();
             try
             {
-                BueRuntimeLog.Recorder = line => captured.Add(line);
+                ListenHostProjectionReconciler.HostLogSink = line => captured.Add(line);
                 var stalePage = new FakeProjectionPage { PageValue = 3 };
                 stalePage.Authoritative.Add(jarA);
                 stalePage.Rendered.Add(jarA);
@@ -7725,7 +7941,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
             }
             finally
             {
-                BueRuntimeLog.Recorder = previousRecorder;
+                ListenHostProjectionReconciler.HostLogSink = previousHostLogSink;
             }
 
             // 组 5：端到端接线 — 整理提交发布 TidyCompleted 的同一拍路由对账。
@@ -7735,6 +7951,10 @@ namespace BetterUnturnedExperience.Plugin.Tests
             harness.EstablishChallenge();
             var reconcilePages = new List<KeyValuePair<byte, byte>>();
             ListenHostProjectionReconciler.ReconcileHook = (first, last) => reconcilePages.Add(new KeyValuePair<byte, byte>(first, last));
+            // DEV-V6-02B：整理与界面的互调改宿主转达——测试宿主显式绑定转达口（生产绑定于
+            // 组装根 Awake），Lit 不再直呼界面协调器；未绑定时 hook 不经 Lit 触发。
+            BetterUnturnedExperience.Lit.LitFeatureAssembly.BindProjectionRelay(
+                BetterUnturnedExperience.ClientUi.Internal.ListenHostProjectionReconciler.OnTidyPagesCommitted);
             try
             {
                 var request = harness.ClientModule.RequestTidy(3, TidyMode.SameType, true);
@@ -7757,6 +7977,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
             finally
             {
                 ListenHostProjectionReconciler.ReconcileHook = null;
+                BetterUnturnedExperience.Lit.LitFeatureAssembly.BindProjectionRelay(null);
             }
         }
 
@@ -7947,6 +8168,10 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 "F-D gate: a pure remote client is not eligible");
             Assert(!BetterUnturnedExperience.ClientUi.Internal.ListenHostProjectionReconciler.IsEligibleLocalHostDecision(true, true, false),
                 "F-D gate: a missing local player is not eligible");
+            // DEV-V6-02B：页码范围经宿主绑定（生产绑定于 Awake）——测试宿主先绑定再验门，
+            // 未绑定时门 fail-closed（与未绑引擎分派器同族的 no-op 语义）。
+            BetterUnturnedExperience.ClientUi.Internal.ListenHostProjectionReconciler.BindTidyableRange(
+                LitFeatureAssembly.TidyablePageMin, LitFeatureAssembly.TidyablePageMax);
             Assert(BetterUnturnedExperience.ClientUi.Internal.ListenHostProjectionReconciler.IsReconcilablePage(2)
                     && BetterUnturnedExperience.ClientUi.Internal.ListenHostProjectionReconciler.IsReconcilablePage(6),
                 "F-D gate: the tidyable dashboard bounds 2..6 are reconcilable");
@@ -7954,6 +8179,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     && !BetterUnturnedExperience.ClientUi.Internal.ListenHostProjectionReconciler.IsReconcilablePage(7)
                     && !BetterUnturnedExperience.ClientUi.Internal.ListenHostProjectionReconciler.IsReconcilablePage(255),
                 "F-D gate: pages outside the dashboard range are rejected");
+            BetterUnturnedExperience.ClientUi.Internal.ListenHostProjectionReconciler.BindTidyableRange(0, 0);
 
             // 组 5：共享链 Reset —— 哨兵归位：同一帧号在 Reset 后可再次执行
             // （不 Reset 则帧去重会跳过它，这是判别性差异）。
@@ -7982,15 +8208,19 @@ namespace BetterUnturnedExperience.Plugin.Tests
         private static void AssertSinkRebuildsElementsOnNativeWriteFault()
         {
             var emitted = new List<KeyValuePair<string, ClientUiCompositionRoot.ClientUiDiagnosticLevel>>();
-            ClientUiCompositionRoot.DiagnosticSink = (line, level) => emitted.Add(new KeyValuePair<string, ClientUiCompositionRoot.ClientUiDiagnosticLevel>(line, level));
+            // DEV-V6-04（作废票：04）：组件预览故障诊断改注入双口（迁移前经组合静态 sink）——
+            // 记录器按口分级还原原断言语义（runtime 口=Debug、error 口=Error）。
+            void RecordEmitted(string line, bool error) => emitted.Add(new KeyValuePair<string, ClientUiCompositionRoot.ClientUiDiagnosticLevel>(
+                line, error ? ClientUiCompositionRoot.ClientUiDiagnosticLevel.Error : ClientUiCompositionRoot.ClientUiDiagnosticLevel.Debug));
             try
             {
                 var gridPanel = new RecordingVisualContainer();
                 var topLevel = new RecordingVisualContainer();
                 var component = new BetterItemInteractionUiComponent(
                     new InventoryPreviewPresenter(new InventoryDragPresenter(new FixedCandidateEvaluator())),
-                    new NativeInventoryInteractionAdapter(2, 8));
-                component.OnUiInitialized(new TestRoot());
+                    new NativeInventoryInteractionAdapter(2, 8),
+                    null, line => RecordEmitted(line, false), line => RecordEmitted(line, true));
+                component.OnUiInitialized(true, false);
                 var surface = new TestSurfaceContext(
                     new ContainerReference(ContainerKind.PlayerInventory, 3, 946),
                     topLevel, gridPanel,
@@ -8055,7 +8285,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
             }
             finally
             {
-                ClientUiCompositionRoot.DiagnosticSink = null;
+                // DEV-V6-04（作废票：04）：诊断口随组件注入——静态 sink 复位不再需要。
             }
         }
 
@@ -8158,9 +8388,6 @@ namespace BetterUnturnedExperience.Plugin.Tests
             public void AddChild(IVisualElement child) { }
             public void RemoveChild(IVisualElement child) { }
         }
-
-        private sealed class TestClientUiRoot : IClientUiRoot { }
-        private sealed class TestRoot : IClientUiRoot { }
 
         private sealed class RecordingNativeDragActions : INativeInventoryDragActions
         {
@@ -8385,11 +8612,14 @@ namespace BetterUnturnedExperience.Plugin.Tests
         // diagnostic boundary; and invalid UI scale cannot be normalized.
         private static void AssertDev16DR5ActivationAndCleanupContracts()
         {
-            Assert(!BetterUnturnedExperiencePlugin.ShouldActivateDragPreview(false, false),
+            // DEV-V6-02E: the activation decision moved with the adapters;
+            // DEV-V6-04（作废票：04）：随 BII 迁 Bii 工程（BiiInteractionRig）；
+            // same truth table.
+            Assert(!BetterUnturnedExperience.Bii.BiiInteractionRig.ShouldActivateDragPreview(false, false),
                 "drag preview cannot activate before the inventory lifecycle heartbeat is installed");
-            Assert(!BetterUnturnedExperiencePlugin.ShouldActivateDragPreview(true, true),
+            Assert(!BetterUnturnedExperience.Bii.BiiInteractionRig.ShouldActivateDragPreview(true, true),
                 "drag preview cannot activate after lifecycle isolation");
-            Assert(BetterUnturnedExperiencePlugin.ShouldActivateDragPreview(true, false),
+            Assert(BetterUnturnedExperience.Bii.BiiInteractionRig.ShouldActivateDragPreview(true, false),
                 "drag preview may activate only on a live inventory lifecycle adapter");
 
             Assert(InventorySurfaceLifecycleAdapter.ShouldIsolateOnHierarchyProbeFailure(false),
@@ -8430,12 +8660,15 @@ namespace BetterUnturnedExperience.Plugin.Tests
             catch (InvalidOperationException) { invalidScaleRejected = true; }
             Assert(invalidScaleRejected, "invalid UI scale is rejected instead of silently normalized");
 
-            var cleanupComposition = new BueClientUiCompositionRoot();
+            var cleanupComposition = NewHostComposedComposition();
             Assert(cleanupComposition.Initialize(false, false, true), "cleanup propagation fixture initializes");
-            cleanupComposition.OfficialComponent.RegisterCleanupResult(() => false);
-            Assert(!cleanupComposition.OfficialComponent.IsolatePreviewFailureResult(),
+            // DEV-V6-04（作废票：04）：组件随 BII 迁 Bii 工程，组合根不再握组件——
+            // 清理传播语义直接在组件本体上驱动（非生产组合路径，与 02D 簿记探针同族）。
+            var cleanupComponent = NewHarnessInteractionComponent();
+            cleanupComponent.RegisterCleanupResult(() => false);
+            Assert(!cleanupComponent.IsolatePreviewFailureResult(),
                 "component isolation returns false when a registered cleanup fails");
-            Assert(cleanupComposition.OfficialComponent.Lifecycle.LastDiagnosticId == "BUE-DEV15D-CLEANUP-INCOMPLETE",
+            Assert(cleanupComponent.Lifecycle.LastDiagnosticId == "BUE-DEV15D-CLEANUP-INCOMPLETE",
                 "component isolation preserves the canonical cleanup-incomplete diagnostic");
             cleanupComposition.Destroy();
         }
@@ -8604,7 +8837,9 @@ namespace BetterUnturnedExperience.Plugin.Tests
 
             var settings = new BetterItemInteractionSettingsState();
             var lifecycle = new BetterItemInteractionLifecycle();
-            var runtime = new BetterItemInteractionRuntime(settings, lifecycle);
+            // DEV-V6-04（作废票：04）：Runtime 的策略读取改注入委托（设置单事实源留界面工程）。
+            var runtime = new BetterItemInteractionRuntime(
+                () => new BetterItemInteractionDragPolicy(settings.Enabled, settings.AutoRotate, settings.Revision), lifecycle);
             runtime.Start(true, true);
             runtime.RegisterCleanupResult(() => false);
             runtime.Isolate();
@@ -8641,11 +8876,13 @@ namespace BetterUnturnedExperience.Plugin.Tests
             Assert(!InventorySurfaceLifecycleAdapter.ShouldDiscardSurface(false, false),
                 "an undispatched unavailable surface does not emit a duplicate close");
 
-            var composition = new BueClientUiCompositionRoot();
+            var composition = NewHostComposedComposition();
             Assert(composition.Initialize(false, false, true), "composition initializes for failure projection");
-            composition.OfficialComponent.IsolatePreviewFailure();
-            Assert(composition.OfficialComponent.Lifecycle.State == FeatureState.Isolated &&
-                composition.OfficialComponent.Lifecycle.Presentation.State == FeaturePresentationState.PresentationDegraded,
+            // DEV-V6-04（作废票：04）：组件随 BII 迁 Bii 工程——失败投影在组件本体驱动。
+            var failureComponent = NewHarnessInteractionComponent();
+            failureComponent.IsolatePreviewFailure();
+            Assert(failureComponent.Lifecycle.State == FeatureState.Isolated &&
+                failureComponent.Lifecycle.Presentation.State == FeaturePresentationState.PresentationDegraded,
                 "native hook/geometry failure isolates the feature and projects degraded presentation");
             composition.Destroy();
 
@@ -8898,7 +9135,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
 
         private static void AssertPanelDispatchReachesButtonInjectionSeam()
         {
-            var composition = new BueClientUiCompositionRoot();
+            var composition = NewHostComposedComposition();
             var recording = new RecordingButtonInjectionSeam();
             var panel = new BueNativeManagementPanel(composition.ManagementPanel, null, recording);
             Assert(panel.Dispatch(BueNativeManagementPanel.TickSource.Update), "panel dispatch reaches the button injection seam");
@@ -8967,11 +9204,11 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 hostRuntime.OpenRegistration();
                 Assert(BetterItemInteractionFeatureRegistration.Register().Accepted,
                     "DEV-V3-01: official BII registers through the public bridge (whitelist positive)");
-                Assert(BueRuntimeHost.Register(InventoryTidyFeatureRegistration.CreateRegistration()).Accepted,
+                Assert(BueRuntimeHost.Register(LitFeatureAssembly.CreateRegistration()).Accepted,
                     "DEV-V3-01: official LIT registers through the public bridge (whitelist positive)");
-                Assert(BueRuntimeHost.Register(InPlaceReloadFeatureRegistration.CreateRegistration()).Accepted,
+                Assert(BueRuntimeHost.Register(LirFeatureAssembly.CreateRegistration()).Accepted,
                     "DEV-V3-01: official LIR registers through the public bridge (whitelist positive)");
-                Assert(BueRuntimeHost.Register(HordeTrackerFeatureRegistration.CreateRegistration()).Accepted,
+                Assert(BueRuntimeHost.Register(LhtFeatureAssembly.CreateRegistration()).Accepted,
                     "DEV-V3-01: official LHT registers through the public bridge (whitelist positive)");
                 var officialNetwork = NetworkModuleFeatureRegistration.CreateOfficialRegistrations();
                 for (var index = 0; index < officialNetwork.Length; index++)
@@ -9921,18 +10158,18 @@ namespace BetterUnturnedExperience.Plugin.Tests
 
                 Group("官方先行消费锚", () =>
                 {
-                    var litFeature = new FeatureId(InventoryTidyFeatureRegistration.FeatureIdValue);
-                    InventoryTidyFeatureRegistration.WiredModule = null;
+                    var litFeature = new FeatureId(LitFeatureAssembly.FeatureId);
+                    LitFeatureAssembly.ResetWiredModule();
                     var litRuntime = new FeatureRegistrationRuntime();
                     litRuntime.OpenRegistration();
-                    Check(litRuntime.Register(InventoryTidyFeatureRegistration.CreateRegistration()).Accepted,
+                    Check(litRuntime.Register(LitFeatureAssembly.CreateRegistration()).Accepted,
                         "官方锚 setup：官方 LIT 登记入探针运行时");
                     Check(litRuntime.CompleteRuntime(), "官方锚 setup：目录冻结");
                     var captured = new List<string>();
                     BueRuntimeLog.Recorder = captured.Add;
                     BueFeatureStartRuntime.StartCatalog(litRuntime, NewLoopbackNetwork(2001UL));
                     BueRuntimeLog.Recorder = null;
-                    var litModule = InventoryTidyFeatureRegistration.WiredModule;
+                    var litModule = (InventoryTidyModule)LitFeatureAssembly.WiredModule;
                     Check(litModule != null, "官方锚：官方 LIT 经真实 StartCatalog 启动（工厂装配实例）");
                     Check(ContainsDiagnostic(captured, "event=feature-resource") && ContainsDiagnostic(captured, "io.github.yu80rice.bue.inventory-tidy"),
                         "官方锚：官方模块 TryTrack 真实资源浮出结构化登记行");
@@ -9944,9 +10181,9 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     Check(litModule.Lifetime.CurrentStatus.State == FeatureState.Stopped
                         && litModule.Lifetime.CurrentStatus.StopReason == FeatureStopReason.UserDisabled,
                         "官方锚：官方功能停止投影=Stopped/UserDisabled（与生态同一状态机）");
-                    InventoryTidyFeatureRegistration.WiredModule = null;
+                    LitFeatureAssembly.ResetWiredModule();
                     Check(BueFeatureStartRuntime.SetFeatureEnabled(litFeature, true), "官方锚：官方功能经面板 seam 再启用");
-                    var litModule2 = InventoryTidyFeatureRegistration.WiredModule;
+                    var litModule2 = (InventoryTidyModule)LitFeatureAssembly.WiredModule;
                     Check(litModule2 != null && !ReferenceEquals(litModule2, litModule), "官方锚：再启用经工厂获得新 LIT 实例");
                     Check(litModule2.LifecycleGeneration > litModule.LifecycleGeneration, "官方锚：再启用=新生命周期代际");
                     Check(litModule2.Lifetime != null
@@ -9956,7 +10193,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     // 成功（现网 invalid-state 拒，先红）——官方先行消费空操作语义。
                     Check(BueFeatureStartRuntime.SetFeatureEnabled(litFeature, true),
                         "官方锚：Running 官方功能再提交启用=空操作成功（现网拒，先红）");
-                    Check(ReferenceEquals(InventoryTidyFeatureRegistration.WiredModule, litModule2),
+                    Check(ReferenceEquals(LitFeatureAssembly.WiredModule, litModule2),
                         "官方锚：空操作不经工厂（官方实例不变，无新代际）");
                     var received = new List<TidyCompleted>();
                     BueHostEventRuntime.Bus.Subscriber(litFeature).Subscribe<TidyCompleted>(received.Add);
@@ -9990,16 +10227,16 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 // 两条 Choice 组装设置 runtime（面板行投影与点击快照的同一数据源）。
                 Group("legacy facet 退役", () =>
                 {
-                    var litFeature = new FeatureId(InventoryTidyFeatureRegistration.FeatureIdValue);
+                    var litFeature = new FeatureId(LitFeatureAssembly.FeatureId);
                     var settingsRoot = Path.Combine(Path.GetTempPath(), "bue-v404-retire-" + Guid.NewGuid().ToString("N"));
                     BetterUnturnedExperience.Plugin.BueSettingsRuntime.Clear();
                     BetterUnturnedExperience.Plugin.BueSettingsRuntime.EnsureCreated(settingsRoot, () => true, null);
                     try
                     {
-                        InventoryTidyFeatureRegistration.WiredModule = null;
+                        LitFeatureAssembly.ResetWiredModule();
                         var litRuntime = new FeatureRegistrationRuntime();
                         litRuntime.OpenRegistration();
-                        Check(litRuntime.Register(InventoryTidyFeatureRegistration.CreateRegistration()).Accepted,
+                        Check(litRuntime.Register(LitFeatureAssembly.CreateRegistration()).Accepted,
                             "退役 setup：官方 LIT 登记");
                         Check(litRuntime.CompleteRuntime(), "退役 setup：目录冻结");
                         FeatureRegistrationEntry litEntry = null;
@@ -10026,7 +10263,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                         BueFeatureStartRuntime.StartCatalog(litRuntime, NewLoopbackNetwork(litRuntime.Catalog.CatalogRevision));
                         Check(BueSettingsRuntime.Registry.TryGetRuntime(litFeature) != null,
                             "DEV-V4-06：启动路径为两条 Choice 组装设置 runtime（同一权威源供面板与点击快照）");
-                        var litWired = InventoryTidyFeatureRegistration.WiredModule;
+                        var litWired = (InventoryTidyModule)LitFeatureAssembly.WiredModule;
                         Check(litWired != null && litWired.SettingsView != null,
                             "DEV-V4-06：真实启动的 LIT 模块持注入 view（点击读快照的数据源在位）");
                     }
@@ -10052,9 +10289,9 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     BueFeatureIntentRuntime.EnsureCreated(root, null);
                     try
                     {
-                        var litFeature = new FeatureId(InventoryTidyFeatureRegistration.FeatureIdValue);
-                        var lirFeature = new FeatureId(InPlaceReloadFeatureRegistration.FeatureIdValue);
-                        var lhtFeature = new FeatureId(HordeTrackerFeatureRegistration.FeatureIdValue);
+                        var litFeature = new FeatureId(LitFeatureAssembly.FeatureId);
+                        var lirFeature = new FeatureId(LirFeatureAssembly.FeatureId);
+                        var lhtFeature = new FeatureId(LhtFeatureAssembly.FeatureId);
                         WriteLegacyToggleDoc(root, litFeature, "inventorytidy.enabled", false);
                         WriteLegacyToggleDoc(root, lirFeature, "inplacereload.enabled", false);
                         WriteLegacyToggleDoc(root, NetworkModuleAdapter.NetworkFeature, "network.enabled", false);
@@ -10062,15 +10299,15 @@ namespace BetterUnturnedExperience.Plugin.Tests
                         // LHT 故意不给旧文档（不存在 → 不改生命周期）。
 
                         var biiFeature = BetterItemInteractionSettingsState.Feature;
-                        InventoryTidyFeatureRegistration.WiredModule = null;
-                        InPlaceReloadFeatureRegistration.WiredModule = null;
-                        HordeTrackerFeatureRegistration.WiredModule = null;
+                        LitFeatureAssembly.ResetWiredModule();
+                        LirFeatureAssembly.ResetWiredModule();
+                        LhtFeatureAssembly.ResetWiredModule();
                         var migrationRuntime = new FeatureRegistrationRuntime();
                         BueRuntimeHost.Bind(migrationRuntime);
                         migrationRuntime.OpenRegistration();
-                        Check(migrationRuntime.Register(InventoryTidyFeatureRegistration.CreateRegistration()).Accepted, "迁移 setup：LIT 登记");
-                        Check(migrationRuntime.Register(InPlaceReloadFeatureRegistration.CreateRegistration()).Accepted, "迁移 setup：LIR 登记");
-                        Check(migrationRuntime.Register(HordeTrackerFeatureRegistration.CreateRegistration()).Accepted, "迁移 setup：LHT 登记");
+                        Check(migrationRuntime.Register(LitFeatureAssembly.CreateRegistration()).Accepted, "迁移 setup：LIT 登记");
+                        Check(migrationRuntime.Register(LirFeatureAssembly.CreateRegistration()).Accepted, "迁移 setup：LIR 登记");
+                        Check(migrationRuntime.Register(LhtFeatureAssembly.CreateRegistration()).Accepted, "迁移 setup：LHT 登记");
                         foreach (var registration in NetworkModuleFeatureRegistration.CreateOfficialRegistrations())
                             Check(migrationRuntime.Register(registration).Accepted, "迁移 setup：network 双 facet 登记");
                         // BII 登记进同一目录（宿主模块=良性隔离壳）：其旧 Enabled
@@ -10102,9 +10339,14 @@ namespace BetterUnturnedExperience.Plugin.Tests
                         Check(BueFeatureStartRuntime.TryGetStatus(NetworkModuleAdapter.NetworkFeature, out status)
                                 && status.State == FeatureState.Isolated,
                             "迁移：network Isolated+停用提交=空操作成功（保持隔离不盲调，先例非回归）");
+                        // DEV-V6-04（作废票：04）：BII 空壳 Module 退役——模块真实开工
+                        // （宿主测试进程界面缝未绑=诚实 idle Started，见 DevV604 组 2），
+                        // 旧文档 Enabled=false 的停用提交由「隔离空操作」变为真实停用，
+                        // 与 LIT/LIR 同形（迁移语义=用户停用，非回归）。
                         Check(BueFeatureStartRuntime.TryGetStatus(biiFeature, out status)
-                                && status.State == FeatureState.Isolated,
-                            "迁移：BII Isolated+停用提交=空操作成功（良性隔离壳，先例非回归）");
+                                && status.State == FeatureState.Stopped
+                                && status.StopReason == FeatureStopReason.UserDisabled,
+                            "迁移：BII 旧 enabled=false → 升级后用户停用（Stopped/UserDisabled；空壳退役后与 LIT/LIR 同形，作废票 04）");
                         var intents = BueFeatureIntentRuntime.StoreFor(root);
                         Check(intents.HasUserDisabled(litFeature) && intents.HasUserDisabled(lirFeature)
                                 && intents.HasUserDisabled(NetworkModuleAdapter.NetworkFeature)
@@ -10147,20 +10389,20 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     BueFeatureIntentRuntime.EnsureCreated(root, null);
                     try
                     {
-                        var litFeature = new FeatureId(InventoryTidyFeatureRegistration.FeatureIdValue);
-                        var lhtFeature = new FeatureId(HordeTrackerFeatureRegistration.FeatureIdValue);
+                        var litFeature = new FeatureId(LitFeatureAssembly.FeatureId);
+                        var lhtFeature = new FeatureId(LhtFeatureAssembly.FeatureId);
                         var strangerFeature = new FeatureId("io.example.ecosystem-legacy");
                         WriteLegacyToggleDoc(root, litFeature, "inventorytidy.enabled", false);
                         WriteLegacyToggleDoc(root, lhtFeature, "hordetracker.enabled", false);
                         WriteLegacyToggleDoc(root, NetworkModuleAdapter.V1CompatFeature, "v1compat.enabled", false);
                         WriteLegacyToggleDoc(root, strangerFeature, "myservice.enabled", false);
 
-                        InventoryTidyFeatureRegistration.WiredModule = null;
-                        HordeTrackerFeatureRegistration.WiredModule = null;
+                        LitFeatureAssembly.ResetWiredModule();
+                        LhtFeatureAssembly.ResetWiredModule();
                         var idemRuntime = new FeatureRegistrationRuntime();
                         idemRuntime.OpenRegistration();
-                        Check(idemRuntime.Register(InventoryTidyFeatureRegistration.CreateRegistration()).Accepted, "幂等 setup：LIT 登记");
-                        Check(idemRuntime.Register(HordeTrackerFeatureRegistration.CreateRegistration()).Accepted, "幂等 setup：LHT 登记");
+                        Check(idemRuntime.Register(LitFeatureAssembly.CreateRegistration()).Accepted, "幂等 setup：LIT 登记");
+                        Check(idemRuntime.Register(LhtFeatureAssembly.CreateRegistration()).Accepted, "幂等 setup：LHT 登记");
                         foreach (var registration in NetworkModuleFeatureRegistration.CreateOfficialRegistrations())
                             Check(idemRuntime.Register(registration).Accepted, "幂等 setup：network 双 facet 登记");
                         Check(idemRuntime.CompleteRuntime(), "幂等 setup：目录冻结");
@@ -10171,7 +10413,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                         Check(BueFeatureStartRuntime.TryGetStatus(litFeature, out firstStatus)
                                 && firstStatus.State == FeatureState.Stopped && firstStatus.StopReason == FeatureStopReason.UserDisabled,
                             "幂等 setup：首次迁移=用户停用");
-                        var wiredAfterFirst = InventoryTidyFeatureRegistration.WiredModule;
+                        var wiredAfterFirst = (InventoryTidyModule)LitFeatureAssembly.WiredModule;
 
                         BueLegacyEnabledMigrationAdapter.Run(root, line => { });
                         FeatureStatusView secondStatus;
@@ -10179,7 +10421,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                                 && secondStatus.State == FeatureState.Stopped && secondStatus.StopReason == FeatureStopReason.UserDisabled
                                 && secondStatus.StateRevision == firstStatus.StateRevision,
                             "幂等：重复加载=空操作成功（投影原样，不新开代际不重复迁移）");
-                        Check(ReferenceEquals(InventoryTidyFeatureRegistration.WiredModule, wiredAfterFirst),
+                        Check(ReferenceEquals(LitFeatureAssembly.WiredModule, wiredAfterFirst),
                             "幂等：重复加载不经工厂（模块实例不变，无新代际）");
 
                         // 六项 false→UserDisabled 的真实 e2e 收口：LIT/LIR/network/BII
@@ -10202,9 +10444,9 @@ namespace BetterUnturnedExperience.Plugin.Tests
 
                         var aliases = BueLegacyEnabledMigrationAdapter.ComposeAliases(root);
                         Check(aliases.Count == 6, "别名表：恰六项显式登记");
-                        Check(HasAlias(aliases, InventoryTidyFeatureRegistration.FeatureIdValue, "inventorytidy.enabled")
-                                && HasAlias(aliases, InPlaceReloadFeatureRegistration.FeatureIdValue, "inplacereload.enabled")
-                                && HasAlias(aliases, HordeTrackerFeatureRegistration.FeatureIdValue, "hordetracker.enabled")
+                        Check(HasAlias(aliases, LitFeatureAssembly.FeatureId, "inventorytidy.enabled")
+                                && HasAlias(aliases, LirFeatureAssembly.FeatureId, "inplacereload.enabled")
+                                && HasAlias(aliases, LhtFeatureAssembly.FeatureId, "hordetracker.enabled")
                                 && HasAlias(aliases, NetworkModuleAdapter.NetworkFeature.Value, "network.enabled")
                                 && HasAlias(aliases, NetworkModuleAdapter.V1CompatFeature.Value, "v1compat.enabled")
                                 && HasAlias(aliases, BetterItemInteractionSettingsState.Feature.Value, "Enabled"),
@@ -10236,13 +10478,13 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     BueFeatureIntentRuntime.Clear();
                     try
                     {
-                        var litFeature = new FeatureId(InventoryTidyFeatureRegistration.FeatureIdValue);
+                        var litFeature = new FeatureId(LitFeatureAssembly.FeatureId);
                         WriteLegacyToggleDoc(root, litFeature, "inventorytidy.enabled", false);
-                        InventoryTidyFeatureRegistration.WiredModule = null;
+                        LitFeatureAssembly.ResetWiredModule();
                         var failRuntime = new FeatureRegistrationRuntime();
                         BueRuntimeHost.Bind(failRuntime);
                         failRuntime.OpenRegistration();
-                        Check(failRuntime.Register(InventoryTidyFeatureRegistration.CreateRegistration()).Accepted, "保留 setup：LIT 登记");
+                        Check(failRuntime.Register(LitFeatureAssembly.CreateRegistration()).Accepted, "保留 setup：LIT 登记");
                         Check(failRuntime.CompleteRuntime(), "保留 setup：目录冻结");
                         BueFeatureStartRuntime.StartCatalog(failRuntime, NewLoopbackNetwork(failRuntime.Catalog.CatalogRevision));
 
@@ -10299,13 +10541,13 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     BueFeatureIntentRuntime.EnsureCreated(root, null);
                     try
                     {
-                        var litFeature = new FeatureId(InventoryTidyFeatureRegistration.FeatureIdValue);
+                        var litFeature = new FeatureId(LitFeatureAssembly.FeatureId);
                         WriteLegacyToggleDoc(root, litFeature, "inventorytidy.enabled", false);
-                        InventoryTidyFeatureRegistration.WiredModule = null;
+                        LitFeatureAssembly.ResetWiredModule();
                         var retireRuntime = new FeatureRegistrationRuntime();
                         BueRuntimeHost.Bind(retireRuntime);
                         retireRuntime.OpenRegistration();
-                        Check(retireRuntime.Register(InventoryTidyFeatureRegistration.CreateRegistration()).Accepted, "退役失败 setup：LIT 登记");
+                        Check(retireRuntime.Register(LitFeatureAssembly.CreateRegistration()).Accepted, "退役失败 setup：LIT 登记");
                         Check(retireRuntime.CompleteRuntime(), "退役失败 setup：目录冻结");
                         BueFeatureStartRuntime.StartCatalog(retireRuntime, NewLoopbackNetwork(retireRuntime.Catalog.CatalogRevision));
 
@@ -11113,8 +11355,12 @@ namespace BetterUnturnedExperience.Plugin.Tests
             var serverRuntime = new BetterUnturnedExperience.Core.Network.BueNetworkRuntime(pair.Second, localContract, 2002UL, handshakeInitiator: false);
             var feature = new FeatureId(LirRuntime.FeatureIdValue);
             var diagnostics = new List<string>();
+            // DEV-V6-12：武装 ⇒ 经启动口袋登记（缺口袋=立即自拆），与生产组合同形给真账户；
+            // dispatcher 的代际与模块/补丁口的代际同源（口袋开一代）。
+            var pocket = LirTestPocket.Open();
+            lirHarnessPocket = pocket;
             var dispatcher = new BetterUnturnedExperience.Core.Dispatch.MainThreadDispatcherRuntime(diagnostics.Add);
-            dispatcher.OpenGeneration(feature, 5UL);
+            dispatcher.OpenGeneration(feature, pocket.Generation);
             var bus = new BetterUnturnedExperience.Core.Events.FeatureEventBus();
             var authority = new FakeLirAuthority();
             var toasts = new List<string>();
@@ -11124,9 +11370,9 @@ namespace BetterUnturnedExperience.Plugin.Tests
             module.RoleProbeForTests = () => true;
             module.KeyDownProviderForTests = () => false; // no SDG input touch in host tests
             module.ToastSink = message => toasts.Add(message);
-            var bootstrap = new FeatureBootstrap(default(FeatureScopeIdentity), 5UL, null,
+            var bootstrap = new FeatureBootstrap(default(FeatureScopeIdentity), pocket.Generation, null,
                 bus.Subscriber(feature), bus.Publisher(feature), bus.EventRegistry(feature), null, null, null, serverRuntime,
-                dispatcher.CreateView(feature, 5UL));
+                dispatcher.CreateView(feature, pocket.Generation), pocket.Patching);
             var start = module.Start(bootstrap);
             check(start.Started, "setup: 真实 LIR 模块经带 MainThread 视图的宿主 bootstrap 启动");
             check(module.NetService.EnsureInitializedOnGameThread(), "setup: 服务端网络初始化（首帧游戏线程）");
@@ -11173,8 +11419,12 @@ namespace BetterUnturnedExperience.Plugin.Tests
             var serverRuntime = new BetterUnturnedExperience.Core.Network.BueNetworkRuntime(pair.Second, localContract, 2002UL, handshakeInitiator: false);
             var feature = new FeatureId(LirRuntime.FeatureIdValue);
             var diagnostics = new List<string>();
+            // DEV-V6-12：武装 ⇒ 经启动口袋登记（缺口袋=立即自拆），与生产组合同形给真账户；
+            // dispatcher 的代际与模块/补丁口的代际同源（口袋开一代）。
+            var pocket = LirTestPocket.Open();
+            lirHarnessPocket = pocket;
             var dispatcher = new BetterUnturnedExperience.Core.Dispatch.MainThreadDispatcherRuntime(diagnostics.Add);
-            dispatcher.OpenGeneration(feature, 5UL);
+            dispatcher.OpenGeneration(feature, pocket.Generation);
             var bus = new BetterUnturnedExperience.Core.Events.FeatureEventBus();
             var authority = new FakeLirAuthority();
             var toasts = new List<string>();
@@ -11184,9 +11434,9 @@ namespace BetterUnturnedExperience.Plugin.Tests
             module.RoleProbeForTests = () => true;
             module.KeyDownProviderForTests = () => false;
             module.ToastSink = message => toasts.Add(message);
-            var bootstrap = new FeatureBootstrap(default(FeatureScopeIdentity), 5UL, null,
+            var bootstrap = new FeatureBootstrap(default(FeatureScopeIdentity), pocket.Generation, null,
                 bus.Subscriber(feature), bus.Publisher(feature), bus.EventRegistry(feature), null, null, null, serverRuntime,
-                dispatcher.CreateView(feature, 5UL));
+                dispatcher.CreateView(feature, pocket.Generation), pocket.Patching);
             check(module.Start(bootstrap).Started, "setup: 真实 LIR 模块经带 MainThread 视图的宿主 bootstrap 启动");
             check(module.NetService.EnsureInitializedOnGameThread(), "setup: 服务端网络初始化（首帧游戏线程）");
 
@@ -11243,7 +11493,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
         // the vanilla MenuUI.Update postfix (R18 hit map: it ticks every frame).
         private static void AssertPanelSurvivesComponentTeardown()
         {
-            var composition = new BueClientUiCompositionRoot();
+            var composition = NewHostComposedComposition();
             var panel = new BueNativeManagementPanel(composition.ManagementPanel, null);
             panel.Initialize();
             panel.Destroy(unpatchHarmony: false);
@@ -11254,7 +11504,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
         // [DEV-16C] Container session lifecycle state machine.
         private static void AssertContainerSessionTrackerLifecycle()
         {
-            var tracker = new BetterUnturnedExperience.Plugin.ContainerSessionTracker();
+            var tracker = new BetterUnturnedExperience.Bii.ContainerSessionTracker();
             Assert(!tracker.HasActiveSession, "fresh tracker has no active session");
             Assert(!tracker.TryGetActiveGeneration(out _), "fresh tracker has no active generation");
 
@@ -11292,17 +11542,17 @@ namespace BetterUnturnedExperience.Plugin.Tests
         // [DEV-16C] Probe gate: detection result -> decision + structured diagnostics.
         private static void AssertInventoryLifecycleGateDecisions()
         {
-            var headless = BetterUnturnedExperience.Plugin.InventoryLifecycleGate.Evaluate(isClientBranch: false, probe: BetterUnturnedExperience.Plugin.InventoryLifecycleProbe.AllPresent());
+            var headless = BetterUnturnedExperience.Bii.InventoryLifecycleGate.Evaluate(isClientBranch: false, probe: BetterUnturnedExperience.Bii.InventoryLifecycleProbe.AllPresent());
             Assert(!headless.Enabled, "headless branch disables inventory hooks");
             Assert(headless.Diagnostics.Contains("headless"), "headless disable carries a structured reason");
 
-            var missingProbe = BetterUnturnedExperience.Plugin.InventoryLifecycleProbe.MissingIsStoring();
-            var gated = BetterUnturnedExperience.Plugin.InventoryLifecycleGate.Evaluate(isClientBranch: true, probe: missingProbe);
+            var missingProbe = BetterUnturnedExperience.Bii.InventoryLifecycleProbe.MissingIsStoring();
+            var gated = BetterUnturnedExperience.Bii.InventoryLifecycleGate.Evaluate(isClientBranch: true, probe: missingProbe);
             Assert(!gated.Enabled, "missing probe targets disable the wiring");
             Assert(gated.Diagnostics.Contains("PlayerInventory.isStoring"), "diagnostics name the missing member");
             Assert(!gated.Diagnostics.Contains("PlayerDashboardInventoryUI.active"), "diagnostics only name the missing members");
 
-            var full = BetterUnturnedExperience.Plugin.InventoryLifecycleGate.Evaluate(isClientBranch: true, probe: BetterUnturnedExperience.Plugin.InventoryLifecycleProbe.AllPresent());
+            var full = BetterUnturnedExperience.Bii.InventoryLifecycleGate.Evaluate(isClientBranch: true, probe: BetterUnturnedExperience.Bii.InventoryLifecycleProbe.AllPresent());
             Assert(full.Enabled, "client branch with all members present enables the hooks");
             Assert(full.Diagnostics.Length == 0, "enabled gate carries no diagnostics");
         }
@@ -11311,36 +11561,36 @@ namespace BetterUnturnedExperience.Plugin.Tests
         // lifecycle events on the tracker.
         private static void AssertInventoryLifecycleWatcherDiffing()
         {
-            var tracker = new BetterUnturnedExperience.Plugin.ContainerSessionTracker();
-            var watcher = new BetterUnturnedExperience.Plugin.InventoryLifecycleWatcher(tracker);
-            watcher.Feed(new BetterUnturnedExperience.Plugin.InventoryLifecycleSnapshot(false, false, false, 0, true));
+            var tracker = new BetterUnturnedExperience.Bii.ContainerSessionTracker();
+            var watcher = new BetterUnturnedExperience.Bii.InventoryLifecycleWatcher(tracker);
+            watcher.Feed(new BetterUnturnedExperience.Bii.InventoryLifecycleSnapshot(false, false, false, 0, true));
             Assert(!tracker.HasActiveSession, "idle snapshot starts no session");
 
-            watcher.Feed(new BetterUnturnedExperience.Plugin.InventoryLifecycleSnapshot(true, false, false, 0, true));
+            watcher.Feed(new BetterUnturnedExperience.Bii.InventoryLifecycleSnapshot(true, false, false, 0, true));
             Assert(tracker.HasActiveSession && tracker.Kind == ContainerSessionKind.PlayerInventory, "dashboard active raises player inventory open");
 
-            watcher.Feed(new BetterUnturnedExperience.Plugin.InventoryLifecycleSnapshot(true, true, false, 101, true));
+            watcher.Feed(new BetterUnturnedExperience.Bii.InventoryLifecycleSnapshot(true, true, false, 101, true));
             Assert(tracker.Kind == ContainerSessionKind.Storage, "storage open switches the session kind");
             Assert(tracker.TryGetActiveGeneration(out var storageGeneration), "storage session carries a generation");
 
             var storageIdentity = 101;
-            watcher.Feed(new BetterUnturnedExperience.Plugin.InventoryLifecycleSnapshot(true, true, false, storageIdentity, true));
+            watcher.Feed(new BetterUnturnedExperience.Bii.InventoryLifecycleSnapshot(true, true, false, storageIdentity, true));
             Assert(tracker.TryGetActiveGeneration(out storageGeneration), "identical storage snapshot is a no-op");
 
-            watcher.Feed(new BetterUnturnedExperience.Plugin.InventoryLifecycleSnapshot(true, true, false, 202, true));
+            watcher.Feed(new BetterUnturnedExperience.Bii.InventoryLifecycleSnapshot(true, true, false, 202, true));
             Assert(tracker.TryGetActiveGeneration(out var swappedGeneration) && swappedGeneration == storageGeneration + 1, "swapping containers advances the generation exactly once");
 
-            watcher.Feed(new BetterUnturnedExperience.Plugin.InventoryLifecycleSnapshot(true, true, true, 202, true));
+            watcher.Feed(new BetterUnturnedExperience.Bii.InventoryLifecycleSnapshot(true, true, true, 202, true));
             Assert(tracker.Kind == ContainerSessionKind.Trunk, "trunk snapshot switches kind");
 
-            watcher.Feed(new BetterUnturnedExperience.Plugin.InventoryLifecycleSnapshot(true, false, false, 0, true));
+            watcher.Feed(new BetterUnturnedExperience.Bii.InventoryLifecycleSnapshot(true, false, false, 0, true));
             Assert(tracker.Kind == ContainerSessionKind.PlayerInventory, "dashboard after storage opens the player session");
             Assert(tracker.TryGetActiveGeneration(out var playerAfterStorage) && playerAfterStorage > swappedGeneration, "storage-to-dashboard transition closes the old session before opening the new one");
 
-            watcher.Feed(new BetterUnturnedExperience.Plugin.InventoryLifecycleSnapshot(false, false, false, 0, true));
+            watcher.Feed(new BetterUnturnedExperience.Bii.InventoryLifecycleSnapshot(false, false, false, 0, true));
             Assert(!tracker.HasActiveSession, "closing the dashboard ends the session");
 
-            watcher.Feed(new BetterUnturnedExperience.Plugin.InventoryLifecycleSnapshot(false, false, false, 0, false));
+            watcher.Feed(new BetterUnturnedExperience.Bii.InventoryLifecycleSnapshot(false, false, false, 0, false));
             Assert(!tracker.HasActiveSession, "disconnect snapshot keeps no session");
         }
 
@@ -11352,9 +11602,11 @@ namespace BetterUnturnedExperience.Plugin.Tests
         // publish the adapter or the whole drag pipeline stays silent.
         private static void AssertDragPreviewAdapterActivatesStaticPump()
         {
-            var composition = new BueClientUiCompositionRoot();
+            var composition = NewHostComposedComposition();
             Assert(composition.Initialize(false, false, true), "client composition initializes for the drag probe");
-            var adapter = new BetterUnturnedExperience.Plugin.InventoryDragPreviewAdapter(null, composition.OfficialComponent);
+            // DEV-V6-04（作废票：04）：适配器首参（宿主日志源）与组合根组件持有皆退役——
+            // harness 直接构造组件（与生产 rig 同形），日志经注入缝。
+            var adapter = new BetterUnturnedExperience.Bii.InventoryDragPreviewAdapter(NewHarnessInteractionComponent());
             Assert(adapter.Enabled, "drag preview adapter enables with all native members present");
             adapter.Activate();
             // Environment-adaptive: on the Mono game runtime the hook installs
@@ -11363,7 +11615,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
             // adapter fails closed with diagnostics (no silent breakage).
             if (adapter.HooksInstalled)
             {
-                Assert(BetterUnturnedExperience.Plugin.InventoryDragPreviewAdapter.ActiveAdapter == adapter, "activation publishes the adapter to the static pump");
+                Assert(BetterUnturnedExperience.Bii.InventoryDragPreviewAdapter.ActiveAdapter == adapter, "activation publishes the adapter to the static pump");
             }
             else
             {
@@ -11383,13 +11635,13 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 .SetValue(items, (byte)3);
             items.items.Add(CreateTestItemJar(1, 1, 0, 1, 1));
             var occupancy = new UnturnedGridOccupancyView(items);
-            Assert(BetterUnturnedExperience.Plugin.InventoryDragPreviewAdapter.FootprintOccupied(occupancy, 1, 1, 2, 2),
+            Assert(BetterUnturnedExperience.Bii.InventoryDragPreviewAdapter.FootprintOccupied(occupancy, 1, 1, 2, 2),
                 "footprint origin covering the occupied cell counts as occupied");
-            Assert(!BetterUnturnedExperience.Plugin.InventoryDragPreviewAdapter.FootprintOccupied(occupancy, 2, 2, 1, 1),
+            Assert(!BetterUnturnedExperience.Bii.InventoryDragPreviewAdapter.FootprintOccupied(occupancy, 2, 2, 1, 1),
                 "footprint away from the occupied cell counts as empty");
-            Assert(BetterUnturnedExperience.Plugin.InventoryDragPreviewAdapter.FootprintOccupied(occupancy, 0, 0, 2, 2),
+            Assert(BetterUnturnedExperience.Bii.InventoryDragPreviewAdapter.FootprintOccupied(occupancy, 0, 0, 2, 2),
                 "footprint touching the occupied cell at (1,1) counts as occupied");
-            Assert(BetterUnturnedExperience.Plugin.InventoryDragPreviewAdapter.FootprintOccupied(occupancy, 2, 2, 2, 2),
+            Assert(BetterUnturnedExperience.Bii.InventoryDragPreviewAdapter.FootprintOccupied(occupancy, 2, 2, 2, 2),
                 "out-of-bounds footprint fails closed");
         }
 
@@ -11399,9 +11651,9 @@ namespace BetterUnturnedExperience.Plugin.Tests
         // only affects degradation logging, never geometry.
         private static void AssertSurfaceViewportDegradation()
         {
-            var degraded = BetterUnturnedExperience.Plugin.UnturnedInventorySurfaceContext.ResolveViewport(
+            var degraded = BetterUnturnedExperience.Bii.UnturnedInventorySurfaceContext.ResolveViewport(
                 false, new UnityEngine.Vector2(0f, 0f), 5, 7, 3f, 4f, 250f, 350f);
-            var live = BetterUnturnedExperience.Plugin.UnturnedInventorySurfaceContext.ResolveViewport(
+            var live = BetterUnturnedExperience.Bii.UnturnedInventorySurfaceContext.ResolveViewport(
                 true, new UnityEngine.Vector2(400f, 500f), 5, 7, 3f, 4f, 250f, 350f);
             Assert(degraded.OriginX == 0f && degraded.OriginY == 0f && degraded.ClipWidth == 250f && degraded.ClipHeight == 350f,
                 "degraded hierarchy still yields the grid-local clip");
@@ -11414,7 +11666,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
         private static void AssertManagementPanelConsumesRuntimeCatalog()
         {
             var runtime = BueRuntimeHost.CurrentRuntime;
-            var composition = new BueClientUiCompositionRoot();
+            var composition = NewHostComposedComposition();
             composition.RefreshManagementPanel();
             var entries = composition.ManagementPanel.Model.GetEntries();
             Assert(entries.Count >= 2, "management model consumes registered runtime catalog entries");
@@ -11455,7 +11707,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
         }
         private static void AssertManagementPanelOpenHooks()
         {
-            var composition = new BueClientUiCompositionRoot();
+            var composition = NewHostComposedComposition();
             var panel = new BueNativeManagementPanel(composition.ManagementPanel, null);
             try
             {
@@ -11499,33 +11751,85 @@ namespace BetterUnturnedExperience.Plugin.Tests
         }
         private static void AssertClientUiCompositionGates()
         {
-            var client = new BueClientUiCompositionRoot();
+            var client = NewHostComposedComposition();
             Assert(client.Initialize(false, false, true), "client composition root initializes on client");
             Assert(client.IsReady, "client composition root reaches ready");
-            var firstFactoryCount = client.FactoryInvocationCount;
             Assert(client.Initialize(false, false, true), "repeated client initialization is idempotent");
-            Assert(client.FactoryInvocationCount == firstFactoryCount, "repeated initialization does not recreate UI components");
             client.Destroy();
             Assert(!client.Initialize(false, false, true), "destroyed composition root is not reinitialized");
 
-            var headless = new BueClientUiCompositionRoot();
+            var headless = NewHostComposedComposition();
             Assert(!headless.Initialize(true, true, true), "batch/headless gate blocks composition");
-            Assert(headless.FactoryInvocationCount == 0, "headless gate never invokes UI factory");
+            // DEV-V6-04（作废票：04）：FactoryInvocationCount 随组件工厂迁 Bii 模块退役——
+            // 「门禁不创建界面」的判据由 Bii 模块 headless 门禁持有（DevV604 组 2 专测）。
+            headless.Destroy();
 
-            var unavailable = new BueClientUiCompositionRoot();
+            var unavailable = NewHostComposedComposition();
             Assert(!unavailable.Initialize(false, false, false), "native UI unavailable blocks composition");
-            Assert(unavailable.FactoryInvocationCount == 0, "native UI unavailable never invokes UI factory");
+            unavailable.Destroy();
         }
+        // DEV-V6-02E 测试适配（作废票：02E）：目录→面板投影改注入缝后，harness 组合统一
+        // 绑定与生产入口相同的宿主投影（迁移前组合直接读宿主单例；「缺席=诚实退化」是新契约，
+        // 由 DevV602E 组以显式空服务专测，不走本助手）。
+        private static BetterUnturnedExperience.ClientUi.Internal.BueClientUiCompositionRoot NewHostComposedComposition()
+        {
+            var hostServices = new BetterUnturnedExperience.ClientUi.Internal.ClientUiHostServices();
+            hostServices.GetCatalogEntries = BueClientUiHostProjection.GetCatalogRows;
+            hostServices.TryGetMachineStatus = BueClientUiHostProjection.TryGetMachineStatus;
+            hostServices.GetFacetSnapshot = BueClientUiHostProjection.GetFacetSnapshot;
+            // 日志口与分类器接回宿主策略（Recorder 路由语义与迁移前一致）；网络卡委托与生产同源。
+            hostServices.LogRuntime = BetterUnturnedExperience.Plugin.BueRuntimeLog.Runtime;
+            hostServices.LogWarn = BetterUnturnedExperience.Plugin.BueRuntimeLog.Warn;
+            hostServices.LogError = BetterUnturnedExperience.Plugin.BueRuntimeLog.Error;
+            hostServices.LogErrorFriendly = BetterUnturnedExperience.Plugin.BueRuntimeLog.ErrorFriendly;
+            hostServices.IsCriticalNotReadyReason = BetterUnturnedExperience.Plugin.BueRuntimeLog.IsCriticalNotReadyReason;
+            hostServices.IsRuntimeEvent = BetterUnturnedExperience.Plugin.BueRuntimeLog.IsRuntimeEvent;
+            hostServices.GetNetworkFeature = () => NetworkModuleAdapter.NetworkFeature;
+            hostServices.GetTakeoverStatus = () => NetworkModuleFeatureRegistration.WiredAdapter?.TakeoverStatus;
+            hostServices.GetConfigMigrationStatus = () => NetworkModuleFeatureRegistration.WiredAdapter?.ConfigMigrationStatus;
+            hostServices.IsTakeoverActive = () => NetworkModuleFeatureRegistration.WiredAdapter != null && NetworkModuleFeatureRegistration.WiredAdapter.TakeoverActive;
+            hostServices.RefreshNetworkSwitches = () => NetworkModuleFeatureRegistration.WiredAdapter?.RefreshSwitches();
+            // 设置路由四缝与生产同源（per call 目录解析；null 描述=无 facet）。
+            hostServices.RouteGetSnapshot = BueClientUiSettingsRoutes.GetSnapshotRoute();
+            hostServices.RouteGetDescriptors = BueClientUiSettingsRoutes.GetDescriptorsRoute();
+            hostServices.RouteApply = BueClientUiSettingsRoutes.GetApplyRoute();
+            hostServices.RouteApplyBatch = BueClientUiSettingsRoutes.GetApplyBatchRoute();
+            hostServices.FeatureToggleHandler = BueFeatureStartRuntime.SetFeatureEnabled;
+            // DEV-V6-04（作废票：04）：评估器工厂随 BII 组件迁 Bii 工程——组合根单参。
+            return new BetterUnturnedExperience.ClientUi.Internal.BueClientUiCompositionRoot(hostServices);
+        }
+
+        /// <summary>DEV-V6-04：BII 组件 harness 构造（与生产 rig 同形——评估器替身、
+        /// 同一两级配器边界；组合根不再握组件后的测试直驱路径，02D 簿记探针同族）。</summary>
+        private static BetterUnturnedExperience.Bii.BetterItemInteractionUiComponent NewHarnessInteractionComponent()
+        {
+            var component = new BetterUnturnedExperience.Bii.BetterItemInteractionUiComponent(
+                new BetterUnturnedExperience.Bii.InventoryPreviewPresenter(
+                    new BetterUnturnedExperience.Bii.InventoryDragPresenter(new FixedCandidateEvaluator())),
+                new BetterUnturnedExperience.Bii.NativeInventoryInteractionAdapter(2, 8));
+            // 与生产 rig 同形（Arm 紧跟构造调 OnUiInitialized）：生命周期进 Running 后方可
+            // 驱动隔离/清理语义（迁移前组合 registry 在 Initialize 里做同一件事）。
+            component.OnUiInitialized(true, false);
+            return component;
+        }
+
         private static void AssertSingleDllAssemblyClosure()
         {
-            Assert(typeof(FeatureId).Assembly == typeof(BueRuntimeHost).Assembly, "public contract types must be embedded in the BUE runtime assembly");
-            Assert(typeof(IFeatureRegistration).Assembly == typeof(BueRuntimeHost).Assembly, "registration ABI must resolve from the BUE runtime assembly");
+            // DEV-V6-02E 照相机翻转（作废票：02E 双编译收缩，02B 预支点；02F 发布期合并重新锁
+            // 玩家单文件面）：Core/ClientUi 随平铺摘除改为组装根工程引用（V6-T2 合法边）——
+            // 「不得引用独立 Core DLL」翻转为「组装根恰好引用 Core+ClientUi 两块自有工程程序集」。
+            Assert(typeof(FeatureId).Assembly == typeof(IFeatureRegistration).Assembly, "contract types stay single-sourced in one Contracts assembly");
+            Assert(typeof(BetterUnturnedExperience.Lit.LitFeatureAssembly).Assembly != typeof(BueRuntimeHost).Assembly, "true project split: the tidy feature assembly is no longer compiled into the host");
             var references = typeof(BetterUnturnedExperiencePlugin).Assembly.GetReferencedAssemblies();
+            var coreReferenced = false;
+            var clientUiReferenced = false;
             foreach (var reference in references)
             {
-                Assert(reference.Name != "BetterUnturnedExperience.Core", "BUE main assembly must not require private Core runtime DLL");
-                Assert(reference.Name != "BetterUnturnedExperience.Contracts", "BUE main assembly must not require private Contracts runtime DLL");
+                coreReferenced |= reference.Name == "BetterUnturnedExperience.Core";
+                clientUiReferenced |= reference.Name == "BetterUnturnedExperience.ClientUi";
             }
+            Assert(coreReferenced, "02E 双编译收缩: the assembly root wires Core through a project reference (embed retired)");
+            Assert(clientUiReferenced, "02E 工程环拆净: the assembly root wires ClientUi through a project reference (embed retired)");
         }
         private static void AssertExternalSdkAssemblyIdentity()
         {
@@ -11534,12 +11838,16 @@ namespace BetterUnturnedExperience.Plugin.Tests
             var bueReference = false;
             foreach (var reference in references)
             {
-                Assert(reference.Name != "BetterUnturnedExperience.Contracts", "external SDK output must not bind to Contracts runtime assembly");
+                // DEV-V6-02B 照相机翻转（作废票：02B 契约单编译）：构建面契约经 Contracts.dll
+                // 引用后，开发态夹具随之绑定契约程序集（类型同一性）——「不绑契约」的单文件
+                // SDK 面由 02F 发布期合并产物重新锁定。
                 Assert(reference.Name != "BetterUnturnedExperience.Core", "external SDK output must not bind to private Core runtime assembly");
                 if (reference.Name == "BetterUnturnedExperience") bueReference = true;
             }
             Assert(bueReference, "external SDK output must bind to the public BUE runtime assembly");
-            Assert(typeof(FeatureId).Assembly == typeof(BueRuntimeHost).Assembly, "public ABI identity is resolved by BUE runtime assembly");
+            // DEV-V6-02B 照相机翻转（作废票：02B 契约单编译；02F 合并重锁单文件面）：
+            // 公共 ABI 身份锚改为「契约类型单源于同一 Contracts 程序集」。
+            Assert(typeof(FeatureId).Assembly == typeof(IFeatureRegistration).Assembly, "public ABI identity is single-sourced in the Contracts assembly");
         }
         // ═══════════════════════════════════════════════════════════════════
         // DEV-V2-20: LHT adoption (更好的尸潮播报) — the red-test surface.
@@ -11807,10 +12115,10 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     runtime.OpenRegistration();
                     Check(BetterItemInteractionFeatureRegistration.Register().Accepted,
                         "目录路由：BII 经公共桥注册（组合根显式路由前提）");
-                    Check(BueRuntimeHost.Register(InventoryTidyFeatureRegistration.CreateRegistration()).Accepted,
+                    Check(BueRuntimeHost.Register(LitFeatureAssembly.CreateRegistration()).Accepted,
                         "目录路由：LIT 经公共桥注册（facet 目录条目前提）");
                     Check(runtime.CompleteRuntime(), "目录路由：探测目录完成屏障");
-                    var composition = new BueClientUiCompositionRoot();
+                    var composition = NewHostComposedComposition();
                     try
                     {
                         composition.RefreshManagementPanel();
@@ -11858,7 +12166,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     var plain = new MatrixProbeRegistration("io.example.settings-nofacet");
                     Check(runtime.Register(plain).Accepted, "不伪造页：无 facet 探针注册成功");
                     Check(runtime.CompleteRuntime(), "不伪造页：探测目录完成屏障");
-                    var composition = new BueClientUiCompositionRoot();
+                    var composition = NewHostComposedComposition();
                     var lines = new List<string>();
                     var previousRecorder = BueRuntimeLog.Recorder;
                     BueRuntimeLog.Recorder = lines.Add;
@@ -11939,14 +12247,14 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     BueRuntimeHost.Bind(runtime);
                     runtime.OpenRegistration();
                     BetterItemInteractionFeatureRegistration.Register();
-                    Check(runtime.Register(InventoryTidyFeatureRegistration.CreateRegistration()).Accepted,
+                    Check(runtime.Register(LitFeatureAssembly.CreateRegistration()).Accepted,
                         "并列 setup:官方 LIT 登记受理");
                     var ecoFeature = new FeatureId("io.example.ecosystem-panel");
                     Check(runtime.Register(new SettingsFacetProbeRegistration("io.example.ecosystem-panel")).Accepted,
                         "并列 setup:生态 facet 登记受理");
                     Check(runtime.CompleteRuntime(), "并列 setup:目录冻结");
                     BueFeatureStartRuntime.StartCatalog(runtime, NewLoopbackNetwork(3501UL));
-                    var composition = new BueClientUiCompositionRoot();
+                    var composition = NewHostComposedComposition();
                     try
                     {
                         composition.RefreshManagementPanel();
@@ -12019,7 +12327,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     Check(runtime.Register(NoOpFeatureRegistration.ProbeRegistration).Accepted,
                         "草稿锚 setup：NoOp 样板 facet 登记受理");
                     Check(runtime.CompleteRuntime(), "草稿锚 setup：目录冻结");
-                    var composition = new BueClientUiCompositionRoot();
+                    var composition = NewHostComposedComposition();
                     try
                     {
                         composition.RefreshManagementPanel();
@@ -12148,7 +12456,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     Check(runtime.Register(probe).Accepted, "启停 setup：facet 探针受理");
                     Check(runtime.CompleteRuntime(), "启停 setup：目录冻结");
                     BueFeatureStartRuntime.StartCatalog(runtime, NewLoopbackNetwork(3401UL));
-                    var composition = new BueClientUiCompositionRoot();
+                    var composition = NewHostComposedComposition();
                     try
                     {
                         composition.RefreshManagementPanel();
@@ -12204,7 +12512,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     Check(runtime.Register(probe).Accepted, "表面 setup：facet 探针受理");
                     Check(runtime.CompleteRuntime(), "表面 setup：目录冻结");
                     BueFeatureStartRuntime.StartCatalog(runtime, NewLoopbackNetwork(3501UL));
-                    var composition = new BueClientUiCompositionRoot();
+                    var composition = NewHostComposedComposition();
                     try
                     {
                         composition.RefreshManagementPanel();
@@ -12253,7 +12561,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     var probe = new SettingsFacetProbeRegistration("io.example.toggle-untracked-probe");
                     Check(runtime.Register(probe).Accepted, "无缝 setup：探针受理");
                     Check(runtime.CompleteRuntime(), "无缝 setup：目录冻结（刻意不 StartCatalog）");
-                    var composition = new BueClientUiCompositionRoot();
+                    var composition = NewHostComposedComposition();
                     try
                     {
                         composition.RefreshManagementPanel();
@@ -12286,8 +12594,29 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     var litModule = new InventoryTidyModule(lit);
                     litModule.ScopeDirectoryForTests = NewLitFaultDirectory();
                     litModule.FaultContextForTests = () => new LitFaultScopeContext("TestMap", 1);
-                    var started = litModule.Start(new FeatureBootstrap(default(FeatureScopeIdentity), 9UL, settings,
-                        bus.Subscriber(lit), bus.Publisher(lit), bus.EventRegistry(lit), null, null, lifetime, network));
+                    // DEV-V6-11：武装只发生在 Start 内且必须经启动口袋登记（工厂路径不再
+                    // 提前武装）；宿主装不上真机引擎补丁，而本组判的是九态门与注入面，
+                    // 故经安装器缝武装——三面各自成套、各自 all-or-none。
+                    var litPocket = LitTestPocket.Open();
+                    var savedRecover = InventoryTidyModule.RecoverPatchInstallerForTests;
+                    var savedFast = InventoryTidyModule.FastTransferPatchInstallerForTests;
+                    var savedUi = InventoryTidyModule.UiPatchInstallerForTests;
+                    FeatureStartResult started;
+                    try
+                    {
+                        InventoryTidyModule.RecoverPatchInstallerForTests = _ => true;
+                        InventoryTidyModule.FastTransferPatchInstallerForTests = _ => true;
+                        InventoryTidyModule.UiPatchInstallerForTests = _ => true;
+                        started = litModule.Start(new FeatureBootstrap(default(FeatureScopeIdentity), litPocket.Generation, settings,
+                            bus.Subscriber(lit), bus.Publisher(lit), bus.EventRegistry(lit), null, null, lifetime, network,
+                            null, litPocket.Patching));
+                    }
+                    finally
+                    {
+                        InventoryTidyModule.RecoverPatchInstallerForTests = savedRecover;
+                        InventoryTidyModule.FastTransferPatchInstallerForTests = savedFast;
+                        InventoryTidyModule.UiPatchInstallerForTests = savedUi;
+                    }
                     Check(started.Started, "DEV-V4-06 setup：模块经宿主 bootstrap 启动");
                     return litModule;
                 }
@@ -12343,14 +12672,15 @@ namespace BetterUnturnedExperience.Plugin.Tests
 
                         // U3DS 不武装（T1 Q17）：headless 决策下补丁不装，诊断
                         // 如实落 StartGateDiagnostics（决策门禁，非异常门禁）。
-                        BueRuntimeCompletionChain.HeadlessDecision = true;
+                        // DEV-V6-02B：决策经宿主注入缝读入（宿主字段不再被功能直读）。
+                        BetterUnturnedExperience.Lit.LitFeatureAssembly.HostHeadlessDecision = () => true;
                         try
                         {
                             var headless = StartLitModuleWith(null, new FakeTidySettingsView());
                             Check(!headless.PatchesInstalled && headless.StartGateDiagnostics == "headless-ui-not-armed",
                                 "九态：U3DS headless 不武装整理按钮补丁（决策门禁非异常门禁）");
                         }
-                        finally { BueRuntimeCompletionChain.HeadlessDecision = false; }
+                        finally { BetterUnturnedExperience.Lit.LitFeatureAssembly.HostHeadlessDecision = null; }
                     }
                     finally { LitTidyProductionAuthority.ServerRoleProbeForTests = null; }
                 });
@@ -12624,6 +12954,11 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 // 重绑；Stop 的解绑语义保持不变。
                 Group("DEV-V4-09 停止解绑日志缝后 Start 重绑", () =>
                 {
+                    // DEV-V6-02B：生产日志缝=宿主注入（组合期绑定 BueRuntimeLog，与产线同目标）
+                    // ——先注入再解绑 LitRuntime，Start 重绑语义不变（重绑来源从宿主类型直呼
+                    // 改为注入的委托）。
+                    BetterUnturnedExperience.Lit.LitFeatureAssembly.BindHostComposition(
+                        BueRuntimeLog.Runtime, BueRuntimeLog.Error, null, null, null);
                     LitRuntime.LogSink = null;
                     LitRuntime.ErrorLogSink = null;
                     var lifetime = new FakeTidyLifetime { State = FeatureState.Running };
@@ -12636,6 +12971,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     finally
                     {
                         module.Stop(FeatureStopReason.PluginStopping);
+                        BetterUnturnedExperience.Lit.LitFeatureAssembly.BindHostComposition(null, null, null, null, null);
                     }
                     Check(LitRuntime.LogSink == null && LitRuntime.ErrorLogSink == null,
                         "日志缝：Stop 仍解绑（插件卸载卫生语义不变）");
@@ -12652,11 +12988,11 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     var runtime = new FeatureRegistrationRuntime();
                     BueRuntimeHost.Bind(runtime);
                     runtime.OpenRegistration();
-                    Check(BueRuntimeHost.Register(InventoryTidyFeatureRegistration.CreateRegistration()).Accepted,
+                    Check(BueRuntimeHost.Register(LitFeatureAssembly.CreateRegistration()).Accepted,
                         "消费锚 setup：真实 LIT 注册受理（DEV-V5-02：facet=一条 Choice）");
                     Check(runtime.CompleteRuntime(), "消费锚 setup：目录冻结");
                     BueFeatureStartRuntime.StartCatalog(runtime, NewLoopbackNetwork(3601UL));
-                    var composition = new BueClientUiCompositionRoot();
+                    var composition = NewHostComposedComposition();
                     try
                     {
                         composition.RefreshManagementPanel();
@@ -12692,7 +13028,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                         var save = model.SaveDraft();
                         Check(save.Outcome == DraftSaveOutcome.Success,
                             "消费锚：草稿保存受理（设置提交原子缝，整单成败）");
-                        var wired = InventoryTidyFeatureRegistration.WiredModule;
+                        var wired = (InventoryTidyModule)LitFeatureAssembly.WiredModule;
                         Check(wired != null && wired.SettingsView != null,
                             "消费锚 setup：WiredModule 持宿主注入 view");
                         var afterSave = wired.SettingsView.GetSnapshot(SettingRevisionScope.ClientPreference);
@@ -12728,7 +13064,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     Check(runtime.Register(NoOpFeatureRegistration.ProbeRegistration).Accepted,
                         "锚③ setup：NoOp 样板登记受理（同公共桥同路由）");
                     Check(runtime.CompleteRuntime(), "锚③ setup：目录冻结");
-                    var composition = new BueClientUiCompositionRoot();
+                    var composition = NewHostComposedComposition();
                     try
                     {
                         composition.RefreshManagementPanel();
@@ -12799,13 +13135,13 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     var runtime = new FeatureRegistrationRuntime();
                     BueRuntimeHost.Bind(runtime);
                     runtime.OpenRegistration();
-                    Check(BueRuntimeHost.Register(InventoryTidyFeatureRegistration.CreateRegistration()).Accepted,
+                    Check(BueRuntimeHost.Register(LitFeatureAssembly.CreateRegistration()).Accepted,
                         "07 对拍 setup：真实 LIT 注册受理（facet=两条 Choice）");
                     Check(runtime.Register(NoOpFeatureRegistration.ProbeRegistration).Accepted,
                         "07 对拍 setup：NoOp 样板登记受理");
                     Check(runtime.CompleteRuntime(), "07 对拍 setup：目录冻结");
                     BueFeatureStartRuntime.StartCatalog(runtime, NewLoopbackNetwork(3602UL));
-                    var composition = new BueClientUiCompositionRoot();
+                    var composition = NewHostComposedComposition();
                     try
                     {
                         composition.RefreshManagementPanel();
@@ -13406,14 +13742,14 @@ namespace BetterUnturnedExperience.Plugin.Tests
                         BueRuntimeHost.Bind(runtime);
                         runtime.OpenRegistration();
                         Check(BetterItemInteractionFeatureRegistration.Register().Accepted, "官方锚 setup: BII 注册");
-                        Check(runtime.Register(InventoryTidyFeatureRegistration.CreateRegistration()).Accepted,
+                        Check(runtime.Register(LitFeatureAssembly.CreateRegistration()).Accepted,
                             "官方锚 setup: LIT 注册");
                         Check(runtime.CompleteRuntime(), "官方锚 setup: 目录冻结");
                         // LIT 工厂复用静态 WiredModule，而模块的 ShuttingDown 是
                         // 单向旗标（既有冻结语义）——清掉前序组实例，本组经
                         // ArmNewModule 得到真·全新模块，Start/Stop 语义如实演练
                         // （06 官方锚组的同一清零先例）。
-                        InventoryTidyFeatureRegistration.WiredModule = null;
+                        LitFeatureAssembly.ResetWiredModule();
                         BueFeatureStartRuntime.StartCatalog(runtime, NewLoopbackNetwork(3341UL));
                         var litFeature = "io.github.yu80rice.bue.inventory-tidy";
                         Check(lines.Exists(l => l.StartsWith("Info ") && l.Contains("[BUE-DIAG]")
@@ -13433,7 +13769,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     {
                         BueRuntimeLog.Recorder = previousRecorder;
                         BueRuntimeHost.Bind(previousRuntime);
-                        InventoryTidyFeatureRegistration.WiredModule = null;
+                        LitFeatureAssembly.ResetWiredModule();
                         BetterUnturnedExperience.Plugin.BueDiagnosticsRuntime.Clear();
                         BetterUnturnedExperience.Plugin.BueSettingsRuntime.Clear();
                         BetterUnturnedExperience.Plugin.BueMainThreadRuntime.Clear();
@@ -14029,6 +14365,8 @@ namespace BetterUnturnedExperience.Plugin.Tests
         private static void AssertBueV2LhtAdoption(bool collectAllFailures = false)
         {
             var reds = new List<string>();
+            // DEV-V6-13：本组按「宿主已给口袋 + 补丁真武装」的等价起点跑（缝在座、组末还原）。
+            EnterLhtHarnessPatchSeams();
             try
             {
                 void Check(bool condition, string message)
@@ -14058,6 +14396,10 @@ namespace BetterUnturnedExperience.Plugin.Tests
             catch (Exception error) when (collectAllFailures)
             {
                 reds.Add("UNEXPECTED: " + error.GetType().FullName + ": " + error.Message);
+            }
+            finally
+            {
+                ExitLhtHarnessPatchSeams();
             }
             if (collectAllFailures && reds.Count == 0)
                 Console.WriteLine("DEV-V2-20 LHT adoption collection: ALL GREEN (0 failures) — groups: 信标守卫/组播不含本地/BUE 帧不可靠 1:1/enabled=false 完整停摆/U3DS 双状态/端到端全链");
@@ -14133,7 +14475,10 @@ namespace BetterUnturnedExperience.Plugin.Tests
             }
         }
 
-        /// <summary>Builds a started LHT module on a fresh bus with the given fakes (no patches pinned: host-test process).</summary>
+        /// <summary>Builds a started LHT module on a fresh bus with the given fakes (no patches pinned: host-test process).
+        /// DEV-V6-13：武装 ⇒ 经启动口袋登记（缺口袋=立即自拆），本 harness 按生产组合同形给真账户；
+        /// 安装器/拆除缝由 LHT 组进出（<see cref="EnterLhtHarnessPatchSeams"/>），否则真机 Patch()
+        /// 在宿主进程装不上，武装链只会走到诊断。</summary>
         private static HordeTrackerModule NewLhtModule(BetterUnturnedExperience.Core.Events.FeatureEventBus bus, IBueNetworkApi network, FakeHordeAuthority authority, FakeHudSurface surface, bool isServer, bool canUseClientUi = true)
         {
             var feature = new FeatureId(LhtRuntime.FeatureIdValue);
@@ -14146,7 +14491,10 @@ namespace BetterUnturnedExperience.Plugin.Tests
             var lhtSettings = new FeatureSettingsRegistry(new InMemorySettingsPersistence(), () => true, null);
             lhtSettings.GetOrCreateRuntime(feature, HordeTrackerModule.CreateSettingsDescriptors(feature));
             lhtSettings.OpenGeneration(feature, 1UL);
-            var bootstrap = new FeatureBootstrap(default(FeatureScopeIdentity), 1UL, lhtSettings.CreateView(feature, 1UL), bus.Subscriber(feature), bus.Publisher(feature), bus.EventRegistry(feature), null, null, null, network);
+            // DEV-V6-13：武装 ⇒ 经启动口袋登记（缺口袋=立即自拆），与生产组合同形给真账户。
+            var pocket = LhtTestPocket.Open();
+            lhtHarnessPocket = pocket;
+            var bootstrap = new FeatureBootstrap(default(FeatureScopeIdentity), pocket.Generation, lhtSettings.CreateView(feature, pocket.Generation), bus.Subscriber(feature), bus.Publisher(feature), bus.EventRegistry(feature), null, null, null, network, null, pocket.Patching);
             var result = module.Start(bootstrap);
             if (!result.Started) throw new InvalidOperationException("harness: LHT module start failed: " + result.DiagnosticId);
             return module;
@@ -14159,6 +14507,47 @@ namespace BetterUnturnedExperience.Plugin.Tests
         }
 
         private static ulong lhtToggleRequestId;
+
+        /// <summary>DEV-V6-13：NewLhtModule 最近一次用的启动口袋（老 harness 的「宿主已给口袋」
+        /// 等价起点）——持引用即可，账户记录在代际机里（测试断言直接读它）。</summary>
+        private static LhtTestPocket lhtHarnessPocket;
+
+        /// <summary>DEV-V6-13：老 LHT harness 的补丁安装器/拆除缝在座期间的记账（信标面 / HUD 面
+        /// 的武装事实与拆除动作次数——「哪一面武装」在这层可判）。</summary>
+        private static readonly List<Type> LhtSeamBeaconInstalled = new List<Type>();
+        private static readonly List<Type> LhtSeamHudInstalled = new List<Type>();
+        private static int LhtSeamRevertCalls;
+        private static Func<Type, bool> LhtSeamSavedBeacon;
+        private static Func<Type, bool> LhtSeamSavedHud;
+        private static Func<bool> LhtSeamSavedRevert;
+        private static bool LhtSeamInPlace;
+
+        /// <summary>进入老 LHT 组的缝态：真机 Patch() 在宿主测试进程装不上（引擎 ECall 规则），
+        /// 缝让武装链真跑一遍并把两面分开记账（无画面组据此判「HUD 面是否误装」）。</summary>
+        private static void EnterLhtHarnessPatchSeams()
+        {
+            if (LhtSeamInPlace) return;
+            LhtSeamSavedBeacon = HordeTrackerModule.BeaconPatchInstallerForTests;
+            LhtSeamSavedHud = HordeTrackerModule.HudPatchInstallerForTests;
+            LhtSeamSavedRevert = HordeTrackerModule.PatchRevertForTests;
+            LhtSeamBeaconInstalled.Clear();
+            LhtSeamHudInstalled.Clear();
+            LhtSeamRevertCalls = 0;
+            HordeTrackerModule.BeaconPatchInstallerForTests = type => { LhtSeamBeaconInstalled.Add(type); return true; };
+            HordeTrackerModule.HudPatchInstallerForTests = type => { LhtSeamHudInstalled.Add(type); return true; };
+            HordeTrackerModule.PatchRevertForTests = () => { LhtSeamRevertCalls++; return true; };
+            LhtSeamInPlace = true;
+        }
+
+        /// <summary>离开老 LHT 组的缝态：逐项还原（不给后续组留跨组状态）。</summary>
+        private static void ExitLhtHarnessPatchSeams()
+        {
+            if (!LhtSeamInPlace) return;
+            HordeTrackerModule.BeaconPatchInstallerForTests = LhtSeamSavedBeacon;
+            HordeTrackerModule.HudPatchInstallerForTests = LhtSeamSavedHud;
+            HordeTrackerModule.PatchRevertForTests = LhtSeamSavedRevert;
+            LhtSeamInPlace = false;
+        }
 
         /// <summary>Submits the LHT enabled toggle through the frozen scoped settings seam (unique request id, current revision); returns acceptance.</summary>
         private static bool SubmitLhtToggle(HordeTrackerModule module, bool enabled)
@@ -14411,10 +14800,23 @@ namespace BetterUnturnedExperience.Plugin.Tests
             var module = NewLhtModule(bus, probe, authority, surface, isServer: true);
             check(module.Enabled, "停摆：默认开启（唯一持久化开关 enabled）");
             check(probe.SubscribeCalls == 1, "停摆：启动时客户端接收恰一次订阅");
+            // DEV-V6-13：武装 ⇒ 已登记（一代恰一条账项，拆除所有权移交平台账）。
+            var toggleHandle = module.PatchRegistration;
+            check(module.BeaconPatchesInstalled && module.HudPatchesInstalled && module.PatchesInstalled,
+                "停摆：启动后两面补丁在架（信标=" + module.BeaconPatchesInstalled
+                + " HUD=" + module.HudPatchesInstalled + " 集=" + module.PatchesInstalled + "）");
+            check(toggleHandle != null && module.PatchTeardownDelegated && lhtHarnessPocket.Accepted.Count == 1,
+                "停摆：补丁经启动口袋登记入既有账（恰一条账项，拆除所有权移交平台）");
 
             check(SubmitLhtToggle(module, false), "停摆：面板开关可关闭");
             module.RefreshSwitches();
-            check(!module.Enabled && !module.PatchesInstalled, "停摆：关闭后自身补丁已撤（原生回退）");
+            check(!module.Enabled && !module.PatchesInstalled && !module.BeaconPatchesInstalled && !module.HudPatchesInstalled,
+                "停摆：关闭后自身补丁已撤（原生回退）");
+            check(toggleHandle != null && toggleHandle.RevokeCount == 1,
+                "停摆：热摘经句柄的同一条拆除动作（不另起模块自拆），实际 revoke="
+                + (toggleHandle != null ? toggleHandle.RevokeCount : -1));
+            check(lhtHarnessPocket.Accepted.Count == 1 && !toggleHandle.Released,
+                "停摆：登记是代际级的——热摘不新增账项、不释放句柄（账上不留已拆句柄）");
             check(authority.BeaconUnsubscribeCalls == 1, "停摆：服务器信标事件已退订（追踪停摆）");
             check(authority.CommandDeregisterCalls == 1, "停摆：/horde 已注销（关闭后无 LHT 行为）");
             check(probe.UnregisterCalls == 1 && probe.DisposedHandles == 1,
@@ -14439,8 +14841,13 @@ namespace BetterUnturnedExperience.Plugin.Tests
             check(module.Enabled && probe.RegisterCalls == 2 && probe.SubscribeCalls == 2,
                 "停摆：重臂后频道重注册 + 接收重订阅");
             check(authority.BeaconSubscribeCalls == 2, "停摆：重臂后信标事件重订阅");
-            check(module.PatchesInstalled || module.StartGateDiagnostics.Length > 0,
-                "停摆：重臂后补丁重装（测试进程装不上时如实留诊断）");
+            check(module.BeaconPatchesInstalled && module.HudPatchesInstalled && module.PatchesInstalled,
+                "停摆：重臂后两面补丁重新在架（信标=" + module.BeaconPatchesInstalled
+                + " HUD=" + module.HudPatchesInstalled + " 集=" + module.PatchesInstalled + "）");
+            check(ReferenceEquals(module.PatchRegistration, toggleHandle),
+                "停摆：重臂用同一 Harmony 身份（不换句柄、不新增账项）");
+            check(lhtHarnessPocket.Accepted.Count == 1 && !toggleHandle.Released,
+                "停摆：重臂后账上仍恰一条账项且句柄未释放（容量与开关次数无关）");
             module.Tracking.HandleBeaconUpdated(1, true);
             module.OnHostTick(LhtTick(3, 0.1f));
             check(probe.Multicasts.Count == 1, "停摆：重臂后广播恢复");
@@ -14466,12 +14873,22 @@ namespace BetterUnturnedExperience.Plugin.Tests
             check(headless.PresentationState == FeaturePresentationState.HeadlessOnly, "U3DS：无头进程表现状态=HeadlessOnly");
             check(headlessSurface.InstallCalls == 0, "U3DS：无头不装 HUD surface（PlayerLifeUI 隔离）");
             check(headlessAuthority.BeaconSubscribeCalls == 1, "U3DS：无头进程追踪照常激活（服务器权威与表现解耦）");
+            // DEV-V6-13：无画面只砍补丁的**画面面**——权威信标面仍武装且仍经口登记。
+            check(headless.BeaconPatchesInstalled && !headless.HudPatchesInstalled,
+                "U3DS：无头只武装权威信标面、HUD 补丁不武装（信标=" + headless.BeaconPatchesInstalled
+                + " HUD=" + headless.HudPatchesInstalled + "）");
+            check(headless.HudStartGateDiagnostics == "hud-patch-headless-not-armed",
+                "U3DS：无头 HUD 面的诚实诊断在册（决策门禁非异常门禁），实际 '" + headless.HudStartGateDiagnostics + "'");
+            check(headless.PatchTeardownDelegated && lhtHarnessPocket.Accepted.Count == 1,
+                "U3DS：缺画面不减所有权移交（权威面句柄照进平台账）");
             headless.Stop(FeatureStopReason.PluginStopping);
 
             // Headful: Available.
             var headful = NewLhtModule(new BetterUnturnedExperience.Core.Events.FeatureEventBus(), new LhtSendProbeNetwork(),
                 new FakeHordeAuthority(), new FakeHudSurface(), isServer: true, canUseClientUi: true);
             check(headful.PresentationState == FeaturePresentationState.Available, "U3DS：有头进程表现状态=Available");
+            check(headful.BeaconPatchesInstalled && headful.HudPatchesInstalled,
+                "U3DS：有头进程两面补丁在架");
             headful.Stop(FeatureStopReason.PluginStopping);
 
             // HUD 失败只降表现不伤权威追踪：surface 渲染异常被表现层适配器隔离。
@@ -14485,7 +14902,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
             HordeStateTracker.Clear();
 
             // The official registration: definition identity + contract floor.
-            var registration = HordeTrackerFeatureRegistration.CreateRegistration();
+            var registration = LhtFeatureAssembly.CreateRegistration();
             check(registration.Definition.Feature.Value == LhtRuntime.FeatureIdValue,
                 "身份：官方注册定义携带 FeatureId（面板条目身份=FeatureId）");
             check(registration.MinimumBueContract.Major == 2, "身份：MinimumBueContract 对齐契约 2.0");
@@ -14827,7 +15244,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
         // it next to the compatibility notice.
         private static void AssertPlatformPanelNotice()
         {
-            var composition = new BueClientUiCompositionRoot();
+            var composition = NewHostComposedComposition();
             try
             {
                 var model = composition.ManagementPanel.Model;

@@ -70,7 +70,42 @@ namespace BetterUnturnedExperience.Lir
         internal bool Enabled { get; private set; }
         internal bool Started { get; private set; }
         internal bool ShuttingDown { get; private set; }
+
+        /// <summary>本次武装事务整体成功（四面的武装事务跑完；headless 的决策跳过不是失败）——
+        /// DEV-V6-11 同名的「整笔成功」语义，不是「权威面在册」。</summary>
         internal bool PatchesInstalled { get; private set; }
+
+        // ── DEV-V6-12（V6-T5 Q2 + 2026-09-18 追加裁决）：补丁所有权归一 ──
+
+        /// <summary>权威压弹面（两处 Harmony）在册位——与画面面分家，半装判定按面可判。</summary>
+        internal bool CorePatchesInstalled { get; private set; }
+        internal string CoreStartGateDiagnostics { get; private set; } = string.Empty;
+
+        /// <summary>已移交平台账的句柄（撤销=对它 Dispose；平台边界释放同一枚）。</summary>
+        internal LirPatchHandle PatchRegistration { get; private set; }
+
+        /// <summary>拆除所有权是否已移交平台账（移交后模块在正常停止路径不再自拆）。</summary>
+        internal bool PatchTeardownDelegated { get; private set; }
+
+        /// <summary>DEV-V6-12 host-test seam：替换 Harmony 反打（宿主不可达真引擎逆 JIT 故障，
+        /// 与 DEV-V6-11 的 LIT 同款替身缝）。null = 生产真 UnpatchSelf。</summary>
+        internal static Func<bool> PatchRevertForTests;
+
+        /// <summary>启动口袋的补丁口（Start 捕获；RefreshSwitches 的同代际重登记走同一视图）。</summary>
+        private IFeaturePatching patching;
+
+        /// <summary>本次武装事务是否已失败（失败=立即整体自拆且事务终止，其余面不再武装）。</summary>
+        private bool armTransactionFailed;
+
+        /// <summary>本代际的 Harmony 补丁集**真在架**（含半装）：真拆除动作只在它为真时跑
+        /// ——从未武装过的一代不产生拆除动作与自拆留痕。只由「反转动作真的返回了」清掉
+        /// （停止边界的在册归零不碰它：那是在册开关，不是补丁是否还装着的事实）。
+        /// 边界释放（平台账）据此判断该真拆还是对未武装状态空转。</summary>
+        private bool patchSetInstalled;
+
+        /// <summary>武装期捕获的宿主日志口：边界释放发生在模块自己解绑 sink 之后
+        /// （Stop 的解绑卫生），释放事实不得因此消失（与句柄的释放行同律）。</summary>
+        private Action<string> patchReleaseLog;
 
         /// <summary>The multiplayer path's honest readiness — false after a failed/rolled-back network init (observable, never assumed).</summary>
         internal bool MultiplayerReady { get; private set; }
@@ -175,6 +210,9 @@ namespace BetterUnturnedExperience.Lir
             if (bootstrap == null) throw new ArgumentNullException(nameof(bootstrap));
             if (bootstrap.Events == null || bootstrap.Network == null)
                 throw new ArgumentException("the host bootstrap must compose the event subscriber view and the network API (never null)", nameof(bootstrap));
+            // DEV-V6-12（与 DEV-V4-06 的整理同律）：一次 Start 就是一代——上一代停止
+            // 边界不得泄漏进来，否则工厂复用的接线实现在停用→再启用后永远不再武装。
+            ShuttingDown = false;
             OwnedEvents = bootstrap.OwnedEvents;
             Events = bootstrap.Events;
             Network = bootstrap.Network;
@@ -205,9 +243,7 @@ namespace BetterUnturnedExperience.Lir
             // 代际），引擎缝 = 测试假件或生产实现。绑定到网络服务后，双击成交
             // 的技能窗、升级执行、2 级自动压弹全部生效。
             var persistence = SkillPersistenceForTests ?? (IReloadSkillPersistence)new ReloadSkillFilePersistence(
-                System.IO.Path.Combine(
-                    BetterUnturnedExperience.Plugin.BueSettingsRuntime.ProductionSettingsRoot,
-                    ReloadSkillFilePersistence.FileName));
+                System.IO.Path.Combine(RequireHostSettingsRoot(), ReloadSkillFilePersistence.FileName));
             var store = new ReloadSkillStore();
             if (!persistence.TryLoad(out var savedRecords, out var loadError))
             {
@@ -232,10 +268,13 @@ namespace BetterUnturnedExperience.Lir
             Events.Subscribe<HostTick>(OnHostTick);
             Events.Subscribe<TidyCompleted>(Consumer.Handle);
 
-            if (Enabled && !ShuttingDown)
-            {
-                InstallPatches();
-            }
+            // DEV-V6-12（V6-T5 Q2 + 2026-09-18 追加裁决）：武装与登记都只发生在生命周期内
+            // ——工厂路径交付惰性模块；启动口袋的补丁口在这里捕获，代际开启、补丁武装、
+            // 经启动口袋登记三件事按序完成（缺口袋/拒绝/半装即立即自拆，平台账外零补丁）。
+            patching = bootstrap.Patching;
+            PatchTeardownDelegated = false;
+            PatchRegistration = null;
+            ArmPatches();
             LirRuntime.LogInfo("[Lir] 模块已启动（宿主 bootstrap：功能代际=" + bootstrap.LifecycleGeneration + "，网络注册延迟至首帧游戏线程）");
             return new FeatureStartResult(true, FrameworkErrorCode.None, "BUE-LIR-START");
         }
@@ -254,10 +293,9 @@ namespace BetterUnturnedExperience.Lir
             NetService?.Stop();
             NetService = null;
 
-            // 2) The patches come off (ONLY this module's Harmony instance —
-            //    UnpatchSelf under the FeatureId; BII and other features are
-            //    untouched) and the module handle goes with them.
-            UninstallPatches();
+            // 2) 补丁所有权交接（DEV-V6-12）：登记受理 ⇒ 拆除在平台账上，模块在正常
+            //    停止路径不再自拆（平台拆一次）；未移交才 fail-closed 自拆（防御路径）。
+            ReleasePatchOwnership();
 
             // 3) The gate is feature-generation state: cooldowns, the replay
             //    window and quarantines all clear at the stop boundary.
@@ -283,16 +321,19 @@ namespace BetterUnturnedExperience.Lir
         /// applies the patch state immediately (off = native fallback; on =
         /// re-install). Not a generation boundary — the dispatcher queue and
         /// the gate survive a settings flip.
+        /// DEV-V6-12（V6-T5 Q2 追加裁决）：一代内可重复拆装——登记是**代际级**的（一代恰
+        /// 一条账项、句柄不提前释放），开关只切拆装：off 经句柄的同一条拆除动作撤销（不双拆、
+        /// 账上不留已拆句柄），on 用同一身份重新武装（不新增账项、不换句柄）。
         /// </summary>
         internal void RefreshSwitches()
         {
             Enabled = ReadToggle();
             if (!Enabled || ShuttingDown)
             {
-                UninstallPatches();
+                DisarmPatchesForToggle("settings-off");
                 return;
             }
-            InstallPatches();
+            ArmPatches();
         }
 
         /// <summary>
@@ -412,7 +453,9 @@ namespace BetterUnturnedExperience.Lir
             return NetService != null ? NetService.ResolveSessionPeer(connectionGeneration) : 0UL;
         }
 
-        /// <summary>Idempotent start: caches the main-thread id for the deferred network init.</summary>
+        /// <summary>Idempotent start: caches the main-thread id for the deferred network init.
+        /// DEV-V6-12: called ONLY from Start (the lifecycle owns the generation boundary) — the
+        /// factory path delivers a born-inert module (no early Started/armed state).</summary>
         internal void EnsureStarted()
         {
             if (Started) return;
@@ -420,11 +463,36 @@ namespace BetterUnturnedExperience.Lir
             Started = true;
         }
 
-        /// <summary>The production log binding (registration time): domain sinks → BueRuntimeLog channels.</summary>
+        /// <summary>The production log binding (registration + Start rebind): domain sinks read
+        /// the host-injected composition delegates (DEV-V6-02C — the feature no longer names the
+        /// host). Unbound injection = null sinks = the existing swallow-silently contract; Stop
+        /// clears the sinks and a re-Start rebinds from the SAME injected delegates (the F1b
+        /// semantics).</summary>
         internal void BindProductionLog()
         {
-            LirRuntime.LogSink = line => BetterUnturnedExperience.Plugin.BueRuntimeLog.Runtime(line);
-            LirRuntime.ErrorLogSink = line => BetterUnturnedExperience.Plugin.BueRuntimeLog.Error(line);
+            LirRuntime.LogSink = LirRuntime.HostRuntimeLogSink;
+            LirRuntime.ErrorLogSink = LirRuntime.HostErrorLogSink;
+        }
+
+        /// <summary>DEV-V6-02C: the skill account's file root is a host-owned composition fact.
+        /// Absent injection (a host that never composed this feature) fails closed at Start —
+        /// the feature never invents a persistence path.</summary>
+        private static string RequireHostSettingsRoot()
+        {
+            var root = LirRuntime.HostSettingsRoot;
+            if (root == null)
+                throw new InvalidOperationException(
+                    "LIR host composition did not bind the settings root (设置根) — the skill account persistence refuses to guess a path");
+            return root();
+        }
+
+        /// <summary>DEV-V6-02C: the headless (no-screen) decision is a host-owned composition
+        /// fact. Unbound injection degrades honestly to "not headless" (don't trim) — the same
+        /// semantics as the original host field default false; the gate never invents a screen.</summary>
+        private static bool IsHostHeadless()
+        {
+            var decision = LirRuntime.HostHeadlessDecision;
+            return decision != null && decision();
         }
 
         /// <summary>The production key poll (chat focus / rebinding swallowing lives inside InputEx.GetKeyDown).</summary>
@@ -435,9 +503,35 @@ namespace BetterUnturnedExperience.Lir
             return InputEx.GetKeyDown(reloadKey);
         }
 
-        private void InstallPatches()
+        /// <summary>
+        /// DEV-V6-12（V6-T5 Q2 + 2026-09-18 追加裁决）：武装事务的唯一入口——只由
+        /// 生命周期（Start）与设置开关（RefreshSwitches 的 on 侧）进入；工厂路径交付的
+        /// 是惰性模块（武装只发生在生命周期内）。次序：权威面 → 画面面（决策门禁）→
+        /// 技能面 → 最后一次登记移交；任一面失败即整体自拆且**事务就此终止**（其余面
+        /// 不再武装、不进账——票面「半装失败：立即自拆，不留半装」按模块级读）。
+        /// </summary>
+        private void ArmPatches()
         {
-            if (PatchesInstalled) return;
+            if (ShuttingDown || !Enabled) return;
+            armTransactionFailed = false;
+            // 上一套补丁集可能仍在架（上一轮撤销/边界反转遇过故障，patchSetInstalled 没有被
+            // 清掉）：先尽力归一（守卫反转）。归一不成就**拒绝重复安装**——同一 Harmony 身份
+            // 再把各面 Patch() 一遍会叠出第二份前缀，那是玩法语义变化，不是「重新武装」
+            //（票面「设置变化后账与武装状态一致」「玩法与设置语义不变」）。fail-closed：
+            // 保持原版语义 + 结构化留痕，账目与句柄都不动。
+            if (patchSetInstalled)
+            {
+                if (UnpatchSelfGuarded("rearm-with-live-set")) patchSetInstalled = false;
+                else
+                {
+                    StartGateDiagnostics = "rearm-refused-live-set";
+                    LirRuntime.LogError("[Lir] 上一套补丁可能仍在架且反转未成功：拒绝重复安装（保持原版语义） diagnosticId=BUE-LIR-PATCH-007");
+                    ClearPatchBookkeeping();
+                    return;
+                }
+            }
+            patchSetInstalled = true;
+            patchReleaseLog = LirRuntime.HostRuntimeLogSink;
             try
             {
                 if (harmony == null)
@@ -448,53 +542,73 @@ namespace BetterUnturnedExperience.Lir
                 // The handle goes live BEFORE Patch(): no game call can
                 // interleave (the install runs on the game thread itself).
                 ActiveModule = this;
-                InstallCoreReloadPatches();
-                // DEV-V5-06: 三面同代共存——HUD 面失败 = 整体互撤归零（04/05
-                // 同律，禁半装；headless 跳过画面面是决策不是失败）。
-                // DEV-V5-07: 第四面（技能分区）入列，互撤纪律不变。
-                InstallAmmoReserveHud();
-                InstallReloadSkillSurface();
-                PatchesInstalled = true;
-                StartGateDiagnostics = string.Empty;
-                LirRuntime.LogInfo("[Lir] 原位换弹补丁已安装（Harmony ID=" + LirRuntime.FeatureIdValue + "）");
             }
             catch (Exception e)
             {
-                // 环境闸（宿主测试进程无法装真机补丁 / 游戏版本漂移）：记录
-                // 结构化诊断而非静默失败——半装回滚，失败即整体撤销自身。
+                // 无 Harmony 运行时/引擎漂移：构造即失败 = 事务零装成（无面在册）。
                 StartGateDiagnostics = "patch-install-failed: " + e.GetType().Name + ":" + e.Message;
-                LirRuntime.LogError("[Lir] 原位换弹补丁安装失败（原位换弹不可用）: " + e.Message);
-                try { if (harmony != null) harmony.UnpatchSelf(); } catch (Exception) { }
-                ActiveModule = null;
-                PatchesInstalled = false;
-                // DEV-V5-06: 在册同步归零 + 呈现即时收（不留「补丁没了、登记
-                // 还在」的半态；HUD/技能面从未注入 = 注销空表零操作）。
-                // DEV-V5-07: 技能面同律入互撤。
-                HudPatchInstalled = false;
-                AmmoReserveHudAdapter.RevokeAll();
-                SkillPatchInstalled = false;
-                ReloadSkillDashboardAdapter.Unregister();
-                ReloadSkillLevelMirror.Clear();
+                LirRuntime.LogError("[Lir] 补丁上下文构造失败（原位换弹不可用）: " + e.Message);
+                SelfUnpatch("harmony-context-failed");
+                return;
             }
+            InstallCoreReloadPatches();
+            if (armTransactionFailed) { SelfUnpatch("arm-transaction-aborted"); return; }
+            // DEV-V5-06: 三面同代共存——HUD 面失败 = 整体互撤归零（04/05 同律，
+            // 禁半装；headless 跳过画面面是决策不是失败）。
+            InstallAmmoReserveHud();
+            if (armTransactionFailed) { SelfUnpatch("arm-transaction-aborted"); return; }
+            // DEV-V5-07: 第四面（技能分区）入列，互撤纪律不变。
+            InstallReloadSkillSurface();
+            if (armTransactionFailed) { SelfUnpatch("arm-transaction-aborted"); return; }
+            PatchesInstalled = true;
+            StartGateDiagnostics = string.Empty;
+            LirRuntime.LogInfo("[Lir] 原位换弹补丁已安装（Harmony ID=" + LirRuntime.FeatureIdValue + "）");
+            // DEV-V6-12（V6-T5 Q2 追加裁决）：武装 ⇒ 已登记。平台是正常拆除的唯一所有者；
+            // 缺口袋或登记被拒=模块立即自拆（平台账外零补丁、零句柄）。
+            HandOverPatchOwnership();
         }
 
         /// <summary>DEV-V5-06: 既有两压弹权威面的登记（无测试缝时与迁移前逐字
-        /// 同形；有缝时按 04/05 installer 模式走——生命周期红测需三面同形驱动，
-        /// 否则真 Patch() 先在 ECall 边界抛，HUD 面根本到不了）。拒装 = 上抛 →
-        /// InstallPatches 三面互撤归零。</summary>
+        /// 同形；有缝时按 04/05 installer 模式走——生命周期红测需四面同形驱动，
+        /// 否则真 Patch() 先在 ECall 边界抛，画面面根本到不了）。拒装 = 记录结构化
+        /// 诊断 + 置事务失败位（由 ArmPatches 整体自拆并终止事务，不在此处抛）。</summary>
         private void InstallCoreReloadPatches()
         {
-            var seam = CorePatchInstallerForTests;
-            if (seam != null)
+            if (CorePatchesInstalled) return;
+            try
             {
-                if (!seam(typeof(UseableGunReceiveAttachMagazinePatch)))
-                    throw new InvalidOperationException("lir-core patch refused: UseableGunReceiveAttachMagazinePatch");
-                if (!seam(typeof(ForceAddItemPatch)))
-                    throw new InvalidOperationException("lir-core patch refused: ForceAddItemPatch");
-                return;
+                var seam = CorePatchInstallerForTests;
+                if (seam != null)
+                {
+                    if (!seam(typeof(UseableGunReceiveAttachMagazinePatch)))
+                        throw new InvalidOperationException("lir-core patch refused: UseableGunReceiveAttachMagazinePatch");
+                    if (!seam(typeof(ForceAddItemPatch)))
+                        throw new InvalidOperationException("lir-core patch refused: ForceAddItemPatch");
+                }
+                else
+                {
+                    harmony.CreateClassProcessor(typeof(UseableGunReceiveAttachMagazinePatch)).Patch();
+                    harmony.CreateClassProcessor(typeof(ForceAddItemPatch)).Patch();
+                }
+                CorePatchesInstalled = true;
+                CoreStartGateDiagnostics = string.Empty;
+                LirRuntime.LogInfo("[Lir] 权威压弹补丁已登记（Harmony ID=" + LirRuntime.FeatureIdValue + "）");
             }
-            harmony.CreateClassProcessor(typeof(UseableGunReceiveAttachMagazinePatch)).Patch();
-            harmony.CreateClassProcessor(typeof(ForceAddItemPatch)).Patch();
+            catch (Exception e)
+            {
+                CoreStartGateDiagnostics = "core-patch-install-failed: " + e.GetType().Name + ":" + e.Message;
+                NoteArmTransactionFailure(e);
+                LirRuntime.LogError("[Lir] 权威压弹补丁安装失败（原位换弹不可用）: " + e.Message);
+            }
+        }
+
+        /// <summary>DEV-V6-12: 一次武装事务的失败记账（汇总诊断文本与旧「InstallPatches
+        /// 四面包裹」逐字同形，拒装点原样带出）+ 置失败位，由 ArmPatches 决定整体自拆与
+        /// 终止（面方法本身不抛，免得半装态被异常路径掩盖）。</summary>
+        private void NoteArmTransactionFailure(Exception error)
+        {
+            StartGateDiagnostics = "patch-install-failed: " + error.GetType().Name + ":" + error.Message;
+            armTransactionFailed = true;
         }
 
         /// <summary>
@@ -506,54 +620,250 @@ namespace BetterUnturnedExperience.Lir
         private void InstallAmmoReserveHud()
         {
             if (HudPatchInstalled) return;
-            if (BetterUnturnedExperience.Plugin.BueRuntimeCompletionChain.HeadlessDecision)
+            if (IsHostHeadless())
             {
                 HudStartGateDiagnostics = "ammo-hud-headless-not-armed";
                 LirRuntime.LogInfo("[AmmoHud] U3DS headless：不武装弹药后备 HUD（Headless 决策门禁；压弹权威面不受影响）");
                 return;
             }
-            var types = AmmoReserveHudBinder.PatchSurface;
-            for (var i = 0; i < types.Count; i++)
-            {
-                var seam = HudPatchInstallerForTests;
-                if (seam != null)
-                {
-                    if (!seam(types[i])) throw new InvalidOperationException("ammo-hud patch refused: " + types[i].Name);
-                    continue;
-                }
-                AmmoReserveHudBinder.Bind(harmony, types[i]);
-            }
-            HudPatchInstalled = true;
-            HudStartGateDiagnostics = string.Empty;
-            LirRuntime.LogInfo("[AmmoHud] 弹药后备 HUD 补丁已登记（Harmony ID=" + LirRuntime.FeatureIdValue + "）");
-        }
-
-        private void UninstallPatches()
-        {
-            if (!PatchesInstalled && !HudPatchInstalled && !SkillPatchInstalled) return;
             try
             {
-                if (harmony != null) harmony.UnpatchSelf();
+                var types = AmmoReserveHudBinder.PatchSurface;
+                for (var i = 0; i < types.Count; i++)
+                {
+                    var seam = HudPatchInstallerForTests;
+                    if (seam != null)
+                    {
+                        if (!seam(types[i])) throw new InvalidOperationException("ammo-hud patch refused: " + types[i].Name);
+                        continue;
+                    }
+                    AmmoReserveHudBinder.Bind(harmony, types[i]);
+                }
+                HudPatchInstalled = true;
+                HudStartGateDiagnostics = string.Empty;
+                LirRuntime.LogInfo("[AmmoHud] 弹药后备 HUD 补丁已登记（Harmony ID=" + LirRuntime.FeatureIdValue + "）");
             }
             catch (Exception e)
             {
-                // 04 实证教训：撤装反转 IL 会在无 Unity 运行时的进程触发再 JIT
-                // 异常——边界绝不向生命周期机抛出，下方记账必须落地。
-                LirRuntime.LogError("[Lir] 补丁撤销异常（登记已强制收回，功能面按停用运行）: " + e.Message);
+                // DEV-V6-12: 拒装 = 结构化诊断 + 事务失败位（整体互撤 + 事务终止由 ArmPatches 执行）。
+                HudStartGateDiagnostics = "ammo-hud-patch-install-failed: " + e.GetType().Name + ":" + e.Message;
+                NoteArmTransactionFailure(e);
+                LirRuntime.LogError("[AmmoHud] 弹药后备 HUD 补丁安装失败（HUD 面不可用）: " + e.Message);
+            }
+        }
+
+        /// <summary>
+        /// DEV-V6-12（V6-T5 Q2 + 2026-09-18 追加裁决）：把武装好的补丁交给启动口袋。
+        /// 受理 ⇒ 拆除所有权移交平台账（此后模块在正常停止路径不再 UnpatchSelf）；
+        /// 缺口袋 ⇒ 立即自拆（不自管补丁账）；拒绝/登记异常 ⇒ 立即自拆并留原因与码。
+        /// 一个 Harmony 身份（本功能全部补丁面共用同一实例/ID）对应一枚句柄。
+        /// </summary>
+        private void HandOverPatchOwnership()
+        {
+            if (!AnyPatchArmed()) return;
+            // 一代一条：本代际已登记过就不再登记（开关热装不新增账项、不新句柄——
+            // 账不随开关累积，也不留已拆句柄；每代际容量与开关次数无关）。
+            if (PatchTeardownDelegated) return;
+            var pocket = patching;
+            if (pocket == null)
+            {
+                SelfUnpatch("patch-pocket-missing");
+                LirRuntime.LogError("[Lir] 启动口袋未提供补丁口：已武装补丁立即自拆（平台账外不留补丁） diagnosticId=BUE-LIR-PATCH-003");
+                return;
+            }
+            var handle = new LirPatchHandle(LirRuntime.FeatureIdValue, ReleasePatchesFromPlatform,
+                LirRuntime.HostRuntimeLogSink);
+            FeaturePatchRegistrationResult result;
+            try
+            {
+                result = pocket.Register(handle);
+            }
+            catch (Exception e)
+            {
+                LirRuntime.LogError("[Lir] 补丁口登记异常：" + e.GetType().Name
+                    + " → 已武装补丁立即自拆（不留半装） diagnosticId=BUE-LIR-PATCH-002");
+                SelfUnpatch("patch-pocket-register-faulted");
+                return;
+            }
+            if (result.Registered)
+            {
+                PatchRegistration = handle;
+                PatchTeardownDelegated = true;
+                LirRuntime.LogInfo("[Lir] 补丁经启动口袋登记（拆除所有权移交平台账，句柄=" + handle.HarmonyId
+                    + "，代际=" + result.LifecycleGeneration + "） diagnosticId=BUE-LIR-PATCH-001");
+                return;
+            }
+            LirRuntime.LogError("[Lir] 补丁口登记被拒 reason=" + result.Reason + " pocketCode=" + result.DiagnosticId
+                + "：已武装补丁立即自拆（不留半装） diagnosticId=BUE-LIR-PATCH-002");
+            SelfUnpatch("patch-pocket-rejected");
+        }
+
+        /// <summary>
+        /// DEV-V6-12：设置开关 off 的撤销路径（一代内动态拆装）。已登记 ⇒ 撤销经**本句柄的
+        /// 同一条拆除动作**（不另起 UnpatchSelf，也不动登记：一代一条账项、句柄不释放——
+        /// 账上既不累积新条目，也不留已拆句柄；平台边界的释放届时对未武装状态空转，不双拆）。
+        /// 未登记（缺口袋/被拒/半装留下的防御态）走受守卫的账外自拆。
+        /// </summary>
+        private void DisarmPatchesForToggle(string reason)
+        {
+            var handle = PatchRegistration;
+            if (handle == null)
+            {
+                SelfUnpatch(reason);
+                return;
+            }
+            try
+            {
+                // 在册归零在拆除动作里（ReleasePatchesFromPlatform 的 finally 恒跑）——
+                // 这里不再清一次，免得同一代际的呈现收两次。
+                handle.RevokeCurrentPatches();
+            }
+            catch (Exception e)
+            {
+                // 设置路径不向宿主抛出：在册状态已归零、功能面按停用运行；故障如实留痕
+                //（逆 JIT 故障的宿主环境与账释放同族，账那条腿仍走 BUE-LIFE-006 隔离）。
+                LirRuntime.LogError("[Lir] 补丁撤销遇拆除故障（在册状态已归零，功能面按停用运行）reason=" + reason
+                    + ": " + e.Message + " diagnosticId=BUE-LIR-PATCH-006");
+            }
+        }
+
+        /// <summary>
+        /// DEV-V6-12: 平台账的释放路径——句柄的 Dispose（停止/隔离边界），即登记受理后的
+        /// **唯一**正常拆除点。拆除故障不在这里吞（Spec 轴口径）：它沿平台账户释放管线
+        /// 浮出并隔离成 BUE-LIFE-006（DEV-V6-05 冻结语义），这也是句柄只在拆除动作返回后
+        /// 落释放行的原因。在册状态照旧在 finally 归零——登记是功能开关，任何情况下都
+        /// 收回，卡住的活钩子经适配器闸按拒绝答复而不是服务。
+        /// </summary>
+        private void ReleasePatchesFromPlatform()
+        {
+            try
+            {
+                // 开关热摘已把补丁撤下时，边界释放是对「当前无在架补丁」的空操作——同一
+                // 套补丁不会被拆两次（不双拆），账目照样结清。判据是补丁集是否真在架
+                // （patchSetInstalled），不是模块的在册开关（停机时已归零）。
+                if (!patchSetInstalled)
+                {
+                    var sink = patchReleaseLog;
+                    if (sink != null)
+                    {
+                        try { sink("[Lir] 平台边界释放：当前无在架补丁（开关热摘已撤），拆除动作按空操作返回"); }
+                        catch (Exception) { }
+                    }
+                    return;
+                }
+                if (!RevertPatches())
+                    throw new InvalidOperationException("harmony unpatch faulted (UnpatchSelf)");
+                patchSetInstalled = false;
             }
             finally
             {
-                PatchesInstalled = false;
-                ActiveModule = null;
-                // DEV-V5-06: 注销=不画（登记交还 + 在枪上的残留读数即时收）。
-                HudPatchInstalled = false;
-                AmmoReserveHudAdapter.RevokeAll();
-                // DEV-V5-07: 技能分区面同律注销；等级确认镜像=连接态，随面收。
-                SkillPatchInstalled = false;
-                ReloadSkillDashboardAdapter.Unregister();
-                ReloadSkillLevelMirror.Clear();
-                LirRuntime.LogInfo("[Lir] 原位换弹补丁已撤销（原生回退，仅撤自身 Harmony ID）");
+                ClearPatchBookkeeping();
             }
+        }
+
+        /// <summary>
+        /// DEV-V6-12: 唯一的 Harmony 身份反转调用。false = 反转本身报错；这个结果如何
+        /// 传播是各边界自己的冻结纪律——账绑定释放任其上浮账户管线（见
+        /// ReleasePatchesFromPlatform），武装期自拆受守卫吞下（见 UnpatchSelfGuarded）。
+        /// </summary>
+        private bool RevertPatches()
+        {
+            var seam = PatchRevertForTests;
+            if (seam != null) return seam();
+            if (harmony != null) harmony.UnpatchSelf();
+            return true;
+        }
+
+        /// <summary>
+        /// DEV-V6-12: 模块自己的拆除，只应发生在平台账之外（半装失败、登记被拒、缺口袋、
+        /// 停机未移交）——移交成功后这条路径在正常停止上绝不能再跑，否则就是双重拆除。
+        /// 留痕行让红测可以把「没跑」钉成事实。
+        /// </summary>
+        private void SelfUnpatch(string reason)
+        {
+            var owed = patchSetInstalled || AnyPatchArmed();
+            if (owed && UnpatchSelfGuarded(reason)) patchSetInstalled = false;
+            ClearPatchBookkeeping();
+            if (owed)
+                LirRuntime.LogInfo("[Lir] 换弹补丁自拆（平台账外）reason=" + reason + " diagnosticId=BUE-LIR-PATCH-005");
+        }
+
+        /// <summary>
+        /// 04 实证教训：撤装反转已装 IL 会在无 Unity 运行时的进程触发再 JIT 异常——
+        /// 这条路径在平台账之外运行（它撤销的是刚失败的半装），绝不向模块自己的
+        /// Start/设置回调抛出：在册状态才是功能开关，任何情况下都归零，而失败的反转
+        /// 在日志里保持可观察。账绑定释放（ReleasePatchesFromPlatform）刻意不吞——
+        /// 那里账户管线才是隔离点（BUE-LIFE-006）。
+        /// </summary>
+        private bool UnpatchSelfGuarded(string reason)
+        {
+            try
+            {
+                if (!RevertPatches())
+                {
+                    LirRuntime.LogError("[Lir] 补丁撤销失败（登记已强制收回，功能面按停用运行）reason=" + reason);
+                    return false;
+                }
+                return true;
+            }
+            catch (Exception e)
+            {
+                LirRuntime.LogError("[Lir] 补丁撤销异常（登记已强制收回，功能面按停用运行）reason=" + reason + ": " + e.Message);
+                return false;
+            }
+        }
+
+        /// <summary>本代际是否还有补丁面在册（半装=无面在册但可能已装了一部分）。</summary>
+        private bool AnyPatchArmed()
+        {
+            return CorePatchesInstalled || PatchesInstalled || HudPatchInstalled || SkillPatchInstalled;
+        }
+
+        /// <summary>The one revocation of every armed face's registration
+        /// (05-06/05-07 在册同步律): UnpatchSelf is by Harmony ID, so one
+        /// removal revokes all faces — the bookkeeping follows it, never the
+        /// other way round.</summary>
+        private void ClearPatchBookkeeping()
+        {
+            PatchesInstalled = false;
+            CorePatchesInstalled = false;
+            ActiveModule = null;
+            // DEV-V5-06: 注销=不画（登记交还 + 在枪上的残留读数即时收）。
+            HudPatchInstalled = false;
+            AmmoReserveHudAdapter.RevokeAll();
+            // DEV-V5-07: 技能分区面同律注销；等级确认镜像=连接态，随面收。
+            SkillPatchInstalled = false;
+            ReloadSkillDashboardAdapter.Unregister();
+            ReloadSkillLevelMirror.Clear();
+            // 注意：patchSetInstalled 不在这里清——它跟的是「Harmony 补丁是否还装着」的
+            // 事实，只由真的跑过反转动作清掉（见 ReleasePatchesFromPlatform/SelfUnpatch）。
+        }
+
+        /// <summary>
+        /// DEV-V6-12（V6-T5 Q2 追加裁决）: the stop-boundary patch handoff.
+        /// 登记受理 ⇒ 平台是正常拆除的唯一所有者（账在本方法返回后于 CompleteStop
+        /// 逆序释放句柄），模块在这里不得自拆——拆两次正是本票要消除的缺陷。没有移交
+        /// 记录 ⇒ 补丁仍归模块，fail-closed 自拆（武装期的各腿已自拆过，这里是防御路径）。
+        /// </summary>
+        private void ReleasePatchOwnership()
+        {
+            var armed = AnyPatchArmed() || patchSetInstalled;
+            if (armed && !PatchTeardownDelegated)
+            {
+                SelfUnpatch("stop-without-handover");
+            }
+            else
+            {
+                if (armed)
+                {
+                    LirRuntime.LogInfo("[Lir] 补丁拆除在平台账上：模块停止不自行拆除（代际=" + LifecycleGeneration + "）");
+                }
+                // The functional switch goes off here either way — the patches
+                // themselves are the platform's business from now on.
+                ClearPatchBookkeeping();
+            }
+            PatchTeardownDelegated = false;
+            PatchRegistration = null;
         }
 
         // ── DEV-V5-07：换弹技能面 ────────────────────────────────────────
@@ -563,7 +873,7 @@ namespace BetterUnturnedExperience.Lir
         private void InstallReloadSkillSurface()
         {
             if (SkillPatchInstalled) return;
-            if (BetterUnturnedExperience.Plugin.BueRuntimeCompletionChain.HeadlessDecision)
+            if (IsHostHeadless())
             {
                 SkillStartGateDiagnostics = "reload-skill-headless-not-armed";
                 LirRuntime.LogInfo("[ReloadSkill] U3DS headless：不武装换弹技能分区（Headless 决策门禁；技能权威/账/自动压弹不受影响）");
@@ -575,20 +885,30 @@ namespace BetterUnturnedExperience.Lir
                 LirRuntime.LogInfo("[ReloadSkill] 表面 A 接不上：等级面降级为该功能设置页（注册侧已挂 facet）");
                 return;
             }
-            var seam = SkillPatchInstallerForTests;
-            if (seam != null)
+            try
             {
-                if (!seam(typeof(ReloadSkillDashboardPatch)))
-                    throw new InvalidOperationException("reload-skill surface-A patch refused");
+                var seam = SkillPatchInstallerForTests;
+                if (seam != null)
+                {
+                    if (!seam(typeof(ReloadSkillDashboardPatch)))
+                        throw new InvalidOperationException("reload-skill surface-A patch refused");
+                }
+                else
+                {
+                    ReloadSkillDashboardBinder.Bind(harmony, typeof(ReloadSkillDashboardPatch));
+                }
+                ReloadSkillDashboardAdapter.Register();
+                SkillPatchInstalled = true;
+                SkillStartGateDiagnostics = string.Empty;
+                LirRuntime.LogInfo("[ReloadSkill] 换弹技能分区已登记（Harmony ID=" + LirRuntime.FeatureIdValue + "）");
             }
-            else
+            catch (Exception e)
             {
-                ReloadSkillDashboardBinder.Bind(harmony, typeof(ReloadSkillDashboardPatch));
+                // DEV-V6-12: 拒装 = 结构化诊断 + 事务失败位（整体互撤 + 事务终止由 ArmPatches 执行）。
+                SkillStartGateDiagnostics = "reload-skill-patch-install-failed: " + e.GetType().Name + ":" + e.Message;
+                NoteArmTransactionFailure(e);
+                LirRuntime.LogError("[ReloadSkill] 换弹技能分区补丁安装失败（分区面不可用）: " + e.Message);
             }
-            ReloadSkillDashboardAdapter.Register();
-            SkillPatchInstalled = true;
-            SkillStartGateDiagnostics = string.Empty;
-            LirRuntime.LogInfo("[ReloadSkill] 换弹技能分区已登记（Harmony ID=" + LirRuntime.FeatureIdValue + "）");
         }
 
         private double ReadSkillClockSeconds() { return SkillNowSeconds; }

@@ -44,7 +44,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     var savedRecoverInstaller = InventoryTidyModule.RecoverPatchInstallerForTests;
                     var savedRole = LitTidyProductionAuthority.ServerRoleProbeForTests;
                     var savedLabel = ItemUseSignalsProvider.ResolveForTests;
-                    var savedHeadless = BetterUnturnedExperience.Plugin.BueRuntimeCompletionChain.HeadlessDecision;
+                    var savedHeadless = BetterUnturnedExperience.Lit.LitFeatureAssembly.HostHeadlessDecision; // DEV-V6-02B: headless 决策经宿主注入缝读入
                     var savedToast = LitContainerFeedback.ToastSink;
                     FastTransferIntentScope.ResetForTests();
                     InsertRecoverScope.ResetForTests();
@@ -64,7 +64,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                         InventoryTidyModule.RecoverPatchInstallerForTests = savedRecoverInstaller;
                         LitTidyProductionAuthority.ServerRoleProbeForTests = savedRole;
                         ItemUseSignalsProvider.ResolveForTests = savedLabel;
-                        BetterUnturnedExperience.Plugin.BueRuntimeCompletionChain.HeadlessDecision = savedHeadless;
+                        BetterUnturnedExperience.Lit.LitFeatureAssembly.HostHeadlessDecision = savedHeadless;
                         LitContainerFeedback.ToastSink = savedToast;
                         FastTransferIntentScope.ResetForTests();
                         InsertRecoverScope.ResetForTests();
@@ -355,7 +355,8 @@ namespace BetterUnturnedExperience.Plugin.Tests
         }
 
         // ─────────────────────────────────────────────────────────────────
-        // 组2：生命周期登记即开关。登记 = EnsureStarted 装面时交付 ActiveModule；
+        // 组2：生命周期登记即开关。登记 = Start 装面时交付 ActiveModule（DEV-V6-11：武装
+        // 只发生在 Start 内且经启动口袋登记；工厂路径不再提前武装）；
         // Stop/隔离注销；U3DS headless 仍登记（权威行为非画面，story 25）；
         // 无独立开关、无功能 bool、无 Prefix 内死开关；熔断共享同一把闸。
         // ─────────────────────────────────────────────────────────────────
@@ -368,7 +369,8 @@ namespace BetterUnturnedExperience.Plugin.Tests
             LitTidyProductionAuthority.ServerRoleProbeForTests = () => false; // 客机角色：本地权威执行面不进宿主
             var settings = new V55SettingsView();
             settings.SetDirection(InventoryTidyModule.DirectionDescendingLabel);
-            var module = V55CreateModule(check, settings, new V55Authority());
+            var pocket2f = LitTestPocket.Open();
+            var module = V55CreateModule(check, settings, new V55Authority(), pocket2f);
             if (module == null) return;
             try
             {
@@ -382,6 +384,8 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 check(ReferenceEquals(FastTransferRecoverAdapter.ActiveModule, module),
                     "ActiveModule = 本代际（登记即交付，交接诚实）");
                 check(module.FastTransferPatchesInstalled, "FastTransferPatchesInstalled 随登记为真");
+                check(pocket2f.Accepted.Count == 1 && module.PatchTeardownDelegated,
+                    "补丁句柄经启动口袋进既有账（DEV-V6-11 所有权移交平台）");
 
                 // 2b. 未登记 = 原版语义：不规划不发送不执行。
                 FastTransferRecoverAdapter.ActiveModule = null;
@@ -421,7 +425,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
             }
 
             // 2g. U3DS headless：画面闸不挡权威登记（story 25 / T1 Headless 裁决——只砍画面）。
-            BetterUnturnedExperience.Plugin.BueRuntimeCompletionChain.HeadlessDecision = true;
+            BetterUnturnedExperience.Lit.LitFeatureAssembly.HostHeadlessDecision = () => true; // DEV-V6-02B: 经注入缝模拟 headless
             var headlessInstalled = new List<Type>();
             InventoryTidyModule.FastTransferPatchInstallerForTests = t => { headlessInstalled.Add(t); return true; };
             InventoryTidyModule.RecoverPatchInstallerForTests = t => true;
@@ -870,12 +874,15 @@ namespace BetterUnturnedExperience.Plugin.Tests
 
         /// <summary>造一个真 Start 的模块（03 harness 的 FeatureBootstrap 形状，role 恒按
         /// ServerRoleProbeForTests 注入；NetService 走真实现+假 authority+无网络拓扑=
-        /// 未握手的真实「无会话」形态）。</summary>
+        /// 未握手的真实「无会话」形态）。DEV-V6-11：武装只发生在 Start 内且必须经启动
+        /// 口袋登记——本助手带上一个真账户口袋（老 EnsureStarted 直调与无口袋 bootstrap
+        /// 都走「立即自拆」路径，不再产出武装面，那条由本票红测组专测）。</summary>
         private static InventoryTidyModule V55CreateModule(System.Action<bool, string> check,
-            V55SettingsView settings, V55Authority authority)
+            V55SettingsView settings, V55Authority authority, LitTestPocket pocket = null)
         {
             var feature = new FeatureId(LitRuntime.FeatureIdValue);
             var module = new InventoryTidyModule(feature);
+            pocket = pocket ?? LitTestPocket.Open();
             module.ScopeDirectoryForTests = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
                 "bue-v5-05-lit-" + Guid.NewGuid().ToString("N"));
             module.FaultContextForTests = () => new LitFaultScopeContext("TestMap", 1);
@@ -883,8 +890,9 @@ namespace BetterUnturnedExperience.Plugin.Tests
             var pair = BetterUnturnedExperience.Core.Network.LocalLoopbackTransport.CreatePair();
             var runtime = new BetterUnturnedExperience.Core.Network.BueNetworkRuntime(pair.First, new ContractVersion(2, 0), 1001UL);
             module.NetServiceFactoryForTests = (m, net, book) => new LitTidyNetService(m, net, authority, () => false, book);
-            var bootstrap = new FeatureBootstrap(default(FeatureScopeIdentity), 1UL, settings,
-                bus.Subscriber(feature), bus.Publisher(feature), bus.EventRegistry(feature), null, null, new V55Lifetime(), runtime);
+            var bootstrap = new FeatureBootstrap(default(FeatureScopeIdentity), pocket.Generation, settings,
+                bus.Subscriber(feature), bus.Publisher(feature), bus.EventRegistry(feature), null, null, new V55Lifetime(), runtime,
+                null, pocket.Patching);
             var started = module.Start(bootstrap);
             if (!started.Started) { check(false, "fixture: module start failed: " + started.DiagnosticId); return null; }
             return module;

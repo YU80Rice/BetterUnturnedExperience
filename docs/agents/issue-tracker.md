@@ -1,6 +1,6 @@
 # Issue tracker: Local Markdown
 
-Issues and specs for this repo live as markdown files in `.scratch/`.
+Issues and specs for this repo live as markdown files in `.scratch/` on the **working copy**. They are process artifacts (ADR 0004): the public clone does not ship them. Agent skills still read and write `.scratch/` locally.
 
 ## Conventions
 

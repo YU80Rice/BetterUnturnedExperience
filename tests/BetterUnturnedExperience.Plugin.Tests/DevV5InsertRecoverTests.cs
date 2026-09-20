@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Reflection;
 using BetterUnturnedExperience.Contracts;
@@ -48,7 +48,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     var savedInstaller = InventoryTidyModule.RecoverPatchInstallerForTests;
                     var savedRole = LitTidyProductionAuthority.ServerRoleProbeForTests;
                     var savedLabel = ItemUseSignalsProvider.ResolveForTests;
-                    var savedHeadless = BetterUnturnedExperience.Plugin.BueRuntimeCompletionChain.HeadlessDecision;
+                    var savedHeadless = BetterUnturnedExperience.Lit.LitFeatureAssembly.HostHeadlessDecision; // DEV-V6-02B: headless 决策经宿主注入缝读入
                     // DEV-V5-05 existing-test adaptation: Start now arms the
                     // fast-transfer pair beside this trio (same ID, same all-or-
                     // none gate). Without the second seam the host would attempt
@@ -73,7 +73,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                         InventoryTidyModule.RecoverPatchInstallerForTests = savedInstaller;
                         LitTidyProductionAuthority.ServerRoleProbeForTests = savedRole;
                         ItemUseSignalsProvider.ResolveForTests = savedLabel;
-                        BetterUnturnedExperience.Plugin.BueRuntimeCompletionChain.HeadlessDecision = savedHeadless;
+                        BetterUnturnedExperience.Lit.LitFeatureAssembly.HostHeadlessDecision = savedHeadless;
                         InventoryTidyModule.FastTransferPatchInstallerForTests = savedFastInstaller;
                         InsertRecoverScope.ResetForTests();
                     }
@@ -304,6 +304,27 @@ namespace BetterUnturnedExperience.Plugin.Tests
             return settings;
         }
 
+        /// <summary>DEV-V6-11：生命周期启动的最小模块——老 helper 的 EnsureStarted 直调
+        /// （=工厂路径提前武装）退役后，武装只能发生在 Start 内并必须经启动口袋登记入
+        /// 平台账。NetService 走 04 既有 noop 权威装配（与组6 总线形同形）。</summary>
+        private static InventoryTidyModule V54StartModule(V54SettingsView settings, LitTestPocket pocket)
+        {
+            var feature = new FeatureId(LitRuntime.FeatureIdValue);
+            var module = new InventoryTidyModule(feature);
+            module.ScopeDirectoryForTests = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+                "bue-v5-04-lit-" + Guid.NewGuid().ToString("N"));
+            module.FaultContextForTests = () => new LitFaultScopeContext("TestMap", 1);
+            module.NetServiceFactoryForTests = (m, net, book) => new LitTidyNetService(m, net, new V54NoopAuthority(), () => true, book);
+            var bus = new BetterUnturnedExperience.Core.Events.FeatureEventBus();
+            var pair = BetterUnturnedExperience.Core.Network.LocalLoopbackTransport.CreatePair();
+            var runtime = new BetterUnturnedExperience.Core.Network.BueNetworkRuntime(pair.First, new ContractVersion(2, 0), 1001UL);
+            var started = module.Start(new FeatureBootstrap(default(FeatureScopeIdentity), pocket.Generation, settings,
+                bus.Subscriber(feature), bus.Publisher(feature), bus.EventRegistry(feature), null, null, null, runtime, null, pocket.Patching));
+            if (!started.Started)
+                throw new InvalidOperationException("V54StartModule: module start failed: " + started.DiagnosticId);
+            return module;
+        }
+
         /// <summary>组1 场景的页数组载体（PagesForTests 缝的闭包目标，随组重设）。</summary>
         private static Items[] RecoverV54Pages;
 
@@ -425,13 +446,15 @@ namespace BetterUnturnedExperience.Plugin.Tests
             InsertRecoverAdapter.CommitForTests = recorder.Commit;
             InsertRecoverAdapter.PendingProbeForTests = _ => Info(2, 1);
 
+            // DEV-V6-11：武装已收拢到生命周期内且必须经启动口袋登记——老 helper 的
+            // EnsureStarted 直调（=工厂路径提前武装）退役，组2 各腿改走真 Start。
             var installed = new List<Type>();
             InventoryTidyModule.RecoverPatchInstallerForTests = type => { installed.Add(type); return true; };
 
-            // 2a. Start（EnsureStarted）登记三处补丁并接上行为位。
+            // 2a. Start 登记三处补丁并接上行为位（经启动口袋进既有资源账）。
             var settings = V54DescendingSettings();
-            var module = V54Module(settings);
-            module.EnsureStarted();
+            var pocketA = LitTestPocket.Open();
+            var module = V54StartModule(settings, pocketA);
             check(module.RecoverPatchesInstalled, "生命周期：Start=恢复补丁登记（RecoverPatchesInstalled）");
             check(ReferenceEquals(InsertRecoverAdapter.ActiveModule, module), "生命周期：登记后行为位接上本代际模块");
             check(installed.Count == 3
@@ -439,6 +462,8 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     && installed[1] == typeof(InsertRecoverCraftScopePatch)
                     && installed[2] == typeof(InsertRecoverAutoAddPatch),
                 "生命周期：恰好登记三条且为 拾取开合→合成开合→行为位（无遗漏无多余）");
+            check(pocketA.Accepted.Count == 1 && module.PatchTeardownDelegated,
+                "生命周期：补丁句柄经启动口袋进既有账（DEV-V6-11 所有权移交）");
 
             // 2b. Stop = 注销：登记面清空后，scope 开 + 原版失败也不再执行（路径不
             //     执行由注销保证，不是靠补丁体内 if 短路——见 2d 反射钉）。
@@ -455,9 +480,8 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     && recorder.Calls == 0 && V54Snapshot(inv).Count == before.Count,
                 "功能停=路径不执行：注销后的失败入包完全回到原版（零修改零事务）");
 
-            // 2c. 换代际重登记：再 Start 一个新代际 = 重新登记并接管。
-            var second = V54Module(settings);
-            second.EnsureStarted();
+            // 2c. 换代际重登记：再 Start 一个新代际 = 重新登记并接管（新代际自己的口袋）。
+            var second = V54StartModule(settings, LitTestPocket.Open());
             check(ReferenceEquals(InsertRecoverAdapter.ActiveModule, second) && second.RecoverPatchesInstalled,
                 "生命周期：再启用换代际重登记（新代际接管，旧代际不复用）");
             second.Stop(FeatureStopReason.UserDisabled);
@@ -484,29 +508,38 @@ namespace BetterUnturnedExperience.Plugin.Tests
             }
 
             // 2e. 登记失败 = 半装整体撤销（与既有 UI 安装失败同纪律：不存在只装
-            //     一半的恢复面）。
+            //     一半的恢复面）。DEV-V6-11：半装还意味着立即自拆，平台账外零补丁。
             var half = 0;
             InventoryTidyModule.RecoverPatchInstallerForTests = type => { half++; return half < 3; };
-            var broken = V54Module(settings);
-            broken.EnsureStarted();
+            var halfPocket = LitTestPocket.Open();
+            var broken = V54StartModule(settings, halfPocket);
             check(!broken.RecoverPatchesInstalled && InsertRecoverAdapter.ActiveModule == null,
                 "登记失败=整体撤销：三处未全装成则恢复面不可用（无半装触发面）");
             check(broken.RecoverStartGateDiagnostics.IndexOf("recover-patch-install-failed", StringComparison.Ordinal) >= 0,
                 "登记失败留结构化诊断（决策面可观察，不静默）");
+            // DEV-V6-11：三个补丁面各自成套、各自 all-or-none（一套装不成不牵连另一套，
+            // 既有 V5-04/05 语义）——「不留半装」由每个套内部的整体撤销保证；不变量是
+            // 「任一武装面存在 ⇔ 已移交平台账」（平台账外零补丁）。
+            var halfArmed = broken.PatchesInstalled || broken.RecoverPatchesInstalled || broken.FastTransferPatchesInstalled;
+            check(halfArmed == broken.PatchTeardownDelegated && halfArmed == (halfPocket.Accepted.Count == 1),
+                "半装失败：武装面存在 ⇔ 已移交平台账（账外零补丁、零孤儿句柄），实际 armed="
+                + halfArmed + " delegated=" + broken.PatchTeardownDelegated + " accepted=" + halfPocket.Accepted.Count);
             InventoryTidyModule.RecoverPatchInstallerForTests = null;
 
             // 2f. U3DS headless：画面补丁不武装，但权威恢复必须登记（story 25 /
             //     T1 Headless 裁决）；既有 headless 诊断口径不变。
             installed.Clear();
             InventoryTidyModule.RecoverPatchInstallerForTests = type => { installed.Add(type); return true; };
-            BetterUnturnedExperience.Plugin.BueRuntimeCompletionChain.HeadlessDecision = true;
-            var headless = V54Module(settings);
-            headless.EnsureStarted();
-            BetterUnturnedExperience.Plugin.BueRuntimeCompletionChain.HeadlessDecision = false;
+            BetterUnturnedExperience.Lit.LitFeatureAssembly.HostHeadlessDecision = () => true; // DEV-V6-02B: 经注入缝模拟 headless
+            var headlessPocket = LitTestPocket.Open();
+            var headless = V54StartModule(settings, headlessPocket);
+            BetterUnturnedExperience.Lit.LitFeatureAssembly.HostHeadlessDecision = null;
             check(installed.Count == 3 && headless.RecoverPatchesInstalled,
                 "headless：U3DS 仍登记入包恢复（权威行为不随 UI 决策被砍）");
             check(!headless.PatchesInstalled && headless.StartGateDiagnostics == "headless-ui-not-armed",
                 "headless：整理按钮补丁仍不武装（既有九态诊断口径不变）");
+            check(headless.PatchTeardownDelegated && headlessPocket.Accepted.Count == 1,
+                "headless：权威面的句柄仍经口登记（缺画面不减所有权移交）");
             headless.Stop(FeatureStopReason.UserDisabled);
         }
 
@@ -899,9 +932,13 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 "bue-v5-04-lit-" + Guid.NewGuid().ToString("N"));
             module.FaultContextForTests = () => new LitFaultScopeContext("TestMap", 1);
             module.NetServiceFactoryForTests = (m, net, book) => new LitTidyNetService(m, net, new V54NoopAuthority(), () => true, book);
+            // DEV-V6-11：启动口袋（第 12 实参）——武装面的句柄经此进既有资源账；缺口袋
+            // 的老形态会让模块立即自拆（本票红测组专测那条）。
+            var pocket = LitTestPocket.Open();
             var settings = V54DescendingSettings();
-            var bootstrap = new FeatureBootstrap(default(FeatureScopeIdentity), 1UL, settings,
-                bus.Subscriber(feature), bus.Publisher(feature), bus.EventRegistry(feature), null, null, null, runtime);
+            var bootstrap = new FeatureBootstrap(default(FeatureScopeIdentity), pocket.Generation, settings,
+                bus.Subscriber(feature), bus.Publisher(feature), bus.EventRegistry(feature), null, null, null, runtime,
+                null, pocket.Patching);
             var started = module.Start(bootstrap);
             var events = new List<TidyCompleted>();
             bus.Subscriber(feature).Subscribe<TidyCompleted>(events.Add);

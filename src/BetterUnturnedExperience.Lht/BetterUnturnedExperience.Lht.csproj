@@ -1,0 +1,59 @@
+<Project ToolsVersion="Current" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <!-- DEV-V6-02A 工程图扩展 → DEV-V6-02D Lht（尸潮计数）真分工程迁移（V6-T2）：清单恰等目录
+       文件集（防火墙 R2 收编，02A→02D 过渡态熄火）；引用只许经契约 + 宿主游戏库
+       （Harmony/Assembly-CSharp/Steamworks/Glazier/UnityEngine，Private=False 不外溢进玩家
+       合并；CommandHorde 以 Steamworks 的 Local/Command 基类签名编译，HUD 面
+       PlayerLifeUiHudPatches 直用 Glazier 标签类型）；不引用宿主或界面工程（禁方向由防火墙
+       R1 与 DevV602D 红测双守——宿主日志口改宿主组合注入 BindHostComposition，本票唯一越
+       界面）。宿主经唯一公开组装类型 LhtFeatureAssembly
+       接线；内部类型经 InternalsVisibleTo 只对 *.Tests 开放（02A 组 3 形态，
+       见 Properties/AssemblyInfo.cs）。 -->
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Release</Configuration><Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
+    <ProjectGuid>{4E2A7B6C-4AA2-4F84-B7C0-0C0000000003}</ProjectGuid><OutputType>Library</OutputType>
+    <RootNamespace>BetterUnturnedExperience.Lht</RootNamespace><AssemblyName>BetterUnturnedExperience.Lht</AssemblyName>
+    <TargetFrameworkVersion>v4.7.2</TargetFrameworkVersion><LangVersion>10.0</LangVersion><Deterministic>true</Deterministic><DebugType>none</DebugType>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' "><Optimize>true</Optimize><OutputPath>bin\Release\</OutputPath><DefineConstants>TRACE</DefineConstants><WarningLevel>4</WarningLevel><TreatWarningsAsErrors>true</TreatWarningsAsErrors></PropertyGroup>
+  <ItemGroup>
+    <Reference Include="System" /><Reference Include="System.Core" />
+    <Reference Include="HarmonyLib"><HintPath>..\..\..\Libs\0Harmony.dll</HintPath><Private>False</Private></Reference>
+    <Reference Include="com.rlabrecque.steamworks.net"><HintPath>..\..\..\Libs\com.rlabrecque.steamworks.net.dll</HintPath><Private>False</Private></Reference>
+    <Reference Include="SDG.Glazier.Runtime"><HintPath>..\..\..\Libs\SDG.Glazier.Runtime.dll</HintPath><Private>False</Private></Reference>
+    <Reference Include="Assembly-CSharp"><HintPath>..\..\..\Libs\Assembly-CSharp.dll</HintPath><Private>False</Private></Reference>
+    <Reference Include="UnityEngine"><HintPath>..\..\..\Libs\UnityEngine.dll</HintPath><Private>False</Private></Reference>
+    <Reference Include="UnityEngine.CoreModule"><HintPath>..\..\..\Libs\UnityEngine.CoreModule.dll</HintPath><Private>False</Private></Reference>
+    <Reference Include="UnityEngine.TextRenderingModule"><HintPath>..\..\..\Libs\UnityEngine.TextRenderingModule.dll</HintPath><Private>False</Private></Reference>
+    <ProjectReference Include="..\BetterUnturnedExperience.Contracts\BetterUnturnedExperience.Contracts.csproj"><Project>{B9A11F3D-3CF7-4C7A-9B04-0B6F2B35B9A1}</Project><Name>BetterUnturnedExperience.Contracts</Name></ProjectReference>
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="LhtFeatureAssembly.cs" />
+    <Compile Include="LhtRuntime.cs" />
+    <Compile Include="LhtPatchHandle.cs" />
+    <Compile Include="HordeTrackerRegistration.cs" />
+    <Compile Include="HordeTrackerModule.cs" />
+    <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="Command\CommandHorde.cs" />
+    <Compile Include="Command\HordeCommandLogic.cs" />
+    <Compile Include="Horde\DefaultHordeTrackingPolicy.cs" />
+    <Compile Include="Horde\HordeBeaconContextGuard.cs" />
+    <Compile Include="Horde\HordeBeaconView.cs" />
+    <Compile Include="Horde\HordeClientReceiver.cs" />
+    <Compile Include="Horde\HordeProductionAuthority.cs" />
+    <Compile Include="Horde\HordeSnapshot.cs" />
+    <Compile Include="Horde\HordeStateTracker.cs" />
+    <Compile Include="Horde\HordeTrackingModule.cs" />
+    <Compile Include="Horde\HordeWireCodec.cs" />
+    <Compile Include="Horde\IHordeTrackingAuthority.cs" />
+    <Compile Include="Horde\IHordeTrackingPolicy.cs" />
+    <Compile Include="Horde\PendingHordeSnapshot.cs" />
+    <Compile Include="Patches\BeaconCounterPatches.cs" />
+    <Compile Include="Presentation\HordePresentationAdapter.cs" />
+    <Compile Include="Presentation\IHordeHudSurface.cs" />
+    <Compile Include="Presentation\PlayerLifeHudSurface.cs" />
+    <Compile Include="Presentation\PlayerLifeUiHudPatches.cs" />
+    <Compile Include="Resolve\LocationResolver.cs" />
+    <Compile Include="Resolve\OwnerResolver.cs" />
+  </ItemGroup>
+  <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+</Project>

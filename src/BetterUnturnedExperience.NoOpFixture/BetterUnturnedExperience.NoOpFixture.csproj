@@ -1,4 +1,4 @@
-<Project ToolsVersion="Current" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+﻿<Project ToolsVersion="Current" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <PropertyGroup>
     <Configuration Condition=" '$(Configuration)' == '' ">Release</Configuration>
     <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
@@ -10,6 +10,9 @@
     <LangVersion>10.0</LangVersion>
     <Deterministic>true</Deterministic>
     <DebugType>none</DebugType>
+    <!-- DEV-V6-10: empty keeps the in-process test host on the split project graph;
+         the U3DS device passes the locked merged player DLL explicitly. -->
+    <BuePublishedDll Condition=" '$(BuePublishedDll)' == '' "></BuePublishedDll>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
     <Optimize>true</Optimize><OutputPath>bin\Release\</OutputPath><DefineConstants>TRACE</DefineConstants><WarningLevel>4</WarningLevel><TreatWarningsAsErrors>true</TreatWarningsAsErrors>
@@ -19,8 +22,17 @@
     <Reference Include="BepInEx"><HintPath>..\..\..\Libs\BepInEx.dll</HintPath><Private>False</Private></Reference>
     <Reference Include="UnityEngine"><HintPath>..\..\..\Libs\UnityEngine.dll</HintPath><Private>False</Private></Reference>
     <Reference Include="UnityEngine.CoreModule"><HintPath>..\..\..\Libs\UnityEngine.CoreModule.dll</HintPath><Private>False</Private></Reference>
-    <ProjectReference Include="..\BetterUnturnedExperience.Plugin\BetterUnturnedExperience.Plugin.csproj"><Project>{D2A52D07-B5A5-4F1F-8D80-5F48FBD4D5D7}</Project><Name>BetterUnturnedExperience.Plugin</Name><Private>False</Private></ProjectReference>
     <Compile Include="NoOpFeaturePlugin.cs" />
+  </ItemGroup>
+  <ItemGroup Condition=" '$(BuePublishedDll)' == '' ">
+    <!-- DEV-V6-02B: the split graph remains the test-host binding. -->
+    <ProjectReference Include="..\BetterUnturnedExperience.Contracts\BetterUnturnedExperience.Contracts.csproj"><Project>{B9A11F3D-3CF7-4C7A-9B04-0B6F2B35B9A1}</Project><Name>BetterUnturnedExperience.Contracts</Name></ProjectReference>
+    <ProjectReference Include="..\BetterUnturnedExperience.Plugin\BetterUnturnedExperience.Plugin.csproj"><Project>{D2A52D07-B5A5-4F1F-8D80-5F48FBD4D5D7}</Project><Name>BetterUnturnedExperience.Plugin</Name><Private>False</Private></ProjectReference>
+  </ItemGroup>
+  <ItemGroup Condition=" '$(BuePublishedDll)' != '' ">
+    <!-- DEV-V6-10: the headless device must compile against the merged player
+         assembly so public Contracts and Host types share one runtime identity. -->
+    <Reference Include="BetterUnturnedExperience"><HintPath>$(BuePublishedDll)</HintPath><Private>False</Private></Reference>
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>

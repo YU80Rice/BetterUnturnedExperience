@@ -23,6 +23,14 @@ namespace BetterUnturnedExperience.Core.Registration
             // settings (the view stays null; the panel never fakes a page).
             SettingDescriptors = registration.SettingDescriptors;
             OnSettingsApplied = registration.OnSettingsApplied;
+            // DEV-V6-05 (V6-T5 Q1): the optional presentation-metadata facet —
+            // also discovered by type test, also copied at admission (the
+            // settings/ClientUi snapshot precedent: the registration object
+            // stays caller-mutable, the catalog entry never does). Empty or
+            // whitespace-only self-report normalizes to null = "no display
+            // name reported", so the panel's fallback is a single honest rule.
+            DisplayName = string.IsNullOrWhiteSpace(registration.DisplayName) ? null : registration.DisplayName;
+            DirectPresentation = registration.DirectPresentation;
         }
 
         public FeatureDefinitionArtifact Definition { get; }
@@ -31,6 +39,10 @@ namespace BetterUnturnedExperience.Core.Registration
         public IClientUiSatelliteRegistration ClientUi { get; }
         public IReadOnlyList<SettingDescriptor> SettingDescriptors { get; }
         public Action OnSettingsApplied { get; }
+        // DEV-V6-05: the self-reported panel facts (null/empty DisplayName =
+        // the feature reported nothing; the panel then draws the FeatureId).
+        public string DisplayName { get; }
+        public bool DirectPresentation { get; }
     }
 
     public sealed class FeatureRegistrationCatalog
@@ -58,19 +70,35 @@ namespace BetterUnturnedExperience.Core.Registration
         private readonly object sync = new object();
         private readonly Dictionary<string, FeatureRegistrationRecord> registrations = new Dictionary<string, FeatureRegistrationRecord>(StringComparer.Ordinal);
 
-        public FeatureRegistrationRuntime()
+        public FeatureRegistrationRuntime(Action<FeatureRegistrationPhase> phaseObserver = null)
         {
             Phase = FeatureRegistrationPhase.HostStarting;
+            PhaseObserver = phaseObserver;
         }
 
         public FeatureRegistrationPhase Phase { get; private set; }
         public FeatureRegistrationCatalog Catalog { get; private set; }
 
+        /// <summary>
+        /// DEV-V6-03 (V6-T4 Q1): the phase-transition observation mouth, bound
+        /// at construction. The production ready entry freezes the catalog
+        /// before publishing ready, but the completion barrier is atomic to
+        /// callers — the intermediate CatalogFrozen phase is reachable ONLY
+        /// through this observer, which is what makes the freeze step
+        /// observable on the production path. The host binds it to the runtime
+        /// trace (Debug level); unbound (fixtures, harnesses) every transition
+        /// is silently unobserved, and an observer fault never breaks the
+        /// phase machine.
+        /// </summary>
+        public Action<FeatureRegistrationPhase> PhaseObserver { get; }
+
         public void OpenRegistration()
         {
             lock (sync)
             {
-                if (Phase == FeatureRegistrationPhase.HostStarting) Phase = FeatureRegistrationPhase.RegistrationOpen;
+                if (Phase != FeatureRegistrationPhase.HostStarting) return;
+                Phase = FeatureRegistrationPhase.RegistrationOpen;
+                NotifyPhaseLocked();
             }
         }
 
@@ -127,7 +155,22 @@ namespace BetterUnturnedExperience.Core.Registration
                     if (BetterUnturnedExperience.Core.Settings.FeatureSettingsRegistry.ValidateFacetSchema(feature, settingsDescriptors) != null)
                         return Reject(feature, FeatureRegistrationReason.InvalidDefinitionArtifact, "BUE-REG-011");
                 }
-                snapshot = new FeatureRegistrationSnapshot(definition, minimumContract, factory, clientUi, settingsDescriptors, settingsOnApplied);
+                // DEV-V6-05 (V6-T5 Q1): the optional presentation-metadata
+                // facet (IFeaturePresentationRegistration), discovered by type
+                // test exactly like the settings facet — no member is demanded
+                // on IFeatureRegistration, so 2.0 ecosystem registration types
+                // keep loading unchanged. There is deliberately NO validation
+                // rejection here: a display name is panel copy (the panel
+                // already draws arbitrary caller-supplied FeatureIds), so an
+                // over-long or odd name is not a definition-artifact defect.
+                var presentationFacet = registration as IFeaturePresentationRegistration;
+                snapshot = new FeatureRegistrationSnapshot(definition, minimumContract, factory, clientUi, settingsDescriptors, settingsOnApplied,
+                    // DEV-V6-05: the optional presentation-metadata facet — same
+                    // type-discovery rule as the settings facet above (never a
+                    // member on IFeatureRegistration; a feature that does not
+                    // implement it keeps the honest FeatureId fallback).
+                    presentationFacet == null ? null : presentationFacet.DisplayName,
+                    presentationFacet != null && presentationFacet.DirectPresentation);
             }
             catch (Exception)
             {
@@ -152,6 +195,7 @@ namespace BetterUnturnedExperience.Core.Registration
                 if (Phase != FeatureRegistrationPhase.RegistrationOpen) return false;
                 BuildCatalogLocked();
                 Phase = FeatureRegistrationPhase.CatalogFrozen;
+                NotifyPhaseLocked();
                 return true;
             }
         }
@@ -160,15 +204,19 @@ namespace BetterUnturnedExperience.Core.Registration
         /// Closes registration and publishes RuntimeReady as one host-owned barrier.
         /// External features cannot call this method; the BUE plugin invokes it after
         /// Unity has completed all dependency-ordered Awake callbacks.
+        /// DEV-V6-03 (V6-T4 Q1): the internal order is freeze-then-ready — the
+        /// production ready path really passes through the freeze phase (the very
+        /// two entries above, called on the re-entrant lock, so the two phase
+        /// transitions cannot drift apart), while callers still observe exactly
+        /// one readiness and the registered observer sees both transitions.
         /// </summary>
         public bool CompleteRuntime()
         {
             lock (sync)
             {
                 if (Phase != FeatureRegistrationPhase.RegistrationOpen) return false;
-                BuildCatalogLocked();
-                Phase = FeatureRegistrationPhase.RuntimeReady;
-                return true;
+                FreezeCatalog();
+                return MarkRuntimeReady();
             }
         }
 
@@ -178,13 +226,37 @@ namespace BetterUnturnedExperience.Core.Registration
             {
                 if (Phase != FeatureRegistrationPhase.CatalogFrozen || Catalog == null) return false;
                 Phase = FeatureRegistrationPhase.RuntimeReady;
+                NotifyPhaseLocked();
                 return true;
             }
         }
 
         public void EnterCoreSafeMode()
         {
-            lock (sync) Phase = FeatureRegistrationPhase.CoreSafeMode;
+            lock (sync)
+            {
+                // DEV-V6-03: 观察口语义=相位「真实迁移」流。原实现对同一相位无条件
+                // 重赋值（外显 Phase 值不变）；本票起同相位重复调用既不重赋值也不再
+                // 宣告——观察者看到的每一次宣告都对应一次真迁移，不掺重复调用噪声。
+                if (Phase == FeatureRegistrationPhase.CoreSafeMode) return;
+                Phase = FeatureRegistrationPhase.CoreSafeMode;
+                NotifyPhaseLocked();
+            }
+        }
+
+        /// <summary>
+        /// Announces one completed phase transition. Called on the machine's own
+        /// lock — same thread as the transition, so an observer always reads the
+        /// phase it was handed. Fault-isolated by design: a throwing observer
+        /// (diagnostics) never breaks the phase machine, and an unbound observer
+        /// is a silent no-op.
+        /// </summary>
+        private void NotifyPhaseLocked()
+        {
+            var observer = PhaseObserver;
+            if (observer == null) return;
+            try { observer(Phase); }
+            catch (Exception) { }
         }
 
         /// <summary>
@@ -231,14 +303,12 @@ namespace BetterUnturnedExperience.Core.Registration
 
         private static bool DigestMatches(IReadOnlyList<byte> payload, Digest256 expected)
         {
-            byte[] hash;
-            using (var sha256 = SHA256.Create()) hash = sha256.ComputeHash(payload.ToArray());
-            return ToDigest(hash).Part0 == expected.Part0 && ToDigest(hash).Part1 == expected.Part1 && ToDigest(hash).Part2 == expected.Part2 && ToDigest(hash).Part3 == expected.Part3;
-        }
-
-        private static Digest256 ToDigest(byte[] bytes)
-        {
-            return new Digest256(BitConverter.ToUInt64(bytes, 0), BitConverter.ToUInt64(bytes, 8), BitConverter.ToUInt64(bytes, 16), BitConverter.ToUInt64(bytes, 24));
+            // DEV-V6-06 (V6-T6 Q5): the admission gate re-computes through the
+            // PUBLIC digest function — the documented generator and the accepted
+            // digest share one implementation (no second algorithm to drift).
+            var computed = FeatureDefinitionDigest.ComputeArtifactPayloadDigest(payload);
+            return computed.Part0 == expected.Part0 && computed.Part1 == expected.Part1
+                && computed.Part2 == expected.Part2 && computed.Part3 == expected.Part3;
         }
 
         private static FeatureRegistrationResult Reject(FeatureId feature, FeatureRegistrationReason reason, string diagnosticId)
@@ -264,7 +334,8 @@ namespace BetterUnturnedExperience.Core.Registration
     internal sealed class FeatureRegistrationSnapshot
     {
         internal FeatureRegistrationSnapshot(FeatureDefinitionArtifact definition, ContractVersion minimumBueContract, IFeatureModuleFactory moduleFactory, IClientUiSatelliteRegistration clientUi,
-            IReadOnlyList<SettingDescriptor> settingsDescriptors = null, Action settingsOnApplied = null)
+            IReadOnlyList<SettingDescriptor> settingsDescriptors = null, Action settingsOnApplied = null,
+            string displayName = null, bool directPresentation = false)
         {
             Definition = definition;
             MinimumBueContract = minimumBueContract;
@@ -277,6 +348,8 @@ namespace BetterUnturnedExperience.Core.Registration
                 ? null
                 : new System.Collections.ObjectModel.ReadOnlyCollection<SettingDescriptor>(settingsDescriptors.ToArray());
             OnSettingsApplied = settingsOnApplied;
+            DisplayName = displayName;
+            DirectPresentation = directPresentation;
         }
 
         internal FeatureDefinitionArtifact Definition { get; }
@@ -285,6 +358,10 @@ namespace BetterUnturnedExperience.Core.Registration
         internal IClientUiSatelliteRegistration ClientUi { get; }
         internal IReadOnlyList<SettingDescriptor> SettingDescriptors { get; }
         internal Action OnSettingsApplied { get; }
+        // DEV-V6-05: the presentation-metadata facet projection (null/empty
+        // DisplayName = the feature reported nothing).
+        internal string DisplayName { get; }
+        internal bool DirectPresentation { get; }
     }
 
     internal sealed class ClientUiSatelliteSnapshot : IClientUiSatelliteRegistration

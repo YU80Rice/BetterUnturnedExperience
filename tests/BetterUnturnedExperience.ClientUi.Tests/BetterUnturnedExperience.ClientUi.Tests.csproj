@@ -1,4 +1,4 @@
-<Project ToolsVersion="Current" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+﻿<Project ToolsVersion="Current" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <PropertyGroup>
     <Configuration Condition=" '$(Configuration)' == '' ">Release</Configuration>
     <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
@@ -23,22 +23,18 @@
     <Reference Include="System.Core" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\..\src\BetterUnturnedExperience.Plugin\BetterUnturnedExperience.Plugin.csproj">
-      <Project>{D2A52D07-B5A5-4F1F-8D80-5F48FBD4D5D7}</Project>
-      <Name>BetterUnturnedExperience.Plugin</Name>
-    </ProjectReference>
+    <!-- DEV-V6-02E: the UI test suite tests the UI project only — the host
+         reference is retired (T2 Q6: no test project references both the host
+         and the UI it embeds; with the embed gone there is no overlap and no
+         type split). Contracts is the shared contract channel. -->
+    <ProjectReference Include="..\..\src\BetterUnturnedExperience.Contracts\BetterUnturnedExperience.Contracts.csproj"><Project>{B9A11F3D-3CF7-4C7A-9B04-0B6F2B35B9A1}</Project><Name>BetterUnturnedExperience.Contracts</Name></ProjectReference>
     <ProjectReference Include="..\..\src\BetterUnturnedExperience.ClientUi\BetterUnturnedExperience.ClientUi.csproj">
       <Project>{4E2A7B6C-4AA2-4F84-B7C0-050000000001}</Project>
       <Name>BetterUnturnedExperience.ClientUi</Name>
     </ProjectReference>
     <Compile Include="Program.cs" />
-    <Compile Include="Dev15BTests.cs" />
-    <Compile Include="Dev15CTests.cs" />
-    <Compile Include="Dev15DTests.cs" />
-    <Compile Include="Dev16BTests.cs" />
     <Compile Include="DevV4DraftTests.cs" />
     <Compile Include="DevV4PanelControlsTests.cs" />
-    <Compile Include="DevV4BiiRetireTests.cs" />
     <Compile Include="DevV4FeatureToggleSurfaceTests.cs" />
     <Compile Include="DevV4OfficialCopyTests.cs" />
     <Compile Include="DevV4ExternalConfigParityTests.cs" />

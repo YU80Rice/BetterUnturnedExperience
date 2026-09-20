@@ -22,7 +22,9 @@ namespace BetterUnturnedExperience.Core.Registration
         // additive Minor 2.1 extension (the DEV-V2-21 additive-surface
         // precedent — existing call sites keep compiling and observe the
         // stage-baseline null; the host start path passes the real view).
-        public FeatureBootstrap(FeatureScopeIdentity identity, ulong lifecycleGeneration, IScopedFeatureSettings settings, IFeatureEventSubscriber events, IOwnedFeatureEventPublisher ownedEvents, IFeatureEventRegistry eventRegistry, IFeatureLogger logger, IDependencyCapabilityView dependencies, IFeatureLifetime lifetime, IBueNetworkApi network, IFeatureMainThread mainThread = null)
+        // DEV-V6-05: the patching pocket rides the same additive shape (the
+        // host start path composes the real view from DEV-V6-05 on).
+        public FeatureBootstrap(FeatureScopeIdentity identity, ulong lifecycleGeneration, IScopedFeatureSettings settings, IFeatureEventSubscriber events, IOwnedFeatureEventPublisher ownedEvents, IFeatureEventRegistry eventRegistry, IFeatureLogger logger, IDependencyCapabilityView dependencies, IFeatureLifetime lifetime, IBueNetworkApi network, IFeatureMainThread mainThread = null, IFeaturePatching patching = null)
         {
             Identity = identity;
             LifecycleGeneration = lifecycleGeneration;
@@ -35,6 +37,7 @@ namespace BetterUnturnedExperience.Core.Registration
             Lifetime = lifetime;
             Network = network ?? throw new ArgumentNullException(nameof(network));
             MainThread = mainThread;
+            Patching = patching;
         }
 
         public FeatureScopeIdentity Identity { get; }
@@ -54,5 +57,9 @@ namespace BetterUnturnedExperience.Core.Registration
         // the host start path from DEV-V3-04 on (availability matrix row;
         // null until wired, the stage-baseline rule).
         public IFeatureMainThread MainThread { get; }
+        // DEV-V6-05: the platform patch pocket — composed by the host start
+        // path from DEV-V6-05 on (availability matrix row; null until wired,
+        // the same stage-baseline rule).
+        public IFeaturePatching Patching { get; }
     }
 }

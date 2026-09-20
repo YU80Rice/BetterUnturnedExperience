@@ -17,12 +17,23 @@
 # 其余 *.dll 禁令不变——候选 DLL 仍只经 audit/ 磁盘归档 + RELEASES.md 登记。
 !publish/**/*.dll
 
+# ---- 构建工具 vendored(DEV-V6-02F 发布期合并)----
+# tools/ILRepack = 发布期合并工具(vendored, 离线确定性构建的前提; 身份哈希在案
+# audit/2026-09-19/DEV-V6-02F/)。例外仅指工具本体, 合并产物 DLL 仍被 *.dll 禁令吞掉。
+!tools/ILRepack/*
+
 # ---- 原型 vendored 运行时(prototypes/.video-deps = OpenCV/numpy,可重建,>100MB)----
 .video-deps/
 __pycache__/
 *.pyc
 
-# ---- audit 非文档证据(.md/.png/.txt/.json 入库;zip/diff 不入库)----
+# ---- 过程物：本地工单与规格（ADR 0004：公开树不含过程物）----
+# 工作副本与 agent 跟踪器仍读这里；公开 clone 不带票面。
+.scratch/
+
+# ---- audit：公开树只留发布台账；日期目录证据留在工作副本 ----
+audit/**
+!audit/RELEASES.md
 audit/**/*.zip
 audit/**/*.diff
 
@@ -30,6 +41,12 @@ audit/**/*.diff
 # 边界:测试夹具须随 Clone 入库时改用 .log.txt 等不被本规则吞掉的后缀(POST-P4-02);
 #      兜底门禁=eng/Verify-TestFixturesTracked.ps1(CopyToOutput 夹具必须存在+未被忽略+已跟踪)。
 *.log
+
+# ---- MSBuild 二进制日志(.flp;与 *.log 同族,构建证据留在磁盘/audit 转录不入库)----
+*.flp
+
+# ---- 宣传片工作区（ADR 0004：不进公开树）----
+promo-video/
 
 # ---- IDE ----
 .vs/

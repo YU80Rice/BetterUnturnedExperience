@@ -1,4 +1,4 @@
-# Gate: F2 "rebuild catalog then paint current detail" must be a single entry.
+﻿# Gate: F2 "rebuild catalog then paint current detail" must be a single entry.
 # Context (POST-P4-07): DEV-V4-09 F2 inlined the same refresh-then-render sequence on
 # save-stay, confirm-stay, and confirm-leave (dirty refresh included). Product-correct,
 # but three copies. Ticket 07 collapses them to RefreshCatalogThenPaintCurrentDetail.
@@ -26,7 +26,8 @@ function Get-MethodSlice([string]$text, [string]$signature) {
     return $text.Substring($start, $next - $start)
 }
 
-$panelRel = 'src/BetterUnturnedExperience.Plugin/BueNativeManagementPanel.cs'
+# DEV-V6-02E: the native panel moved host→UI with the true-project split.
+$panelRel = 'src/BetterUnturnedExperience.ClientUi/BueNativeManagementPanel.cs'
 $testsRel = 'tests/BetterUnturnedExperience.ClientUi.Tests/DevV4DraftTests.cs'
 # Signatures include '(' so a renamed helper/test (prefix residue) cannot satisfy the anchor.
 $helperSig = 'private void RefreshCatalogThenPaintCurrentDetail('

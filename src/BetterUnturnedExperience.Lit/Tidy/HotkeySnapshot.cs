@@ -53,7 +53,9 @@ namespace BetterUnturnedExperience.Lit
         public const int HOTKEY_COUNT = 8;
 
         /// <summary>可整理的页范围（SLOTS=2 至 PANTS=6，不含 STORAGE=7 容器页）。
-        /// PlayerInventory.SLOTS/PANTS 是 static readonly 不是 const，这里用硬编码值。</summary>
+        /// PlayerInventory.SLOTS/PANTS 是 static readonly 不是 const，这里用硬编码值。
+        /// 单一事实源在本工程；宿主经公开组装类型上的编译期别名取值后绑定给界面
+        /// 协调器（DEV-V6-02B 宿主转达，页码范围不进契约加性）。</summary>
         public const byte TIDYABLE_PAGE_MIN = 2; // = PlayerInventory.SLOTS
         public const byte TIDYABLE_PAGE_MAX = 6; // = PlayerInventory.PANTS
 

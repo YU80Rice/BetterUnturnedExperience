@@ -1,54 +1,40 @@
+using System;
+using BetterUnturnedExperience.Bii;
 using BetterUnturnedExperience.Contracts;
 
 namespace BetterUnturnedExperience.Plugin
 {
     /// <summary>
-    /// Official Better Item Interaction registration. It deliberately uses the
-    /// same public bridge as an external feature; native inventory/UI behavior
-    /// is implemented by a later feature slice.
+    /// DEV-V2 → DEV-V6-04: the HOST-FACE composition wrapper for the official
+    /// Better Item Interaction (更好的物品交互) feature. The registration BODY
+    /// (definition payload, satellite registration, the module that starts and
+    /// stops the interaction rig) lives in the Bii project and reaches the host
+    /// ONLY through BiiFeatureAssembly — the ONE public assembly type (V6-T2;
+    /// 02B/02C/02D wrapper precedent); this wrapper is the assembly-root act:
+    /// it injects the host-owned composition inputs (log mouths, headless
+    /// decision, the placement evaluator factory) BEFORE the seam hands out
+    /// the registration, and hands the seam's registration to the host bridge.
+    /// The pre-move private registration body with the EMPTY module is gone by
+    /// construction (T3 Q2: 空壳不得保留).
     /// </summary>
     internal static class BetterItemInteractionFeatureRegistration
     {
-        private const string FeatureId = "io.github.yu80rice.bue.better-item-interaction";
-
         internal static FeatureRegistrationResult Register()
         {
-            return BueRuntimeHost.Register(new Registration());
-        }
-
-        private sealed class Registration : IFeatureRegistration
-        {
-            private static readonly byte[] Payload = { 66, 85, 69, 45, 66, 73, 73, 45, 86, 49 };
-
-            public FeatureDefinitionArtifact Definition { get; } = new FeatureDefinitionArtifact(
-                new FeatureId(FeatureId),
-                1,
-                "bue-better-item-interaction-v1",
-                new Digest256(1UL, 0UL, 0UL, 14UL),
-                new Digest256(4239661619294337961UL, 6084291702436199631UL, 12736748317259485579UL, 11302160818330435267UL),
-                Payload);
-
-            public ContractVersion MinimumBueContract { get { return new ContractVersion(2, 0); } }
-            public IFeatureModuleFactory ModuleFactory { get { return new ModuleFactory(); } }
-            public IClientUiSatelliteRegistration ClientUi { get { return new OfficialClientUiSatelliteRegistration(); } }
-        }
-
-        private sealed class OfficialClientUiSatelliteRegistration : IClientUiSatelliteRegistration
-        {
-            public string SatelliteId { get { return "bue-clientui-embedded"; } }
-            public ContractVersion MinimumBueContract { get { return new ContractVersion(2, 0); } }
-            public string RegistrationToken { get { return "bue-official-clientui-v1"; } }
-        }
-
-        private sealed class ModuleFactory : IFeatureModuleFactory
-        {
-            public IFeatureModule Create() { return new Module(); }
-        }
-
-        private sealed class Module : IFeatureModule
-        {
-            public FeatureStartResult Start(IFeatureBootstrap bootstrap) { return default(FeatureStartResult); }
-            public void Stop(FeatureStopReason reason) { }
+            // DEV-V6-04 (T3 Q2/Q5): inject the host-owned composition inputs
+            // before the seam hands out the registration. The headless decision
+            // reads lazily at the consumption point (the completion chain's
+            // frozen decision); the evaluator's concrete implementation stays
+            // host-side (Core) and crosses as its contract interface.
+            BiiFeatureAssembly.BindHostComposition(
+                logRuntime: BueRuntimeLog.Runtime,
+                logWarn: BueRuntimeLog.Warn,
+                logError: BueRuntimeLog.Error,
+                logErrorFriendly: BueRuntimeLog.ErrorFriendly,
+                isCriticalNotReadyReason: BueRuntimeLog.IsCriticalNotReadyReason,
+                headlessDecision: () => BueRuntimeCompletionChain.HeadlessDecision,
+                placementEvaluatorFactory: () => new BetterUnturnedExperience.Core.Placement.PlacementCandidateEvaluator());
+            return BueRuntimeHost.Register(BiiFeatureAssembly.CreateRegistration());
         }
     }
 }

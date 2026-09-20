@@ -468,7 +468,12 @@ namespace BetterUnturnedExperience.Plugin
                 machine.CreateDependenciesView(),
                 machine.CreateLifetimeView(feature, generation),
                 featureNetwork,
-                dispatcher.CreateView(feature, generation));
+                dispatcher.CreateView(feature, generation),
+                // DEV-V6-05: the patch pocket matrix row — the host guarantees
+                // it non-null: the view is bound to THIS (feature, generation)
+                // and its accepted handles land in the same machine account as
+                // every other tracked resource.
+                new FeaturePatchingRuntime(machine, line => BueRuntimeLog.Runtime("[BUE-PATCH] " + line)).CreateView(feature, generation));
         }
     }
 }

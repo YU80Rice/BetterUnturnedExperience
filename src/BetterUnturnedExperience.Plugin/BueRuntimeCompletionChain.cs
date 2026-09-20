@@ -212,11 +212,10 @@ namespace BetterUnturnedExperience.Plugin
             // feature's per-beat posts execute in the same chain beat; fault-
             // isolated inside the composition root, never throws here.
             BueMainThreadRuntime.TickOnce();
-            try { InventoryTidyFeatureRegistration.WiredModule?.Tick(); }
-            catch (Exception error)
-            {
-                BueRuntimeLog.Warn("[BUE-V2HOST] event=tidy-pump result=failed errorType=" + error.GetType().Name);
-            }
+            // DEV-V6-11: the tidy tick pump is RETIRED — the tidy feature rides
+            // the frozen HostTick seam published by the host clock above (the
+            // LIR/LHT shape). The host no longer holds or drives that feature's
+            // run instance, so nothing here names it at all.
             BueRuntimeCompletionChain.TryCompleteRuntimeCore();
         }
 

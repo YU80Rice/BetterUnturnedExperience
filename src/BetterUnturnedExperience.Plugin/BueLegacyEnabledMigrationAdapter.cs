@@ -1,6 +1,6 @@
 using System;
 using System.Collections.Generic;
-using BetterUnturnedExperience.ClientUi.Internal;
+using BetterUnturnedExperience.ClientUi;
 using BetterUnturnedExperience.Contracts;
 using BetterUnturnedExperience.Core.Registration;
 using BetterUnturnedExperience.Core.Settings;
@@ -59,12 +59,12 @@ namespace BetterUnturnedExperience.Plugin
         {
             return new[]
             {
-                DocAlias(new FeatureId(LitRuntime.FeatureIdValue), LegacyInventoryTidy, persistence),
-                DocAlias(new FeatureId(LirRuntime.FeatureIdValue), LegacyInPlaceReload, persistence),
-                DocAlias(new FeatureId(LhtRuntime.FeatureIdValue), LegacyHordeTracker, persistence),
+                DocAlias(new FeatureId(LitFeatureAssembly.FeatureId), LegacyInventoryTidy, persistence),
+                DocAlias(new FeatureId(LirFeatureAssembly.FeatureId), LegacyInPlaceReload, persistence),
+                DocAlias(new FeatureId(LhtFeatureAssembly.FeatureId), LegacyHordeTracker, persistence),
                 DocAlias(NetworkModuleAdapter.NetworkFeature, LegacyNetwork, persistence),
                 DocAlias(NetworkModuleAdapter.V1CompatFeature, LegacyV1Compat, persistence),
-                DocAlias(BetterItemInteractionSettingsState.Feature, LegacyBiiEnabled, persistence)
+                DocAlias(ClientUiFeatureAssembly.OfficialFeature, LegacyBiiEnabled, persistence)
             };
         }
 

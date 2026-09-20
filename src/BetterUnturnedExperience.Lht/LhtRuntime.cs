@@ -29,6 +29,18 @@ namespace BetterUnturnedExperience.Lht
         /// <summary>Errors (production: BueRuntimeLog.Error — always printed).</summary>
         internal static Action<string> ErrorLogSink;
 
+        // ── 宿主组合注入（DEV-V6-02D，V6-T2 硬项拆法：注入方向=宿主→尸潮）──
+        // 生产绑定于组装根（LhtFeatureAssembly.BindHostComposition，登记前一次）；null=
+        // 注入面缺位（测试宿主常态），BindProductionLog 把缺席如实传播到 LogSink/
+        // ErrorLogSink——「未绑定即吞」契约保持，绝不静默发明日志通道。
+
+        /// <summary>Host-injected normal-diagnostics sink (the BueRuntimeLog.Runtime channel
+        /// in production). The host owns the log route; the horde domain never calls it.</summary>
+        internal static Action<string> HostRuntimeLogSink;
+
+        /// <summary>Host-injected error sink (the BueRuntimeLog.Error channel in production).</summary>
+        internal static Action<string> HostErrorLogSink;
+
         internal static void LogInfo(string message)
         {
             LogSink?.Invoke(message);

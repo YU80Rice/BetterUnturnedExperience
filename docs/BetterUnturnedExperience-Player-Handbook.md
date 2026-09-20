@@ -1,7 +1,7 @@
 ﻿# Better Unturned Experience · 玩家安装与升级手册（真机版）
 
-> 适用版本：Phase-5 现有官方功能优化正式交付版（`BetterUnturnedExperience.dll`，726016 字节，SHA-256 `f334657a…0d45`，完整值见 `audit/RELEASES.md` 候选台账行 14）。对外契约仍为 2.1。
-> 本手册面向玩家；开发与验收证据见 `audit/RELEASES.md` 行 14 所绑归档（`audit/2026-09-16/DEV-V5-08/`）。
+> 适用版本：Phase-6 工程边界成真与平台闭包正式交付版（`BetterUnturnedExperience.dll`，752640 字节，SHA-256 `3e3b2dc0…4ce9`，完整值见 `audit/RELEASES.md` 候选台账行 15）。对外契约仍为 2.1。
+> 本手册面向玩家；身份与门禁以 `audit/RELEASES.md` 行 15 为准。
 
 ## 1. 这是什么
 

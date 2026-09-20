@@ -1,10 +1,17 @@
 using BepInEx;
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
+using BetterUnturnedExperience.Bii;
+using BetterUnturnedExperience.ClientUi;
 using BetterUnturnedExperience.Contracts;
+using BetterUnturnedExperience.Core.Placement;
 using BetterUnturnedExperience.Core.Registration;
+using BetterUnturnedExperience.Lit;
+using BetterUnturnedExperience.Lir;
+using BetterUnturnedExperience.Lht;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 
@@ -18,28 +25,23 @@ namespace BetterUnturnedExperience.Plugin
         private int updateTickCount;
         private int runtimePumpTickCount;
         private bool runtimePumpIsolated;
-        private BueClientUiCompositionRoot clientUiComposition;
-        private BueNativeManagementPanel nativeManagementPanel;
+        // DEV-V6-02E: the UI ring lives behind the UI's one public assembly
+        // type (ClientUiFeatureAssembly) — the entry no longer holds the
+        // composition, native panel or inventory adapters directly.
         private BueDoubleInstallReport doubleInstallReport;
         private readonly BueRuntimePumpSlot runtimePumpSlot = new BueRuntimePumpSlot();
         private BueRuntimePump runtimePump;
         private BueRuntimePumpBehaviour runtimePumpBehaviour;
         private BuePluginUpdateDriver pluginUpdateDriver;
-        private InventorySurfaceLifecycleAdapter inventoryLifecycleAdapter;
-        private InventoryDragPreviewAdapter inventoryDragAdapter;
         // F-D: the headless survival pump — an independent DDOL GameObject
         // (ordinary objects survive the host sweep on 3.26.3.9 where
         // HideAndDontSave ones do not) driving the shared tick chain.
         private BueRuntimePump headlessPump;
         private BueRuntimePumpBehaviour headlessPumpBehaviour;
 
-        // DEV-16D R5: the drag adapter depends on the inventory lifecycle
-        // heartbeat.  Keep the activation decision at one host-testable seam so
-        // a failed lifecycle hook can never leave a dependent Harmony hook live.
-        internal static bool ShouldActivateDragPreview(bool lifecycleHooksInstalled, bool lifecycleIsolated)
-        {
-            return lifecycleHooksInstalled && !lifecycleIsolated;
-        }
+        // DEV-V6-02E: the drag-adapter activation decision moved with the
+        // adapters into the UI composition (BueClientUiCompositionRoot
+        // .ShouldActivateDragPreview); the entry no longer owns it.
 
         private void Awake()
         {
@@ -56,8 +58,22 @@ namespace BetterUnturnedExperience.Plugin
                 // path here (and only here) so the tidy-publish and
                 // inventory-open dispatchers stay silent no-ops on the host
                 // test path — no test ever JITs an SDG-touching method.
-                BetterUnturnedExperience.ClientUi.Internal.ListenHostProjectionReconciler.EngineDispatcher =
-                    BetterUnturnedExperience.ClientUi.Internal.ListenHostProjectionReconciler.BindEngine();
+                // DEV-V6-02E: the bind rides the UI's public face (the static
+                // seams live in the UI project now); production-only call.
+                ClientUiFeatureAssembly.BindEngineDispatcher();
+                // DEV-V6-02B (V6-T2 硬项拆法): bind the tidy feature's
+                // projection-reconcile relay to the same reconciler — the tidy
+                // commit pages travel through this host-owned port (the feature
+                // no longer names the UI layer); unbound (test host) the relay
+                // is a silent no-op, same family as the engine dispatcher above.
+                // DEV-V6-02E: the receive side rides the UI's public seam.
+                LitFeatureAssembly.BindProjectionRelay((firstPage, lastPage) =>
+                    ClientUiFeatureAssembly.OnTidyPagesCommitted(firstPage, lastPage));
+                // DEV-V6-02B: bind the tidyable page range from the tidy
+                // feature's public seam — the UI layer's clamps stay
+                // single-sourced without naming the feature project.
+                ClientUiFeatureAssembly.BindTidyableRange(
+                    LitFeatureAssembly.TidyablePageMin, LitFeatureAssembly.TidyablePageMax);
                 // DEV-V2-23: the platform double-install self-check — a
                 // diagnostic-only BUE-PLATFORM-001 scan of the assemblies already
                 // in the AppDomain. It must never block bootstrap and never
@@ -86,7 +102,11 @@ namespace BetterUnturnedExperience.Plugin
                 // SAME root — the machine's disable/enable hooks and the legacy
                 // enabled migration all resolve this one store (first-wins).
                 BueFeatureIntentRuntime.EnsureCreated(BueSettingsRuntime.ProductionSettingsRoot);
-                var runtime = new FeatureRegistrationRuntime();
+                // DEV-V6-03: the runtime comes from the host factory — it is the
+                // one site that binds the phase observation mouth (the freeze
+                // step inside the production ready entry is observable only
+                // through it).
+                var runtime = BueRuntimeHost.CreateRuntime();
                 BueRuntimeHost.Bind(runtime);
                 runtime.OpenRegistration();
                 var officialRegistration = BetterItemInteractionFeatureRegistration.Register();
@@ -120,103 +140,72 @@ namespace BetterUnturnedExperience.Plugin
                 if (decision == BootstrapDecision.Client)
                 {
                     pluginUpdateDriver = new BuePluginUpdateDriver(OnPluginUpdateTick);
-                    clientUiComposition = new BueClientUiCompositionRoot(NetworkModuleFeatureRegistration.WiredAdapter, InventoryTidyFeatureRegistration.WiredModule, InPlaceReloadFeatureRegistration.WiredModule, HordeTrackerFeatureRegistration.WiredModule);
-                    if (!clientUiComposition.Initialize(isBatchMode, isBatchMode, BueNativeManagementPanel.CanBindNativeUi()))
+                    // DEV-V6-02E: the UI ring assembles through the UI's ONE public
+                    // assembly type. BindHostComposition injects every host mouth
+                    // and fact (log policy, panel log source, enable/disable ONE
+                    // seam, machine facts, display names, direct-presentation set,
+                    // facet snapshots, the catalog projection and the settings
+                    // routes) — the entry no longer names any UI-internal type.
+                    ClientUiFeatureAssembly.BindHostComposition(
+                        logRuntime: BueRuntimeLog.Runtime,
+                        logWarn: BueRuntimeLog.Warn,
+                        logError: BueRuntimeLog.Error,
+                        logErrorFriendly: BueRuntimeLog.ErrorFriendly,
+                        isCriticalNotReadyReason: BueRuntimeLog.IsCriticalNotReadyReason,
+                        hostLog: Logger,
+                        featureToggleHandler: BueFeatureStartRuntime.SetFeatureEnabled,
+                        tryGetMachineStatus: BueClientUiHostProjection.TryGetMachineStatus,
+                        getFacetSnapshot: BueClientUiHostProjection.GetFacetSnapshot,
+                        getCatalogEntries: BueClientUiHostProjection.GetCatalogRows,
+                        routeGetSnapshot: BueClientUiSettingsRoutes.GetSnapshotRoute(),
+                        routeGetDescriptors: BueClientUiSettingsRoutes.GetDescriptorsRoute(),
+                        routeApply: BueClientUiSettingsRoutes.GetApplyRoute(),
+                        routeApplyBatch: BueClientUiSettingsRoutes.GetApplyBatchRoute(),
+                        getNetworkFeature: () => NetworkModuleAdapter.NetworkFeature,
+                        getTakeoverStatus: () => NetworkModuleFeatureRegistration.WiredAdapter?.TakeoverStatus,
+                        getConfigMigrationStatus: () => NetworkModuleFeatureRegistration.WiredAdapter?.ConfigMigrationStatus,
+                        isTakeoverActive: () => NetworkModuleFeatureRegistration.WiredAdapter != null && NetworkModuleFeatureRegistration.WiredAdapter.TakeoverActive,
+                        refreshNetworkSwitches: () => NetworkModuleFeatureRegistration.WiredAdapter?.RefreshSwitches(),
+                        isRuntimeEvent: BueRuntimeLog.IsRuntimeEvent,
+                        // DEV-V6-04: the official component's lifecycle facts ride
+                        // the host bridge from the Bii public seam (the component
+                        // lives in the Bii project now); absent rig = null = the
+                        // pre-move component==null fallback branch.
+                        officialComponentState: () => BiiFeatureAssembly.ComponentState?.Invoke(),
+                        officialComponentPresentation: () => BiiFeatureAssembly.ComponentPresentation?.Invoke());
+                    // The placement evaluator's concrete implementation stays
+                    // host-side (Core); it crosses as its contract interface.
+                    if (!ClientUiFeatureAssembly.CreateComposition())
+                    {
+                        Logger.LogWarning("BUE client UI composition unavailable diagnosticId=BUE-CLIENTUI-001");
+                    }
+                    // DEV-V6-02E: the client-branch orchestration (panel, inventory
+                    // adapters, diagnostic-sink tagging, wiring logs) is the UI's
+                    // InitializeAndActivate behind the composition gate. The pump
+                    // attaches after activation (its first tick is next frame, so
+                    // the relative wiring order is unchanged).
+                    else if (!ClientUiFeatureAssembly.Initialize(isBatchMode, isBatchMode, ClientUiFeatureAssembly.CanBindNativeUi()))
                     {
                         Logger.LogWarning("BUE client UI composition unavailable diagnosticId=BUE-CLIENTUI-001");
                     }
                     else
                     {
-                        nativeManagementPanel = new BueNativeManagementPanel(clientUiComposition.ManagementPanel, Logger, null, clientUiComposition.RefreshManagementPanel);
-                        nativeManagementPanel.Initialize();
                         AttachRuntimePump();
-                        // [DEV-16C] Inventory lifecycle adapter: probes native
-                        // members, fails closed with structured diagnostics and
-                        // routes the projected surface into the composition.
-                        // Create and register both adapters before either one is
-                        // activated.  Cleanup runs in reverse registration order,
-                        // so the drag delegate is detached before the lifecycle
-                        // heartbeat is removed.
-                        inventoryDragAdapter = new InventoryDragPreviewAdapter(Logger, clientUiComposition.OfficialComponent);
-
-                        // DEV-V2-24 F1: level-aware routing (feature lines
-                        // choose Debug/Error themselves) and the generic
-                        // BUE-CLIENTUI-001 tag is appended ONLY when the line
-                        // does not already carry its own diagnosticId=, so
-                        // feature-owned ids are never double-tagged.
-                        BetterUnturnedExperience.ClientUi.Internal.ClientUiCompositionRoot.DiagnosticSink = (line, level) =>
-                        {
-                            var tagged = line.Contains("diagnosticId=");
-                            var text = "[BUE-CLIENTUI] " + line + (tagged ? "" : " diagnosticId=BUE-CLIENTUI-001");
-                            if (level == BetterUnturnedExperience.ClientUi.Internal.ClientUiCompositionRoot.ClientUiDiagnosticLevel.Error)
-                                BueRuntimeLog.Error(text);
-                            else
-                                BueRuntimeLog.Runtime(text);
-                        };
-                        inventoryLifecycleAdapter = new InventorySurfaceLifecycleAdapter(Logger,
-                            surface =>
-                            {
-                                clientUiComposition.OpenInventory(surface);
-                                // F-B1c: a dashboard open on the listen host is
-                                // the join-time repair moment — stale projection
-                                // elements (the「重叠/幽灵」symptom) rebuild here
-                                // before the player interacts. Engine-gated:
-                                // no-op off the listen host.
-                                BetterUnturnedExperience.ClientUi.Internal.ListenHostProjectionReconciler.OnDashboardSurfaceOpened();
-                                // [DEV-16D] Rebind the grid's placed-item
-                                // delegate on each fresh session dispatch so a
-                                // rebuilt UI gets BUE's decision wrapper.
-                                inventoryDragAdapter?.AttachGrid(surface);
-                            },
-                            () =>
-                            {
-                                inventoryDragAdapter?.DetachGrid();
-                                clientUiComposition.CloseInventory();
-                            },
-                            () => clientUiComposition.OfficialComponent == null
-                                || clientUiComposition.OfficialComponent.IsolatePreviewFailureResult(),
-                            () =>
-                            {
-                                clientUiComposition.OfficialComponent?.HidePreview();
-                                inventoryDragAdapter?.DetachGrid();
-                                clientUiComposition.CloseInventory();
-                            },
-                            page =>
-                            {
-                                if (inventoryDragAdapter != null)
-                                    inventoryDragAdapter.DetachGridAndDiscardSurface(page);
-                                else
-                                    clientUiComposition.OfficialComponent?.DiscardInventorySurface(page);
-                            });
-                        clientUiComposition.OfficialComponent.RegisterCleanupResult(() => inventoryLifecycleAdapter.IsolateAndDetach());
-                        clientUiComposition.OfficialComponent.RegisterCleanupResult(() => inventoryDragAdapter.IsolateAndDetach(false));
-                        inventoryLifecycleAdapter.Activate();
-                        if (inventoryLifecycleAdapter.HooksInstalled)
-                            BueRuntimeLog.Runtime("BUE inventory lifecycle wiring enabled diagnosticId=BUE-INVENTORY-001");
-                        else
-                            Logger.LogWarning("BUE inventory lifecycle wiring disabled diagnosticId=BUE-INVENTORY-003 diagnostics=" + inventoryLifecycleAdapter.GateDiagnostics);
-                        // [DEV-16D] Drag preview/commit adapter driven by the same
-                        // PlayerUI.Update tick; it is activated only after the
-                        // lifecycle heartbeat has installed successfully.
-                        if (ShouldActivateDragPreview(inventoryLifecycleAdapter.HooksInstalled, inventoryLifecycleAdapter.Isolated))
-                        {
-                            inventoryDragAdapter.Activate();
-                        }
-                        else
-                        {
-                            inventoryDragAdapter.IsolateAndDetach(false);
-                            Logger.LogWarning("BUE drag preview wiring disabled because inventory lifecycle is unavailable diagnosticId=BUE-DRAG-003");
-                        }
-                        clientUiComposition.OfficialComponent.ProjectionSink = new LoggingInventoryProjectionSink(Logger);
                         // DEV-V2-23: surface the self-check finding (if any) on the
                         // management panel; the log line was emitted at scan time.
                         if (doubleInstallReport != null && doubleInstallReport.HasConflict)
-                            clientUiComposition.ManagementPanel.Model.SetDoubleInstallNotice(doubleInstallReport.NoticeLine);
-                        if (inventoryDragAdapter.HooksInstalled)
-                            BueRuntimeLog.Runtime("BUE drag preview wiring enabled diagnosticId=BUE-DRAG-001");
-                        else
-                            Logger.LogWarning("BUE drag preview wiring disabled diagnosticId=BUE-DRAG-003 diagnostics=" + inventoryDragAdapter.GateDiagnostics);
-                        BueRuntimeLog.Runtime("BUE client UI composition ready featureId=io.github.yu80rice.bue.better-item-interaction diagnosticId=BUE-CLIENTUI-002");
+                            ClientUiFeatureAssembly.SetDoubleInstallNotice(doubleInstallReport.NoticeLine);
+                        // DEV-V6-04 (T3 Q2/Q5): bind the BII interface seams now that
+                        // the composition is ready — the surface-opened reconcile and
+                        // the settings snapshot reader. The BII module arms through
+                        // the START path (the official start catalog), which runs at
+                        // completion — same door as every other official feature.
+                        // Absent on headless (this branch never runs) = no interface
+                        // created there, no patches, no throw.
+                        BiiFeatureAssembly.BindInterfaceComposition(
+                            surfaceOpened: ClientUiFeatureAssembly.BiiSurfaceOpened,
+                            surfaceClosed: null,
+                            settingsSnapshot: ClientUiFeatureAssembly.BiiSettingsSnapshot);
                     }
                     // F-D: completion refresh rides the static chain hook (the
                     // instance may be gone by the time completion fires).
@@ -297,7 +286,7 @@ namespace BetterUnturnedExperience.Plugin
             }
             try
             {
-                if (nativeManagementPanel != null && !nativeManagementPanel.Dispatch(BueNativeManagementPanel.TickSource.RuntimePump) && nativeManagementPanel.TickIsolated)
+                if (!ClientUiFeatureAssembly.DispatchPanelTick(true) && ClientUiFeatureAssembly.PanelTickIsolated)
                 {
                     runtimePumpIsolated = true;
                     DestroyRuntimePump();
@@ -331,10 +320,12 @@ namespace BetterUnturnedExperience.Plugin
             {
                 BueRuntimeLog.Runtime("[BUE-UI-TRACE] plugin=io.github.yu80rice.betterunturnedexperience diagnosticId=BUE-MANAGEMENT-TRACE-001 event=plugin-update count=" + updateTickCount);
             }
-            if (nativeManagementPanel != null) nativeManagementPanel.Dispatch(BueNativeManagementPanel.TickSource.Update);
+            ClientUiFeatureAssembly.DispatchPanelTick(false);
             // GPT watermark: drive DEV-16D from the guaranteed plugin Update;
-            // native Harmony callback is supplementary only.
-            inventoryDragAdapter?.Tick();
+            // native Harmony callback is supplementary only. DEV-V6-04: the
+            // tick enters through the Bii public seam (Plugin→Bii legal edge;
+            // the pre-move UI-face forwarder retired with the subsystem).
+            BiiFeatureAssembly.TickPreview();
             // DEV-V2-21: the tidy dispatcher pump moved to the host Update
             // chain (headless included) — this client driver no longer owns it.
         }
@@ -402,7 +393,7 @@ namespace BetterUnturnedExperience.Plugin
 
         private void RefreshManagementPanelHook()
         {
-            if (clientUiComposition != null) clientUiComposition.RefreshManagementPanel();
+            ClientUiFeatureAssembly.RefreshManagementPanel();
         }
 
         private void LogAssemblyIdentity()
@@ -470,9 +461,13 @@ namespace BetterUnturnedExperience.Plugin
                 DestroyRuntimePump();
                 DestroyHeadlessPump();
                 if (pluginUpdateDriver != null) pluginUpdateDriver.Clear();
-                if (nativeManagementPanel != null) nativeManagementPanel.Destroy();
-                if (inventoryDragAdapter != null) inventoryDragAdapter.IsolateAndDetach();
-                if (inventoryLifecycleAdapter != null) inventoryLifecycleAdapter.IsolateAndDetach();
+                // DEV-V6-02E: the panel/adapters live behind the UI's public
+                // face — destroy order preserved (panel → adapter isolation →
+                // module stop → wired adapter → composition).
+                ClientUiFeatureAssembly.DestroyNativePanel();
+                // DEV-V6-04: adapter isolation enters the Bii public seam
+                // (the subsystem owns its own teardown; stop order unchanged).
+                BiiFeatureAssembly.IsolateAdapters();
                 // DEV-V2-15: the tidy module unloads through its three-phase
                 // stop (quiesce → dispatcher drain → full teardown) before
                 // the plugin unloads.
@@ -483,7 +478,7 @@ namespace BetterUnturnedExperience.Plugin
                 // DEV-V2-06: hand the network back (unhook the takeover
                 // patches) before the plugin unloads.
                 if (NetworkModuleFeatureRegistration.WiredAdapter != null) NetworkModuleFeatureRegistration.WiredAdapter.IsolateAndDetach();
-                if (clientUiComposition != null) clientUiComposition.Destroy();
+                ClientUiFeatureAssembly.DestroyComposition();
             }
             catch (System.Exception error)
             {

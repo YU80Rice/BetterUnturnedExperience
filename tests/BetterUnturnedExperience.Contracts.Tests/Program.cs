@@ -8,10 +8,17 @@ namespace BetterUnturnedExperience.Contracts.Tests
 {
     internal static class Program
     {
-        private static int Main()
+        private static int Main(string[] args)
         {
             try
             {
+                // DEV-V6-06：红组派发口（只跑本票摘要红组，不跑全套——突变归因与红态取证用）。
+                if (args != null && args.Length > 0 && args[0] == "--bue-v6-06-digest-red")
+                {
+                    DevV606DigestHelperTests.Run(collectAllFailures: true);
+                    Console.WriteLine("DEV-V6-06 digest-helper red-group: PASS");
+                    return 0;
+                }
                 return Run();
             }
             catch (Exception error)
@@ -421,8 +428,24 @@ namespace BetterUnturnedExperience.Contracts.Tests
             Assert(typeof(IOwnedFeatureEventPublisher).GetMethods().Length == 1
                     && typeof(IFeatureEventSubscriber).GetMethods().Length == 1
                     && typeof(IFeatureEventRegistry).GetMethods().Length == 1
-                    && typeof(IFeatureBootstrap).GetProperties().Length == 11,
-                "DEV-V3-05: zero new contract surface — the event-seam views stay single-method and IFeatureBootstrap stays at its eleven members");
+                    && typeof(IFeatureBootstrap).GetProperties().Length == 12,
+                "DEV-V3-05: zero new contract surface — the event-seam views stay single-method (IFeatureBootstrap 计数随 DEV-V6-05 补丁口加性更新为十二)");
+            // DEV-V6-05: the patch pocket row — the bootstrap member and the
+            // pocket's single-method shape (Minor 2.1 additive batch).
+            Assert(typeof(IFeaturePatching).IsInterface
+                    && typeof(IFeaturePatching).GetMethods().Length == 1
+                    && typeof(IFeaturePatching).GetMethod("Register") != null
+                    && typeof(IFeaturePatching).GetMethod("Register").ReturnType == typeof(FeaturePatchRegistrationResult)
+                    && typeof(IFeaturePatching).GetMethod("Register").GetParameters().Length == 1
+                    && typeof(IFeaturePatching).GetMethod("Register").GetParameters()[0].ParameterType == typeof(System.IDisposable)
+                    && typeof(IFeatureBootstrap).GetProperty("Patching").PropertyType == typeof(IFeaturePatching),
+                "DEV-V6-05: the patch pocket is one Register(IDisposable) -> FeaturePatchRegistrationResult member on the bootstrap (句柄=既有资源形状，不新增契约句柄类型)");
+            Assert((byte)FeaturePatchRegistrationReason.InvalidPatch == 1
+                    && (byte)FeaturePatchRegistrationReason.FeatureNotRunning == 2
+                    && (byte)FeaturePatchRegistrationReason.GenerationInvalid == 3
+                    && (byte)FeaturePatchRegistrationReason.DuplicatePatch == 4
+                    && (byte)FeaturePatchRegistrationReason.CapacityExceeded == 5,
+                "DEV-V6-05: FeaturePatchRegistrationReason values frozen");
 
             // DEV-V3-06: the settings facet + scoped view shapes (Minor 2.1
             // additive). The optional settings facet a registration may
@@ -470,11 +493,13 @@ namespace BetterUnturnedExperience.Contracts.Tests
                     && typeof(IFeatureLogger).GetMethod("Warning").ReturnType == typeof(void)
                     && typeof(IFeatureLogger).GetMethod("Error").ReturnType == typeof(void),
                 "DEV-V3-07: IFeatureLogger stays the three-method void narrow surface (Info/Warning/Error, no result type — the frozen shape the wiring must not widen)");
-            Assert(typeof(IFeatureBootstrap).GetProperties().Length == 11,
-                "DEV-V3-07: the wiring ticket adds zero new bootstrap members (still eleven — zero-new-surface machine anchor)");
+            Assert(typeof(IFeatureBootstrap).GetProperties().Length == 12,
+                "DEV-V3-07: the wiring ticket adds zero new bootstrap members (计数随 DEV-V6-05 补丁口加性更新为十二 — 该票自身零新增的机器锚由计数基线承接)");
 
             var presentation = new FeaturePresentationView(new FeatureId("io.example.tracer"), FeaturePresentationState.PresentationDegraded, "BUE-UI-001", 1UL);
             Assert(presentation.State == FeaturePresentationState.PresentationDegraded && presentation.PresentationRevision == 1UL, "presentation state is a separate value projection");
+            // DEV-V6-06：登记摘要公开函数与现网受理门禁同源（V6-T6 Q5 + T8 交接）。
+            DevV606DigestHelperTests.Run();
             Console.WriteLine("DEV-10 registration runtime tests: PASS");
             return 0;
         }

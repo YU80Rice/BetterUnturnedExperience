@@ -1,4 +1,4 @@
-<Project ToolsVersion="Current" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+﻿<Project ToolsVersion="Current" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <PropertyGroup>
     <Configuration Condition=" '$(Configuration)' == '' ">Release</Configuration><Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
     <ProjectGuid>{D2A52D07-B5A5-4F1F-8D80-5F48FBD4D5D7}</ProjectGuid><OutputType>Library</OutputType>
@@ -8,31 +8,29 @@
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' "><Optimize>true</Optimize><OutputPath>bin\Release\</OutputPath><DefineConstants>TRACE</DefineConstants><WarningLevel>4</WarningLevel><TreatWarningsAsErrors>true</TreatWarningsAsErrors></PropertyGroup>
   <ItemGroup><Reference Include="System" /><Reference Include="System.Core" /><Reference Include="BepInEx"><HintPath>..\..\..\Libs\BepInEx.dll</HintPath><Private>False</Private></Reference><Reference Include="HarmonyLib"><HintPath>..\..\..\Libs\0Harmony.dll</HintPath><Private>False</Private></Reference><Reference Include="Assembly-CSharp"><HintPath>..\..\..\Libs\Assembly-CSharp.dll</HintPath><Private>False</Private></Reference><Reference Include="com.rlabrecque.steamworks.net"><HintPath>..\..\..\Libs\com.rlabrecque.steamworks.net.dll</HintPath><Private>False</Private></Reference><Reference Include="SDG.NetTransport"><HintPath>..\..\..\Libs\SDG.NetTransport.dll</HintPath><Private>False</Private></Reference><Reference Include="SDG.Glazier.Runtime"><HintPath>..\..\..\Libs\SDG.Glazier.Runtime.dll</HintPath><Private>False</Private></Reference><Reference Include="UnityEngine"><HintPath>..\..\..\Libs\UnityEngine.dll</HintPath><Private>False</Private></Reference><Reference Include="UnityEngine.CoreModule"><HintPath>..\..\..\Libs\UnityEngine.CoreModule.dll</HintPath><Private>False</Private></Reference><Reference Include="UnityEngine.InputLegacyModule"><HintPath>..\..\..\Libs\UnityEngine.InputLegacyModule.dll</HintPath><Private>False</Private></Reference><Reference Include="UnityEngine.TextRenderingModule"><HintPath>..\..\..\Libs\UnityEngine.TextRenderingModule.dll</HintPath><Private>False</Private></Reference></ItemGroup>
   <ItemGroup>
-    <Compile Include="..\BetterUnturnedExperience.Contracts\ContractTypes.cs"><Link>EmbeddedContracts\ContractTypes.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Core\CoreAssemblyMarker.cs"><Link>EmbeddedCore\CoreAssemblyMarker.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Core\Definitions\FeatureDefinitionLinker.cs"><Link>EmbeddedCore\Definitions\FeatureDefinitionLinker.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Core\Network\BueEnvelopeCodec.cs"><Link>EmbeddedCore\Network\BueEnvelopeCodec.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Core\Network\BueNetworkProtocol.cs"><Link>EmbeddedCore\Network\BueNetworkProtocol.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Core\Network\LocalLoopbackTransport.cs"><Link>EmbeddedCore\Network\LocalLoopbackTransport.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Core\Network\DeferredBueNetworkApi.cs"><Link>EmbeddedCore\Network\DeferredBueNetworkApi.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Core\Network\NetworkSendGuard.cs"><Link>EmbeddedCore\Network\NetworkSendGuard.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Core\Dispatch\MainThreadDispatcherRuntime.cs"><Link>EmbeddedCore\Dispatch\MainThreadDispatcherRuntime.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Core\Diagnostics\DiagnosticRuntime.cs"><Link>EmbeddedCore\Diagnostics\DiagnosticRuntime.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Core\Network\BueNetworkRuntime.cs"><Link>EmbeddedCore\Network\BueNetworkRuntime.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Core\Network\BueFrameClassifier.cs"><Link>EmbeddedCore\Network\BueFrameClassifier.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Core\Network\LmnFrameClassifier.cs"><Link>EmbeddedCore\Network\LmnFrameClassifier.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Core\Network\LmnTakeoverCoordinator.cs"><Link>EmbeddedCore\Network\LmnTakeoverCoordinator.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Core\Network\LmnV1FrameCodec.cs"><Link>EmbeddedCore\Network\LmnV1FrameCodec.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Core\Network\LmnV1CompatRegistry.cs"><Link>EmbeddedCore\Network\LmnV1CompatRegistry.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Core\Network\LmnV1CompatLayer.cs"><Link>EmbeddedCore\Network\LmnV1CompatLayer.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Core\Network\HostNetworkTransportAdapter.cs"><Link>EmbeddedCore\Network\HostNetworkTransportAdapter.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Core\Network\LmnV1TableMirror.cs"><Link>EmbeddedCore\Network\LmnV1TableMirror.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Core\Placement\PlacementCandidateEvaluator.cs"><Link>EmbeddedCore\Placement\PlacementCandidateEvaluator.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Core\Registration\FeatureRegistrationRuntime.cs"><Link>EmbeddedCore\Registration\FeatureRegistrationRuntime.cs</Link></Compile><Compile Include="..\BetterUnturnedExperience.Core\Registration\FeatureLifecycleRuntime.cs"><Link>EmbeddedCore\Registration\FeatureLifecycleRuntime.cs</Link></Compile><Compile Include="..\BetterUnturnedExperience.Core\Registration\FeatureBootstrap.cs"><Link>EmbeddedCore\Registration\FeatureBootstrap.cs</Link></Compile><Compile Include="..\BetterUnturnedExperience.Core\Registration\FeatureLifecycleIntentStore.cs"><Link>EmbeddedCore\Registration\FeatureLifecycleIntentStore.cs</Link></Compile><Compile Include="..\BetterUnturnedExperience.Core\Registration\LegacyEnabledMigration.cs"><Link>EmbeddedCore\Registration\LegacyEnabledMigration.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Core\Settings\SettingsRuntime.cs"><Link>EmbeddedCore\Settings\SettingsRuntime.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Core\Settings\FeatureSettingsRegistry.cs"><Link>EmbeddedCore\Settings\FeatureSettingsRegistry.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Core\Events\FeatureEventBus.cs"><Link>EmbeddedCore\Events\FeatureEventBus.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Core\Events\HostTickClock.cs"><Link>EmbeddedCore\Events\HostTickClock.cs</Link></Compile>
+    <!-- DEV-V6-02B: contracts single-compile — the host references the real
+         Contracts project instead of embedding its source. -->
+    <ProjectReference Include="..\BetterUnturnedExperience.Contracts\BetterUnturnedExperience.Contracts.csproj"><Project>{B9A11F3D-3CF7-4C7A-9B04-0B6F2B35B9A1}</Project><Name>BetterUnturnedExperience.Contracts</Name></ProjectReference>
+    <!-- DEV-V6-02E: the host assembles through project references only — the
+         Compile-Link embeds of Core (28 files) and ClientUi (11 files) are
+         retired (R4 foreign-embed = zero). Core and ClientUi are assembly-root
+         legal edges (V6-T2 closed whitelist); Private=False keeps the player
+         file single-DLL until the 02F release repack merges them. -->
+    <ProjectReference Include="..\BetterUnturnedExperience.Core\BetterUnturnedExperience.Core.csproj"><Project>{E6B7E5D1-1A1D-49D9-8E34-A1B25F8E5510}</Project><Name>BetterUnturnedExperience.Core</Name><Private>False</Private></ProjectReference>
+    <ProjectReference Include="..\BetterUnturnedExperience.ClientUi\BetterUnturnedExperience.ClientUi.csproj"><Project>{4E2A7B6C-4AA2-4F84-B7C0-050000000001}</Project><Name>BetterUnturnedExperience.ClientUi</Name><Private>False</Private></ProjectReference>
+    <!-- DEV-V6-02B: assembly-root legal edge (V6-T2 closed whitelist) — the host
+         wires the tidy feature through its ONE public assembly type. Private=False:
+         the player file stays single-DLL; the release repack merges Lit (02F). -->
+    <ProjectReference Include="..\BetterUnturnedExperience.Lit\BetterUnturnedExperience.Lit.csproj"><Project>{4E2A7B6C-4AA2-4F84-B7C0-0C0000000001}</Project><Name>BetterUnturnedExperience.Lit</Name><Private>False</Private></ProjectReference>
+    <!-- DEV-V6-02C: assembly-root legal edge — same shape as Lit; the release repack
+         merges Lir (02F). -->
+    <ProjectReference Include="..\BetterUnturnedExperience.Lir\BetterUnturnedExperience.Lir.csproj"><Project>{4E2A7B6C-4AA2-4F84-B7C0-0C0000000002}</Project><Name>BetterUnturnedExperience.Lir</Name><Private>False</Private></ProjectReference>
+    <!-- DEV-V6-02D: assembly-root legal edge — same shape as Lit/Lir; the release repack
+         merges Lht (02F). -->
+    <ProjectReference Include="..\BetterUnturnedExperience.Lht\BetterUnturnedExperience.Lht.csproj"><Project>{4E2A7B6C-4AA2-4F84-B7C0-0C0000000003}</Project><Name>BetterUnturnedExperience.Lht</Name><Private>False</Private></ProjectReference>
+    <!-- DEV-V6-04: the BII drag-in subsystem is a true project now; the host
+         wires it through the ONE public assembly type (V6-T2 legal edge). -->
+    <ProjectReference Include="..\BetterUnturnedExperience.Bii\BetterUnturnedExperience.Bii.csproj"><Project>{4E2A7B6C-4AA2-4F84-B7C0-0C0000000004}</Project><Name>BetterUnturnedExperience.Bii</Name><Private>False</Private></ProjectReference>
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="PluginAssemblyMarker.cs" />
     <Compile Include="BootstrapGuard.cs" />
@@ -42,135 +40,10 @@
     <Compile Include="BueEngineNetBinding.cs" />
     <Compile Include="NetworkModuleFeatureRegistration.cs" />
     <Compile Include="NetworkSettingsEditor.cs" />
+    <Compile Include="BueClientUiHostProjection.cs" />
     <Compile Include="BetterUnturnedExperiencePlugin.cs" />
-    <Compile Include="BueRuntimePump.cs" /><Compile Include="BueFeatureIntentRuntime.cs" /><Compile Include="BueLegacyEnabledMigrationAdapter.cs" />
+    <Compile Include="BueRuntimePump.cs" /><Compile Include="BueRuntimeLog.cs" /><Compile Include="BuePlatformDoubleInstallCheck.cs" /><Compile Include="BueFeatureIntentRuntime.cs" /><Compile Include="BueLegacyEnabledMigrationAdapter.cs" />
     <Compile Include="BueRuntimeCompletionChain.cs" />
-    <!-- DEV-16A: embed the pure-C# ClientUi seam into the single runtime assembly. -->
-    <Compile Include="..\BetterUnturnedExperience.ClientUi\ClientUiTypes.cs"><Link>EmbeddedClientUi\ClientUiTypes.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.ClientUi\InventoryDragPresenter.cs"><Link>EmbeddedClientUi\InventoryDragPresenter.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.ClientUi\NativeInventoryInteractionAdapter.cs"><Link>EmbeddedClientUi\NativeInventoryInteractionAdapter.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.ClientUi\InventoryPreviewWiring.cs"><Link>EmbeddedClientUi\InventoryPreviewWiring.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.ClientUi\InventoryProjectionRelay.cs"><Link>EmbeddedClientUi\InventoryProjectionRelay.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.ClientUi\ListenHostProjectionReconciler.cs"><Link>EmbeddedClientUi\ListenHostProjectionReconciler.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.ClientUi\ItemInteractionUiComponent.cs"><Link>EmbeddedClientUi\ItemInteractionUiComponent.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.ClientUi\SettingsSnapshotPresenter.cs"><Link>EmbeddedClientUi\SettingsSnapshotPresenter.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.ClientUi\BetterItemInteractionLifecycle.cs"><Link>EmbeddedClientUi\BetterItemInteractionLifecycle.cs</Link></Compile>
-    <Compile Include="ClientUiCompositionRoot.cs" />
-    <Compile Include="BueManagementPanelRuntime.cs" />
-    <Compile Include="LoadedPluginCatalogAdapter.cs" />
-    <Compile Include="BueNativeManagementPanel.cs" />
-    <Compile Include="BueMenuEntryLayout.cs" />
-    <Compile Include="BuePauseColumnShift.cs" />
-    <Compile Include="InventorySurfaceLifecycleAdapter.cs" />
-    <Compile Include="NativeItemGridOccupancySnapshot.cs" />
-    <Compile Include="InventoryLifecycle.cs" />
-    <Compile Include="InventoryDragPreviewAdapter.cs" />
-    <Compile Include="InventoryProjectionSink.cs" />
-    <Compile Include="BueRuntimeLog.cs" />
-    <Compile Include="BuePlatformDoubleInstallCheck.cs" />
-    <Compile Include="..\BetterUnturnedExperience.ClientUi\ManagementPanel.cs"><Link>EmbeddedClientUi\ManagementPanel.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.ClientUi\PanelChromeCopy.cs"><Link>EmbeddedClientUi\PanelChromeCopy.cs</Link></Compile>
-    <!-- DEV-V2-15: embed the migrated LIT (inventory tidy) domain into the single runtime assembly.
-         The old plugin's BepInEx identity, LMN dependency, harness fixtures and dead passive-tidy
-         patch are NOT in this list — the exclusion is a hard rule verified by the host red test. -->
-    <Compile Include="..\BetterUnturnedExperience.Lit\LitRuntime.cs"><Link>EmbeddedLit\LitRuntime.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lit\TidyStrategy.cs"><Link>EmbeddedLit\TidyStrategy.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lit\TaggedRowBandV1Strategy.cs"><Link>EmbeddedLit\TaggedRowBandV1Strategy.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lit\Layout\PlayerUseLabel.cs"><Link>EmbeddedLit\Layout\PlayerUseLabel.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lit\Layout\PlayerUseClassifier.cs"><Link>EmbeddedLit\Layout\PlayerUseClassifier.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lit\Layout\ItemUseSignalsProvider.cs"><Link>EmbeddedLit\Layout\ItemUseSignalsProvider.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lit\Layout\TaggedRowBandLayout.cs"><Link>EmbeddedLit\Layout\TaggedRowBandLayout.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lit\Diagnostics\TidyDiagnosticLog.cs"><Link>EmbeddedLit\Diagnostics\TidyDiagnosticLog.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lit\Tidy\MainThreadDispatcher.cs"><Link>EmbeddedLit\Tidy\MainThreadDispatcher.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lit\Tidy\LitTidyWireCodec.cs"><Link>EmbeddedLit\Tidy\LitTidyWireCodec.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lit\Tidy\LitTidyServerState.cs"><Link>EmbeddedLit\Tidy\LitTidyServerState.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lit\Tidy\LitTidyClientState.cs"><Link>EmbeddedLit\Tidy\LitTidyClientState.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lit\Tidy\LitTidyFaultScopeBook.cs"><Link>EmbeddedLit\Tidy\LitTidyFaultScopeBook.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lit\Tidy\LitTidyNetService.cs"><Link>EmbeddedLit\Tidy\LitTidyNetService.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lit\Tidy\LitTidySendHealth.cs"><Link>EmbeddedLit\Tidy\LitTidySendHealth.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lit\Tidy\LitTidyProductionAuthority.cs"><Link>EmbeddedLit\Tidy\LitTidyProductionAuthority.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lit\Tidy\HotkeySnapshot.cs"><Link>EmbeddedLit\Tidy\HotkeySnapshot.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lit\Tidy\ManualTidyService.cs"><Link>EmbeddedLit\Tidy\ManualTidyService.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lit\Tidy\LocalTidyFaultGate.cs"><Link>EmbeddedLit\Tidy\LocalTidyFaultGate.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lit\Tidy\LocalTidyExecutor.cs"><Link>EmbeddedLit\Tidy\LocalTidyExecutor.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lit\Ui\InventoryTidyUiPatch.cs"><Link>EmbeddedLit\Ui\InventoryTidyUiPatch.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lit\InventoryTidyModule.cs"><Link>EmbeddedLit\InventoryTidyModule.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lit\Container\LitContainerTidy.cs"><Link>EmbeddedLit\Container\LitContainerTidy.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lit\Container\LitContainerTidyExecution.cs"><Link>EmbeddedLit\Container\LitContainerTidyExecution.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lit\Container\LitContainerSessionProbe.cs"><Link>EmbeddedLit\Container\LitContainerSessionProbe.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lit\Recovery\InsertRecoverScope.cs"><Link>EmbeddedLit\Recovery\InsertRecoverScope.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lit\Recovery\InsertRecoverPlanner.cs"><Link>EmbeddedLit\Recovery\InsertRecoverPlanner.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lit\Recovery\InsertRecoverAdapter.cs"><Link>EmbeddedLit\Recovery\InsertRecoverAdapter.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lit\Recovery\InsertRecoverEngine.cs"><Link>EmbeddedLit\Recovery\InsertRecoverEngine.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lit\Recovery\InsertRecoverPatches.cs"><Link>EmbeddedLit\Recovery\InsertRecoverPatches.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lit\Recovery\FastTransferIntentScope.cs"><Link>EmbeddedLit\Recovery\FastTransferIntentScope.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lit\Recovery\FastTransferRecoverPlanner.cs"><Link>EmbeddedLit\Recovery\FastTransferRecoverPlanner.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lit\Recovery\FastTransferRecoverAdapter.cs"><Link>EmbeddedLit\Recovery\FastTransferRecoverAdapter.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lit\Recovery\FastTransferRecoverEngine.cs"><Link>EmbeddedLit\Recovery\FastTransferRecoverEngine.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lit\Recovery\FastTransferRecoverPatches.cs"><Link>EmbeddedLit\Recovery\FastTransferRecoverPatches.cs</Link></Compile>
-    <!-- DEV-V2-22: embed the migrated LIR (in-place reload) domain into the single runtime assembly.
-         The old plugin's BepInEx identity, LMN dependency and the cross-plugin TidyServicePostfixPatch
-         (replaced by the TidyCompleted feature event) are NOT in this list. -->
-    <Compile Include="..\BetterUnturnedExperience.Lir\LirRuntime.cs"><Link>EmbeddedLir\LirRuntime.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lir\ReloadRuntimePolicy.cs"><Link>EmbeddedLir\ReloadRuntimePolicy.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lir\Reload\IReloadAction.cs"><Link>EmbeddedLir\Reload\IReloadAction.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lir\Reload\ReloadContextGuard.cs"><Link>EmbeddedLir\Reload\ReloadContextGuard.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lir\Reload\TidyCompletedConsumer.cs"><Link>EmbeddedLir\Reload\TidyCompletedConsumer.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lir\Reload\ReloadInputDriver.cs"><Link>EmbeddedLir\Reload\ReloadInputDriver.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lir\Reload\AutoReloadAfterTidyAction.cs"><Link>EmbeddedLir\Reload\AutoReloadAfterTidyAction.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lir\Net\LirRepackWireCodec.cs"><Link>EmbeddedLir\Net\LirRepackWireCodec.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lir\Net\LirRepackDispatcher.cs"><Link>EmbeddedLir\Net\LirRepackDispatcher.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lir\Net\LirRepackNetwork.cs"><Link>EmbeddedLir\Net\LirRepackNetwork.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lir\Service\LirRepackAuthority.cs"><Link>EmbeddedLir\Service\LirRepackAuthority.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lir\Service\LirRepackGate.cs"><Link>EmbeddedLir\Service\LirRepackGate.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lir\Service\LirProductionAuthority.cs"><Link>EmbeddedLir\Service\LirProductionAuthority.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lir\Service\AmmoRepackService.cs"><Link>EmbeddedLir\Service\AmmoRepackService.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lir\Service\LirToast.cs"><Link>EmbeddedLir\Service\LirToast.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lir\Patches\UseableGunReceiveAttachMagazinePatch.cs"><Link>EmbeddedLir\Patches\UseableGunReceiveAttachMagazinePatch.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lir\Patches\ForceAddItemPatch.cs"><Link>EmbeddedLir\Patches\ForceAddItemPatch.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lir\InPlaceReloadModule.cs"><Link>EmbeddedLir\InPlaceReloadModule.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lir\Hud\AmmoReserveProjection.cs"><Link>EmbeddedLir\Hud\AmmoReserveProjection.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lir\Hud\AmmoReserveHudEngine.cs"><Link>EmbeddedLir\Hud\AmmoReserveHudEngine.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lir\Hud\AmmoReserveHudSurface.cs"><Link>EmbeddedLir\Hud\AmmoReserveHudSurface.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lir\Hud\AmmoReserveHudAdapter.cs"><Link>EmbeddedLir\Hud\AmmoReserveHudAdapter.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lir\Hud\AmmoReserveHudBinder.cs"><Link>EmbeddedLir\Hud\AmmoReserveHudBinder.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lir\Hud\AmmoReserveHudPatch.cs"><Link>EmbeddedLir\Hud\AmmoReserveHudPatch.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lir\Skill\ReloadSkillPolicy.cs"><Link>EmbeddedLir\Skill\ReloadSkillPolicy.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lir\Skill\ReloadSkillStore.cs"><Link>EmbeddedLir\Skill\ReloadSkillStore.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lir\Skill\ReloadSkillRuntime.cs"><Link>EmbeddedLir\Skill\ReloadSkillRuntime.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lir\Skill\ReloadAutoRoundScheduler.cs"><Link>EmbeddedLir\Skill\ReloadAutoRoundScheduler.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lir\Skill\ReloadSkillLevelMirror.cs"><Link>EmbeddedLir\Skill\ReloadSkillLevelMirror.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lir\Skill\ReloadSkillSectionModel.cs"><Link>EmbeddedLir\Skill\ReloadSkillSectionModel.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lir\Skill\ReloadSkillSettingsSurface.cs"><Link>EmbeddedLir\Skill\ReloadSkillSettingsSurface.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lir\Skill\ILirSkillHooks.cs"><Link>EmbeddedLir\Skill\ILirSkillHooks.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lir\Skill\LirSkillEngineHooks.cs"><Link>EmbeddedLir\Skill\LirSkillEngineHooks.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lir\Skill\ReloadSkillFilePersistence.cs"><Link>EmbeddedLir\Skill\ReloadSkillFilePersistence.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lir\Skill\Ui\ReloadSkillDashboardBinder.cs"><Link>EmbeddedLir\Skill\Ui\ReloadSkillDashboardBinder.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lir\Skill\Ui\ReloadSkillDashboardPatch.cs"><Link>EmbeddedLir\Skill\Ui\ReloadSkillDashboardPatch.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lir\Skill\Ui\ReloadSkillDashboardAdapter.cs"><Link>EmbeddedLir\Skill\Ui\ReloadSkillDashboardAdapter.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lht\LhtRuntime.cs"><Link>EmbeddedLht\LhtRuntime.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lht\Horde\HordeSnapshot.cs"><Link>EmbeddedLht\Horde\HordeSnapshot.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lht\Horde\HordeStateTracker.cs"><Link>EmbeddedLht\Horde\HordeStateTracker.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lht\Horde\PendingHordeSnapshot.cs"><Link>EmbeddedLht\Horde\PendingHordeSnapshot.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lht\Horde\HordeBeaconView.cs"><Link>EmbeddedLht\Horde\HordeBeaconView.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lht\Horde\HordeBeaconContextGuard.cs"><Link>EmbeddedLht\Horde\HordeBeaconContextGuard.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lht\Horde\IHordeTrackingPolicy.cs"><Link>EmbeddedLht\Horde\IHordeTrackingPolicy.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lht\Horde\DefaultHordeTrackingPolicy.cs"><Link>EmbeddedLht\Horde\DefaultHordeTrackingPolicy.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lht\Horde\HordeWireCodec.cs"><Link>EmbeddedLht\Horde\HordeWireCodec.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lht\Horde\IHordeTrackingAuthority.cs"><Link>EmbeddedLht\Horde\IHordeTrackingAuthority.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lht\Horde\HordeTrackingModule.cs"><Link>EmbeddedLht\Horde\HordeTrackingModule.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lht\Horde\HordeClientReceiver.cs"><Link>EmbeddedLht\Horde\HordeClientReceiver.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lht\Horde\HordeProductionAuthority.cs"><Link>EmbeddedLht\Horde\HordeProductionAuthority.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lht\Presentation\IHordeHudSurface.cs"><Link>EmbeddedLht\Presentation\IHordeHudSurface.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lht\Presentation\HordePresentationAdapter.cs"><Link>EmbeddedLht\Presentation\HordePresentationAdapter.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lht\Presentation\PlayerLifeUiHudPatches.cs"><Link>EmbeddedLht\Presentation\PlayerLifeUiHudPatches.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lht\Presentation\PlayerLifeHudSurface.cs"><Link>EmbeddedLht\Presentation\PlayerLifeHudSurface.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lht\Patches\BeaconCounterPatches.cs"><Link>EmbeddedLht\Patches\BeaconCounterPatches.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lht\Command\HordeCommandLogic.cs"><Link>EmbeddedLht\Command\HordeCommandLogic.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lht\Command\CommandHorde.cs"><Link>EmbeddedLht\Command\CommandHorde.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lht\Resolve\OwnerResolver.cs"><Link>EmbeddedLht\Resolve\OwnerResolver.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lht\Resolve\LocationResolver.cs"><Link>EmbeddedLht\Resolve\LocationResolver.cs</Link></Compile>
-    <Compile Include="..\BetterUnturnedExperience.Lht\HordeTrackerModule.cs"><Link>EmbeddedLht\HordeTrackerModule.cs</Link></Compile>
     <Compile Include="InventoryTidyFeatureRegistration.cs" />
     <Compile Include="InPlaceReloadFeatureRegistration.cs" />
     <Compile Include="HordeTrackerFeatureRegistration.cs" />

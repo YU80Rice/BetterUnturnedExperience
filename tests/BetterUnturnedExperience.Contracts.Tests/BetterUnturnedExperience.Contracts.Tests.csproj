@@ -32,6 +32,11 @@
       <Name>BetterUnturnedExperience.Core</Name>
     </ProjectReference>
     <Compile Include="Program.cs" />
+    <!-- DEV-V6-06：登记摘要公开函数与现网受理同源（V6-T6 Q5 + T8 交接）。 -->
+    <Compile Include="DevV606DigestHelperTests.cs" />
+    <!-- DEV-V6-03 (V6-T4 Q5): 链接器源已退出玩家工程编译清单（Core/宿主都不再编它），
+         本测试工程自持该文件——链接管线的唯一消费者是下面治理段的断言。 -->
+    <Compile Include="Definitions\FeatureDefinitionLinker.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>

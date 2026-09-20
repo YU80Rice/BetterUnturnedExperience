@@ -25,6 +25,23 @@ namespace BetterUnturnedExperience.Lir
             catch (Exception) { return false; }
         }
 
+        // ── DEV-V6-02C: Steam identity is a host-owned composition fact (injected at
+        // registration; V6-T2 硬项拆法). Unbound = the former test-host behavior: the
+        // local branch is skipped (0UL is never a valid id) and the remote scan resolves
+        // no wrapper (null) — identical to the silent-reflection resolvers' non-game
+        // defaults. The feature never names the host.
+        private static ulong ResolveLocalSteamId()
+        {
+            var resolver = LirRuntime.HostLocalSteamId;
+            return resolver != null ? resolver() : 0UL;
+        }
+
+        private static object FindSteamPlayerWrapper(ulong steamId)
+        {
+            var resolver = LirRuntime.HostFindSteamPlayer;
+            return resolver != null ? resolver(steamId) : null;
+        }
+
         public LirRepackExecution ExecuteRepack(ulong senderSteamId, ulong requestId, bool hostInitiated = false)
         {
             // Enqueueing is not authorization: the player is resolved again
@@ -81,7 +98,7 @@ namespace BetterUnturnedExperience.Lir
 
         public bool TryResolveLocalPlayerSteamId(out ulong steamId)
         {
-            steamId = BetterUnturnedExperience.Plugin.BueEngineNet.LocalSteamId();
+            steamId = ResolveLocalSteamId();
             return steamId != 0UL;
         }
 
@@ -113,7 +130,7 @@ namespace BetterUnturnedExperience.Lir
             {
                 try
                 {
-                    if (BetterUnturnedExperience.Plugin.BueEngineNet.LocalSteamId() == steamId)
+                    if (ResolveLocalSteamId() == steamId)
                     {
                         var localPlayer = Player.LocalPlayer;
                         if (localPlayer != null) return localPlayer;
@@ -124,7 +141,7 @@ namespace BetterUnturnedExperience.Lir
                     // fall through to the client scan
                 }
             }
-            var steamPlayer = BetterUnturnedExperience.Plugin.BueEngineNet.FindSteamPlayer(steamId) as SteamPlayer;
+            var steamPlayer = FindSteamPlayerWrapper(steamId) as SteamPlayer;
             return steamPlayer?.player;
         }
     }

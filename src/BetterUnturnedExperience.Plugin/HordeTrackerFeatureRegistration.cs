@@ -1,109 +1,42 @@
 ﻿using System;
-using System.Collections.Generic;
 using BetterUnturnedExperience.Contracts;
 using BetterUnturnedExperience.Lht;
 
 namespace BetterUnturnedExperience.Plugin
 {
     /// <summary>
-    /// DEV-V2-20: official horde-tracker (更好的尸潮播报) registration —
-    /// the InPlaceReloadFeatureRegistration pattern: the module is BORN inert
-    /// (registered only; it arms when the host start path drives
-    /// IFeatureModule.Start with the composed bootstrap), the BepInEx plugin
-    /// identity and the LMN hard dependency of the old standalone plugin are
-    /// gone by construction, and the definition payload digest is computed
-    /// from the payload bytes, never transcribed.
+    /// DEV-V2-20 → DEV-V6-02D: the HOST-FACE composition wrapper for the official
+    /// horde-tracker (更好的尸潮播报) feature. The registration BODY (definition payload,
+    /// module factory) lives in the Lht project and reaches the host ONLY through
+    /// LhtFeatureAssembly — the ONE public assembly type (V6-T2); this wrapper is the
+    /// assembly-root act: it injects the host-owned composition input (the log sinks —
+    /// the T2 硬项拆法 injection direction; this ticket's ONLY forbidden direction), hands
+    /// the seam's registration to the host bridge, and projects the wired instance and
+    /// the panel presentation fact back out of the seam for the host ring (panel
+    /// composition). DEV-V6-02E 收口:
+    /// that ring is reshaped (the composition no longer holds module instances); only
+    /// the registration act remains. Lht has no host tick pump (its
+    /// frame work rides the frozen HostTick event seam), no UI relay and no settings
+    /// root — unlike the tidy/reload wrappers, only the log injection exists here.
     /// </summary>
     internal static class HordeTrackerFeatureRegistration
     {
-        internal const string FeatureIdValue = LhtRuntime.FeatureIdValue;
-
-        internal static HordeTrackerModule WiredModule { get; set; }
-
         internal static FeatureRegistrationResult Register()
         {
-            var module = ArmNewModule();
-            var result = BueRuntimeHost.Register(new Registration(module));
-            if (result.Accepted)
+            // DEV-V6-02D (V6-T2 硬项拆法): inject the host-owned composition input BEFORE
+            // the seam hands out the registration, so every factory-armed generation binds
+            // the real sinks (the method-group delegates read lazily at each rebind).
+            LhtFeatureAssembly.BindHostComposition(
+                BueRuntimeLog.Runtime,
+                BueRuntimeLog.Error);
+            var result = BueRuntimeHost.Register(LhtFeatureAssembly.CreateRegistration());
+            if (!result.Accepted)
             {
-                WiredModule = module;
-            }
-            else
-            {
-                BueRuntimeLog.Runtime("[BUE-V2LHT] event=lht-registration result=rejected feature=" + FeatureIdValue
+                BueRuntimeLog.Runtime("[BUE-V2LHT] event=lht-registration result=rejected feature=" + LhtFeatureAssembly.FeatureId
                     + " reason=" + result.Reason + " diagnosticId=" + result.DiagnosticId);
             }
             return result;
         }
 
-        private static HordeTrackerModule ArmNewModule()
-        {
-            // DEV-V3-06: born inert without a runtime (see LIT note).
-            var module = new HordeTrackerModule();
-            module.BindProductionLog();
-            return module;
-        }
-
-        /// <summary>The official definition, extracted for host tests (the payload digest must validate).</summary>
-        internal static IFeatureRegistration CreateRegistration(HordeTrackerModule moduleForFactory = null)
-        {
-            return new Registration(moduleForFactory);
-        }
-
-        private static FeatureDefinitionArtifact CreateDefinition()
-        {
-            var payload = new byte[] { 66, 85, 69, 45, 76, 72, 84, 45, 86, 49 }; // "BUE-LHT-V1"
-            return new FeatureDefinitionArtifact(
-                new FeatureId(FeatureIdValue),
-                1,
-                "bue-horde-tracker-v1",
-                // Sentinel D-style DefinitionSetDigest (free-form identity
-                // marker, same convention as the sibling definitions).
-                new Digest256(1UL, 0UL, 0UL, 20UL),
-                NetworkModuleFeatureRegistration.ComputePayloadDigest(payload),
-                payload);
-        }
-
-        // DEV-V3-06: settings facet — same discipline as the sibling
-        // official registrations.
-        private sealed class Registration : IFeatureRegistration
-        {
-            private readonly HordeTrackerModule moduleForFactory;
-
-            internal Registration(HordeTrackerModule moduleForFactory)
-            {
-                this.moduleForFactory = moduleForFactory;
-            }
-
-            public FeatureDefinitionArtifact Definition { get { return CreateDefinition(); } }
-
-            public ContractVersion MinimumBueContract { get { return new ContractVersion(2, 0); } }
-
-            public IFeatureModuleFactory ModuleFactory { get { return new ModuleFactory(moduleForFactory); } }
-
-            public IClientUiSatelliteRegistration ClientUi { get { return null; } }
-        }
-
-        private sealed class ModuleFactory : IFeatureModuleFactory
-        {
-            private readonly HordeTrackerModule moduleForFactory;
-
-            internal ModuleFactory(HordeTrackerModule moduleForFactory)
-            {
-                this.moduleForFactory = moduleForFactory;
-            }
-
-            public IFeatureModule Create()
-            {
-                if (moduleForFactory != null) return moduleForFactory;
-                if (HordeTrackerFeatureRegistration.WiredModule != null) return WiredModule;
-                // Factory path = the host start path is invoking modules, so
-                // the host has already accepted this registration; arming now
-                // is inside the host-controlled lifecycle.
-                var module = ArmNewModule();
-                WiredModule = module;
-                return module;
-            }
-        }
     }
 }
