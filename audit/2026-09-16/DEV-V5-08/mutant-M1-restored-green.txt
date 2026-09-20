@@ -1,3 +1,0 @@
-# runner footer（执行期观察，2026-09-17）
-# command: 还原 CharacterKeyOfPlayer is null 后 Rebuild 测试工程 → BetterUnturnedExperience.Plugin.Tests.exe --bue-v5-08-identity-il-guard-red
-# exit code: 0（M1 还原复绿执行确认；构建 0 警 0 错）

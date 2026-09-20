@@ -1,1 +1,0 @@
-Developer-handbook gate PASS: handbook layer + README entry order + 6 superseded banners

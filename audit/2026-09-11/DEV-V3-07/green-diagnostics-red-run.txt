@@ -1,1 +1,0 @@
-DEV-V3-07 diagnostics collection: ALL GREEN (0 failures) — groups: 矩阵 Logger 接线两侧/三方法窄面与级别映射/BUE-* 前缀纪律/停止与宿主 shutdown 边界/容量受限与消毒截断/摘要输出限频/故障隔离不反噬模块/统一 sink 收编/官方先行消费锚 LIT/生态对照 NoOp

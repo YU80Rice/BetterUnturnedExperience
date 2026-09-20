@@ -1,9 +1,0 @@
-CandidateBuild: DEV-16D-R13-R7-EDGEFIX-20260901
-CaseId: DEV-16D-R13-R7-EDGEFIX-20260901
-Kind: edge-rot auto-rotation fix (ADR-0003 方案 A) + retained diagnostic instrumentation
-SourceSnapshotId: e45bc98 (edge-rot implementation commit, on top of 7c4a987 freeze)
-SourceDll: src/BetterUnturnedExperience.Plugin/bin/Release/BetterUnturnedExperience.dll
-ArchivedDll: audit/2026-09-01/artifacts/BetterUnturnedExperience-DIAG-R13SILENCE-r4-edgefix-20260901.dll
-SizeBytes: 236032
-SHA256: 3AF8DCABBC2467ACD82A809966EEA6E8D9ABF650F65FC7ED1601219C1B211E1F
-Review: Standards CLEAN / Spec CLEAN (independent subagents, 2026-09-01)

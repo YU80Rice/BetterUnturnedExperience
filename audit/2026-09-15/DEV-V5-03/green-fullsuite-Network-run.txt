@@ -1,2 +1,0 @@
-DEV-06 network tests: PASS
-exit=0

@@ -1,2 +1,0 @@
-FAIL README-ORDER: docs/developer/ entry must be linked BEFORE the SDK link
-Developer-handbook gate FAILED: 1 violation(s)

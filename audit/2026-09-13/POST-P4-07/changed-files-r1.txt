@@ -1,4 +1,0 @@
-src/BetterUnturnedExperience.Plugin/BueNativeManagementPanel.cs
-eng/Verify-RefreshModelDeduped.ps1
-.scratch/bue-post-phase4-closure/map.md
-.scratch/bue-post-phase4-closure/issues/07-refresh-model-dedup.md

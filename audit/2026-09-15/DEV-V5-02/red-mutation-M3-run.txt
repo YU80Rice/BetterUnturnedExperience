@@ -1,5 +1,0 @@
-DEV-14 official registration parity tests: FAIL
-System.InvalidOperationException: official-first: PreparePage fills the frozen labels from the classifier seam
-   дк BetterUnturnedExperience.Plugin.Tests.Program.Assert(Boolean condition, String message)
-   дк BetterUnturnedExperience.Plugin.Tests.Program.AssertDevV502TaggedRowBand()
-   дк BetterUnturnedExperience.Plugin.Tests.Program.Main()

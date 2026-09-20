@@ -1,9 +1,0 @@
-CandidateBuild: DEV-16D-R13-R7-BAND-20260902
-CaseId: DEV-16D-R13-R7-BAND-20260902
-Kind: edge-sensing-band auto-rotation fix (ADR-0003 Rev 2026-09-02) + retained diagnostic instrumentation
-SourceSnapshotId: 576cbed (edge-sensing-band implementation, on top of 135be62 decision freeze)
-SourceDll: src/BetterUnturnedExperience.Plugin/bin/Release/BetterUnturnedExperience.dll
-ArchivedDll: audit/2026-09-01/artifacts/BetterUnturnedExperience-DIAG-R13SILENCE-r5-band-20260902.dll
-SizeBytes: 237056
-SHA256: CC8BC4831AF9F5CE78BFACEC1797655E83AF748FF18A5790448ADE04B6470296
-Review: Standards CLEAN / Spec CLEAN (independent subagents, 2026-09-02)

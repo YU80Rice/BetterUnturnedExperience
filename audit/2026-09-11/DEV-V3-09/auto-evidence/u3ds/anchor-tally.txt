@@ -1,7 +1,0 @@
-assembly-identity: 1
-features accepted=True: 5
-diagnostic-summary lines: 11
-main-thread posted: 3023
-feature-isolated: 3
-ERROR lines: 0
-takeover-patch installed: 1

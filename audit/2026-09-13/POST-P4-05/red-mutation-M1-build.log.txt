@@ -1,4 +1,0 @@
-
-  BetterUnturnedExperience.Plugin -> D:\Agent-工作目录\DevelopMyUNMultiplayerModAndModloader\更好的UN体验\src\BetterUnturnedExperience.Plugin\bin\Release\BetterUnturnedExperience.dll
-  BetterUnturnedExperience.ClientUi -> D:\Agent-工作目录\DevelopMyUNMultiplayerModAndModloader\更好的UN体验\src\BetterUnturnedExperience.ClientUi\bin\Release\BetterUnturnedExperience.ClientUi.dll
-  BetterUnturnedExperience.ClientUi.Tests -> D:\Agent-工作目录\DevelopMyUNMultiplayerModAndModloader\更好的UN体验\tests\BetterUnturnedExperience.ClientUi.Tests\bin\Release\BetterUnturnedExperience.ClientUi.Tests.exe

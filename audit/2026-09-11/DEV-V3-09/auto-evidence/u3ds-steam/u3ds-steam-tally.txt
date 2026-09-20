@@ -1,4 +1,0 @@
-== DEV-V3-09 U3DS(带Steam)+客机 实机验收 · 候选 ce0d2191 · 2026-09-11 14:01 · 结论 PASS ==
-[U3DS-SERVER] identity=CE0D219179E0 accepted=5 BUEError=0 result=posted=2 Throttled=0 link-degraded=0 runtime-armed=1 TidyCommitted=21 RepackSuccess=2
-[CLIENT] identity=CE0D219179E0 accepted=5 BUEError=0 result=posted=2 Throttled=0 link-degraded=0 runtime-armed=1 TidyCommitted=0 RepackSuccess=0
-结论: 三环境(SP/P2P/U3DS+Steam)全 PASS;候选 ce0d2191 端到端验证(含 F1 修复真实跨端负载=2 投递/2 压弹非风暴);bue.network 模块隔离=全环境+v8基线通用良性投影,runtime result=armed 且 21 tidies/2 repack 证功能在线

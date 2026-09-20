@@ -1,1 +1,0 @@
-DEV-10 registration runtime tests: PASS

@@ -1,3 +1,0 @@
-# 命令回显（执行于 2026-09-16，runner 记录）
-$ git diff a5ed3fb..HEAD -- src/BetterUnturnedExperience.Contracts
-(empty output — 零 diff：契约面相对行 13 基线 a5ed3fb 无任何改动；runner 执行确认 exit 0，重跑复验同为空)

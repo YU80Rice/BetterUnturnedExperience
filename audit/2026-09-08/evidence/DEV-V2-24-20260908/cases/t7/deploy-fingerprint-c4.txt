@@ -1,7 +1,0 @@
-# DEV-V2-24 T7 C4 部署指纹(v7,2026-09-09 13:57,本机客户端)
-- 采集 CaseId = DEV-V2-24-20260908;会话 = 探针 A 变体(T7-4 不同 GUID+同程序集名,红测+实机双证的正向半,单人)
-- 部署位置 = E:\Steam\steamapps\common\Unturned\BepInEx\plugins\
-- BetterUnturnedExperience.dll sha256=a1b339bf7d6945b8e67c32355cb8cfcc0eb95ecb2112b9ce5eb396f09a871359(544768B,候选 v7 原名)
-- BueSameAsmProbe-ABefore.dll sha256=30b93000d2e54f23e0bf23684db7f507b4bbdde0cd900f84f1de90ed9bd7c54a(4096B,手册 §1 一致;GUID io.github.yu80rice.aaprobe.sameasm 排序在 BUE 前→副本程序集先于 BUE Awake 进入 AppDomain)
-- Z 探针已摘除;SPF(用户自有)保留
-- 期望(001 双证):Warning 行 `BUE double-install detected diagnosticId=BUE-PLATFORM-001 assembly=BetterUnturnedExperience conflictLocation=…\BueSameAsmProbe-ABefore.dll selfPath=…\BetterUnturnedExperience.dll suggestion=移除非官方副本`+面板底部红色状态行(截图);摘除探针重启→001 消失;全程 BUE 零文件删除/移动/改名。若 001 未出现=诊断漏报 finding,停止采集保留现场报 agent

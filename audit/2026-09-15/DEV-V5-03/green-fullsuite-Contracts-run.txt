@@ -1,2 +1,0 @@
-DEV-10 registration runtime tests: PASS
-exit=0

@@ -1,5 +1,0 @@
-DEV-V5-04 insert-recover tests: FAIL
-DEV-14 official registration parity tests: FAIL
-System.InvalidOperationException: DEV-V5-04 red collection (3): 生命周期：Stop=补丁注销（ActiveModule 清空） || 功能停=路径不执行：注销后的失败入包完全回到原版（零修改零事务） || 生命周期：代际停止即交还（无悬挂登记）
-   在 BetterUnturnedExperience.Plugin.Tests.DevV5InsertRecoverTests.Run(Boolean collectAllFailures)
-   在 BetterUnturnedExperience.Plugin.Tests.Program.Main()

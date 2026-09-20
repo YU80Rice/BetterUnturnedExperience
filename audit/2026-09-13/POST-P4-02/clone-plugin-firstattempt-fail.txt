@@ -1,5 +1,0 @@
-== clone Plugin.Tests first attempt (before host-DLL provisioning) — transcript of observed output ==
-DEV-14 official registration parity tests: FAIL
-System.IO.FileNotFoundException: 未能加载文件或程序集 BepInEx, Version=5.4.23.5 ... 在 Program.AssertSingleDllAssemblyClosure()
-=> 干净克隆 bin 缺宿主 DLL（Private=False 不拷贝；主工作区 bin 的历史 Libs 逐字节拷贝从不入库）=本票范围外既有缺口，另立票 08。
-随后按开发环境从 ../Libs 同名录制宿主 DLL 到克隆 bin → 7/7 全绿（clone-fullsuite-*-run.txt）。

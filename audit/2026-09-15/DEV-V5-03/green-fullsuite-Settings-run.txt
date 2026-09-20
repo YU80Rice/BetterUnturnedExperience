@@ -1,2 +1,0 @@
-DEV-03 settings runtime tests: PASS
-exit=0

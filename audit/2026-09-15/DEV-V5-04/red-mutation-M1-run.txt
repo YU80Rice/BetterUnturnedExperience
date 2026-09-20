@@ -1,5 +1,0 @@
-DEV-V5-04 insert-recover tests: FAIL
-DEV-14 official registration parity tests: FAIL
-System.InvalidOperationException: DEV-V5-04 red collection (3): 接线范围：非拾取/合成上下文的原版失败不恢复（其它获得路径不共用汇聚点自动享受） || 接线范围：越界拒绝零修改 || 触发面：一次原版失败恰好一次恢复（不逐页反复重排）
-   在 BetterUnturnedExperience.Plugin.Tests.DevV5InsertRecoverTests.Run(Boolean collectAllFailures)
-   在 BetterUnturnedExperience.Plugin.Tests.Program.Main()

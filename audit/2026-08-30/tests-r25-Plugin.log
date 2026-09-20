@@ -1,4 +1,0 @@
-DEV-14 official registration parity tests: FAIL
-System.InvalidOperationException: activation publishes the adapter to the static pump
-   在 BetterUnturnedExperience.Plugin.Tests.Program.AssertDragPreviewAdapterActivatesStaticPump()
-   在 BetterUnturnedExperience.Plugin.Tests.Program.Main()

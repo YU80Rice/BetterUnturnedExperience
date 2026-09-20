@@ -1,4 +1,0 @@
-UI/native token scan PASS: 30 C# files
-exit=0
-git diff --check exit:
-0

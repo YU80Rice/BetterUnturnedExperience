@@ -1,9 +1,0 @@
-D:\Agent-¹¤×÷Ä¿Â¼\DevelopMyUNMultiplayerModAndModloader\¸üºÃµÄUNÌåÑé\eng\Verify-NoUiTokens.ps1 : D:\Agent-¹¤×÷Ä¿Â¼\Deve
-lopMyUNMultiplayerModAndModloader\¸üºÃµÄUNÌåÑé\src\BetterUnturnedExperience.Contracts\ContractTypes.cs:Glazier
-ËùÔÚÎ»ÖÃ D:\Agent-¹¤×÷Ä¿Â¼\DevelopMyUNMultiplayerModAndModloader\¸üºÃµÄUNÌåÑé\eng\Verify-NoUiTokens.ps1:10 ×Ö·û: 63
-+ ... .Count -gt 0) { $violations | ForEach-Object { Write-Error $_ }; exit ...
-+                                                    ~~~~~~~~~~~~~~
-    + CategoryInfo          : NotSpecified: (:) [Write-Error], WriteErrorException
-    + FullyQualifiedErrorId : Microsoft.PowerShell.Commands.WriteErrorException,Verify-NoUiTokens.ps1
- 
-contracts exit=1 (1=æ—¢æœ‰ ContractTypes.cs:425 æ³¨é‡Šè‡ªè¿° tokenï¼ŒV2-02 4a37d4b èµ·å­˜åœ¨ï¼Œéæœ¬ç¥¨äº§ç‰©)

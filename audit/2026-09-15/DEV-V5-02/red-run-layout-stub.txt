@@ -1,5 +1,0 @@
-DEV-14 official registration parity tests: FAIL
-System.InvalidOperationException: layout: the mixed-label fixture plans fully on a 6x4 (能放下必须放下)
-   在 BetterUnturnedExperience.Plugin.Tests.Program.Assert(Boolean condition, String message)
-   在 BetterUnturnedExperience.Plugin.Tests.Program.AssertDevV502TaggedRowBand()
-   在 BetterUnturnedExperience.Plugin.Tests.Program.Main()

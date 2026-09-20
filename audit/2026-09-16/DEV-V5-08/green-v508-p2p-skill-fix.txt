@@ -1,5 +1,0 @@
-DEV-V5-07 reload-skill tests: FAIL
-DEV-14 official registration parity tests: FAIL
-System.InvalidOperationException: DEV-V5-07 red collection (4): 41 号新窗内再击拒绝 || 自动轮回包 wireId=0（绕开客机 pending 表）且 total 随成交 || 客机对 wireId=0 的自动轮回包弹成功 toast（不再当未知 requestId 丢掉） || 装配：本代 0 级窗已开
-   在 BetterUnturnedExperience.Plugin.Tests.DevV5ReloadSkillTests.Run(Boolean collectAllFailures)
-   在 BetterUnturnedExperience.Plugin.Tests.Program.Main()

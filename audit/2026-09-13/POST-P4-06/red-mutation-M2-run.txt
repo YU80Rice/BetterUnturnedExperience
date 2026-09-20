@@ -1,2 +1,0 @@
-VIOLATION: .scratch/bue-v2-phase4-visual-experience/map.md: stale claim still present (pointer must reference the spec body): 时并入正文
-Spec-V4R9-ingest gate FAIL: 1 violation(s)

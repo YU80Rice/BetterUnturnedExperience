@@ -1,7 +1,0 @@
-Assembly references:
-mscorlib
-BepInEx
-UnityEngine.CoreModule
-System.Core
-System
-BetterUnturnedExperience.dll SHA-256: EBC1D3080D44D3C5D6A19B5E2EC6355CE9FAB99CC568FAE1B2DEEB2415965CC8

@@ -1,6 +1,0 @@
-D:\Agent-工作目录\DevelopMyUNMultiplayerModAndModloader\更好的UN体验\eng\Verify-TestRunnerHostDllsProvisioned.ps1 : 无
-法处理命令，因为一个或多个强制参数丢失:  RepoRoot。
-    + CategoryInfo          : InvalidArgument: (:) [Verify-TestRunnerHostDllsProvisioned.ps1]，ParentContainsErrorRecor
-    dException
-    + FullyQualifiedErrorId : MissingMandatoryParameter,Verify-TestRunnerHostDllsProvisioned.ps1
- 

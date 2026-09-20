@@ -1,8 +1,0 @@
-# DEV-V2-24 T7 C4''（双副本盲种探针）部署指纹(v7,2026-09-09 15:05,本机客户端)
-- 采集 CaseId = DEV-V2-24-20260908;会话 = T7-4 实机正向双证补采第二轮(C4' 惰性装载实证后的修正仪器)
-- 仪器行为:探针 GUID 序在 BUE 前 → Awake 先行;从自身同目录复制 BUE DLL 到 %TEMP%\BueLoadFileProbe-seed1.dll 与 -seed2.dll,Assembly.LoadFile(不做身份绑定检查)注入两个同名实例 → 无论 BepInEx 随后以何种语义装载真 BUE(身份检查→劫持到 seed1,自身份=seed1、冲突=seed2;或无检查→三实例并存),BUE Awake 防双装扫描时 AppDomain 同名实例必然 ≥2 → 001 Warning + 面板红色状态行
-- 部署位置 = E:\Steam\steamapps\common\Unturned\BepInEx\plugins\
-- BetterUnturnedExperience.dll sha256=a1b339bf…71359(544768B,候选 v7 原名)
-- BueLoadFileProbe.dll sha256=31580a873fb6fd82e0e704c791440b1c71023aa21f34b1c8fd2c1ebc5e833436(5320B 前后,build-probe-lf2.log;源码 kit/BueLoadFileProbe/)
-- SteamP2PFriends.dll(用户自有)保留
-- 附注:若劫持分支成立,BUE 自身份行(assembly-identity path)将显示 %TEMP% 副本路径——字节等同的仪器伪影,如实入档;探针写 %TEMP% 两个文件系仪器自身行为,BUE 仍零文件操作

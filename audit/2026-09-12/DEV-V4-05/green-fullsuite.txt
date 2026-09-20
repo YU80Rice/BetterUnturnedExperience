@@ -1,9 +1,0 @@
-== 全套 7 测试工程（dotnet -t:Rebuild 后逐 exe 直跑）2026-09-12（Round2 F1 修复后）==
-[ClientUi] exit=0 :: DEV-05/DEV-15A/DEV-15B/DEV-15C/DEV-15D/DEV-16B/DEV-V4-01/DEV-V4-02/DEV-V4-03/DEV-V4-04/DEV-V4-05 ClientUi tests: PASS
-[Contracts] exit=0 :: DEV-10 registration runtime tests: PASS
-[Network] exit=0 :: DEV-06 network tests: PASS
-[Placement] exit=0 :: DEV-04 placement evaluator tests: PASS
-[Release] exit=0 :: DEV-15E qualification evidence tests: PASS
-[Settings] exit=0 :: DEV-03 settings runtime tests: PASS
-[Plugin] exit=0 :: DEV-14/DEV-16B plugin runtime tests: PASS
-== 构建门：TreatWarningsAsErrors 下 0 警告 0 错误（七工程 -t:Rebuild 全 CLEAN）==

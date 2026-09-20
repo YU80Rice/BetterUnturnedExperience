@@ -1,9 +1,0 @@
-== workspace full-suite (POST-P4-08, after fix commit b5ce0af + full Rebuild 0/0) ==
-ClientUi: DEV-05/DEV-15A/DEV-15B/DEV-15C/DEV-15D/DEV-16B/DEV-V4-01/DEV-V4-02/DEV-V4-03/DEV-V4-04/DEV-V4-05/DEV-V4-07/DEV-V4-08/POST-P4-04 ClientUi tests: PASS
-Contracts: DEV-10 registration runtime tests: PASS
-Network: DEV-06 network tests: PASS
-Placement: DEV-04 placement evaluator tests: PASS
-Plugin: DEV-14/DEV-16B plugin runtime tests: PASS
-Release: DEV-15E qualification evidence tests: PASS
-Settings: DEV-03 settings runtime tests: PASS
-fixture gate + runner-host gate: PASS (see green-gate-fixtures-workspace-run.txt / green-gate-run.txt)

@@ -1,9 +1,0 @@
-M src/BetterUnturnedExperience.ClientUi/ManagementPanel.cs
-M src/BetterUnturnedExperience.Plugin/BueNativeManagementPanel.cs
-M src/BetterUnturnedExperience.Plugin/LoadedPluginCatalogAdapter.cs
-M tests/BetterUnturnedExperience.ClientUi.Tests/BetterUnturnedExperience.ClientUi.Tests.csproj
-A tests/BetterUnturnedExperience.ClientUi.Tests/DevTicket04UpmCategoryListTests.cs
-M tests/BetterUnturnedExperience.ClientUi.Tests/Program.cs
-M tests/BetterUnturnedExperience.Plugin.Tests/BetterUnturnedExperience.Plugin.Tests.csproj
-A tests/BetterUnturnedExperience.Plugin.Tests/DevTicket04UpmTagParsingTests.cs
-M tests/BetterUnturnedExperience.Plugin.Tests/Program.cs

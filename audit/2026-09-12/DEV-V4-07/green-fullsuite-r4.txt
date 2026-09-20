@@ -1,8 +1,0 @@
-build: 0 warnings / 0 errors (MSBuild VS18 Insiders, Release, -t:Rebuild, full-build-r4.log)
-ClientUi: DEV-05/DEV-15A/DEV-15B/DEV-15C/DEV-15D/DEV-16B/DEV-V4-01/DEV-V4-02/DEV-V4-03/DEV-V4-04/DEV-V4-05/DEV-V4-07 ClientUi tests: PASS [exit-check: PASS]
-Contracts: DEV-10 registration runtime tests: PASS [exit-check: PASS]
-Network: DEV-06 network tests: PASS [exit-check: PASS]
-Placement: DEV-04 placement evaluator tests: PASS [exit-check: PASS]
-Plugin: DEV-14/DEV-16B plugin runtime tests: PASS [exit-check: PASS]
-Release: DEV-15E qualification evidence tests: PASS [exit-check: PASS]
-Settings: DEV-03 settings runtime tests: PASS [exit-check: PASS]

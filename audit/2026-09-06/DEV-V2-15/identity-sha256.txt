@@ -1,5 +1,0 @@
-# DEV-V2-15 交付身份（SHA-256，2026-09-06）
-# 产物 = src/BetterUnturnedExperience.Plugin/bin/Release/BetterUnturnedExperience.dll
-# 确定性：相邻两轮 -t:Rebuild 逐字节一致（identity-rebuild1.txt / identity-rebuild2.txt）
-# 工具链：MSBuild 18.9.1.35102 | .NETFramework 4.7.2 | CSharp 10 | TreatWarningsAsErrors
-cacfa527bb4e593bd09885cbfa12997f4a192d601c6d08fc4270317b9b03b040 *BetterUnturnedExperience.dll (350208 B, DEV-V2-15 候选)

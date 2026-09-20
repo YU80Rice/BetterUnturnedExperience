@@ -1,5 +1,0 @@
-DEV-14 official registration parity tests: FAIL
-System.InvalidOperationException: layout: labels sharing a row band sit side by side in one band (横向并排可计算)
-   在 BetterUnturnedExperience.Plugin.Tests.Program.Assert(Boolean condition, String message)
-   在 BetterUnturnedExperience.Plugin.Tests.Program.AssertDevV502TaggedRowBand()
-   在 BetterUnturnedExperience.Plugin.Tests.Program.Main()

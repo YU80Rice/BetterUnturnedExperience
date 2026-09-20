@@ -1,8 +1,0 @@
-D:\Agent-工作目录\DevelopMyUNMultiplayerModAndModloader\更好的UN体验\eng\Verify-NoUiTokens.ps1 : D:\Agent-工作目录\Deve
-lopMyUNMultiplayerModAndModloader\更好的UN体验\src\BetterUnturnedExperience.Contracts\ContractTypes.cs:Glazier
-所在位置 D:\Agent-工作目录\DevelopMyUNMultiplayerModAndModloader\更好的UN体验\eng\Verify-NoUiTokens.ps1:10 字符: 63
-+ ... .Count -gt 0) { $violations | ForEach-Object { Write-Error $_ }; exit ...
-+                                                    ~~~~~~~~~~~~~~
-    + CategoryInfo          : NotSpecified: (:) [Write-Error], WriteErrorException
-    + FullyQualifiedErrorId : Microsoft.PowerShell.Commands.WriteErrorException,Verify-NoUiTokens.ps1
- 

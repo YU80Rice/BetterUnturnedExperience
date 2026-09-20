@@ -1,9 +1,0 @@
-DEV-16D R6 red regression (GPT)
-Command:
-& 'C:\Program Files\Microsoft Visual Studio\18\Insiders\MSBuild\Current\Bin\MSBuild.exe' 'tests\BetterUnturnedExperience.Plugin.Tests\BetterUnturnedExperience.Plugin.Tests.csproj' /t:Rebuild /p:Configuration=Release /v:minimal
-
-Result: FAIL (exit code 1)
-Observed failure:
-Program.cs(341,58): error CS1061: “BetterItemInteractionUiComponent”未包含“IsolatePreviewFailureResult”的定义
-
-The new red test captures the real component cleanup-result propagation seam before the production implementation.

@@ -1,2 +1,0 @@
-FAIL SC-MARK: .scratch/better-unturned-experience-architecture/Shared-Contract-Spec.md first 12 lines lack SUPERSEDED/历史资料 mark
-Developer-handbook gate FAILED: 1 violation(s)

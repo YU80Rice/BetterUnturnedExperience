@@ -1,2 +1,0 @@
-DEV-V5-07 reload-skill collection: ALL GREEN (0 failures) — groups: 常量/冷却/升级/自动压弹/官方先行与表面/生命周期
-DEV-V5-07 reload-skill tests: PASS

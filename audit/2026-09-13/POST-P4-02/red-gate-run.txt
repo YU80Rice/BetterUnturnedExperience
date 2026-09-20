@@ -1,5 +1,0 @@
-VIOLATION: tests/BetterUnturnedExperience.Plugin.Tests/Fixtures/dev16d-r36-no-preview.log: ignored by gitignore rules (clean clone will not contain it)
-VIOLATION: tests/BetterUnturnedExperience.Plugin.Tests/Fixtures/dev16d-r36-no-preview.log: not tracked by git (clean clone will not contain it)
-VIOLATION: tests/BetterUnturnedExperience.Plugin.Tests/Fixtures/dev16d-fixed-preview.log: ignored by gitignore rules (clean clone will not contain it)
-VIOLATION: tests/BetterUnturnedExperience.Plugin.Tests/Fixtures/dev16d-fixed-preview.log: not tracked by git (clean clone will not contain it)
-Fixture-tracked gate FAIL: 4 violation(s)

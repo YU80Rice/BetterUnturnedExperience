@@ -1,2 +1,0 @@
-DEV-V5-06 ammo-reserve-hud collection: ALL GREEN (0 failures) — groups: N 定义/M 定义/文案冻结单源/生命周期登记即开关与停画/官方先行消费与 binder 宿主可证
-DEV-V5-06 ammo-reserve-hud tests: PASS

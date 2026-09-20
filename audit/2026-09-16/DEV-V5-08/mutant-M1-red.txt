@@ -1,4 +1,0 @@
-DEV-14 official registration parity tests: FAIL
-System.InvalidOperationException: BUE 程序集内存在对 SteamPlayerID 自定义 ==/!= 运算符的调用（真机必抛 NRE，判等须用 is null/ReferenceEquals）: BetterUnturnedExperience.Lir.LirSkillEngineHooks::CharacterKeyOfPlayer @IL_0x0026 call -> op_Equality
-   在 BetterUnturnedExperience.Plugin.Tests.DevV508IdentityIlGuardTests.Run(Boolean collectAllFailures)
-   在 BetterUnturnedExperience.Plugin.Tests.Program.Main()

@@ -1,6 +1,0 @@
-CONTEXT.md
-docs/third-party/UnturnedPluginManager-attribution.md
-src/BetterUnturnedExperience.Plugin/BueFeatureStartRuntime.cs
-tests/BetterUnturnedExperience.ClientUi.Tests/DevV4DraftTests.cs
-tests/BetterUnturnedExperience.ClientUi.Tests/Program.cs
-tests/BetterUnturnedExperience.Plugin.Tests/Program.cs

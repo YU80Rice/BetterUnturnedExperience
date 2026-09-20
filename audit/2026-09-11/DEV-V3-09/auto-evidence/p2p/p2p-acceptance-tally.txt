@@ -1,5 +1,0 @@
-== DEV-V3-09 P2P双端实机验收 · 候选 ce0d2191 · 用户包 客机134947/主机135012 (2026-09-11 13:50) · 结论 PASS ==
-[CLIENT] identity=CE0D219179E0 accepted=True=5 BUEError=0 result=posted=1 TidyCommitted=0 RepackSuccess=0 Throttled=0 link-degraded=0
-[HOST] identity=CE0D219179E0 accepted=True=5 BUEError=0 result=posted=1 TidyCommitted=13 RepackSuccess=1 Throttled=0 link-degraded=0
-注: bue.network/v1compat/BII start-result 隔离 = 与 v7/v8 基线逐字同(非回归);跨端 TidyCommitted=13+RepackSuccess=1 证功能实际在线
-F1 修复实负载确认: 主机 result=posted=1=唯一真实压弹 drain 投递(空闲 0 投递),非每秒风暴

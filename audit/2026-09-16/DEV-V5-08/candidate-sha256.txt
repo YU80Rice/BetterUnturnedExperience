@@ -1,5 +1,0 @@
-DEV-V5-08 候选 v4（U3DS 自动轮回放闸 + 容器按钮 IsVisible 实现类型 setter）
-SHA-256 = F334657ABA2C6AD7CAC8E39E7A36C19FB38DCC19E60DCC575BF20D9777380D45
-字节   = 726016
-前序   = v3 589300E2 因 U3DS F10/F11 作废
-修复   = 自动轮 TryAcquireHostInitiated 跳过客户端 requestId 回放比较仍吃 1.5s 闸；容器按钮 IsVisible 改实现类型属性 setter

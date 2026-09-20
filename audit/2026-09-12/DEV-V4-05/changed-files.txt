@@ -1,6 +1,0 @@
-src/BetterUnturnedExperience.ClientUi/ManagementPanel.cs
-src/BetterUnturnedExperience.Plugin/BueNativeManagementPanel.cs
-src/BetterUnturnedExperience.Plugin/ClientUiCompositionRoot.cs
-tests/BetterUnturnedExperience.ClientUi.Tests/BetterUnturnedExperience.ClientUi.Tests.csproj
-tests/BetterUnturnedExperience.ClientUi.Tests/Program.cs
-tests/BetterUnturnedExperience.Plugin.Tests/Program.cs

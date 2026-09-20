@@ -1,7 +1,0 @@
-src\BetterUnturnedExperience.Contracts exit=
-UI/native token scan PASS: 2 C# files
-src\BetterUnturnedExperience.Core exit=
-UI/native token scan PASS: 10 C# files
-src\BetterUnturnedExperience.ClientUi exit=
-UI/native token scan PASS: 11 C# files
-git diff --check exit=0

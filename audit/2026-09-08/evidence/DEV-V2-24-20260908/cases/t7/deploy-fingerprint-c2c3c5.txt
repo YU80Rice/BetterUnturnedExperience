@@ -1,7 +1,0 @@
-# DEV-V2-24 T7 C2+C3+C5 部署指纹(v7,2026-09-09 13:44,本机客户端)
-- 采集 CaseId = DEV-V2-24-20260908;会话 = 探针 Z 变体(LoadFile 二次探测/同版本谁保留/Preloader 观察,单人,进世界即出)
-- 部署位置 = E:\Steam\steamapps\common\Unturned\BepInEx\plugins\
-- BetterUnturnedExperience.dll sha256=a1b339bf7d6945b8e67c32355cb8cfcc0eb95ecb2112b9ce5eb396f09a871359(544768B,候选 v7 原名,由 r24 改回)
-- BueSameAsmProbe-ZAfter.dll sha256=dbc64f6937b4a386d1bacfd9b07533d346907daa936ed04dc3264df45677c2ca(4096B,手册 §1 一致;同程序集名不同 GUID,GUID 排序在 BUE 后)
-- NoOpFixture 已摘除;SPF(用户自有)保留
-- 预期(手册 §7 C2+C3+C5,事实观察两态皆可):探针 [PROBE] awake 行出现与否、001 行预期不出现(Z 在 BUE Awake 后进 AppDomain=冻结边界)、Preloader 段有无新增解析错误

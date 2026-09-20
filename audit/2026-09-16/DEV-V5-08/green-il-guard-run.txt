@@ -1,3 +1,0 @@
-# runner footer（执行期观察，2026-09-17）
-# command: BetterUnturnedExperience.Plugin.Tests.exe --bue-v5-08-identity-il-guard-red
-# exit code: 0（守卫组通过=该 exe 此旗标分支成功时不打印正文，空 stdout 与代码行为一致；本行即执行确认）

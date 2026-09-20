@@ -1,7 +1,0 @@
-DEV-14 official registration parity tests: FAIL
-System.InvalidOperationException: 实时注入：Start 期不注入（真实机器 Starting 态门禁会拒；注入归模块泵）
-   在 BetterUnturnedExperience.Plugin.Tests.Program.<>c__DisplayClass231_0.<AssertBueV3SettingsWiringAndPanelRouting>g__Check|0(Boolean condition, String message)
-   在 BetterUnturnedExperience.Plugin.Tests.Program.<>c__DisplayClass231_0.<AssertBueV3SettingsWiringAndPanelRouting>b__19()
-   在 BetterUnturnedExperience.Plugin.Tests.Program.<>c__DisplayClass231_0.<AssertBueV3SettingsWiringAndPanelRouting>g__Group|1(String name, Action body)
-   在 BetterUnturnedExperience.Plugin.Tests.Program.AssertBueV3SettingsWiringAndPanelRouting(Boolean collectAllFailures)
-   在 BetterUnturnedExperience.Plugin.Tests.Program.Main()

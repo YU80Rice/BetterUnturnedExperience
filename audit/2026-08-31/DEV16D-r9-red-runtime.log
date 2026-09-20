@@ -1,4 +1,0 @@
-DEV-14 official registration parity tests: FAIL
-System.InvalidOperationException: component isolation observes a failed detach before re-entrant cleanup
-   在 BetterUnturnedExperience.Plugin.Tests.Program.AssertDev16DR9CleanupPropagationContracts()
-   在 BetterUnturnedExperience.Plugin.Tests.Program.Main()

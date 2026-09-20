@@ -1,9 +1,0 @@
-CandidateBuild: DEV-16D-r9-clean-20260831
-CaseId: DEV-16D-R9-20260831
-GitCommit: 1549cd637f98e4fe5103be53e842cfd3af105c90
-SourceDll: src/BetterUnturnedExperience.Plugin/bin/Release/BetterUnturnedExperience.dll
-ArchivedDll: audit/2026-08-31/artifacts/BetterUnturnedExperience.dll
-SizeBytes: 222208
-SHA256: 98362DCF309C5AECD30A4D9386079D116F50023FDD47BFAB210D9653A7A397E4
-
-代码曾由 Gemini 负责，现由 GPT 接手。

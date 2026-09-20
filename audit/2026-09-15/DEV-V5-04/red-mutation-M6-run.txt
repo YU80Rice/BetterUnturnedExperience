@@ -1,5 +1,0 @@
-DEV-V5-04 insert-recover tests: FAIL
-DEV-14 official registration parity tests: FAIL
-System.InvalidOperationException: DEV-V5-04 red collection (11): 触发面：恢复成功=待加入物品随事务入到玩家页（不是报了成功没放入） || 决策：待加入物品绑定在提交计划内（Tag=该 Item 本体，不是影子复制） || 决策：提交后页 2 = 原四件 + 待加入一件（不吞物不丢物） || 决策：提交格合法（不越界/不重叠/该件在场）——恢复成功?放入成功 || 决策：重排后仍放不下 = 明确失败原因（cannot-fit），不半提交 || 决策：放不下零修改（背包不动、不触事务；物品留原处由原版失败语义承担） || 决策：候选按页升序（页 2 放不下→页 4；同原版 2..6 循环的落点次序） || 范围：STORAGE/AREA/装备槽的空位不是恢复的落点（只玩家五页） || 范围：规划器对该局面给不出候选（页 0/1/7/8 不参与） || 官方先行消费：提交落格=同一输入再算一遍的 tagged-row-band-v1 计划（逐格对照） || 官方先行消费：待加入物品的标签来自 02 分类器接缝（Medical），随统一排版分段
-   在 BetterUnturnedExperience.Plugin.Tests.DevV5InsertRecoverTests.Run(Boolean collectAllFailures)
-   在 BetterUnturnedExperience.Plugin.Tests.Program.Main()

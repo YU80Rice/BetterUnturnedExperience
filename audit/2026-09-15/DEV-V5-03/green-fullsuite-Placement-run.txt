@@ -1,2 +1,0 @@
-DEV-04 placement evaluator tests: PASS
-exit=0

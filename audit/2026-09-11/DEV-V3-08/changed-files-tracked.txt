@@ -1,3 +1,0 @@
- M docs/sdk/BetterUnturnedExperience-SDK-Assembly-Identity.md
- M src/BetterUnturnedExperience.NoOpFixture/NoOpFeaturePlugin.cs
- M tests/BetterUnturnedExperience.Plugin.Tests/Program.cs

@@ -1,7 +1,0 @@
-DEV-14 official registration parity tests: FAIL
-System.InvalidOperationException: 结构锚：附录 A/B/C 依序成文
-   在 BetterUnturnedExperience.Plugin.Tests.Program.<>c__DisplayClass226_0.<AssertBueV3EcosystemUnifiedProbe>g__Check|0(Boolean condition, String message)
-   在 BetterUnturnedExperience.Plugin.Tests.Program.<>c__DisplayClass226_0.<AssertBueV3EcosystemUnifiedProbe>b__12()
-   在 BetterUnturnedExperience.Plugin.Tests.Program.<>c__DisplayClass226_0.<AssertBueV3EcosystemUnifiedProbe>g__Group|1(String name, Action body)
-   在 BetterUnturnedExperience.Plugin.Tests.Program.AssertBueV3EcosystemUnifiedProbe(Boolean collectAllFailures)
-   在 BetterUnturnedExperience.Plugin.Tests.Program.Main()

@@ -1,7 +1,0 @@
-ClientUi exit=0
-Contracts exit=0
-Network exit=0
-Placement exit=0
-Settings exit=0
-Release exit=0
-Plugin exit=0

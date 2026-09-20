@@ -1,4 +1,0 @@
-Verify-NoUiTokens Core:
-UI/native token scan PASS: 28 C# files
-git diff --check exit:
-(0)
