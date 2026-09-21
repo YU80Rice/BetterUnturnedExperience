@@ -56,7 +56,7 @@ namespace BetterUnturnedExperience.Lit
         /// the Choice rows through the DEV-V4-02 row projection (T1 检验点②:
         /// LIT is the official-first real consumer of the choice controls).
         /// </summary>
-        private sealed class Registration : IFeatureRegistration, IFeatureSettingsRegistration, IFeaturePresentationRegistration
+        private sealed class Registration : IFeatureRegistration, IFeaturePresentationRegistration
         {
             private readonly InventoryTidyModule moduleForFactory;
             private readonly FeatureId feature;
@@ -74,17 +74,6 @@ namespace BetterUnturnedExperience.Lit
             public IFeatureModuleFactory ModuleFactory { get { return new ModuleFactory(moduleForFactory); } }
 
             public IClientUiSatelliteRegistration ClientUi { get { return null; } }
-
-            // DEV-V4-06: the two global choices. OnSettingsApplied stays null
-            // honestly — mode/direction have no working-state to refresh (the
-            // tidy click reads the saved snapshot at click time, Q59); the
-            // retired enabled toggle was the refresh hook's only caller.
-            public IReadOnlyList<SettingDescriptor> SettingDescriptors
-            {
-                get { return InventoryTidyModule.CreateSettingsDescriptors(feature); }
-            }
-
-            public Action OnSettingsApplied { get { return null; } }
 
             // DEV-V6-05 (V6-T5 Q1): self-reported panel copy — the tidy feature
             // patches the native inventory UI directly and ships no ClientUi

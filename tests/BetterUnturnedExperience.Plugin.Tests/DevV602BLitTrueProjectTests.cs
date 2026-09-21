@@ -90,9 +90,9 @@ namespace BetterUnturnedExperience.Plugin.Tests
             Check(registration.MinimumBueContract.Major == 2 && registration.MinimumBueContract.Minor == 0,
                 "最低契约应与 (2,0) 门对齐");
             var settingsFace = registration as IFeatureSettingsRegistration;
-            Check(settingsFace != null && settingsFace.SettingDescriptors != null && settingsFace.SettingDescriptors.Count == 1,
-                "设置面应为整理方向单一描述符（DEV-V5-02 收编后恰一），实际 "
-                + (settingsFace?.SettingDescriptors?.Count.ToString() ?? "null"));
+            Check(settingsFace == null,
+                "V7-01：整理方向退役，LIT 登记不再暴露 settings facet（实际 "
+                + (settingsFace?.SettingDescriptors?.Count.ToString() ?? "null") + ")");
             Check(registration.ModuleFactory != null, "模块工厂应在位（宿主启动路径经工厂装配）");
 
             // DEV-V6-02E 收口（作废票：02E）：facade 薄转发成员（CreateRegistration/

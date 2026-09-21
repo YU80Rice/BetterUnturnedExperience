@@ -1082,8 +1082,8 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     Live = Live(),
                     ContainerItems = ContainerGrid(7, 6, 4),
                 };
-                check(noPrefModule.RequestContainerTidyFromUiClick() == LitTidyRequestResult.RejectedPreferenceUnavailable,
-                    "偏好：无已保存方向快照时拒绝（RejectedPreferenceUnavailable，不发明未保存组合）");
+                check(noPrefModule.RequestContainerTidyFromUiClick() != LitTidyRequestResult.RejectedPreferenceUnavailable,
+                    "偏好：整理方向已退役，无已保存方向快照也使用固定 StableLabelCompact 算法");
 
                 // 7e. 熔断闸：本地故障打开后容器点击同样被拒（功能级共享，不另造第二套闸）。
                 module.FaultGate.Open("v5-03 fixture circuit", restoreVerified: true);

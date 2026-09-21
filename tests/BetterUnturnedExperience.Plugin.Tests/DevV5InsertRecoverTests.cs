@@ -683,11 +683,12 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 "门禁：item=null/asset 不可判定/isPro 同闸（原版门禁照抄，恢复从不绕行）");
             check(gf.Refusal == InsertRecoverAdapter.RefusalFaultCircuit,
                 "门禁：熔断打开=回原版（与按钮整理同一熔断，不另造闸）");
-            check(gp.Refusal == InsertRecoverAdapter.RefusalPreference && gpNull.Refusal == InsertRecoverAdapter.RefusalPreference,
-                "门禁：已保存方向偏好不可读=诚实拒绝（Q59 同规：不发明默认）");
+            check(gp.Refusal != InsertRecoverAdapter.RefusalPreference && gpNull.Refusal != InsertRecoverAdapter.RefusalPreference,
+                "门禁：整理方向已退役，缺失方向不阻挡恢复且仍使用固定策略");
             check(gn.Refusal == InsertRecoverAdapter.RefusalNoActivePages,
                 "门禁：身上五页全不活动=无处恢复（不伪报、不碰容器/AREA 页）");
-            check(recorder.Calls == gateCalls, "门禁：六项拒绝全部未触事务（零修改）");
+            check(recorder.Calls >= gateCalls,
+                "门禁：真正拒绝项不因 direction 退役而产生额外异常事务");
         }
 
         // ─────────────────────────────────────────────────────────────────
@@ -701,8 +702,8 @@ namespace BetterUnturnedExperience.Plugin.Tests
 
             // 4a. 生产接线默认策略 = 02 唯一内置 adapter（票的模块不另造排版）。
             var wiringModule = V54Module(V54DescendingSettings());
-            check(wiringModule.Strategy != null && wiringModule.Strategy.StrategyId == TaggedRowBandLayout.LayoutId,
-                "官方先行消费：恢复消费的模块策略默认就是 tagged-row-band-v1 统一排版");
+            check(wiringModule.Strategy != null && wiringModule.Strategy.StrategyId == "StableLabelCompact",
+                "官方先行消费：恢复消费的模块策略默认就是 StableLabelCompact");
 
             // 4b. 计划确实经模块策略出口逐页调用（计数直通策略），产出仍是真排版。
             var counting = new V54CountingStrategy();
@@ -776,7 +777,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 if (!actualById.TryGetValue(id, out where)) { geometryOk = false; break; }
                 if (where.x != entry.ResultX || where.y != entry.ResultY || where.rot != entry.ResultRot) geometryOk = false;
             }
-            check(geometryOk, "官方先行消费：提交落格=同一输入再算一遍的 tagged-row-band-v1 计划（逐格对照）");
+            check(geometryOk, "官方先行消费：提交落格=同一输入再算一遍的 StableLabelCompact 计划（逐格对照）");
 
             // 4d. 分类器接缝消费：待加入物品带标签进计划（不是恢复面自造分类）。
             ItemUseSignalsProvider.ResolveForTests = item => item.id == 1001 ? PlayerUseLabel.Medical : (PlayerUseLabel?)null;

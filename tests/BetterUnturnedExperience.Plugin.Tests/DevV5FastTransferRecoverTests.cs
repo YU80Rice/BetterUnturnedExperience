@@ -186,7 +186,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
         /// <summary>计数直通策略（04 同款形）：钉「恢复的计划确实经模块注入的策略出口」。</summary>
         internal sealed class V55CountingStrategy : ITidyStrategy
         {
-            private readonly TaggedRowBandV1Strategy inner = new TaggedRowBandV1Strategy();
+            private readonly StableLabelCompactStrategy inner = new StableLabelCompactStrategy();
             public int BuildPlanCalls;
             public string StrategyId { get { return inner.StrategyId; } }
             public TidyPlan BuildPlan(TidyInput input) { BuildPlanCalls++; return inner.BuildPlan(input); }
@@ -403,8 +403,8 @@ namespace BetterUnturnedExperience.Plugin.Tests
 
                 // 2d. 方向偏好不可读 = 诚实拒绝（Q59 同规，不发明默认）。
                 settings.Entries.Clear();
-                check(FastTransferRecoverAdapter.RequestFromIntent(V55Intent(3, 0, 0)) == LitTidyRequestResult.RejectedPreferenceUnavailable,
-                    "已保存方向读不到 = 拒绝（不猜方向）");
+                check(FastTransferRecoverAdapter.RequestFromIntent(V55Intent(3, 0, 0)) != LitTidyRequestResult.RejectedPreferenceUnavailable,
+                    "整理方向已退役：读不到旧方向也不阻挡快转恢复");
                 settings.SetDirection(InventoryTidyModule.DirectionDescendingLabel);
 
                 // 2e. 过完全部登记门 = 无会话时显式 RejectedNoSession（真客户端绝不本地改格）。
@@ -715,12 +715,12 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 var box = V55FragmentedBox();
                 var fp = LitContainerContentFingerprint.FromItems(box);
                 var claim = new LitContainerTidyClaim { Kind = LitContainerTidyKind.WorldContainer, Fingerprint = fp };
-                var expected = ManualTidyService.PreparePage(box, 7, true, TidyMode.SameType, new TaggedRowBandV1Strategy(),
+                var expected = ManualTidyService.PreparePage(box, 7, true, TidyMode.SameType, new StableLabelCompactStrategy(),
                     new PackableItem { Tag = p3.items[0].item, size_x = 2, size_y = 1, GroupKey = 5001, StableOrder = box.getItemCount(), Label = PlayerUseLabel.Magazine });
                 var attempt = FastTransferRecoverAdapter.TryRecover(null, V55Pages(p3), box, V55Live(fingerprint: fp), claim, 3, 0, 0, true);
                 check(attempt.Recovered && counting.BuildPlanCalls == 1
-                        && counting.StrategyId == new TaggedRowBandV1Strategy().StrategyId,
-                    "接收侧计划恰经模块注入策略出口一次，出口 = tagged-row-band-v1（唯一内置策略）");
+                        && counting.StrategyId == new StableLabelCompactStrategy().StrategyId,
+                    "接收侧计划恰经模块注入策略出口一次，出口 = StableLabelCompact（唯一内置策略）");
                 var actual = recorder.LastPreps[1];
                 check(expected.Valid && PlanEqual(expected.Result, actual.Result),
                     "容器侧逐格 = 独立 computed 的 02 计划（同输入同计划，恢复不复制算法）");

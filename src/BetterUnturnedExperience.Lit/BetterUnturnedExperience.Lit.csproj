@@ -27,6 +27,7 @@
     <Compile Include="InventoryTidyModule.cs" />
     <Compile Include="TidyPatchHandle.cs" />
     <Compile Include="TidyStrategy.cs" />
+    <Compile Include="StableLabelCompactStrategy.cs" />
     <Compile Include="TaggedRowBandV1Strategy.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="Container\LitContainerSessionProbe.cs" />
@@ -37,6 +38,7 @@
     <Compile Include="Layout\PlayerUseClassifier.cs" />
     <Compile Include="Layout\PlayerUseLabel.cs" />
     <Compile Include="Layout\TaggedRowBandLayout.cs" />
+    <Compile Include="Layout\StableLabelCompactLayout.cs" />
     <Compile Include="Recovery\FastTransferIntentScope.cs" />
     <Compile Include="Recovery\FastTransferRecoverAdapter.cs" />
     <Compile Include="Recovery\FastTransferRecoverEngine.cs" />

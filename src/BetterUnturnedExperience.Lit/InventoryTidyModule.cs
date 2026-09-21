@@ -98,7 +98,7 @@ namespace BetterUnturnedExperience.Lit
         internal InventoryTidyModule(FeatureId feature)
         {
             Feature = feature;
-            Strategy = new TaggedRowBandV1Strategy();
+            Strategy = new StableLabelCompactStrategy();
             FaultGate = new LocalTidyFaultGate();
         }
 
@@ -115,15 +115,10 @@ namespace BetterUnturnedExperience.Lit
         /// literals (2 chars = 6 UTF-8 bytes each) with headroom.</summary>
         internal static IReadOnlyList<SettingDescriptor> CreateSettingsDescriptors(FeatureId feature)
         {
-            return new[]
-            {
-                new SettingDescriptor(
-                    feature, DirectionSettingId, DirectionDisplayName, DirectionDescription,
-                    SettingKind.Choice, SettingAuthority.ClientLocal, SettingValue.Choice(DirectionDescendingLabel),
-                    default(SettingValueOption), default(SettingValueOption), default(SettingValueOption),
-                    new[] { SettingValue.Choice(DirectionDescendingLabel), SettingValue.Choice(DirectionAscendingLabel) },
-                    16, null, 1, 0, null, null),
-            };
+            // V7-01: tidy direction is no longer an effective setting. Returning
+            // an empty schema hides the retired row while the persistence layer
+            // still tolerates and normalizes old mode/direction entries.
+            return new SettingDescriptor[0];
         }
 
         // Q56 frozen literals survive for direction: 降序/升序 are BOTH the
@@ -609,17 +604,12 @@ namespace BetterUnturnedExperience.Lit
             sortDescending = true;
             revision = 0;
             var view = SettingsView;
-            if (view == null) return false;
+            if (view == null) return true;
             var snapshot = view.GetSnapshot(SettingRevisionScope.ClientPreference);
-            var directionText = string.Empty;
-            var hasDirection = false;
-            for (var i = 0; i < snapshot.Entries.Count; i++)
-            {
-                var entry = snapshot.Entries[i];
-                if (entry.SettingId == DirectionSettingId) { directionText = entry.EffectiveValue.Text; hasDirection = true; }
-            }
-            if (!hasDirection) return false;
-            if (!TryMapDirectionLabel(directionText, out sortDescending)) return false;
+            // V7-01: the direction row is retired. Keep reading one snapshot so
+            // callers retain the revision boundary, but use a fixed internal
+            // placeholder for the private wire shape. Old persisted rows are
+            // ignored by the empty schema and never decide the layout.
             revision = snapshot.Revision;
             return true;
         }
