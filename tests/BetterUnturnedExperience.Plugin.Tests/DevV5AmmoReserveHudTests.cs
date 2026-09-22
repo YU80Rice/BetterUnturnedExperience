@@ -147,16 +147,23 @@ namespace BetterUnturnedExperience.Plugin.Tests
                   !AmmoReserveProjection.CalibersMatchWeapon(new ushort[] { 11 }, null, false),
                 "枪口径集为空 → 有口径弹匣不匹配（无匹配池）");
 
-            // 1f. 「不含枪上那本」的结构保证：装载匣描述类型不存在任何弹量输入。
-            var loadedFields = typeof(AmmoReserveLoadedMagazine).GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-            var hasAmmoField = false;
-            foreach (var f in loadedFields)
+            // 1f. V7-02：枪上发数属于非 HUD 事实源，与原版 ammoLabel 同源，
+            // 不再钉死「枪上匣描述无弹量字段」这一已废止假设。
+            var totalObservation = new AmmoObservation
             {
-                if (f.Name.IndexOf("mount", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                    f.Name.IndexOf("Ammo", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                    f.Name.IndexOf("Rounds", StringComparison.OrdinalIgnoreCase) >= 0) hasAmmoField = true;
-            }
-            check(!hasAmmoField, "枪上匣无弹量字段（amount/ammo/rounds 任一）——当前匣发数结构上不可能混入后备");
+                GunMagazineCalibers = new ushort[] { 10 },
+                GunAllowsZeroCaliber = false,
+                LoadedMagazine = new LoadedAmmoMagazine
+                {
+                    Id = 5000,
+                    CurrentAmmo = 7,
+                    Calibers = new ushort[] { 10 },
+                    FillSupplyIds = new ushort[0],
+                },
+                Entries = new AmmoEntry[0],
+            };
+            var totalResult = AmmoTotalProjection.Project(totalObservation);
+            check(totalResult.TotalAmmo == 7, "枪上当前发数必须进入总弹药事实源");
 
             // 1g. 同 ID 备用匣按本数计（两本各算一本、弹量各计其数）。
             obs.Entries = new[]
@@ -304,8 +311,8 @@ namespace BetterUnturnedExperience.Plugin.Tests
         // ─────────────────────────────────────────────────────────────────
         private static void V56GroupLabel(System.Action<bool, string> check)
         {
-            check(AmmoReserveProjection.LabelFormat == "备匣 {0} · 备弹 {1}",
-                "HUD 文案格式冻结：备匣 {0} · 备弹 {1}");
+            check(AmmoTotalProjection.LabelFormat == "总弹药 {0}",
+                "V7 HUD 文案格式冻结：总弹药 {0}");
             var obs = new AmmoReserveObservation
             {
                 GunMagazineCalibers = new ushort[] { 10 },
@@ -314,10 +321,29 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 Entries = new[] { V56Mag(2, 5001, 20, 10), V56Box(3, 77, 37) },
             };
             var r = AmmoReserveProjection.Project(obs);
-            check(r.LabelText == "备匣 1 · 备弹 57", "渲染逐字钉死（N=1 M=57）");
-            obs.Entries = new AmmoReserveEntry[0];
-            r = AmmoReserveProjection.Project(obs);
-            check(r.LabelText == "备匣 0 · 备弹 0", "0/0 不早退——原版数字旁恒有后备读数（持枪即在）");
+            var totalObservation = new AmmoObservation
+            {
+                GunMagazineCalibers = new ushort[] { 10 },
+                GunAllowsZeroCaliber = false,
+                LoadedMagazine = new LoadedAmmoMagazine
+                {
+                    Id = 5000,
+                    CurrentAmmo = 7,
+                    Calibers = new ushort[] { 10 },
+                    FillSupplyIds = new ushort[] { 77 },
+                },
+                Entries = new[]
+                {
+                    new AmmoEntry { Page = 2, Id = 5001, IsMagazine = true, IsCaliberAsset = true, Amount = 20, MaxAmount = 30, Calibers = new ushort[] { 10 } },
+                    new AmmoEntry { Page = 3, Id = 77, IsMagazine = false, IsCaliberAsset = false, Amount = 37, MaxAmount = 120, Calibers = null },
+                },
+            };
+            var total = AmmoTotalProjection.Project(totalObservation);
+            check(total.TotalAmmo == 64 && total.LabelText == "总弹药 64", "总弹药逐字钉死（枪上 7 + 匣 20 + 箱 37）");
+            totalObservation.LoadedMagazine = new LoadedAmmoMagazine { Id = 5000, CurrentAmmo = 0, Calibers = new ushort[] { 10 }, FillSupplyIds = new ushort[] { 77 } };
+            totalObservation.Entries = new AmmoEntry[0];
+            total = AmmoTotalProjection.Project(totalObservation);
+            check(total.TotalAmmo == 0 && total.LabelText == "总弹药 0", "0 也显示，不早退");
         }
 
         // ─────────────────────────────────────────────────────────────────
@@ -347,30 +373,34 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 "登记入账：恰一枚句柄经启动口袋进账、拆除所有权移交平台（官方与生态同一公开接入面）");
 
             // 4b. 真持枪形状走 LIR 链：postfix 入口 → 登记闸 → 观察 → 纯投影 → 呈现。
-            var applied = new List<AmmoReserveResult>();
+            var applied = new List<AmmoTotalResult>();
             object seenGun = null;
             int scans = 0;
-            AmmoReserveHudAdapter.ScannerForTests = gun =>
+            AmmoReserveHudAdapter.TotalScannerForTests = gun =>
             {
                 scans++;
                 seenGun = gun;
-                return new AmmoReserveObservation
+                return new AmmoObservation
                 {
                     GunMagazineCalibers = new ushort[] { 10 },
                     GunAllowsZeroCaliber = false,
-                    LoadedMagazine = new AmmoReserveLoadedMagazine { Id = 5000, Calibers = new ushort[] { 10 }, FillSupplyIds = new ushort[] { 77 } },
-                    Entries = new[] { V56Mag(2, 5001, 5, 10), V56Box(3, 77, 10) },
+                    LoadedMagazine = new LoadedAmmoMagazine { Id = 5000, CurrentAmmo = 7, Calibers = new ushort[] { 10 }, FillSupplyIds = new ushort[] { 77 } },
+                    Entries = new[]
+                    {
+                        new AmmoEntry { Page = 2, Id = 5001, IsMagazine = true, IsCaliberAsset = true, Amount = 5, MaxAmount = 30, Calibers = new ushort[] { 10 } },
+                        new AmmoEntry { Page = 3, Id = 77, IsMagazine = false, IsCaliberAsset = false, Amount = 10, MaxAmount = 120, Calibers = null },
+                    },
                 };
             };
             var appliedGuns = new List<object>();
-            AmmoReserveHudAdapter.ApplyForTests = (gun, result) => { applied.Add(result); appliedGuns.Add(gun); };
+            AmmoReserveHudAdapter.TotalApplyForTests = (gun, result) => { applied.Add(result); appliedGuns.Add(gun); };
             var fakeGun = new object();
             AmmoReserveHudAdapter.OnGunInfoUpdated(fakeGun);
             check(scans == 1 && ReferenceEquals(seenGun, fakeGun), "观察入口收到持枪实例本身（真实持枪时投影走此链）");
-            check(applied.Count == 1 && applied[0].SpareMagCount == 1 && applied[0].ReserveRounds == 15
-                    && applied[0].LabelText == "备匣 1 · 备弹 15"
+            check(applied.Count == 1 && applied[0].TotalAmmo == 22
+                    && applied[0].LabelText == "总弹药 22"
                     && ReferenceEquals(appliedGuns[0], fakeGun),
-                "在册 → 投影→呈现逐字（M=5+10），呈现收到同一持枪实例");
+                "在册 → 总弹药事实源 → 呈现逐字（枪上 7 + 匣 5 + 箱 10）");
 
             // 4c. Stop = 注销：在册归零 + HideAll 恰一次；入口对功能停零介入。
             int hideAll = 0;
@@ -565,6 +595,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
             module.NetServiceFactoryForTests = (m, net) => new LirRepackNetwork(net, m.Authority, () => isServer);
             module.KeyDownProviderForTests = () => false;
             module.RoleProbeForTests = () => false;
+            module.SkillPersistenceForTests = new V56Persistence();
             // DEV-V6-12：本票之后武装 ⇒ 经启动口袋登记（缺口袋=立即自拆），老套件按生产
             // 组合同形地给真账户（真登记目录 + 真代际机 + 真补丁口视图）。
             V56Pocket = LirTestPocket.Open();
@@ -574,6 +605,22 @@ namespace BetterUnturnedExperience.Plugin.Tests
             var result = module.Start(bootstrap);
             check(result.Started, "harness: LIR 模块 Start 失败: " + result.DiagnosticId);
             return module;
+        }
+
+        private sealed class V56Persistence : IReloadSkillPersistence
+        {
+            public bool TryLoad(out List<ReloadSkillRecord> records, out string error)
+            {
+                records = new List<ReloadSkillRecord>();
+                error = null;
+                return true;
+            }
+
+            public bool TrySave(IReadOnlyList<ReloadSkillRecord> records, out string error)
+            {
+                error = null;
+                return true;
+            }
         }
 
         private sealed class V56SettingsView : IScopedFeatureSettings

@@ -29,8 +29,9 @@
     <Compile Include="InPlaceReloadModule.cs" />
     <Compile Include="LirPatchHandle.cs" />
     <Compile Include="ReloadRuntimePolicy.cs" />
-    <Compile Include="Hud\AmmoReserveProjection.cs" />
-    <Compile Include="Hud\AmmoReserveHudEngine.cs" />
+    <Compile Include="AmmoObservation.cs" />
+    <Compile Include="AmmoReserveCompatibility.cs" />
+    <Compile Include="AmmoObservationEngine.cs" />
     <Compile Include="Hud\AmmoReserveHudSurface.cs" />
     <Compile Include="Hud\AmmoReserveHudAdapter.cs" />
     <Compile Include="Hud\AmmoReserveHudBinder.cs" />

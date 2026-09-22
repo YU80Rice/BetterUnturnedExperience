@@ -760,10 +760,9 @@ namespace BetterUnturnedExperience.Lir
                 if (!(firstAsset is ItemCaliberAsset boxCaliberAsset)) continue;
                 if (boxCaliberAsset.calibers == null || boxCaliberAsset.calibers.Length == 0) continue;
 
-                // DEV-V5-06: 交集判定 = AmmoReserveProjection.MagSuppliesMatch
-                // 单源（现网逐字语义：mag 侧 0 口径跳过、双侧非空才配）——
-                // HUD 后备计数与压弹共用谓词，禁两份实现各自漂移。
-                if (AmmoReserveProjection.MagSuppliesMatch(magCalibers, boxCaliberAsset.calibers)) result.Add(boxList);
+                // DEV-V7-02: fallback 交集由非 HUD 弹药事实源统一提供。
+                // 压弹与 HUD/后续被动压弹不得各自复制口径表。
+                if (AmmoTotalProjection.MagSuppliesMatch(magCalibers, boxCaliberAsset.calibers)) result.Add(boxList);
             }
             return result;
         }

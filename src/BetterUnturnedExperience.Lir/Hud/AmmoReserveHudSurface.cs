@@ -45,6 +45,53 @@ namespace BetterUnturnedExperience.Lir
         private static bool reflectionBrokenLogged;
 
         [MethodImpl(MethodImplOptions.NoInlining)]
+        internal static void ApplyTotal(object gun, AmmoTotalResult result)
+        {
+            if (gun == null) return;
+            try
+            {
+                lock (gate)
+                {
+                    if (!EnsureReflection()) return;
+                    object box;
+                    try { box = infoBoxField.GetValue(gun); }
+                    catch (Exception) { return; }
+                    var parent = box as ISleekElement;
+                    if (parent == null) return;
+
+                    Slot slot;
+                    if (!slots.TryGetValue(gun, out slot))
+                    {
+                        slot = CreateSlot(parent);
+                        if (slot == null) return;
+                        slots.Add(gun, slot);
+                        live.Add(new WeakReference<Slot>(slot));
+                        for (var d = live.Count - 1; d >= 0; d--)
+                        {
+                            Slot dead;
+                            if (!live[d].TryGetTarget(out dead)) live.RemoveAt(d);
+                        }
+                    }
+                    if (slot.label == null) return;
+                    if (slot.lastText != result.LabelText)
+                    {
+                        slot.label.Text = result.LabelText;
+                        slot.lastText = result.LabelText;
+                    }
+                    if (!slot.visible)
+                    {
+                        slot.label.IsVisible = true;
+                        slot.visible = true;
+                    }
+                }
+            }
+            catch (Exception error)
+            {
+                LirRuntime.LogDiagnostic("[AmmoHud] 总弹药呈现异常（本次吞掉，原版读数不受影响）: " + error.Message);
+            }
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
         internal static void Apply(object gun, AmmoReserveResult result)
         {
             if (gun == null) return;

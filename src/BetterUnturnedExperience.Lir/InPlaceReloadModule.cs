@@ -366,6 +366,10 @@ namespace BetterUnturnedExperience.Lir
                     NetService.Drain();
                 }
                 InputDriver?.Tick(tick);
+                // DEV-V7-02: inventory-side ammo changes have no vanilla updateInfo
+                // callback. Reuse the frozen HostTick seam so the HUD observes the
+                // same frame without adding another Unity pump or Harmony surface.
+                AmmoReserveHudAdapter.RefreshOnHostTick();
                 PumpSkillRuntime();
             }
             catch (Exception error)
