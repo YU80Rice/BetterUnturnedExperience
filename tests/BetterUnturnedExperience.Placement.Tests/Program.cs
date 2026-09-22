@@ -26,7 +26,7 @@ namespace BetterUnturnedExperience.Placement.Tests
 
             var oddRotationGrid = new Grid(5, 5); oddRotationGrid.Fill(1, 2, 1, 1);
             var oddRotation = evaluator.Evaluate(Input(oddRotationGrid, 2, 3, 2.5f, 2.5f, 1, true));
-            Assert(oddRotation.State == PlacementPreviewState.Candidate && oddRotation.Width == 2 && oddRotation.Height == 3 && oddRotation.Candidate.Rotation == 2, "automatic rotation swaps dimensions from odd current rotation");
+            Assert(oddRotation.State == PlacementPreviewState.Candidate && oddRotation.Width == 2 && oddRotation.Height == 3 && oddRotation.Candidate.Rotation == 0, "automatic rotation swaps dimensions from odd current rotation without selecting an inverted pose");
 
             var noRotate = evaluator.Evaluate(Input(obstacle, 2, 3, 3.5f, 1.1f, 0, false));
             Assert(noRotate.State == PlacementPreviewState.Candidate && noRotate.Width == 2 && noRotate.Height == 3 && noRotate.Candidate.Rotation == 0, "automatic rotation disabled preserves current orientation");

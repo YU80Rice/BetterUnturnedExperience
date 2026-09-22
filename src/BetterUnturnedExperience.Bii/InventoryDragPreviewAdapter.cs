@@ -333,9 +333,11 @@ namespace BetterUnturnedExperience.Bii
         {
             if (isolated)
             {
+                SetNativeDragGhostVisible(true);
                 return cleanupSucceeded;
             }
             isolated = true;
+            SetNativeDragGhostVisible(true);
             LastCleanupDiagnostics = null;
             PatchTeardownDeferredToPlatform = !releasePatches;
             var detachSucceeded = DetachAndDeactivate(releasePatches);
@@ -571,6 +573,27 @@ namespace BetterUnturnedExperience.Bii
             return !isDragging || hasSurface;
         }
 
+        internal static bool ShouldSuppressNativeDragGhost(bool isDragging, bool enhancedDragActive,
+            bool targetGridOwned, PlacementPreviewState previewState)
+        {
+            return isDragging && enhancedDragActive && targetGridOwned &&
+                (previewState == PlacementPreviewState.Candidate ||
+                 previewState == PlacementPreviewState.LocallyInvalid);
+        }
+
+        private void SetNativeDragGhostVisible(bool visible)
+        {
+            var dragItem = ReadDragItem();
+            if (dragItem != null) dragItem.IsVisible = visible;
+        }
+
+        private void SyncNativeDragGhost(bool targetGridOwned, PlacementPreviewState previewState)
+        {
+            SetNativeDragGhostVisible(!ShouldSuppressNativeDragGhost(
+                PlayerDashboardInventoryUI.isDragging, component.EnhancedDragActive,
+                targetGridOwned, previewState));
+        }
+
         // GPT watermark: R13 target routing must use the live native surface
         // whose pointer currently contains the cursor. This seam is kept
         // explicit so the dual-page route is regression-tested independently
@@ -611,6 +634,7 @@ namespace BetterUnturnedExperience.Bii
             if (!component.LifecycleCanRun && !component.EnhancedDragActive)
             {
                 component.HidePreview();
+                SetNativeDragGhostVisible(true);
                 return;
             }
             var frame = Time.frameCount;
@@ -690,6 +714,7 @@ namespace BetterUnturnedExperience.Bii
             {
                 // Drag ended without onPlacedItem (ESC, drag-out): cancel visuals.
                 component.OnDragCancelled();
+                SetNativeDragGhostVisible(true);
                 EmitRuntime("[BUE-DRAG] event=drag-cancelled diagnosticId=BUE-DRAG-001");
             }
             wasDragging = isDragging;
@@ -708,6 +733,7 @@ namespace BetterUnturnedExperience.Bii
                 if (!TrySelectTargetSurface(component, out selectedSurface, out localX, out localY))
                 {
                     component.HidePreview();
+                    SetNativeDragGhostVisible(true);
                     if (ShouldEmitDiagnostic(PlacementPreviewState.Hidden, PlacementReason.OutsideGrid))
                         EmitRuntime("[BUE-DRAG] GPT-WATERMARK event=preview-hidden reason=outside-viewport generation=" + dragGeneration + " diagnosticId=BUE-DRAG-001");
                     return;
@@ -716,6 +742,7 @@ namespace BetterUnturnedExperience.Bii
                 if (surface == null)
                 {
                     component.HidePreview();
+                    SetNativeDragGhostVisible(true);
                     if (ShouldEmitDiagnostic(PlacementPreviewState.Hidden, PlacementReason.FeatureUnavailable))
                         EmitRuntime("[BUE-DRAG] GPT-WATERMARK event=preview-hidden reason=surface-not-native generation=" + dragGeneration + " diagnosticId=BUE-DRAG-001");
                     return;
@@ -731,6 +758,7 @@ namespace BetterUnturnedExperience.Bii
                 {
                     component.OnDragUpdated(input);
                     var state = component.LastPreview.State;
+                    SyncNativeDragGhost(targetGridOwned: true, previewState: state);
                     if (ShouldEmitDiagnostic(state, component.LastPreview.Reason))
                     {
                         LogPreviewInputReadout(input, Input.mousePosition.x, Input.mousePosition.y,
@@ -743,6 +771,7 @@ namespace BetterUnturnedExperience.Bii
                 else
                 {
                     component.HidePreview();
+                    SetNativeDragGhostVisible(true);
                     if (ShouldEmitDiagnostic(PlacementPreviewState.Hidden, PlacementReason.FeatureUnavailable))
                         EmitRuntime("[BUE-DRAG] GPT-WATERMARK event=preview-input-rejected generation=" + dragGeneration + " diagnosticId=BUE-DRAG-001");
                 }
@@ -853,20 +882,22 @@ namespace BetterUnturnedExperience.Bii
             // execute); returns true for pass-through branches (slots, AREA,
             // and swaps onto an occupied same-page cell, which the native
             // onPlacedItem handles via sendSwapItem).
-            if (!PlayerDashboardInventoryUI.isDragging) return true;
+            if (!PlayerDashboardInventoryUI.isDragging) { SetNativeDragGhostVisible(true); return true; }
             var isOrdinaryGrid = page >= PlayerInventory.SLOTS && page != PlayerInventory.AREA;
-            if (!isOrdinaryGrid) return true;
+            if (!isOrdinaryGrid) { SetNativeDragGhostVisible(true); return true; }
             // [R34 fail-open] Enhanced interaction off, or no fresh preview
             // evaluation, means BUE cannot judge the placement: the native
             // path owns it. BUE never blocks what it cannot evaluate.
             if (!component.EnhancedDragActive)
             {
+                SetNativeDragGhostVisible(true);
                 EmitRuntime("[BUE-DRAG] event=placement-passthrough reason=enhanced-off diagnosticId=BUE-DRAG-001");
                 return true;
             }
             var preview = component.LastPreview;
             if (preview.State == 0 || preview.DragGeneration != dragGeneration)
             {
+                SetNativeDragGhostVisible(true);
                 EmitRuntime("[BUE-DRAG] event=placement-passthrough reason=preview-stale previewGen=" + preview.DragGeneration + " dragGen=" + dragGeneration + " diagnosticId=BUE-DRAG-001");
                 return true;
             }
@@ -879,6 +910,7 @@ namespace BetterUnturnedExperience.Bii
                 preview.Reason == PlacementReason.Occupied && IsSwapOntoOccupied(page, x, y))
             {
                 component.HidePreview();
+                SetNativeDragGhostVisible(true);
                 EmitRuntime("[BUE-DRAG] event=placement-passthrough reason=native-swap diagnosticId=BUE-DRAG-001");
                 return true;
             }
@@ -887,6 +919,7 @@ namespace BetterUnturnedExperience.Bii
                 PlayerDashboardInventoryUI.isDragging, dragGeneration,
                 ReadDragSource(), preview, page);
             var outcome = component.OnDragReleased(input, nativeActions);
+            SetNativeDragGhostVisible(true);
             EmitRuntime("[BUE-DRAG] event=placement-decision page=" + page + " x=" + x + " y=" + y
                 + " outcome=" + outcome + " diagnosticId=BUE-DRAG-001");
             if (outcome == NativeDragAdapterOutcome.Submitted)

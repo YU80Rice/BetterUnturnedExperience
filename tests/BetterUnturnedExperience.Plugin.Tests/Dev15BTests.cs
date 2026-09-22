@@ -23,7 +23,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
             AnchorsIconUsingRotatedGrabOffset();
             SleekPreviewSinkShowsGreenFrameAndFloatingIcon();
             SleekPreviewSinkUsesNativeTopLevelAnchorAndRotationGeometry();
-            SleekPreviewSinkShowsRedFrameAndHidesIconOnInvalid();
+            SleekPreviewSinkShowsRedFrameAndSharedIconOnInvalid();
             SleekPreviewSinkBindsItemAssetIdentityToVisualIcon();
             BetterItemInteractionUiComponentLifecycleAndDragFlow();
             BetterItemInteractionUiComponentBindsSurfaceContextAndCreatesInput();
@@ -170,7 +170,10 @@ namespace BetterUnturnedExperience.Plugin.Tests
             presenter.BeginDrag(7);
             presenter.Update(Input(new TestGrid(8, 6), 10f, 10f, 0f, 0f, 1f, 1f, 0f, 0f, 2, 3, 0.5f, 1.5f), sink);
 
-            Assert(sink.LastFrame.Kind == PreviewFrameKind.InvalidRed && sink.IconCount == 0, "invalid candidate renders only red frame");
+            Assert(sink.LastFrame.Kind == PreviewFrameKind.InvalidRed && sink.IconCount == 1,
+                "invalid candidate renders a red frame and the same final-rotation icon");
+            Assert(sink.LastIcon.Rotation == sink.LastFrame.Rotation,
+                "invalid frame and icon share the same candidate rotation");
         }
 
         private static void HidesAllVisualsForHiddenPreview()
@@ -303,7 +306,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
             sink.Unmount();
         }
 
-        private static void SleekPreviewSinkShowsRedFrameAndHidesIconOnInvalid()
+        private static void SleekPreviewSinkShowsRedFrameAndSharedIconOnInvalid()
         {
             var topLevel = new MockVisualContainer();
             var gridPanel = new MockVisualContainer();

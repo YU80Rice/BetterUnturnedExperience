@@ -546,7 +546,8 @@ namespace BetterUnturnedExperience.Bii
 
             sink.ShowFrame(new PreviewFrame(frameKind, preview.Candidate, preview.Width, preview.Height,
                 cellPixelSize, preview.Reason));
-            if (preview.State == PlacementPreviewState.Candidate)
+            if (preview.State == PlacementPreviewState.Candidate ||
+                preview.State == PlacementPreviewState.LocallyInvalid)
             {
                 float iconX;
                 float iconY;

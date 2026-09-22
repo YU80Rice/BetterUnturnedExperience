@@ -29,9 +29,25 @@ namespace BetterUnturnedExperience.Core.Placement
             // rotated candidate is computed up front so step 1 can prefer it;
             // step 2 (current fails locally) still uses the same rotated values.
             var rotated = input.AllowAutomaticRotation && input.ItemWidth != input.ItemHeight;
-            var rotatedRotation = (byte)((rotation + 1) & 3);
-            var rotatedWidth = (rotation & 1) == 0 ? input.ItemHeight : input.ItemWidth;
-            var rotatedHeight = (rotation & 1) == 0 ? input.ItemWidth : input.ItemHeight;
+            // Automatic rotation is a readable-session choice, not a raw
+            // clockwise increment. The source rotation records which of the
+            // two footprint parities entered this drag session; the other
+            // parity is the only alternate readable pose. This keeps the
+            // mapping tied to the drag baseline without generating 180/270.
+            var baseReadableRotation = (byte)(input.Source.Rotation & 3);
+            var alternateReadableRotation = (byte)((baseReadableRotation + 1) & 3);
+            var currentIsSessionReadable = rotation == baseReadableRotation || rotation == alternateReadableRotation;
+            var readableCurrentRotation = currentIsSessionReadable
+                ? rotation
+                : ((rotation & 1) == (baseReadableRotation & 1)
+                    ? baseReadableRotation : alternateReadableRotation);
+            var currentIsReadable = currentIsSessionReadable;
+            var readableCurrentWidth = (readableCurrentRotation & 1) == 0 ? input.ItemWidth : input.ItemHeight;
+            var readableCurrentHeight = (readableCurrentRotation & 1) == 0 ? input.ItemHeight : input.ItemWidth;
+            var rotatedRotation = readableCurrentRotation == baseReadableRotation
+                ? alternateReadableRotation : baseReadableRotation;
+            var rotatedWidth = (rotatedRotation & 1) == 0 ? input.ItemWidth : input.ItemHeight;
+            var rotatedHeight = (rotatedRotation & 1) == 0 ? input.ItemHeight : input.ItemWidth;
             var rotatedFitsGrid = rotated && rotatedWidth > 0 && rotatedHeight > 0 && rotatedWidth <= occupancy.Width && rotatedHeight <= occupancy.Height;
             var rotatedX = 0;
             var rotatedY = 0;
@@ -47,8 +63,10 @@ namespace BetterUnturnedExperience.Core.Placement
                 // cursor-grid based; physical-fit guard required. Corner overlap
                 // (inside both bands) keeps the entering posture (anti-jitter);
                 // outside the overlap the band takes over smoothly.
-                if (rotated && rotatedFitsGrid &&
-                    TryEdgeBandCandidate(occupancy, input, rotation, rotatedWidth, rotatedHeight, rotatedRotation, page, out var bandPreview))
+                if (rotated &&
+                    TryEdgeBandCandidate(occupancy, input, rotation, currentWidth, currentHeight,
+                        rotatedWidth, rotatedHeight, rotatedRotation, readableCurrentRotation, page,
+                        out var bandPreview))
                 {
                     return bandPreview;
                 }
@@ -56,13 +74,18 @@ namespace BetterUnturnedExperience.Core.Placement
                 // row/column boundary behaves like a container wall. If the
                 // rotated long side hugs such an edge while the current long side
                 // does not, rotate.
-                if (rotatedFitsGrid && Fits(occupancy, rotatedX, rotatedY, rotatedWidth, rotatedHeight) &&
+                if (!IsCornerSensingOverlap(occupancy, input) &&
+                    rotatedFitsGrid && Fits(occupancy, rotatedX, rotatedY, rotatedWidth, rotatedHeight) &&
                     LongSideHugsEdge(occupancy, rotatedX, rotatedY, rotatedWidth, rotatedHeight) &&
                     !LongSideHugsEdge(occupancy, currentX, currentY, currentWidth, currentHeight))
                 {
                     return Candidate(input.DragGeneration, page, rotatedX, rotatedY, rotatedRotation, rotatedWidth, rotatedHeight, PlacementPreviewState.Candidate);
                 }
-                return Candidate(input.DragGeneration, page, currentX, currentY, rotation, currentWidth, currentHeight, PlacementPreviewState.Candidate);
+                var finalRotation = currentIsReadable ? rotation : readableCurrentRotation;
+                var finalWidth = currentIsReadable ? currentWidth : readableCurrentWidth;
+                var finalHeight = currentIsReadable ? currentHeight : readableCurrentHeight;
+                return Candidate(input.DragGeneration, page, currentX, currentY,
+                    finalRotation, finalWidth, finalHeight, PlacementPreviewState.Candidate);
             }
 
             if (rotatedFitsGrid && Fits(occupancy, rotatedX, rotatedY, rotatedWidth, rotatedHeight))
@@ -73,7 +96,14 @@ namespace BetterUnturnedExperience.Core.Placement
             var bestCurrentY = 0;
             var bestCurrentDistance = double.MaxValue;
             if (currentFitsGrid) Search(occupancy, input.CursorGridX, input.CursorGridY, currentWidth, currentHeight, out foundCurrent, out bestCurrentX, out bestCurrentY, out bestCurrentDistance);
-            if (foundCurrent) return Candidate(input.DragGeneration, page, bestCurrentX, bestCurrentY, rotation, currentWidth, currentHeight, PlacementPreviewState.Candidate);
+            if (foundCurrent)
+            {
+                var finalRotation = currentIsReadable ? rotation : readableCurrentRotation;
+                var finalWidth = currentIsReadable ? currentWidth : readableCurrentWidth;
+                var finalHeight = currentIsReadable ? currentHeight : readableCurrentHeight;
+                return Candidate(input.DragGeneration, page, bestCurrentX, bestCurrentY,
+                    finalRotation, finalWidth, finalHeight, PlacementPreviewState.Candidate);
+            }
 
             var foundRotated = false;
             var bestRotatedX = 0;
@@ -86,7 +116,24 @@ namespace BetterUnturnedExperience.Core.Placement
             var reason = attemptedFit ? PlacementReason.Occupied : PlacementReason.OutsideGrid;
             var feedbackX = currentFitsGrid ? currentX : 0;
             var feedbackY = currentFitsGrid ? currentY : 0;
-            return new ItemPlacementPreview(input.DragGeneration, PlacementPreviewState.LocallyInvalid, new ItemGridPosition(page, (byte)feedbackX, (byte)feedbackY, rotation), currentWidth, currentHeight, reason);
+            var feedbackRotation = currentIsReadable ? rotation : readableCurrentRotation;
+            var feedbackWidth = currentIsReadable ? currentWidth : readableCurrentWidth;
+            var feedbackHeight = currentIsReadable ? currentHeight : readableCurrentHeight;
+            if (!currentIsReadable && currentFitsGrid)
+                Project(input.CursorGridX, input.CursorGridY, feedbackWidth, feedbackHeight,
+                    occupancy.Width, occupancy.Height, out feedbackX, out feedbackY);
+            return new ItemPlacementPreview(input.DragGeneration, PlacementPreviewState.LocallyInvalid,
+                new ItemGridPosition(page, (byte)feedbackX, (byte)feedbackY, feedbackRotation),
+                feedbackWidth, feedbackHeight, reason);
+        }
+
+        private static bool IsCornerSensingOverlap(IGridOccupancyView occupancy, PlacementCandidateInput input)
+        {
+            var bandW = BandForDimension(occupancy.Width);
+            var bandH = BandForDimension(occupancy.Height);
+            var vertical = input.CursorGridX < bandW || input.CursorGridX >= occupancy.Width - bandW;
+            var horizontal = input.CursorGridY < bandH || input.CursorGridY >= occupancy.Height - bandH;
+            return vertical && horizontal;
         }
 
         // GPT watermark: R13-edge-sensing-band. Spec §11: band(dim) =
@@ -98,8 +145,8 @@ namespace BetterUnturnedExperience.Core.Placement
         // wall. Corner overlap (both bands) keeps the entering posture. Always
         // gated by the physical-fit guard. Pure, allocation-free, stateless.
         private static bool TryEdgeBandCandidate(IGridOccupancyView occupancy, PlacementCandidateInput input,
-            byte rotation, byte rotatedWidth, byte rotatedHeight, byte rotatedRotation, byte page,
-            out ItemPlacementPreview preview)
+            byte rotation, byte currentWidth, byte currentHeight, byte rotatedWidth, byte rotatedHeight,
+            byte rotatedRotation, byte readableCurrentRotation, byte page, out ItemPlacementPreview preview)
         {
             preview = default(ItemPlacementPreview);
             if (!input.AllowAutomaticRotation || input.ItemWidth == input.ItemHeight) return false;
@@ -116,11 +163,21 @@ namespace BetterUnturnedExperience.Core.Placement
 
             int x;
             int y;
+            var currentIsReadable = rotation == readableCurrentRotation;
             if (verticalBand)
             {
                 // Vertical band: prefer the tall footprint hugging left/right wall.
                 var tall = rotatedHeight > rotatedWidth;
-                if (!tall) return false;
+                if (!tall && !(currentHeight > currentWidth && !currentIsReadable)) return false;
+                if (!tall)
+                {
+                    x = inLeft ? 0 : occupancy.Width - currentWidth;
+                    y = ProjectAxis(input.CursorGridY, currentHeight, occupancy.Height);
+                    if (!Fits(occupancy, x, y, currentWidth, currentHeight)) return false;
+                    preview = Candidate(input.DragGeneration, page, x, y, readableCurrentRotation,
+                        currentWidth, currentHeight, PlacementPreviewState.Candidate);
+                    return true;
+                }
                 x = inLeft ? 0 : occupancy.Width - rotatedWidth;
                 y = ProjectAxis(input.CursorGridY, rotatedHeight, occupancy.Height);
             }
@@ -128,7 +185,16 @@ namespace BetterUnturnedExperience.Core.Placement
             {
                 // Horizontal band: prefer the wide footprint hugging top/bottom wall.
                 var wide = rotatedWidth > rotatedHeight;
-                if (!wide) return false;
+                if (!wide && !(currentWidth > currentHeight && !currentIsReadable)) return false;
+                if (!wide)
+                {
+                    x = ProjectAxis(input.CursorGridX, currentWidth, occupancy.Width);
+                    y = inTop ? 0 : occupancy.Height - currentHeight;
+                    if (!Fits(occupancy, x, y, currentWidth, currentHeight)) return false;
+                    preview = Candidate(input.DragGeneration, page, x, y, readableCurrentRotation,
+                        currentWidth, currentHeight, PlacementPreviewState.Candidate);
+                    return true;
+                }
                 x = ProjectAxis(input.CursorGridX, rotatedWidth, occupancy.Width);
                 y = inTop ? 0 : occupancy.Height - rotatedHeight;
             }

@@ -304,6 +304,11 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     DevV702TotalAmmoHudTests.Run(collectAllFailures: true);
                     return 0;
                 }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--bue-v7-05-preview-upright-red")
+                {
+                    DevV705PreviewUprightTests.Run(collectAllFailures: true);
+                    return 0;
+                }
                 if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--bue-v5-03-container-session-red")
                 {
                     DevV5ContainerSessionTests.Run(collectAllFailures: true);
@@ -1210,8 +1215,8 @@ namespace BetterUnturnedExperience.Plugin.Tests
             Assert(horizontalResult.State == PlacementPreviewState.Candidate, "horizontal katana at vertical slot stays a candidate");
             Assert(horizontalResult.Width == 1 && horizontalResult.Height == 3,
                 "horizontal katana auto-rotates BACK to a vertical footprint when the horizontal footprint cannot fit");
-            Assert(horizontalResult.Candidate.Rotation == 2 || horizontalResult.Candidate.Rotation == 0,
-                "horizontal katana returns a vertical rotation when dragged to the vertical slot");
+            Assert(horizontalResult.Candidate.Rotation == 2,
+                "horizontal katana returns the session-readable vertical rotation when dragged to the vertical slot");
         }
 
         // GPT watermark: R13-symrot red regression. The user's real container is
@@ -1273,8 +1278,8 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 "edge-rot: horizontal katana at the left edge stays a candidate");
             Assert(leftResult.Width == 1 && leftResult.Height == 3,
                 "edge-rot: horizontal katana at the left edge auto-rotates to a vertical footprint (long side hugs the left edge)");
-            Assert(leftResult.Candidate.Rotation == 2 || leftResult.Candidate.Rotation == 0,
-                "edge-rot: horizontal katana at the left edge returns a vertical rotation");
+            Assert(leftResult.Candidate.Rotation == 2,
+                "edge-rot: horizontal katana at the left edge returns the session-readable vertical rotation");
 
             // Symmetry: the right edge column (x=5). Cursor at (5.6, 1.5).
             var rightInput = new PlacementCandidateInput(2,
@@ -1286,8 +1291,8 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 "edge-rot: horizontal katana at the right edge stays a candidate");
             Assert(rightResult.Width == 1 && rightResult.Height == 3,
                 "edge-rot: horizontal katana at the right edge auto-rotates to a vertical footprint (long side hugs the right edge)");
-            Assert(rightResult.Candidate.Rotation == 2 || rightResult.Candidate.Rotation == 0,
-                "edge-rot: horizontal katana at the right edge returns a vertical rotation");
+            Assert(rightResult.Candidate.Rotation == 2,
+                "edge-rot: horizontal katana at the right edge returns the session-readable vertical rotation");
 
             // Edge-sensing band (spec §11): the trigger is cursor-grid based,
             // band(dim)=clamp(1.0, dim*0.15, 2.0). On a 6x3 the band is 1.0, so a
@@ -1345,9 +1350,8 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 0.4f, 1.5f, 1, 3, 1, true, occupancy));
             Assert(lifted.State == PlacementPreviewState.Candidate,
                 "corner-lift: lifted cursor stays a candidate");
-            Assert(lifted.Width == 1 && lifted.Height == 3 &&
-                (lifted.Candidate.Rotation == 2 || lifted.Candidate.Rotation == 0),
-                "corner-lift: lifting out of the bottom band flips to vertical hugging the left wall");
+            Assert(lifted.Width == 1 && lifted.Height == 3 && lifted.Candidate.Rotation == 2,
+                "corner-lift: lifting out of the bottom band flips to the session-readable vertical rotation hugging the left wall");
 
             // Pull down to the pure bottom band (1.5, 2.5): no longer in the left
             // band, still in the bottom band -> horizontal band gravity flips back
@@ -1373,9 +1377,8 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 1.5f, 6.5f, 1, 3, 1, true, large));
             Assert(bandCursor.State == PlacementPreviewState.Candidate,
                 "edge band: cursor inside the left band of a large container stays a candidate");
-            Assert(bandCursor.Width == 1 && bandCursor.Height == 3 &&
-                (bandCursor.Candidate.Rotation == 2 || bandCursor.Candidate.Rotation == 0),
-                "edge band: cursor inside the left band rotates to vertical hugging the left wall");
+            Assert(bandCursor.Width == 1 && bandCursor.Height == 3 && bandCursor.Candidate.Rotation == 2,
+                "edge band: cursor inside the left band rotates to the session-readable vertical rotation hugging the left wall");
             Assert(bandCursor.Candidate.X == 0,
                 "edge band: vertical candidate is positioned hugging the left wall (x=0)");
         }
