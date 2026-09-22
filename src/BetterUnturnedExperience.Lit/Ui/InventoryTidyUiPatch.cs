@@ -258,8 +258,8 @@ namespace BetterUnturnedExperience.Lit
         // 三档退役后不再提「全局模式」——唯一统一排版，方向仅是设置页的收尾
         // 偏好；手势契约不变（整理/整理全身，不含仓储栏——第五阶段重开后
         // 「全身」仍不含容器，容器有自己的一颗）。
-        private const string TOOLTIP_TIDY =
-            "左键：整理当前栏；Ctrl+左键：按统一分段排版整理全身（不含仓储栏）";
+        internal const string TidyTooltipText =
+            "左键：整理当前栏；Ctrl+左键：整理全身（不含容器）";
 
         private static void LogError(string msg) => LitRuntime.LogError($"{TAG} {msg}");
         private static void LogInfo(string msg)  => LitRuntime.LogInfo($"{TAG} {msg}");
@@ -682,7 +682,7 @@ namespace BetterUnturnedExperience.Lit
                         s_SizeOffsetX.SetValue(tidyButton, TIDY_SIZE_X,        null);
                         s_SizeOffsetY.SetValue(tidyButton, BTN_SIZE_Y,         null);
                         s_Text       .SetValue(tidyButton, "整理",             null);
-                        s_TooltipText.SetValue(tidyButton, TOOLTIP_TIDY,       null);
+                        s_TooltipText.SetValue(tidyButton, TidyTooltipText, null);
                     }
                     catch (Exception e) { LogError($"headers[{i}] tidyButton 属性设置失败: {e}"); }
 

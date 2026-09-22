@@ -58,6 +58,7 @@
     <Compile Include="Tidy\LitTidyServerState.cs" />
     <Compile Include="Tidy\LitTidyWireCodec.cs" />
     <Compile Include="Tidy\LocalTidyExecutor.cs" />
+    <Compile Include="Tidy\LitTidyCopy.cs" />
     <Compile Include="Tidy\LocalTidyFaultGate.cs" />
     <Compile Include="Tidy\MainThreadDispatcher.cs" />
     <Compile Include="Tidy\ManualTidyService.cs" />

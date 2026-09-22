@@ -773,6 +773,7 @@ namespace BetterUnturnedExperience.Lit
                     LitContainerFeedback.ShowReason("本地容器整理", exec.Reason);
                     break;
                 case TidyCommitResult.Committed:
+                    LitContainerFeedback.ShowSuccess(LitTidyCopy.SuccessText);
                     LitContainerFeedback.ShowNote("本地", "容器整理已完成。");
                     break;
                 default:

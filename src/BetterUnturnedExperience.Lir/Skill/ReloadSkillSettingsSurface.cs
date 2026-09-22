@@ -18,6 +18,11 @@ namespace BetterUnturnedExperience.Lir
         /// <summary>复位档 = 不发请求（默认值与写回目标同字面，单源）。</summary>
         internal const string OptionMaintain = "维持当前等级（不请求）";
 
+        internal static string DescriptionForLevel(int level)
+        {
+            return ReloadSkillPolicy.LevelDescription(level);
+        }
+
         internal static IReadOnlyList<string> ChoiceOptions()
         {
             return new[]
@@ -50,7 +55,7 @@ namespace BetterUnturnedExperience.Lir
             return new[]
             {
                 new SettingDescriptor(
-                    feature, ReloadSkillPolicy.UpgradeSettingId, ReloadSkillPolicy.SkillSectionTitle + "（降级表面）", "U 菜单分区接不上时的等级请求行：选档=向主机请求升级（校验经验、扣原版经验），行自动复位为维持。等级以主机确认为准。",
+                    feature, ReloadSkillPolicy.UpgradeSettingId, ReloadSkillPolicy.SkillSectionTitle + "（降级表面）", "U 菜单分区接不上时的等级请求行：选档=向主机请求升级；等级以主机确认为准。0 基础：" + ReloadSkillPolicy.LevelDescription(0) + " 1 快速换弹：" + ReloadSkillPolicy.LevelDescription(1) + " 2 自动压弹：" + ReloadSkillPolicy.LevelDescription(2),
                     SettingKind.Choice, SettingAuthority.ClientLocal, SettingValue.Choice(OptionMaintain),
                     default(SettingValueOption), default(SettingValueOption), default(SettingValueOption),
                     new[]

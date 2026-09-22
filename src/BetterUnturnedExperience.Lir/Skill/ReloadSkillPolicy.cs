@@ -63,7 +63,17 @@ namespace BetterUnturnedExperience.Lir
 
         internal static string LevelRowLabel(int level)
         {
-            return "等级 " + level + " · " + LevelName(level);
+            return "等级 " + level + " · " + LevelName(level) + "：" + LevelDescription(level);
+        }
+
+        internal static string LevelDescription(int level)
+        {
+            switch (level)
+            {
+                case 0: return "可双击换弹键立刻压弹；有额外技能冷却。";
+                case 1: return "取消额外技能冷却；防重复提交的技术闸仍然保留。";
+                default: return "每 8 秒自动为身上五页中的空或未满弹匣，从匹配弹药箱填弹；仍可双击换弹键立刻手动压弹。";
+            }
         }
 
         internal static string MaxLevelRowLabel

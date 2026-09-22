@@ -77,8 +77,9 @@ namespace BetterUnturnedExperience.Lit
             {
                 case TidyCommitResult.Committed:
                     RestoreHotkeysToNewPositions(player, resolved, trusted, outMapping);
+                    LitContainerFeedback.ShowSuccess(LitTidyCopy.SuccessText);
                     TidyDiagnosticLog.Info("local-committed",
-                        $"[Tidy] 本地整理已提交（page={page}, strategy={module.Strategy.StrategyId}, mappings={outMapping.Count}）。");
+                        $"[Tidy] {LitTidyCopy.SuccessText}（page={page}, strategy={module.Strategy.StrategyId}, mappings={outMapping.Count}）。");
                     break;
 
                 case TidyCommitResult.CriticalFailure:

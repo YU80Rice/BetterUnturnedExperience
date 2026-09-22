@@ -152,6 +152,19 @@ namespace BetterUnturnedExperience.Lit
         {
             TidyDiagnosticLog.Info("container-tidy", "[Tidy容器] " + context + "：" + message);
         }
+
+        internal static void ShowSuccess(string message)
+        {
+            var text = message ?? string.Empty;
+            if (string.IsNullOrEmpty(text)) return;
+            TidyDiagnosticLog.Info("tidy-success", "[Tidy] " + text);
+            var sink = ToastSink;
+            if (sink != null)
+            {
+                try { sink(text); }
+                catch (Exception error) { LitRuntime.LogWarning("[Tidy] 成功提示渲染失败（结果仍见日志）: " + error.Message); }
+            }
+        }
     }
 
     /// <summary>DEV-V5-03: the on-screen answer for container tidy refusals —

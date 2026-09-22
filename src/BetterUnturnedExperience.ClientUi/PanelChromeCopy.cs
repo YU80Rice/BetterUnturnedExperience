@@ -18,9 +18,9 @@ namespace BetterUnturnedExperience.ClientUi.Internal
         private static readonly Dictionary<string, string> Sentences = new Dictionary<string, string>(7)
         {
             // 条目顺序与措辞逐字对齐 spec Q60 表。
-            { "io.github.yu80rice.bue.better-item-interaction", "在支持的格子里增强拖入，失败时回到原版操作。" },
-            { "io.github.yu80rice.bue.inventory-tidy", "整理背包与装备栏物品；模式和方向在本页设置，背包标题栏点「整理」。" },
-            { "io.github.yu80rice.bue.in-place-reload", "换弹尽量留在原位；背包整理完成后自动压缩弹药。" },
+            { "io.github.yu80rice.bue.better-item-interaction", "在支持的格子里增强拖入，可放绿、不可放红。" },
+            { "io.github.yu80rice.bue.inventory-tidy", "整理背包与装备栏；标题栏点「整理」，同类归拢并从左上紧凑排列。" },
+            { "io.github.yu80rice.bue.in-place-reload", "双击换弹键压弹；持枪显示总弹药；整理后合并弹匣。" },
             { "io.github.yu80rice.bue.horde-tracker", "由主机追踪尸潮，并在客户端显示播报。" },
             { "io.github.yu80rice.bue.network", "为 BUE 功能模块提供多人通信通道；可停用，停用不等于卸载。" },
             { "io.github.yu80rice.bue.network.v1compat", "为仍使用数字频道的旧插件提供兼容接收，不提供新的注册入口。" },
