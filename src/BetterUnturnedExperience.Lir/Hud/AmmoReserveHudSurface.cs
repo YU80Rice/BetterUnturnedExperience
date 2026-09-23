@@ -32,38 +32,45 @@ namespace BetterUnturnedExperience.Lir
 
         private sealed class Slot
         {
+            internal object infoBox;
             internal ISleekLabel label;
             internal string lastText;
             internal bool visible;
         }
 
         private static readonly object gate = new object();
-        private static readonly ConditionalWeakTable<object, Slot> slots = new ConditionalWeakTable<object, Slot>();
+        private static ConditionalWeakTable<object, Slot> slots = new ConditionalWeakTable<object, Slot>();
         private static readonly List<WeakReference<Slot>> live = new List<WeakReference<Slot>>();
         private static FieldInfo infoBoxField;      // lazy（首次 Apply 真机解析）
         private static bool reflectionProbed;
         private static bool reflectionBrokenLogged;
 
-        [MethodImpl(MethodImplOptions.NoInlining)]
-        internal static void ApplyTotal(object gun, AmmoTotalResult result)
+        internal static bool NeedsSlotRebind(object previousInfoBox, object currentInfoBox)
         {
-            if (gun == null) return;
+            return previousInfoBox == null || currentInfoBox == null || !ReferenceEquals(previousInfoBox, currentInfoBox);
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        internal static bool ApplyTotal(object gun, AmmoTotalResult result)
+        {
+            if (gun == null) return false;
             try
             {
                 lock (gate)
                 {
-                    if (!EnsureReflection()) return;
+                    if (!EnsureReflection()) return false;
                     object box;
                     try { box = infoBoxField.GetValue(gun); }
-                    catch (Exception) { return; }
+                    catch (Exception) { return false; }
                     var parent = box as ISleekElement;
-                    if (parent == null) return;
+                    if (parent == null) return false;
 
                     Slot slot;
-                    if (!slots.TryGetValue(gun, out slot))
+                    if (!slots.TryGetValue(gun, out slot) || NeedsSlotRebind(slot.infoBox, parent))
                     {
                         slot = CreateSlot(parent);
-                        if (slot == null) return;
+                        if (slot == null) return false;
+                        slots.Remove(gun);
                         slots.Add(gun, slot);
                         live.Add(new WeakReference<Slot>(slot));
                         for (var d = live.Count - 1; d >= 0; d--)
@@ -72,7 +79,7 @@ namespace BetterUnturnedExperience.Lir
                             if (!live[d].TryGetTarget(out dead)) live.RemoveAt(d);
                         }
                     }
-                    if (slot.label == null) return;
+                    if (slot.label == null) return false;
                     if (slot.lastText != result.LabelText)
                     {
                         slot.label.Text = result.LabelText;
@@ -83,11 +90,13 @@ namespace BetterUnturnedExperience.Lir
                         slot.label.IsVisible = true;
                         slot.visible = true;
                     }
+                    return true;
                 }
             }
             catch (Exception error)
             {
                 LirRuntime.LogDiagnostic("[AmmoHud] 总弹药呈现异常（本次吞掉，原版读数不受影响）: " + error.Message);
+                return false;
             }
         }
 
@@ -162,6 +171,7 @@ namespace BetterUnturnedExperience.Lir
                     catch (Exception) { }
                 }
                 live.Clear();
+                slots = new ConditionalWeakTable<object, Slot>();
             }
         }
 
@@ -192,7 +202,7 @@ namespace BetterUnturnedExperience.Lir
                 label.FontSize = ESleekFontSize.Small;
                 label.IsVisible = false;
                 infoBox.AddChild(label);
-                return new Slot { label = label };
+                return new Slot { infoBox = infoBox, label = label };
             }
             catch (Exception error)
             {

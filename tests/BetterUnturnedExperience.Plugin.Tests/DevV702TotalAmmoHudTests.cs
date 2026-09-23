@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Reflection;
 using System.Linq;
+using BetterUnturnedExperience.Contracts;
 using BetterUnturnedExperience.Lir;
 
 namespace BetterUnturnedExperience.Plugin.Tests
@@ -26,6 +27,8 @@ namespace BetterUnturnedExperience.Plugin.Tests
             Group("单源与 HUD 分层", failures, collectAllFailures, () => Layering(Check));
             Group("文案与刷新合同", failures, collectAllFailures, () => SurfaceContract(Check));
             Group("下一帧变化指纹", failures, collectAllFailures, () => RefreshFingerprint(Check));
+            Group("HostTick 生产链与生命周期", failures, collectAllFailures, () => HostTickProductionChain(Check));
+            Group("库存事件页闸", failures, collectAllFailures, () => InventoryEventGate(Check));
 
             Console.WriteLine("DEV-V7-02 total-ammo-hud tests: " + (failures.Count == 0 ? "PASS" : "FAIL"));
             if (failures.Count != 0)
@@ -143,6 +146,109 @@ namespace BetterUnturnedExperience.Plugin.Tests
             check(firstKey != AmmoTotalProjection.BuildFingerprint(changed), "身上匹配箱 amount 变化会改变帧指纹");
             changed.LoadedMagazine = new LoadedAmmoMagazine { Id = 5000, CurrentAmmo = 6, Calibers = new ushort[] { 10 }, FillSupplyIds = new ushort[] { 77 } };
             check(firstKey != AmmoTotalProjection.BuildFingerprint(changed), "枪上发数变化会改变帧指纹");
+        }
+
+        private static void HostTickProductionChain(Action<bool, string> check)
+        {
+            var originalScanner = AmmoObservationEngine.FactsReaderForTests;
+            var originalGun = AmmoObservationEngine.LocalGunForTests;
+            var originalApply = AmmoReserveHudAdapter.TotalApplyForTests;
+            var originalHide = AmmoReserveHudAdapter.HideAllForTests;
+            var originalCoreInstaller = InPlaceReloadModule.CorePatchInstallerForTests;
+            var originalHudInstaller = InPlaceReloadModule.HudPatchInstallerForTests;
+            var applied = new List<AmmoTotalResult>();
+            var hidden = 0;
+            var readerCalls = 0;
+            var gunCalls = 0;
+            var gun = new object();
+            var observation = new AmmoObservation
+            {
+                GunMagazineCalibers = new ushort[] { 10 },
+                GunAllowsZeroCaliber = false,
+                LoadedMagazine = new LoadedAmmoMagazine { Id = 5000, CurrentAmmo = 7, Calibers = new ushort[] { 10 }, FillSupplyIds = new ushort[] { 77 } },
+                Entries = new[] { Mag(2, 5001, 3, 10), Box(3, 77, 11) },
+            };
+            InPlaceReloadModule module = null;
+            try
+            {
+                AmmoObservationEngine.LocalGunForTests = () => { gunCalls++; return gun; };
+                AmmoObservationEngine.FactsReaderForTests = _ =>
+                {
+                    readerCalls++;
+                    return new AmmoEngineFacts
+                    {
+                        GunMagazineCalibers = observation.GunMagazineCalibers,
+                        GunAllowsZeroCaliber = observation.GunAllowsZeroCaliber,
+                        LoadedMagazineId = observation.LoadedMagazine.HasValue ? observation.LoadedMagazine.Value.Id : (ushort)0,
+                        LoadedCurrentAmmo = observation.LoadedMagazine.HasValue ? (byte)observation.LoadedMagazine.Value.CurrentAmmo : (byte)0,
+                        LoadedMagazineCalibers = observation.LoadedMagazine.HasValue ? observation.LoadedMagazine.Value.Calibers : null,
+                        LoadedFillSupplyIds = observation.LoadedMagazine.HasValue ? observation.LoadedMagazine.Value.FillSupplyIds : null,
+                        Entries = observation.Entries,
+                    };
+                };
+                AmmoReserveHudAdapter.TotalApplyForTests = (_, result) => applied.Add(result);
+                InPlaceReloadModule.CorePatchInstallerForTests = _ => true;
+                InPlaceReloadModule.HudPatchInstallerForTests = _ => true;
+                AmmoReserveHudAdapter.HideAllForTests = () => hidden++;
+                module = StartLifecycleModule(check);
+                check(module.Started && ReferenceEquals(InPlaceReloadModule.ActiveModule, module), "HostTick 生产链必须由已启动的当前 LIR 代际承载");
+                AmmoReserveHudPatch.Postfix(gun);
+                check(gunCalls == 0, "updateInfo 入口直接消费已传入枪实例，不应重复解析本地枪");
+                check(readerCalls == 1, "updateInfo 必须进入最底层弹药事实读取器");
+                check(applied.Count == 1 && applied[0].TotalAmmo == 21, "updateInfo 必须从真实观察读口进入 ApplyTotal");
+                module.OnHostTick(new HostTick(1UL, 0.016f, TickPhase.Update));
+                check(gunCalls == 1, "HostTick 必须解析一次本地枪实例");
+                check(readerCalls == 2, "HostTick 必须重新观察事实源以计算当前帧指纹");
+                check(applied.Count == 1, "同一指纹同一拍不重复 Apply");
+                AmmoReserveHudAdapter.MarkInventoryDirty();
+                module.OnHostTick(new HostTick(2UL, 0.016f, TickPhase.Update));
+                check(applied.Count == 2 && applied[1].TotalAmmo == 21, "库存事件 dirty 即使总数暂时相同也强制完成下一拍生产观察");
+                observation.Entries = new[] { Mag(2, 5001, 4, 10), Box(3, 77, 11) };
+                module.OnHostTick(new HostTick(3UL, 0.016f, TickPhase.Update));
+                check(applied.Count == 3 && applied[2].TotalAmmo == 22, "身上匹配匣 amount 变化后下一拍必须 Apply");
+                var replacementGun = new object();
+                AmmoObservationEngine.LocalGunForTests = () => replacementGun;
+                module.OnHostTick(new HostTick(4UL, 0.016f, TickPhase.Update));
+                check(applied.Count == 4, "换枪实例后下一帧必须重新 Apply，即使事实指纹相同");
+                check(AmmoReserveHudSurface.NeedsSlotRebind(new object(), new object()), "同枪新 infoBox 必须判定为需要重建 Slot");
+                check(!AmmoReserveHudSurface.NeedsSlotRebind(replacementGun, replacementGun), "同一 infoBox 身份不应无谓重建 Slot");
+                AmmoObservationEngine.LocalGunForTests = () => null;
+                module.OnHostTick(new HostTick(5UL, 0.016f, TickPhase.Update));
+                check(hidden == 1, "无枪下一拍必须隐藏旧 HUD 并清理生命周期");
+            }
+            finally
+            {
+                if (module != null)
+                {
+                    try { module.Stop(FeatureStopReason.PluginStopping); } catch (Exception) { }
+                }
+                AmmoObservationEngine.FactsReaderForTests = originalScanner;
+                AmmoObservationEngine.LocalGunForTests = originalGun;
+                AmmoReserveHudAdapter.TotalApplyForTests = originalApply;
+                AmmoReserveHudAdapter.HideAllForTests = originalHide;
+                InPlaceReloadModule.CorePatchInstallerForTests = originalCoreInstaller;
+                InPlaceReloadModule.HudPatchInstallerForTests = originalHudInstaller;
+                AmmoReserveHudAdapter.RevokeAll();
+            }
+        }
+
+        private static InPlaceReloadModule StartLifecycleModule(Action<bool, string> check)
+        {
+            var helper = typeof(DevV5AmmoReserveHudTests);
+            var settingsType = helper.GetNestedType("V56SettingsView", BindingFlags.NonPublic);
+            var settings = Activator.CreateInstance(settingsType);
+            var start = helper.GetMethod("V56StartModule", BindingFlags.NonPublic | BindingFlags.Static);
+            if (start == null) throw new InvalidOperationException("V5-06 lifecycle fixture missing");
+            return (InPlaceReloadModule)start.Invoke(null, new object[] { settings, check, false });
+        }
+
+        private static void InventoryEventGate(Action<bool, string> check)
+        {
+            check(InPlaceReloadModule.IsAmmoInventoryPageForTests(2), "SLOTS 页事件进入弹药刷新闸");
+            check(InPlaceReloadModule.IsAmmoInventoryPageForTests(6), "PANTS 页事件进入弹药刷新闸");
+            check(!InPlaceReloadModule.IsAmmoInventoryPageForTests(1), "装备槽事件不触发身上弹药刷新");
+            check(!InPlaceReloadModule.IsAmmoInventoryPageForTests(7), "容器事件不触发身上弹药刷新");
+            check(!InPlaceReloadModule.IsAmmoInventoryPageForTests(8), "地面事件不触发身上弹药刷新");
         }
 
         private static AmmoEntry Mag(byte page, ushort id, byte amount, ushort caliber)

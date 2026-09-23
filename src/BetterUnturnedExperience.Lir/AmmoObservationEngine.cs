@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
+using System.Reflection;
+using HarmonyLib;
 using SDG.Unturned;
 
 namespace BetterUnturnedExperience.Lir
@@ -10,11 +12,53 @@ namespace BetterUnturnedExperience.Lir
     /// them to the HUD-free AmmoObservation source; matching and arithmetic are
     /// owned by AmmoTotalProjection.
     /// </summary>
+    internal sealed class AmmoEngineFacts
+    {
+        internal ushort[] GunMagazineCalibers;
+        internal bool GunAllowsZeroCaliber;
+        internal ushort LoadedMagazineId;
+        internal byte LoadedCurrentAmmo;
+        internal ushort[] LoadedMagazineCalibers;
+        internal ushort[] LoadedFillSupplyIds;
+        internal AmmoEntry[] Entries;
+    }
+
     internal static class AmmoObservationEngine
     {
+        // Host-test seams replace only raw engine facts, never DTO assembly or
+        // adapter orchestration. Production leaves these null and uses SDG.
+        internal static Func<object, AmmoEngineFacts> FactsReaderForTests;
+        internal static Func<object> LocalGunForTests;
+        private static FieldInfo ammoField;
+        private static bool ammoFieldProbed;
+
+        private static byte ReadVanillaAmmo(UseableGun gun, byte[] state)
+        {
+            if (!ammoFieldProbed)
+            {
+                ammoFieldProbed = true;
+                ammoField = AccessTools.Field(typeof(UseableGun), "ammo");
+            }
+            if (ammoField != null)
+            {
+                try
+                {
+                    var value = ammoField.GetValue(gun);
+                    if (value is byte byteValue) return byteValue;
+                }
+                catch (Exception error)
+                {
+                    LirRuntime.LogDiagnostic("[AmmoHud] 原版 ammo 字段读取失败，回退 state[AMMO]: " + error.Message);
+                }
+            }
+            return state != null && state.Length > GunStateIndices.AMMO ? state[GunStateIndices.AMMO] : (byte)0;
+        }
+
         [MethodImpl(MethodImplOptions.NoInlining)]
         internal static object ResolveLocalGun()
         {
+            var testReader = LocalGunForTests;
+            if (testReader != null) return testReader();
             try
             {
                 var local = Player.LocalPlayer;
@@ -30,6 +74,12 @@ namespace BetterUnturnedExperience.Lir
         [MethodImpl(MethodImplOptions.NoInlining)]
         internal static AmmoObservation ObserveTotal(object gunInstance)
         {
+            var factsReader = FactsReaderForTests;
+            if (factsReader != null)
+            {
+                var facts = factsReader(gunInstance);
+                return facts == null ? new AmmoObservation { Entries = new AmmoEntry[0] } : FromFacts(facts);
+            }
             var entries = new List<AmmoEntry>();
             var observation = new AmmoObservation
             {
@@ -52,7 +102,7 @@ namespace BetterUnturnedExperience.Lir
                 var state = equipment.state;
                 if (state != null)
                 {
-                    var currentAmmo = state.Length > GunStateIndices.AMMO ? state[GunStateIndices.AMMO] : (byte)0;
+                    var currentAmmo = ReadVanillaAmmo(gun, state);
                     if (state.Length > GunStateIndices.MAGAZINE_ID + 1)
                     {
                         var magazineId = BitConverter.ToUInt16(state, GunStateIndices.MAGAZINE_ID);
@@ -106,6 +156,23 @@ namespace BetterUnturnedExperience.Lir
             }
             observation.Entries = entries.ToArray();
             return observation;
+        }
+
+        private static AmmoObservation FromFacts(AmmoEngineFacts facts)
+        {
+            return new AmmoObservation
+            {
+                GunMagazineCalibers = facts.GunMagazineCalibers,
+                GunAllowsZeroCaliber = facts.GunAllowsZeroCaliber,
+                LoadedMagazine = facts.LoadedMagazineId == 0 ? (LoadedAmmoMagazine?)null : new LoadedAmmoMagazine
+                {
+                    Id = facts.LoadedMagazineId,
+                    CurrentAmmo = facts.LoadedCurrentAmmo,
+                    Calibers = facts.LoadedMagazineCalibers,
+                    FillSupplyIds = facts.LoadedFillSupplyIds,
+                },
+                Entries = facts.Entries ?? new AmmoEntry[0],
+            };
         }
 
         [MethodImpl(MethodImplOptions.NoInlining)]

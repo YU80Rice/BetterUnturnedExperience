@@ -203,7 +203,51 @@ namespace BetterUnturnedExperience.Lir
         /// <summary>Host-test seam: overrides the server-role probe (production reads Provider.isServer — unavailable in host tests).</summary>
         internal Func<bool> RoleProbeForTests;
 
+        internal static bool IsAmmoInventoryPageForTests(byte page)
+        {
+            return page >= ReloadRuntimePolicy.MinRepackPage && page <= ReloadRuntimePolicy.MaxRepackPage;
+        }
+
         private bool multiplayerInitObserved;
+        private Player subscribedAmmoPlayer;
+        private bool ammoInventoryDirty;
+
+        private void EnsureAmmoInventorySubscription()
+        {
+            Player player;
+            try { player = Player.LocalPlayer; }
+            catch (Exception error)
+            {
+                LirRuntime.LogDiagnostic("[AmmoHud] 本地库存事件订阅暂不可用（HostTick 继续）: " + error.Message);
+                return;
+            }
+            if (ReferenceEquals(player, subscribedAmmoPlayer)) return;
+            RemoveAmmoInventorySubscription();
+            subscribedAmmoPlayer = player;
+            if (player == null || player.inventory == null) return;
+            player.inventory.onInventoryAdded += OnAmmoInventoryEvent;
+            player.inventory.onInventoryRemoved += OnAmmoInventoryEvent;
+            player.inventory.onInventoryUpdated += OnAmmoInventoryEvent;
+        }
+
+        private void RemoveAmmoInventorySubscription()
+        {
+            if (subscribedAmmoPlayer == null) return;
+            subscribedAmmoPlayer.inventory.onInventoryAdded -= OnAmmoInventoryEvent;
+            subscribedAmmoPlayer.inventory.onInventoryRemoved -= OnAmmoInventoryEvent;
+            subscribedAmmoPlayer.inventory.onInventoryUpdated -= OnAmmoInventoryEvent;
+            subscribedAmmoPlayer = null;
+            ammoInventoryDirty = false;
+        }
+
+        private void OnAmmoInventoryEvent(byte page, byte index, ItemJar jar)
+        {
+            if (IsAmmoInventoryPageForTests(page))
+            {
+                ammoInventoryDirty = true;
+                AmmoReserveHudAdapter.MarkInventoryDirty();
+            }
+        }
 
         public FeatureStartResult Start(IFeatureBootstrap bootstrap)
         {
@@ -290,6 +334,7 @@ namespace BetterUnturnedExperience.Lir
             //    and THIS generation's dispatcher queue closed (refuses new
             //    work, clears both queues) — no stale cross-generation work
             //    ever executes.
+            RemoveAmmoInventorySubscription();
             NetService?.Stop();
             NetService = null;
 
@@ -346,6 +391,7 @@ namespace BetterUnturnedExperience.Lir
         internal void OnHostTick(HostTick tick)
         {
             if (!Started || ShuttingDown) return;
+            EnsureAmmoInventorySubscription();
             try
             {
                 if (NetService != null)
@@ -366,6 +412,17 @@ namespace BetterUnturnedExperience.Lir
                     NetService.Drain();
                 }
                 InputDriver?.Tick(tick);
+            }
+            catch (Exception error)
+            {
+                // Network/input faults are isolated from local HUD observation. A
+                // failed optional path must not suppress the frozen HostTick consumer.
+                LirRuntime.LogError("[Lir] 联机/输入帧驱动异常（已隔离）: " + error.Message);
+            }
+
+            try
+            {
+                if (ammoInventoryDirty) ammoInventoryDirty = false;
                 // DEV-V7-02: inventory-side ammo changes have no vanilla updateInfo
                 // callback. Reuse the frozen HostTick seam so the HUD observes the
                 // same frame without adding another Unity pump or Harmony surface.
@@ -374,7 +431,7 @@ namespace BetterUnturnedExperience.Lir
             }
             catch (Exception error)
             {
-                LirRuntime.LogError("[Lir] 帧驱动异常（已隔离）: " + error.Message);
+                LirRuntime.LogError("[Lir] 本地帧观察异常（已隔离）: " + error.Message);
             }
         }
 

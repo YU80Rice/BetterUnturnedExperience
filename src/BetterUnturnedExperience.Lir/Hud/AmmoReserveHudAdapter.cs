@@ -13,14 +13,28 @@ namespace BetterUnturnedExperience.Lir
         internal static Func<object, AmmoObservation> TotalScannerForTests;
         internal static Action<object, AmmoTotalResult> TotalApplyForTests;
         internal static Action HideAllForTests;
+        internal static Action RefreshOnHostTickForTests;
+        internal static bool BypassLifecycleForTests;
+
+        private static bool InvokeApplyAndSucceed(Action<object, AmmoTotalResult> apply, object gun, AmmoTotalResult result)
+        {
+            apply(gun, result);
+            return true;
+        }
 
         private static object lastGun;
         private static string lastFingerprint;
+        private static bool inventoryDirty;
+
+        internal static void MarkInventoryDirty()
+        {
+            inventoryDirty = true;
+        }
 
         internal static void OnGunInfoUpdated(object gun)
         {
             var module = InPlaceReloadModule.ActiveModule;
-            if (module == null || !module.Started || module.ShuttingDown) return;
+            if (!BypassLifecycleForTests && (module == null || !module.Started || module.ShuttingDown)) return;
             try
             {
                 // Existing V5 seams are retained for historical tests only.
@@ -43,8 +57,15 @@ namespace BetterUnturnedExperience.Lir
                 lastFingerprint = fingerprint;
                 var resultV7 = AmmoTotalProjection.Project(observationV7);
                 var apply = TotalApplyForTests;
-                if (apply != null) apply(gun, resultV7);
-                else AmmoReserveHudSurface.ApplyTotal(gun, resultV7);
+                var applied = apply != null ? InvokeApplyAndSucceed(apply, gun, resultV7) : AmmoReserveHudSurface.ApplyTotal(gun, resultV7);
+                if (!applied)
+                {
+                    lastGun = null;
+                    lastFingerprint = null;
+                    return;
+                }
+                lastGun = gun;
+                lastFingerprint = fingerprint;
             }
             catch (Exception error)
             {
@@ -54,12 +75,28 @@ namespace BetterUnturnedExperience.Lir
 
         internal static void RefreshOnHostTick()
         {
+            var testRefresh = RefreshOnHostTickForTests;
+            if (testRefresh != null)
+            {
+                testRefresh();
+                return;
+            }
             var module = InPlaceReloadModule.ActiveModule;
-            if (module == null || !module.Started || module.ShuttingDown) return;
+            if (!BypassLifecycleForTests && (module == null || !module.Started || module.ShuttingDown)) return;
             try
             {
                 var gun = AmmoObservationEngine.ResolveLocalGun();
-                if (gun == null) return;
+                var hadInventoryDirty = inventoryDirty;
+                inventoryDirty = false;
+                if (hadInventoryDirty)
+                {
+                    lastFingerprint = null;
+                }
+                if (gun == null)
+                {
+                    RevokeAll();
+                    return;
+                }
                 OnGunInfoUpdated(gun);
             }
             catch (Exception error)
@@ -72,6 +109,7 @@ namespace BetterUnturnedExperience.Lir
         {
             lastGun = null;
             lastFingerprint = null;
+            inventoryDirty = false;
             try
             {
                 var hideAll = HideAllForTests;
