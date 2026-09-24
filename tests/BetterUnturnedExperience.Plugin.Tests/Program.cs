@@ -304,6 +304,11 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     DevV702TotalAmmoHudTests.Run(collectAllFailures: true);
                     return 0;
                 }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--bue-v7-03-passive-reload-red")
+                {
+                    DevV703PassiveReloadTests.Run(collectAllFailures: true);
+                    return 0;
+                }
                 if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--bue-v7-05-preview-upright-red")
                 {
                     DevV705PreviewUprightTests.Run(collectAllFailures: true);
@@ -620,6 +625,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 AssertLitSingleplayerPath();
                 AssertDevV502TaggedRowBand();
                 DevV702TotalAmmoHudTests.Run();
+                DevV703PassiveReloadTests.Run();
                 DevV706CopyHandbookTests.Run();
                 DevV5ContainerSessionTests.Run();
                 DevV5InsertRecoverTests.Run();

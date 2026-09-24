@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Reflection;
 using BetterUnturnedExperience.Contracts;
@@ -156,6 +156,8 @@ namespace BetterUnturnedExperience.Plugin.Tests
             }
 
             public byte GetLevelFor(ulong steamId) { GetLevelForCalls++; return Level; }
+
+            public bool IsPlayerAvailable(ulong steamId) { return LocalResolvable; }
 
             public bool TryResolveLocalLevel(out byte level)
             {
@@ -453,7 +455,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
             authority = new V57Authority { Outcome = LirRepackOutcome.NoChange, LocalId = 7UL };
             net = new V57Network();
             module = V57StartModule(hooks, authority, net, clock, new V57Persistence(), isServer: true, out toasts, check);
-            module.NetService.ExecuteRepackFor(7UL, 1100UL, isAuto: false);
+            module.NetService.ExecuteRepackFor(7UL, 1100UL);
             check(authority.RepackCalls == 0, "技能窗拒绝 = 不进事务（技术闸与事务都不消费）");
             check(toasts.Count == 1 && toasts[0].Contains("换弹技能冷却中") && toasts[0].Contains("还需 10 秒")
                 && toasts[0].Contains("#ff5c5c"), "0 级冷却中再双击：红色剩余秒（余量向上取整，主机为准）");
@@ -634,153 +636,47 @@ namespace BetterUnturnedExperience.Plugin.Tests
         }
         private static void V57GroupAutoRound(System.Action<bool, string> check)
         {
-            // 4a. 成交→等待→到点再压一轮。
             var clock = new V57Clock();
-            var hooks = new V57Hooks { Level = 2, Fingerprint = "gun-A", FreshFingerprint = "gun-A" };
+            var hooks = new V57Hooks { Level = 2, LocalResolvable = true };
             var authority = new V57Authority { Outcome = LirRepackOutcome.Committed, Total = 3, LocalId = 7UL };
             var net = new V57Network();
             var module = V57StartModule(hooks, authority, net, clock, new V57Persistence(), isServer: true, out var toasts, check);
-            module.NetService.ExecuteRepackFor(7UL, 901UL, isAuto: false);
-            check(authority.RepackCalls == 1, "手动双击成交走同一权威入口（官方先行）");
-            check(module.AutoRounds.PendingCount == 1, "2 级手动成功 = 排一轮自动压弹");
-            check(toasts.Count == 1 && toasts[0].Contains("成功压入"), "本地成功 toast 现网语义不变");
-            check(hooks.ArmCalls == 1, "权威成交 >0 发才武装技能窗（0 发/闸拒不武装）");
 
-            V57Pump(module, clock, 1UL, (float)(ReloadSkillPolicy.AutoRoundDelaySeconds - 0.5d), firstTick: 1UL);
-            check(authority.RepackCalls == 1 && module.AutoRounds.PendingCount == 1,
-                "等待未到（差 0.5s）：不提前压（固定等待不可设）");
-            clock.Advance(1f);
-            module.OnHostTick(V57Tick(2UL, 1f));
-            check(authority.RepackCalls == 2 && module.AutoRounds.PendingCount == 0,
-                "到点再压一轮，且只一轮（自动成功不再续排）");
-            check(hooks.ArmCalls == 2, "自动轮成交同样武装（2 级 extra=0 本层仍调用，生产实现空操作）");
-            check(authority.HostInitiatedCalls == 1, "自动轮走主机发起门（跳过客户端 requestId 回放比较）");
-            module.Stop(FeatureStopReason.PluginStopping);
-
-            // 4a-gate. U3DS 探针 #5：手动 id 很大之后，自动轮不得被回放闸拒绝。
-            LirRepackGate.NowSecondsForTests = () => 1000f;
-            LirRepackGate.ResetForGeneration();
-            int retry;
-            check(LirRepackGate.TryAcquire(77UL, 639252135186329770UL, out retry), "装配：先记一笔客机手动大 id");
-            LirRepackGate.NowSecondsForTests = () => 1002f; // 过 1.5s 技术闸
-            check(!LirRepackGate.TryAcquire(77UL, 100UL, out retry), "小于最高观察 id 的客户端请求仍拒（回放闸保持）");
-            check(LirRepackGate.TryAcquireHostInitiated(77UL, out retry), "主机发起自动轮：跳过回放比较，冷却过后放行");
-            LirRepackGate.NowSecondsForTests = () => 1002.1f;
-            check(!LirRepackGate.TryAcquireHostInitiated(77UL, out retry), "主机发起仍吃 1.5s 技术闸");
-            LirRepackGate.ResetForGeneration();
-            LirRepackGate.NowSecondsForTests = null;
-
-            // 4a-P2P. 自动轮回包 id=0：客机 pending 表无此 id，仍要 toast（探针 #3：
-            // 主机成交 6 发但客机「未知 requestId」丢包）。
-            clock = new V57Clock();
-            hooks = new V57Hooks { Level = 2, Fingerprint = "gun-A", FreshFingerprint = "gun-A" };
-            authority = new V57Authority { Outcome = LirRepackOutcome.Committed, Total = 6, LocalId = 1UL };
-            net = new V57Network();
-            net.LiveSessions.Add(new V57Session(5UL, 9UL));
-            module = V57StartModule(hooks, authority, net, clock, new V57Persistence(), isServer: true, out _, check);
             module.OnHostTick(V57Tick(1UL, 0.1f));
-            module.NetService.ExecuteRepackFor(9UL, 961UL, isAuto: false);
-            clock.Advance(ReloadSkillPolicy.AutoRoundDelaySeconds + 0.1d);
-            module.OnHostTick(V57Tick(2UL, 0.1f));
-            var autoFrames = 0;
-            ulong autoWireId = 1UL;
-            var autoTotal = 0;
-            for (var i = 0; i < net.Sent.Count; i++)
-            {
-                if (!LirRepackWireCodec.TryReadSuccess(net.Sent[i].Payload, out var rid, out var tot)) continue;
-                if (rid == 0UL) { autoFrames++; autoWireId = rid; autoTotal = tot; }
-            }
-            check(autoFrames >= 1 && autoWireId == 0UL && autoTotal == 6,
-                "自动轮回包 wireId=0（绕开客机 pending 表）且 total 随成交");
-            var clientNet = new V57Network();
-            var clientAuth = new V57Authority { LocalId = 9UL };
-            var clientToasts = default(List<string>);
-            var client = V57StartModule(new V57Hooks { Level = 2 }, clientAuth, clientNet, new V57Clock(), new V57Persistence(), isServer: false, out clientToasts, check);
-            client.OnHostTick(V57Tick(1UL, 0.1f));
-            clientNet.DispatchInbound(ChannelDirection.FromServer, new V57Session(5UL, 1UL), LirRepackWireCodec.BuildSuccess(0UL, 6));
-            client.OnHostTick(V57Tick(2UL, 0.1f));
-            var sawAutoToast = false;
-            for (var i = 0; i < clientToasts.Count; i++)
-                if (clientToasts[i].Contains("成功压入") && clientToasts[i].Contains("6")) sawAutoToast = true;
-            check(sawAutoToast, "客机对 wireId=0 的自动轮回包弹成功 toast（不再当未知 requestId 丢掉）");
-            client.Stop(FeatureStopReason.PluginStopping);
-            module.Stop(FeatureStopReason.PluginStopping);
+            check(module.AutoRounds.PendingCount == 1, "2 级首次主机观察独立建立周期，不依赖手动成交");
+            check(authority.RepackCalls == 0, "首次观察只起算，不立即写入");
+            clock.Advance(ReloadSkillPolicy.AutoRoundDelaySeconds);
+            module.OnHostTick(V57Tick(2UL, (float)ReloadSkillPolicy.AutoRoundDelaySeconds));
+            check(authority.RepackCalls == 1 && authority.HostInitiatedCalls == 1, "到点使用主机发起权威事务");
+            check(toasts.Count == 0, "被动成功静默，不发 toast");
+            check(module.AutoRounds.PendingCount == 1, "被动尝试后继续保留下一拍");
 
-            // 4b. 到点条件不满足 = 取消，不强制、不重试。
-            clock = new V57Clock();
-            hooks = new V57Hooks { Level = 2, Fingerprint = "gun-A", FreshFingerprint = "gun-B" };
-            authority = new V57Authority { Outcome = LirRepackOutcome.Committed, Total = 3, LocalId = 7UL };
-            module = V57StartModule(hooks, authority, new V57Network(), clock, new V57Persistence(), isServer: true, out _, check);
-            module.NetService.ExecuteRepackFor(7UL, 902UL, isAuto: false);
-            clock.Advance(ReloadSkillPolicy.AutoRoundDelaySeconds + 0.1d);
-            module.OnHostTick(V57Tick(1UL, 0.1f));
-            check(authority.RepackCalls == 1 && module.AutoRounds.PendingCount == 0,
-                "切枪（同枪同匣指纹重检失败）= 取消到点轮：零权威调用、条目消耗不重试");
-            module.Stop(FeatureStopReason.PluginStopping);
+            module.OnDoubleTapReload();
+            check(authority.RepackCalls == 2, "手动入口仍独立可用");
+            clock.Advance(ReloadSkillPolicy.AutoRoundDelaySeconds);
+            module.OnHostTick(V57Tick(3UL, (float)ReloadSkillPolicy.AutoRoundDelaySeconds));
+            check(authority.RepackCalls == 2, "同一 HostTick 手动玩家被动互斥");
+            check(hooks.WindowChecks == 1, "被动不消耗技能窗，只有手动走技能窗");
 
-            // 4c. 等级漂移重检（到点前被降/账变了——仍以存储为准）。
-            clock = new V57Clock();
-            hooks = new V57Hooks { Level = 2, Fingerprint = "fp", FreshFingerprint = "fp" };
-            authority = new V57Authority { Outcome = LirRepackOutcome.Committed, Total = 3, LocalId = 7UL };
-            module = V57StartModule(hooks, authority, new V57Network(), clock, new V57Persistence(), isServer: true, out _, check);
-            module.NetService.ExecuteRepackFor(7UL, 903UL, isAuto: false);
             hooks.Level = 1;
-            clock.Advance(ReloadSkillPolicy.AutoRoundDelaySeconds + 0.1d);
-            module.OnHostTick(V57Tick(1UL, 0.1f));
-            check(authority.RepackCalls == 1, "到点等级重检：已非 2 级不压（执行前重检=等级仍允许）");
-
-            // 4d. 窗内手动再双击 = 替换为新一轮（始终至多一条目，手动吃现网闸）。
+            module.OnHostTick(V57Tick(4UL, 0.1f));
+            check(module.AutoRounds.PendingCount == 0, "等级下降清除周期");
             hooks.Level = 2;
-            module.NetService.ExecuteRepackFor(7UL, 904UL, isAuto: false);
-            check(module.AutoRounds.PendingCount == 1 && hooks.WindowChecks == 2,
-                "自动轮未到时再来手动：技能窗每次双击都过一遍，待压至多一轮");
+            clock.Advance(1d);
+            module.OnHostTick(V57Tick(5UL, 0.1f));
+            check(module.AutoRounds.PendingCount == 1, "恢复资格从当前时刻重新起算");
             module.Stop(FeatureStopReason.PluginStopping);
+            check(module.AutoRounds.PendingCount == 0, "Stop 清除代际周期");
 
-            // 4e/4f. 0/1 级与无变化/缺玩家成功语义不排轮。
-            clock = new V57Clock();
-            hooks = new V57Hooks { Level = 1 };
-            authority = new V57Authority { Outcome = LirRepackOutcome.Committed, Total = 3, LocalId = 7UL };
-            module = V57StartModule(hooks, authority, new V57Network(), clock, new V57Persistence(), isServer: true, out _, check);
-            module.NetService.ExecuteRepackFor(7UL, 905UL, isAuto: false);
-            check(module.AutoRounds.PendingCount == 0, "1 级成交不排自动轮（自动压弹是 2 级专属）");
-            module.NetService.ExecuteRepackFor(7UL, 906UL, isAuto: false);
-            var armsBeforeZero = hooks.ArmCalls;
-            authority.Outcome = LirRepackOutcome.Committed;
-            authority.Total = 0;
-            module.NetService.ExecuteRepackFor(7UL, 9061UL, isAuto: false);
-            check(hooks.ArmCalls == armsBeforeZero, "Committed total=0 不武装技能窗（P2P 0 级「没压进却进 CD」的权威路径钉）");
-            hooks.Level = 2;
-            authority.Outcome = LirRepackOutcome.NoChange;
-            module.NetService.ExecuteRepackFor(7UL, 907UL, isAuto: false);
-            check(module.AutoRounds.PendingCount == 0, "NoChange 不算「双击成功」：不排轮");
-            authority.Outcome = LirRepackOutcome.PlayerMissing;
-            hooks.Fingerprint = "fp";
-            module.NetService.ExecuteRepackFor(8UL, 908UL, isAuto: false);
-            check(module.AutoRounds.PendingCount == 0, "PlayerMissing 不排轮");
-            module.Stop(FeatureStopReason.PluginStopping);
-
-            // 4g. Stop 即清（运行状态层不过代际；等级是进度层，另在生命周期组）。
-            clock = new V57Clock();
-            hooks = new V57Hooks { Level = 2, Fingerprint = "fp", FreshFingerprint = "fp" };
-            authority = new V57Authority { Outcome = LirRepackOutcome.Committed, Total = 3, LocalId = 7UL };
-            module = V57StartModule(hooks, authority, new V57Network(), clock, new V57Persistence(), isServer: true, out _, check);
-            module.NetService.ExecuteRepackFor(7UL, 909UL, isAuto: false);
-            check(module.AutoRounds.PendingCount == 1, "装配：已排一轮");
-            module.Stop(FeatureStopReason.PluginStopping);
-            check(module.AutoRounds.PendingCount == 0, "Stop 清自动轮（静态表绑功能代际）");
-
-            // 4h. 调度器本体：仅到点者触发、回调异常隔离不吞他人。
-            var sched = new ReloadAutoRoundScheduler();
+            var scheduler = new ReloadAutoRoundScheduler();
+            scheduler.Sync(new[] { 1UL, 2UL }, _ => 2, _ => true, 10d);
             var fired = new List<ulong>();
-            sched.Schedule(1UL, "a", 10d);
-            sched.Schedule(2UL, "b", 10d);
-            sched.Tick(9d, (id, fp) => { fired.Add(id); return true; });
-            check(fired.Count == 0 && sched.PendingCount == 2, "未到点不触发");
-            sched.Tick(10d, (id, fp) => { throw new InvalidOperationException("synthetic fire fault"); });
-            check(sched.PendingCount == 0, "触发异常仍消耗条目（一轮为限，无重试风暴）");
-            sched.Schedule(3UL, "c", 0d);
-            sched.Tick(1d, (id, fp) => { fired.Add(id); return true; });
-            check(fired.Count == 1 && fired[0] == 3UL && sched.PendingCount == 0, "同拍后到的条目照常处理");
+            scheduler.TickPassive(10d + ReloadSkillPolicy.AutoRoundDelaySeconds - 0.01d, id => fired.Add(id));
+            check(fired.Count == 0, "调度器不到周期不触发");
+            scheduler.TickPassive(10d + ReloadSkillPolicy.AutoRoundDelaySeconds, id => fired.Add(id));
+            check(fired.Count == 2 && scheduler.PendingCount == 2, "同拍到点玩家都尝试且各自续拍");
+            scheduler.ResetForGeneration();
+            check(scheduler.PendingCount == 0, "调度器代际重置清窗");
         }
 
         // ─────────────────────────────────────────────────────────────────
@@ -868,8 +764,10 @@ namespace BetterUnturnedExperience.Plugin.Tests
             var net = new V57Network();
             var module = V57StartModule(hooks, authority, net, clock, new V57Persistence(), isServer: true, out _, check);
             check(module.SkillPatchInstalled, "Start 登记：技能分区面已武装（登记=唯一开关）");
-            module.NetService.ExecuteRepackFor(7UL, 1300UL, isAuto: false);
-            check(module.AutoRounds.PendingCount == 1, "非 headless：2 级成功排轮");
+            module.NetService.ExecuteRepackFor(7UL, 1300UL);
+            check(module.AutoRounds.PendingCount == 0, "手动成交不直接排被动周期");
+            module.OnHostTick(V57Tick(1UL, 0.1f));
+            check(module.AutoRounds.PendingCount == 1, "非 headless：主机首次观察后建立 2 级周期");
             module.Stop(FeatureStopReason.PluginStopping);
             check(!module.SkillPatchInstalled, "Stop 注销：分区面撤回（原生回退）");
 
@@ -880,9 +778,11 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 "U3DS headless：分区面不武装（画面裁决），诊断如实");
             authority.RepackCalls = 0;
             hooks.Level = 2;
-            module.NetService.ExecuteRepackFor(7UL, 1301UL, isAuto: false);
-            check(authority.RepackCalls == 1 && module.AutoRounds.PendingCount == 1,
-                "headless 技能权威照常：等级门/自动压弹/升级账不受画面裁决牵连");
+            module.NetService.ExecuteRepackFor(7UL, 1301UL);
+            check(authority.RepackCalls == 1 && module.AutoRounds.PendingCount == 0,
+                "headless 技能权威照常：手动压弹不受画面裁决牵连，被动周期由 HostTick 独立建立");
+            module.OnHostTick(V57Tick(2UL, 0.1f));
+            check(module.AutoRounds.PendingCount == 1, "headless 主机 HostTick 同样建立 2 级周期");
             module.Stop(FeatureStopReason.PluginStopping);
             check(persistence.SaveCalls == 0, "Stop 不写持久化（账只在提交时落——生命周期不发明第二写点）");
             LirRuntime.HostHeadlessDecision = null;

@@ -4,57 +4,66 @@ using System.Collections.Generic;
 namespace BetterUnturnedExperience.Lir
 {
     /// <summary>
-    /// DEV-V5-07 运行状态层：2 级自动压弹的待压表。每玩家至多一条目（新一轮
-    /// 手动成功替换旧条目——「双击成功后再自动压一轮」=每成功一轮）；到点条目
-    /// 先摘除再触发（异常同样消耗——无重试风暴），触发与否的重检在回调方
-    /// （等级仍允许/同枪同匣指纹/玩家可解析——不满足=取消，不强制操作）。
-    /// Stop 即清：本表不过功能代际。时钟由调用方注入（与冷却窗同一秒源）。
+    /// DEV-V7-03 运行状态层：2 级被动压弹周期。候选玩家首次达到 2 级时
+    /// 从当前时钟起算固定等待；每次尝试结束后重新等待同一间隔，不追赶错过的拍。
+    /// 候选同步负责等级降级、玩家离场和死亡/不可解析清窗；Stop 即清。
     /// </summary>
     internal sealed class ReloadAutoRoundScheduler
     {
-        private struct Entry
+        private readonly Dictionary<ulong, double> dueByPlayer = new Dictionary<ulong, double>();
+
+        internal int PendingCount { get { return dueByPlayer.Count; } }
+
+        internal void Sync(IEnumerable<ulong> steamIds, Func<ulong, byte> levelFor,
+            Func<ulong, bool> isAvailable, double nowSeconds)
         {
-            internal object Fingerprint;
-            internal double DueAtSeconds;
-        }
-
-        private readonly Dictionary<ulong, Entry> byPlayer = new Dictionary<ulong, Entry>();
-
-        internal int PendingCount { get { return byPlayer.Count; } }
-
-        internal void Schedule(ulong steamId, object fingerprint, double dueAtSeconds)
-        {
-            if (steamId == 0UL) return;
-            byPlayer[steamId] = new Entry { Fingerprint = fingerprint, DueAtSeconds = dueAtSeconds };
-        }
-
-        /// <summary>到点条目逐个摘除→回调（tryFire 返回与否都不复现=一轮为限）。
-        /// 回调异常隔离：吞进诊断，条目照常消耗。</summary>
-        internal void Tick(double nowSeconds, Func<ulong, object, bool> tryFire)
-        {
-            if (byPlayer.Count == 0) return;
-            List<ulong> due = null;
-            foreach (var pair in byPlayer)
+            if (levelFor == null) throw new ArgumentNullException(nameof(levelFor));
+            if (isAvailable == null) throw new ArgumentNullException(nameof(isAvailable));
+            var eligible = new HashSet<ulong>();
+            if (steamIds != null)
             {
-                if (pair.Value.DueAtSeconds <= nowSeconds) (due ??= new List<ulong>()).Add(pair.Key);
+                foreach (var steamId in steamIds)
+                {
+                    if (steamId == 0UL || levelFor(steamId) < ReloadSkillPolicy.MaxSkillLevel
+                        || !isAvailable(steamId)) continue;
+                    eligible.Add(steamId);
+                    if (!dueByPlayer.ContainsKey(steamId))
+                        dueByPlayer[steamId] = nowSeconds + ReloadSkillPolicy.AutoRoundDelaySeconds;
+                }
             }
-            if (due == null) return;
+            var stale = new List<ulong>();
+            foreach (var pair in dueByPlayer)
+            {
+                if (!eligible.Contains(pair.Key)) stale.Add(pair.Key);
+            }
+            for (var i = 0; i < stale.Count; i++) dueByPlayer.Remove(stale[i]);
+        }
+
+        internal void TickPassive(double nowSeconds, Action<ulong> tryFire)
+        {
+            if (tryFire == null) throw new ArgumentNullException(nameof(tryFire));
+            if (dueByPlayer.Count == 0) return;
+            var due = new List<ulong>();
+            foreach (var pair in dueByPlayer)
+            {
+                if (pair.Value <= nowSeconds) due.Add(pair.Key);
+            }
             for (var i = 0; i < due.Count; i++)
             {
-                Entry entry;
-                if (!byPlayer.TryGetValue(due[i], out entry) || entry.DueAtSeconds > nowSeconds) continue;
-                byPlayer.Remove(due[i]);
-                try { tryFire(due[i], entry.Fingerprint); }
+                var steamId = due[i];
+                if (!dueByPlayer.ContainsKey(steamId)) continue;
+                try { tryFire(steamId); }
                 catch (Exception error)
                 {
-                    LirRuntime.LogError("[ReloadSkill] 自动压弹触发异常（条目已消耗）: " + error.Message);
+                    LirRuntime.LogError("[ReloadSkill] 被动压弹触发异常（本拍已结束）: " + error.Message);
                 }
+                dueByPlayer[steamId] = nowSeconds + ReloadSkillPolicy.AutoRoundDelaySeconds;
             }
         }
 
         internal void ResetForGeneration()
         {
-            byPlayer.Clear();
+            dueByPlayer.Clear();
         }
     }
 }

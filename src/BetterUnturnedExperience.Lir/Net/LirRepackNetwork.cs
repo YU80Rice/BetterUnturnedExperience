@@ -289,6 +289,25 @@ namespace BetterUnturnedExperience.Lir
             moduleToast = toastSink;
         }
 
+        internal void BindManualRepackObserver(Action<ulong> observer)
+        {
+            manualRepackObserver = observer;
+        }
+
+        private Action<ulong> manualRepackObserver;
+
+        internal IReadOnlyList<ulong> GetEstablishedPeerSteamIds()
+        {
+            var result = new List<ulong>();
+            foreach (var pair in liveSessions)
+            {
+                if (pair.Value != null && pair.Value.PeerSteamId != 0UL)
+                    result.Add(pair.Value.PeerSteamId);
+            }
+            return result;
+        }
+
+
         /// <summary>
         /// The client-side request path: a live session, a tracked pending id
         /// (replay/forge guard), the reliable send whose explicit result
@@ -583,63 +602,66 @@ namespace BetterUnturnedExperience.Lir
         /// </summary>
         internal void ExecuteRepackFor(ulong senderSteamId, ulong requestId)
         {
-            ExecuteRepackFor(senderSteamId, requestId, false);
+            manualRepackObserver?.Invoke(senderSteamId);
+            ExecuteRepackCore(senderSteamId, requestId, false);
         }
 
-        /// <summary>DEV-V5-07: the 技能窗 sits BEFORE the authority transaction
-        /// (0 级合并窗 = 技术闸+额外——窗内拒绝连技术闸都不消费)；manual success
-        /// with rounds transferred hands the 2 级 auto-round decision to the
-        /// module (the service keeps no skill policy of its own).</summary>
-        internal void ExecuteRepackFor(ulong senderSteamId, ulong requestId, bool isAuto)
+        /// <summary>主机帧被动压弹入口：无请求号、无成功回包、只复用主机权威事务。</summary>
+        internal void ExecutePassiveRepackFor(ulong senderSteamId)
+        {
+            ExecuteRepackCore(senderSteamId, 0UL, true);
+        }
+
+        private void ExecuteRepackCore(ulong senderSteamId, ulong requestId, bool hostInitiated)
         {
             if (stopped) return;
             var hooks = skillHooks;
-            if (hooks != null && !hooks.TryBeginRepackWindow(senderSteamId, out var remainingSeconds))
+            if (!hostInitiated && hooks != null && !hooks.TryBeginRepackWindow(senderSteamId, out var remainingSeconds))
             {
                 DeliverSkillCooldownNotice(senderSteamId, remainingSeconds);
                 return;
             }
-            // The gate is the authority's engine-side discipline (cooldown /
-            // replay / quarantine) — the service only routes outcomes.
-            var result = authority.ExecuteRepack(senderSteamId, requestId, isAuto);
+            var result = authority.ExecuteRepack(senderSteamId, requestId, hostInitiated);
             switch (result.Outcome)
             {
                 case LirRepackOutcome.Committed:
                     if (result.TotalTransferred > 0)
                     {
-                        hooks?.ArmRepackWindowAfterCommit(senderSteamId);
-                        DeliverSuccess(senderSteamId, requestId, result.TotalTransferred, isAuto);
-                        if (!isAuto && hooks != null
-                            && hooks.GetLevelFor(senderSteamId) == ReloadSkillPolicy.MaxSkillLevel)
-                        {
-                            var fingerprint = hooks.CaptureFingerprint(senderSteamId);
-                            if (fingerprint != null)
-                            {
-                                var module = skillModule;
-                                module?.ScheduleAutoRoundAfterManualSuccess(senderSteamId, fingerprint);
-                            }
-                        }
+                        if (!hostInitiated) hooks?.ArmRepackWindowAfterCommit(senderSteamId);
+                        if (!hostInitiated)
+                            DeliverSuccess(senderSteamId, requestId, result.TotalTransferred);
                     }
                     break;
                 case LirRepackOutcome.PlayerMissing:
                     dispatcher.IncrementMissingPlayer();
+                    if (hostInitiated)
+                        LirRuntime.LogDiagnostic("[ReloadSkill] passive-repack outcome=PlayerMissing steam=" + senderSteamId);
                     break;
                 case LirRepackOutcome.RejectedCooldown:
                     dispatcher.IncrementRejected();
+                    if (hostInitiated)
+                        LirRuntime.LogDiagnostic("[ReloadSkill] passive-repack outcome=RejectedCooldown steam=" + senderSteamId);
                     break;
                 case LirRepackOutcome.RestoreFailed:
-                    // The authority quarantined the player; this is the
-                    // critical diagnostic the old layer carried.
-                    LirRuntime.LogError("[RepackNet] CRITICAL: sender=" + senderSteamId + " RestoreFailed 半提交风险（已 Quarantine）");
+                    if (hostInitiated)
+                        LirRuntime.LogError("[ReloadSkill] passive-repack outcome=RestoreFailed steam=" + senderSteamId + " hostInitiated=true quarantine=true");
+                    else
+                        LirRuntime.LogError("[RepackNet] CRITICAL: sender=" + senderSteamId + " RestoreFailed 半提交风险（已 Quarantine）");
+                    break;
+                case LirRepackOutcome.RolledBack:
+                    if (hostInitiated)
+                        LirRuntime.LogWarning("[ReloadSkill] passive-repack outcome=RolledBack steam=" + senderSteamId);
+                    break;
+                case LirRepackOutcome.AbortedStateDrift:
+                    if (hostInitiated)
+                        LirRuntime.LogWarning("[ReloadSkill] passive-repack outcome=AbortedStateDrift steam=" + senderSteamId);
                     break;
                 default:
-                    // NoChange / RolledBack / AbortedStateDrift: a scan ran,
-                    // nothing to deliver — the old silent outcomes.
                     break;
             }
         }
 
-        private void DeliverSuccess(ulong senderSteamId, ulong requestId, int totalTransferred, bool isAuto)
+        private void DeliverSuccess(ulong senderSteamId, ulong requestId, int totalTransferred)
         {
             // Toast ownership: the local player sees the toast here; a remote
             // client gets the targeted reliable reply (U3DS is headless — the
@@ -650,10 +672,10 @@ namespace BetterUnturnedExperience.Lir
                 sink?.Invoke(SuccessToast(totalTransferred));
                 return;
             }
-            SendRepackSuccess(senderSteamId, requestId, totalTransferred, isAuto);
+            SendRepackSuccess(senderSteamId, requestId, totalTransferred);
         }
 
-        private void SendRepackSuccess(ulong senderSteamId, ulong requestId, int totalTransferred, bool isAuto)
+        private void SendRepackSuccess(ulong senderSteamId, ulong requestId, int totalTransferred)
         {
             if (totalTransferred <= 0) return;
             IConnectionSession session = null;
@@ -666,11 +688,9 @@ namespace BetterUnturnedExperience.Lir
                 LirRuntime.LogWarning("[RepackNet] 回包目标会话已不存在（sender=" + senderSteamId + ", reqId=" + requestId + "），客户端将按待确认表无果");
                 return;
             }
-            // 自动轮由主机排程，客机 pending 表无此 requestId。回包 id=0 = 主机发起的
-            // 成交通知（非对手动请求的应答），客机按「未登记 id」放行 toast，不走待确认表。
-            var wireId = isAuto ? 0UL : requestId;
+            if (requestId == 0UL) return;
             NetworkSendResult sent;
-            try { sent = network.SendToClient(Channel, session, LirRepackWireCodec.BuildSuccess(wireId, totalTransferred), reliable: true); }
+            try { sent = network.SendToClient(Channel, session, LirRepackWireCodec.BuildSuccess(requestId, totalTransferred), reliable: true); }
             catch (Exception) { sent = NetworkSendResult.LocalTransportUnavailable; }
             if (sent != NetworkSendResult.Sent)
             {
@@ -678,7 +698,7 @@ namespace BetterUnturnedExperience.Lir
             }
             else
             {
-                LirRuntime.LogInfo("[RepackNet] -> 客机 RepackSuccess(reqId=" + wireId + ", total=" + totalTransferred + (isAuto ? ", auto=1" : "") + ")");
+                LirRuntime.LogInfo("[RepackNet] -> 客机 RepackSuccess(reqId=" + requestId + ", total=" + totalTransferred + ")");
             }
         }
     }

@@ -11,8 +11,7 @@ namespace BetterUnturnedExperience.Lir
     ///   ExecuteUpgrade = 主机校验→扣原版经验→落账（全有或全无，内部回滚）；
     ///   GetLevelFor = 按玩家取等级（内部解析角色键；解析不出=0 账 fail-closed）；
     ///   TryResolveLocalLevel = 本机确认等级（SP/房主镜像，客机走线）；
-    ///   CaptureFingerprint/FingerprintMatches = 2 级自动压弹到点重检的「同枪
-    ///   同匣」判据（不透明 token，引擎细节不外泄）。
+    ///   IsPlayerAvailable = 被动压弹候选的存活/可解析资格（失败即清窗）。
     /// </summary>
     internal interface ILirSkillHooks
     {
@@ -29,8 +28,6 @@ namespace BetterUnturnedExperience.Lir
 
         bool TryResolveLocalLevel(out byte level);
 
-        object CaptureFingerprint(ulong steamId);
-
-        bool FingerprintMatches(object captured, object fresh);
+        bool IsPlayerAvailable(ulong steamId);
     }
 }

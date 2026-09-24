@@ -64,9 +64,8 @@ namespace BetterUnturnedExperience.Lir
             if (payload[0] != ProtocolVersion || payload[1] != MsgRepackSuccess) return false;
             requestId = ReadUInt64(payload, 2);
             totalTransferred = ReadInt32(payload, 10);
-            // requestId=0 = 主机发起的自动轮成交通知（客机 pending 表无对应请求）。
-            // 手动应答仍用非 0 id。total 必须 >0（0 发不回包）。
-            return totalTransferred > 0;
+            // 成功回包必须绑定非零手动 requestId；被动主机事务不产生网络成功帧。
+            return requestId != 0UL && totalTransferred > 0;
         }
 
         // ── DEV-V5-07 技能帧（同频道加性 kind；全部 fail-closed 结构校验：

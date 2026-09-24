@@ -130,29 +130,17 @@ namespace BetterUnturnedExperience.Lir
             return new ReloadSkillUpgradeDecision { Accepted = false, Reason = reason };
         }
 
-        // ── 指纹：equipment state 向量 + 存活位（粗筛；终裁仍是压弹事务）──
-
-        public object CaptureFingerprint(ulong steamId)
+        public bool IsPlayerAvailable(ulong steamId)
         {
             try
             {
                 var player = playerResolver(steamId);
-                if (player == null || player.equipment == null || player.equipment.state == null || player.life == null)
-                    return null;
-                return new SkillGunFingerprint((byte[])player.equipment.state.Clone(), !player.life.isDead);
+                return player != null && player.life != null && !player.life.isDead;
             }
             catch (Exception)
             {
-                return null;
+                return false;
             }
-        }
-
-        public bool FingerprintMatches(object captured, object fresh)
-        {
-            var a = captured as SkillGunFingerprint;
-            var b = fresh as SkillGunFingerprint;
-            if (a == null || b == null) return ReferenceEquals(captured, fresh);
-            return a.Equals(b);
         }
 
         // ── 引擎接触方法体（NoInlining：宿主测试进程绝不在编译路径内）──
@@ -194,41 +182,4 @@ namespace BetterUnturnedExperience.Lir
         }
     }
 
-    /// <summary>2 级自动压弹到点重检的不透明 token：装备槽位向量 + 存活位。
-    /// 「同枪同匣未切枪」的充分粗筛（变枪/换匣附件位必动 state），未死位
-    /// 单独入 token——死了必取消。弹药余量等细目不在这层（事务重检）。</summary>
-    internal sealed class SkillGunFingerprint
-    {
-        private readonly byte[] state;
-        private readonly bool alive;
-
-        internal SkillGunFingerprint(byte[] state, bool alive)
-        {
-            this.state = state;
-            this.alive = alive;
-        }
-
-        public override bool Equals(object other)
-        {
-            var typed = other as SkillGunFingerprint;
-            if (typed == null || typed.alive != alive) return false;
-            if (ReferenceEquals(typed.state, state)) return true;
-            if (typed.state == null || state == null || typed.state.Length != state.Length) return false;
-            for (var i = 0; i < state.Length; i++)
-            {
-                if (typed.state[i] != state[i]) return false;
-            }
-            return true;
-        }
-
-        public override int GetHashCode()
-        {
-            var hash = alive ? 1 : 0;
-            if (state != null)
-            {
-                for (var i = 0; i < state.Length; i++) hash = unchecked(hash * 31 + state[i]);
-            }
-            return hash;
-        }
-    }
 }

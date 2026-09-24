@@ -211,6 +211,12 @@ namespace BetterUnturnedExperience.Lir
         private bool multiplayerInitObserved;
         private Player subscribedAmmoPlayer;
         private bool ammoInventoryDirty;
+        private readonly HashSet<ulong> manualRepackPlayersThisTick = new HashSet<ulong>();
+
+        private void MarkManualRepackThisTick(ulong steamId)
+        {
+            if (steamId != 0UL) manualRepackPlayersThisTick.Add(steamId);
+        }
 
         private void EnsureAmmoInventorySubscription()
         {
@@ -280,6 +286,7 @@ namespace BetterUnturnedExperience.Lir
             // drain pump (the business queue — per-sender coalesce, reply
             // priority, TTL, throttled summary — stays feature-private).
             NetService.BindMainThread(MainThread);
+            NetService.BindManualRepackObserver(MarkManualRepackThisTick);
             if (ToastSink == null) ToastSink = LirToast.Show;
             NetService.BindToastSink(ToastSink);
             // DEV-V5-07 技能面装配：进度层从自有文件恢复（读失败=空账继续，
@@ -349,6 +356,7 @@ namespace BetterUnturnedExperience.Lir
             LirRepackGate.ResetForGeneration();
             SkillRuntime?.ResetForGeneration();
             AutoRounds.ResetForGeneration();
+            manualRepackPlayersThisTick.Clear();
             Guard.Reset();
             Consumer = null;
             InputDriver = null;
@@ -375,9 +383,13 @@ namespace BetterUnturnedExperience.Lir
             Enabled = ReadToggle();
             if (!Enabled || ShuttingDown)
             {
+                AutoRounds.ResetForGeneration();
+                manualRepackPlayersThisTick.Clear();
                 DisarmPatchesForToggle("settings-off");
                 return;
             }
+            AutoRounds.ResetForGeneration();
+            manualRepackPlayersThisTick.Clear();
             ArmPatches();
         }
 
@@ -454,6 +466,7 @@ namespace BetterUnturnedExperience.Lir
                     if (Authority != null && Authority.TryResolveLocalPlayerSteamId(out var localId) && localId != 0UL)
                     {
                         NetService?.ExecuteRepackFor(localId, LirRepackNetwork.NextRequestId());
+                        MarkManualRepackThisTick(localId);
                     }
                     else
                     {
@@ -984,30 +997,32 @@ namespace BetterUnturnedExperience.Lir
             {
                 ReloadSkillLevelMirror.ConfirmLevel(selfLevel);
             }
-            AutoRounds.Tick(SkillNowSeconds, TryFireAutoRound);
+
+            var isServer = RoleProbeForTests ?? LirProductionAuthority.IsServerRole;
+            if (!isServer())
+            {
+                AutoRounds.ResetForGeneration();
+                manualRepackPlayersThisTick.Clear();
+                return;
+            }
+
+            var candidates = new List<ulong>();
+            if (Authority != null && Authority.TryResolveLocalPlayerSteamId(out var localId) && localId != 0UL)
+                candidates.Add(localId);
+            if (NetService != null)
+                candidates.AddRange(NetService.GetEstablishedPeerSteamIds());
+            AutoRounds.Sync(candidates, hooks.GetLevelFor, hooks.IsPlayerAvailable, SkillNowSeconds);
+            AutoRounds.TickPassive(SkillNowSeconds, TryFireAutoRound);
+            manualRepackPlayersThisTick.Clear();
         }
 
-        /// <summary>到点重检（票面裁决 4）：等级仍 2 ∧ 同枪同匣指纹 ∧ 玩家可
-        /// 解析；任一不满足=取消不强制（条目已被调度器消耗，不重试）。通过则
-        /// 走同一权威入口（自动轮也吃技能窗与闸门，2 级无额外窗=与手动同速）。</summary>
-        private bool TryFireAutoRound(ulong steamId, object capturedFingerprint)
+        private void TryFireAutoRound(ulong steamId)
         {
+            if (manualRepackPlayersThisTick.Contains(steamId)) return;
             var hooks = SkillHooks;
-            if (hooks == null || !Started || ShuttingDown || !Enabled) return false;
-            if (hooks.GetLevelFor(steamId) < ReloadSkillPolicy.MaxSkillLevel) return false;
-            var fresh = hooks.CaptureFingerprint(steamId);
-            if (fresh == null || !hooks.FingerprintMatches(capturedFingerprint, fresh)) return false;
-            NetService?.ExecuteRepackFor(steamId, LirRepackNetwork.NextRequestId(), true);
-            return true;
-        }
-
-        /// <summary>网络服务在手动双击成交（Committed∧total&gt;0）且等级=2 时
-        /// 交来指纹：排固定等待的一轮（同玩家再排=替换——每成功至多一轮）。</summary>
-        internal void ScheduleAutoRoundAfterManualSuccess(ulong steamId, object fingerprint)
-        {
-            AutoRounds.Schedule(steamId, fingerprint, SkillNowSeconds + ReloadSkillPolicy.AutoRoundDelaySeconds);
-            LirRuntime.LogDiagnostic("[ReloadSkill] 2 级自动压弹已排队（steam=" + steamId + "，等待 "
-                + ReloadSkillPolicy.AutoRoundDelaySeconds + "s）");
+            if (hooks == null || !Started || ShuttingDown || !Enabled) return;
+            if (hooks.GetLevelFor(steamId) < ReloadSkillPolicy.MaxSkillLevel) return;
+            NetService?.ExecutePassiveRepackFor(steamId);
         }
 
         /// <summary>升级请求唯一入口（表面 A 按钮 / 表面 B 档位 / 测试直调共用）：
