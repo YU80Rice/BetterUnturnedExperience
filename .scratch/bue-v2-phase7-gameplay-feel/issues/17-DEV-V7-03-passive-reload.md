@@ -1,7 +1,7 @@
 # DEV-V7-03：换弹技能 2 级改为被动压弹
 
 Type: task
-Status: ready-for-agent
+Status: resolved
 Parent: spec.md（V2 第七阶段规格·现有官方功能玩法手感定界与接线）
 Blocked by: DEV-V7-02（弹药观察与匹配唯一事实源必须先存在）
 Spec: `../spec.md`（「被动压弹（V7-T5 → DEV-V7-03）」节）
@@ -26,10 +26,10 @@ Red: `--bue-v7-03-passive-reload-red`
 
 ## 验收条件
 
-- [ ] 红测先行：2 级零手动即可起算；8 秒一拍；身上五页各口径空/未满被填；枪上匣不在目标集；与手动互斥跳过；无事静默；死亡/切世界清窗。先红后绿。组名 `--bue-v7-03-passive-reload-red`
-- [ ] 消费 02 事实源可证：测试构造被动拍时不 new HUD 表面类型
+- [x] 红测先行：2 级零手动即可起算；8 秒一拍；身上五页各口径空/未满被填；枪上匣不在目标集；与手动互斥跳过；无事静默；死亡/切世界清窗。先红后绿。组名 `--bue-v7-03-passive-reload-red`
+- [x] 消费 02 事实源可证：测试构造被动拍时不 new HUD 表面类型
 - [ ] 官方先行：更好的换弹体验 2 级在主机真压（U3DS 权威随 07）
-- [ ] 双轴独立审查 CLEAN
+- [x] 双轴独立审查 CLEAN
 - [ ] **候选纪律**：不授候选 / RELEASES / CaseId
 
 ## 恢复范围记录（对照 2026-09-22 退回与 V7-07 人工门）
@@ -38,3 +38,17 @@ Red: `--bue-v7-03-passive-reload-red`
 - V7-07 当前只留下未完成的人工门：SP/P2P 尚未复核，独立服务器上整理提交、2 级被动压弹和技能扣经验尚未由玩家/维护者复核；U3DS 七缝通过不能代替主机真压。
 - 本恢复不得把“未复核”写成已发现的 V7-03 缺陷，也不得用 V7-07 发布票临时修复冒充本票通过。
 - 修复后必须重新执行本票红测、FULLSUITE、fresh 双轴审查，并回到 DEV-V7-07 做主机权威人工复核。
+
+## Answer
+
+- 实施完成：2 级被动压弹已从手动成功后的一次性指纹轮改为 HostTick 主机侧独立周期；首次符合资格时起算 8 秒，之后每拍重新起算。周期不依赖双击成功或枪械持有状态，只处理身上五页 2..6，并复用功能 B 的真实箱→匣事务；客机不本地写入。
+- 互斥与边界：同一 HostTick 内同玩家发生手动压弹时，被动尝试跳过；死亡/不可解析、等级下降、Stop、停用及 off→on 清窗；功能 A、TidyCompleted、HUD 生命周期和技能 UI 均不作为被动周期入口。
+- 网络与失败：手动路径保留 requestId、技能窗、toast 和成功回包；被动入口无 requestId，成功不 toast、不发送 `RepackSuccess`，并移除 `wireId=0` / `auto=1` 语义。被动 PlayerMissing、RejectedCooldown、RestoreFailed、RolledBack、AbortedStateDrift 均输出结构化主机日志。
+- 验证：红测旗标 `--bue-v7-03-passive-reload-red` 首轮构建红后转绿；Release Rebuild、V7-03 单组、V5-07 单组和 Plugin.Tests 全套均通过。审计见 [`17-DEV-V7-03-passive-reload.audit.md`](17-DEV-V7-03-passive-reload.audit.md)。
+- 双轴：最终第三轮使用全新实例，Standards reviewer=CLEAN，Spec-Reviewer=CLEAN；第二轮越界提出的 V7-04 账本/UI 项目不属于本票，未在本票中顺手改动。
+- 本票正式 `resolved` 的依据是实施票自身的红测、回归和双轴闭环，不等同于三环境发布完成；真实 `PlayerInventory`/`FillTargetItem` 事务、SP/P2P/U3DS 主机权威人工复核仍是 DEV-V7-07 的命名 seam gap 和发布门。V7-07 当前未完成用户人工批准，因此本票不授候选、不改 RELEASES、不生成 CaseId。
+
+## DEV-V7-07 实机门记录
+
+- 当前没有针对 DEV-V7-03 的具名实机缺陷；V7-07 现存记录是主机权威被动压弹尚未由玩家/维护者人工复核。
+- 该未复核状态不阻止本实施票按自身验收条件关单，但阻止第七阶段候选发布和 V7-07 最终关单；完成后须把主机真实压弹结果回写 V7-07。
