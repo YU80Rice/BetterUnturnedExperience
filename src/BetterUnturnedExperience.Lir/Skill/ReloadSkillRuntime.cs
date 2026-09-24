@@ -42,6 +42,7 @@ namespace BetterUnturnedExperience.Lir
         private readonly Func<double> clockSeconds;
         private readonly IReloadSkillPersistence persistence; // null = 纯内存（测试装配）
         private readonly Dictionary<ulong, double> windowReadyAt = new Dictionary<ulong, double>();
+        private readonly Dictionary<ReloadSkillScopeKey, double> scopedWindowReadyAt = new Dictionary<ReloadSkillScopeKey, double>();
 
         internal ReloadSkillRuntime(ReloadSkillStore store, Func<double> clockSeconds)
             : this(store, clockSeconds, null)
@@ -56,6 +57,38 @@ namespace BetterUnturnedExperience.Lir
         }
 
         internal ReloadSkillStore Store { get { return store; } }
+
+        internal byte GetLevel(ReloadSkillScopeKey scope)
+        {
+            return store.GetLevel(scope);
+        }
+
+        internal bool TryAdmitDoubleTap(ReloadSkillScopeKey scope, out double remainingSeconds)
+        {
+            remainingSeconds = 0d;
+            if (!scope.IsValid) return true;
+            var extra = ReloadSkillPolicy.ExtraCooldownSeconds(store.GetLevel(scope));
+            if (extra <= 0d) return true;
+            var now = clockSeconds();
+            double readyAt;
+            if (scopedWindowReadyAt.TryGetValue(scope, out readyAt) && now < readyAt)
+            {
+                remainingSeconds = readyAt - now;
+                return false;
+            }
+            return true;
+        }
+
+        internal void ArmWindowAfterCommit(ReloadSkillScopeKey scope)
+        {
+            if (!scope.IsValid) return;
+            var extra = ReloadSkillPolicy.ExtraCooldownSeconds(store.GetLevel(scope));
+            if (extra <= 0d) return;
+            var now = clockSeconds();
+            double readyAt;
+            if (scopedWindowReadyAt.TryGetValue(scope, out readyAt) && now < readyAt) return;
+            scopedWindowReadyAt[scope] = now + ReloadRuntimePolicy.CooldownSeconds + extra;
+        }
 
         internal byte GetLevel(ulong steamId, string charKey)
         {
@@ -94,9 +127,9 @@ namespace BetterUnturnedExperience.Lir
         }
 
         /// <summary>只读校验（不落账、不扣费）：authorize 是纯函数，写路径只在 Commit。</summary>
-        internal ReloadSkillUpgradeDecision TryAuthorizeUpgrade(ulong steamId, string charKey, byte targetLevel, uint experienceBalance)
+        internal ReloadSkillUpgradeDecision TryAuthorizeUpgrade(ReloadSkillScopeKey scope, byte targetLevel, uint experienceBalance)
         {
-            var current = store.GetLevel(steamId, charKey);
+            var current = store.GetLevel(scope);
             if (targetLevel > ReloadSkillPolicy.MaxSkillLevel)
                 return Reject(ReloadSkillUpgradeReject.TargetBeyondMax);
             if (current == ReloadSkillPolicy.MaxSkillLevel)
@@ -109,6 +142,17 @@ namespace BetterUnturnedExperience.Lir
             return new ReloadSkillUpgradeDecision { Accepted = true, NewLevel = targetLevel, Cost = cost };
         }
 
+        internal ReloadSkillUpgradeDecision TryAuthorizeUpgrade(ulong steamId, string charKey, byte targetLevel, uint experienceBalance)
+        {
+            var current = store.GetLevel(steamId, charKey);
+            if (targetLevel > ReloadSkillPolicy.MaxSkillLevel) return Reject(ReloadSkillUpgradeReject.TargetBeyondMax);
+            if (current == ReloadSkillPolicy.MaxSkillLevel) return Reject(ReloadSkillUpgradeReject.AlreadyMax);
+            if (targetLevel != current + 1) return Reject(ReloadSkillUpgradeReject.LevelDrift);
+            var cost = ReloadSkillPolicy.CostForUpgrade(current);
+            if (cost < 0 || experienceBalance < (uint)cost) return Reject(ReloadSkillUpgradeReject.InsufficientExperience);
+            return new ReloadSkillUpgradeDecision { Accepted = true, NewLevel = targetLevel, Cost = cost };
+        }
+
         private static ReloadSkillUpgradeDecision Reject(ReloadSkillUpgradeReject reason)
         {
             return new ReloadSkillUpgradeDecision { Accepted = false, Reason = reason };
@@ -116,12 +160,12 @@ namespace BetterUnturnedExperience.Lir
 
         /// <summary>提交 = 写账 + 立即持久化；落盘失败回滚内存（账不落=这笔升级不存在，
         /// 调用方据此退款/回执——禁止「经验扣了账没落」的半态留在内存里）。</summary>
-        internal bool TryCommitUpgrade(ulong steamId, string charKey, byte newLevel, out string error)
+        internal bool TryCommitUpgrade(ReloadSkillScopeKey scope, byte newLevel, out string error)
         {
             error = null;
-            var previous = store.GetLevel(steamId, charKey);
+            var previous = store.GetLevel(scope);
             if (newLevel != previous + 1 || newLevel > ReloadSkillPolicy.MaxSkillLevel) return false;
-            if (!store.TrySetLevel(steamId, charKey, newLevel))
+            if (!store.TrySetLevel(scope, newLevel))
             {
                 error = "等级账写入被拒（键越界）";
                 return false;
@@ -132,7 +176,29 @@ namespace BetterUnturnedExperience.Lir
                 string saveError;
                 if (!persister.TrySave(store.Snapshot(), out saveError))
                 {
-                    store.TrySetLevel(steamId, charKey, previous); // 回滚
+                    store.TrySetLevel(scope, previous); // 回滚
+                    error = saveError ?? "持久化失败";
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        internal bool TryCommitUpgrade(ulong steamId, string charKey, byte newLevel, out string error)
+        {
+            error = null;
+            var previous = store.GetLevel(steamId, charKey);
+            if (newLevel != previous + 1 || newLevel > ReloadSkillPolicy.MaxSkillLevel) return false;
+            if (!store.TrySetLevel(steamId, charKey, newLevel))
+            {
+                error = "等级账写入被拒（兼容键）";
+                return false;
+            }
+            if (persistence != null)
+            {
+                if (!persistence.TrySave(store.Snapshot(), out var saveError))
+                {
+                    store.TrySetLevel(steamId, charKey, previous);
                     error = saveError ?? "持久化失败";
                     return false;
                 }
@@ -144,6 +210,7 @@ namespace BetterUnturnedExperience.Lir
         internal void ResetForGeneration()
         {
             windowReadyAt.Clear();
+            scopedWindowReadyAt.Clear();
         }
     }
 }

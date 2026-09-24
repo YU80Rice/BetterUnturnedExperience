@@ -61,7 +61,10 @@ namespace BetterUnturnedExperience.Lir
         private ILirSkillHooks skillHooks;
         private InPlaceReloadModule skillModule;
         private readonly Dictionary<ulong, byte> pendingUpgradeRequests = new Dictionary<ulong, byte>();
+        private readonly Dictionary<ulong, ReloadSkillScopeKey> pendingUpgradeScopes = new Dictionary<ulong, ReloadSkillScopeKey>();
         private readonly Queue<ulong> pendingUpgradeOrder = new Queue<ulong>();
+        private ReloadSkillScopeKey levelStateRequestScope;
+        private bool hasLevelStateRequestScope;
         private readonly object skillOpsSync = new object();
         private readonly List<Action> skillOps = new List<Action>();
         private int skillOpsDropped;
@@ -69,6 +72,13 @@ namespace BetterUnturnedExperience.Lir
         private bool stopped;
 
         private bool initialized;
+
+        internal void ResetLevelStateRequestForScope()
+        {
+            levelStateRequested = false;
+            hasLevelStateRequestScope = false;
+            levelStateRequestScope = default(ReloadSkillScopeKey);
+        }
 
         /// <summary>DEV-V5-07 绑定技能面（模块 Start 期；一次代际一次绑定）。</summary>
         internal void BindSkillHooks(InPlaceReloadModule module, ILirSkillHooks hooks)
@@ -373,6 +383,7 @@ namespace BetterUnturnedExperience.Lir
                 pendingRequestIds.Clear();
                 pendingRequestOrder.Clear();
                 pendingUpgradeRequests.Clear(); // DEV-V5-07：技能待确认同代际清
+                pendingUpgradeScopes.Clear();
                 pendingUpgradeOrder.Clear();
             }
             lock (skillOpsSync)
@@ -380,6 +391,7 @@ namespace BetterUnturnedExperience.Lir
                 skillOps.Clear(); // DEV-V5-07：未消费的技能操作不过代际
             }
             levelStateRequested = false;
+            hasLevelStateRequestScope = false;
             Started = false;
             LirRuntime.LogInfo("[RepackNet] 服务已停止（频道注销、会话簿与待确认表已清）");
         }
@@ -434,6 +446,8 @@ namespace BetterUnturnedExperience.Lir
             if (LirRepackWireCodec.TryReadUpgradeResult(payload, out var upReqId, out var accepted, out var newLevel, out var reasonCode))
             {
                 byte requestedTarget;
+                ReloadSkillScopeKey capturedScope = default(ReloadSkillScopeKey);
+                bool hasCapturedScope = false;
                 lock (pendingSync)
                 {
                     if (!pendingUpgradeRequests.TryGetValue(upReqId, out requestedTarget))
@@ -443,6 +457,8 @@ namespace BetterUnturnedExperience.Lir
                         return;
                     }
                     pendingUpgradeRequests.Remove(upReqId);
+                    hasCapturedScope = pendingUpgradeScopes.TryGetValue(upReqId, out capturedScope);
+                    pendingUpgradeScopes.Remove(upReqId);
                 }
                 var capturedTarget = requestedTarget;
                 EnqueueSkillOp(() =>
@@ -450,7 +466,9 @@ namespace BetterUnturnedExperience.Lir
                     var module = skillModule;
                     if (accepted)
                     {
-                        ReloadSkillLevelMirror.ConfirmLevel(newLevel);
+                        if (module != null && !module.TryAcceptSkillLevelConfirmation(newLevel,
+                            hasCapturedScope ? (ReloadSkillScopeKey?)capturedScope : null)) return;
+                        if (module == null) ReloadSkillLevelMirror.ConfirmLevel(newLevel);
                         module?.NotifySkillLevelConfirmed(newLevel);
                         var cost = ReloadSkillPolicy.CostForUpgrade(newLevel - 1);
                         module?.ShowSkillToast(ReloadSkillPolicy.MakeUpgradeAcceptedToast(newLevel, cost));
@@ -465,9 +483,14 @@ namespace BetterUnturnedExperience.Lir
             }
             if (LirRepackWireCodec.TryReadLevelState(payload, out var level))
             {
+                var capturedLevelScope = hasLevelStateRequestScope
+                    ? (ReloadSkillScopeKey?)levelStateRequestScope
+                    : null;
                 EnqueueSkillOp(() =>
                 {
-                    ReloadSkillLevelMirror.ConfirmLevel(level);
+                    if (skillModule != null
+                        && !skillModule.TryAcceptSkillLevelConfirmation(level, capturedLevelScope)) return;
+                    if (skillModule == null) ReloadSkillLevelMirror.ConfirmLevel(level);
                     skillModule?.NotifySkillLevelConfirmed(level);
                 });
                 return;
@@ -507,17 +530,26 @@ namespace BetterUnturnedExperience.Lir
             {
                 while (pendingUpgradeOrder.Count >= ReloadRuntimePolicy.QueueLimit)
                 {
-                    pendingUpgradeRequests.Remove(pendingUpgradeOrder.Dequeue());
+                    var dropped = pendingUpgradeOrder.Dequeue();
+                    pendingUpgradeRequests.Remove(dropped);
+                    pendingUpgradeScopes.Remove(dropped);
                 }
                 pendingUpgradeOrder.Enqueue(requestId);
                 pendingUpgradeRequests[requestId] = targetLevel;
+                var scopeHooks = skillModule?.SkillHooks as IReloadSkillScopeHooks;
+                if (scopeHooks != null && scopeHooks.TryResolveLocalScope(out var requestScope))
+                    pendingUpgradeScopes[requestId] = requestScope;
             }
             NetworkSendResult sent;
             try { sent = network.SendToServer(Channel, LirRepackWireCodec.BuildUpgradeRequest(requestId, targetLevel), reliable: true); }
             catch (Exception) { sent = NetworkSendResult.LocalTransportUnavailable; }
             if (sent != NetworkSendResult.Sent)
             {
-                lock (pendingSync) pendingUpgradeRequests.Remove(requestId);
+                lock (pendingSync)
+                {
+                    pendingUpgradeRequests.Remove(requestId);
+                    pendingUpgradeScopes.Remove(requestId);
+                }
                 LirRuntime.LogWarning("[ReloadSkill] 升级请求发送失败（result=" + sent + "），未建立待确认。");
                 return LirRepackRequestResult.RejectedSendFailed;
             }
@@ -529,6 +561,12 @@ namespace BetterUnturnedExperience.Lir
         internal LirRepackRequestResult RequestLevelStateFromServer()
         {
             if (stopped || !Started) return LirRepackRequestResult.RejectedNoSession;
+            var scopeHooks = skillModule?.SkillHooks as IReloadSkillScopeHooks;
+            if (scopeHooks != null && scopeHooks.TryResolveLocalScope(out var requestScope))
+            {
+                levelStateRequestScope = requestScope;
+                hasLevelStateRequestScope = true;
+            }
             NetworkSendResult sent;
             try { sent = network.SendToServer(Channel, LirRepackWireCodec.BuildLevelStateRequest(), reliable: true); }
             catch (Exception) { sent = NetworkSendResult.LocalTransportUnavailable; }

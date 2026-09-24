@@ -61,6 +61,7 @@
     <Compile Include="Skill\ILirSkillHooks.cs" />
     <Compile Include="Skill\LirSkillEngineHooks.cs" />
     <Compile Include="Skill\ReloadSkillFilePersistence.cs" />
+    <Compile Include="Skill\ReloadSkillScopeHooks.cs" />
     <Compile Include="Skill\Ui\ReloadSkillDashboardBinder.cs" />
     <Compile Include="Skill\Ui\ReloadSkillDashboardPatch.cs" />
     <Compile Include="Skill\Ui\ReloadSkillDashboardAdapter.cs" />

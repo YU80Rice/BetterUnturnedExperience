@@ -16,7 +16,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
     /// 判据（机器化、非空转）：BUE 程序集内任何 BetterUnturnedExperience.* 类型的
     /// 方法体 IL 都不得含对 SteamPlayerID::op_Equality / op_Inequality 的调用；
     /// 判等一律 `is null` / ReferenceEquals（IL 层引用比较，不经运算符）。
-    /// 非空转证明=突变 M1（把 CharacterKeyOfPlayer 的判空改回 `== null`）必令本组红。
+    /// 非空转证明=突变 M1（把 ScopeOfPlayer 的判空改回 `== null`）必令本组红。
     /// 先例：Lht OwnerResolver 生产形态即 ReferenceEquals(sp.playerID, null)。
     /// </summary>
     internal static class DevV508IdentityIlGuardTests
@@ -63,12 +63,12 @@ namespace BetterUnturnedExperience.Plugin.Tests
         {
             // 守卫必须罩住已知踩坑方法：改名/删除=本组红（防 IL 扫描空转）。
             var hooks = typeof(LirSkillEngineHooks);
-            var charKey = hooks.GetMethod("CharacterKeyOfPlayer",
+            var scope = hooks.GetMethod("ScopeOfPlayer",
                 BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public);
-            Check(charKey != null, "LirSkillEngineHooks.CharacterKeyOfPlayer 缺席——IL 守卫锚丢失");
-            var normalize = typeof(ReloadSkillStore).GetMethod("NormalizeCharKey",
+            Check(scope != null, "LirSkillEngineHooks.ScopeOfPlayer 缺席——IL 守卫锚丢失");
+            var normalize = typeof(ReloadSkillScopeKey).GetMethod("Normalize",
                 BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public);
-            Check(normalize != null, "ReloadSkillStore.NormalizeCharKey 缺席——身份链锚丢失");
+            Check(normalize != null, "ReloadSkillScopeKey.Normalize 缺席——身份链锚丢失");
         }
 
         /// <summary>Cecil 逐指令扫描 BUE 程序集：任何 BetterUnturnedExperience.* 类型

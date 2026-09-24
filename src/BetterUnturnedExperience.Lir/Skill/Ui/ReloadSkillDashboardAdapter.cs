@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using BetterUnturnedExperience.Contracts;
 using SDG.Unturned;
+using UnityEngine;
 
 namespace BetterUnturnedExperience.Lir
 {
@@ -148,9 +149,9 @@ namespace BetterUnturnedExperience.Lir
     /// </summary>
     internal static class ReloadSkillDashboardSurface
     {
-        // ── 几何单源（真机微调只动这里）──
-        private const int RowHeight = 36;
-        private const int ButtonHeight = 40;
+        // ── 几何单源：与原版 SleekSkill 行同高/步进 ──
+        private const int RowHeight = 80;
+        private const int RowStep = 90;
         private const int SectionTopGap = 8;
         private const float SectionWidthScale = 1f;
 
@@ -175,35 +176,66 @@ namespace BetterUnturnedExperience.Lir
                 box.PositionOffset_X = 0;
                 box.PositionOffset_Y = vanillaRows * 90 + SectionTopGap; // 原版行带（90px/行）之下
                 box.SizeScale_X = SectionWidthScale;
-                box.SizeOffset_Y = rows.Count * RowHeight + ButtonHeight + SectionTopGap;
+                box.SizeOffset_Y = rows.Count * RowStep + SectionTopGap;
                 var y = 0;
                 for (var i = 0; i < rows.Count; i++)
                 {
                     var row = rows[i];
-                    if (row.IsButton)
+                    var button = Glazier.Get().CreateButton();
+                    button.PositionOffset_Y = y;
+                    button.SizeOffset_Y = RowHeight;
+                    button.SizeScale_X = 1f;
+                    button.IsClickable = row.IsClickable;
+                    button.TooltipText = row.DescriptionText;
+                    var targetLevel = row.TargetLevel;
+                    if (row.IsClickable && targetLevel > 0)
+                        button.OnClicked += _ => RequestUpgrade(targetLevel);
+                    box.AddChild(button);
+
+                    var info = Glazier.Get().CreateLabel();
+                    info.PositionOffset_X = 5;
+                    info.PositionOffset_Y = 5;
+                    info.SizeOffset_X = -10;
+                    info.SizeOffset_Y = 30;
+                    info.SizeScale_X = 0.5f;
+                    info.Text = row.Name + " · " + row.LevelText;
+                    info.FontSize = ESleekFontSize.Medium;
+                    box.AddChild(info);
+
+                    var description = Glazier.Get().CreateLabel();
+                    description.PositionOffset_X = 5;
+                    description.PositionOffset_Y = -35;
+                    description.PositionScale_Y = 1f;
+                    description.SizeOffset_X = -10;
+                    description.SizeOffset_Y = 30;
+                    description.SizeScale_X = 0.5f;
+                    description.Text = row.DescriptionText;
+                    box.AddChild(description);
+
+                    var cost = Glazier.Get().CreateLabel();
+                    cost.PositionOffset_X = 5;
+                    cost.PositionOffset_Y = -35;
+                    cost.PositionScale_X = 0.5f;
+                    cost.PositionScale_Y = 1f;
+                    cost.SizeOffset_X = -10;
+                    cost.SizeOffset_Y = 30;
+                    cost.SizeScale_X = 0.5f;
+                    cost.Text = row.CostText;
+                    box.AddChild(cost);
+
+                    for (var lockIndex = 0; lockIndex < row.LockCount; lockIndex++)
                     {
-                        var button = Glazier.Get().CreateButton();
-                        button.PositionOffset_Y = y;
-                        button.SizeOffset_Y = ButtonHeight;
-                        button.SizeScale_X = 0.5f;
-                        button.Text = row.Text;
-                        var targetLevel = row.TargetLevel;
-                        if (row.Enabled && targetLevel > 0)
-                        {
-                            button.OnClicked += _ => RequestUpgrade(targetLevel);
-                        }
-                        box.AddChild(button);
-                        y += ButtonHeight;
-                        continue;
+                        var lockImage = Glazier.Get().CreateImage();
+                        lockImage.PositionOffset_X = -20 - (lockIndex * 20);
+                        lockImage.PositionOffset_Y = 10;
+                        lockImage.PositionScale_X = 1f;
+                        lockImage.SizeOffset_X = 10;
+                        lockImage.SizeOffset_Y = -10;
+                        lockImage.SizeScale_Y = 0.5f;
+                        TrySetLockTexture(lockImage, lockIndex < row.UnlockedCount);
+                        box.AddChild(lockImage);
                     }
-                    var label = Glazier.Get().CreateLabel();
-                    label.PositionOffset_Y = y;
-                    label.SizeOffset_Y = RowHeight;
-                    label.SizeScale_X = 1f;
-                    label.Text = row.Text;
-                    label.FontSize = ESleekFontSize.Medium;
-                    box.AddChild(label);
-                    y += RowHeight;
+                    y += RowStep;
                 }
                 scroll.AddChild(box);
                 injectedBox = box;
@@ -254,6 +286,21 @@ namespace BetterUnturnedExperience.Lir
             var module = InPlaceReloadModule.ActiveModule;
             if (module == null) return; // 补丁活着但模块没了——不请求
             module.HandleSkillUpgradeRequest(targetLevel);
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static void TrySetLockTexture(ISleekImage image, bool unlocked)
+        {
+            if (image == null) return;
+            try
+            {
+                var bundle = PlayerDashboardSkillsUI.icons;
+                image.Texture = bundle.load<Texture2D>(unlocked ? "Unlocked" : "Locked");
+            }
+            catch (Exception error)
+            {
+                LirRuntime.LogDiagnostic("[ReloadSkill] 锁条纹理读取失败（保留空图，不影响整行）: " + error.Message);
+            }
         }
 
         private static bool EnsureReflection()

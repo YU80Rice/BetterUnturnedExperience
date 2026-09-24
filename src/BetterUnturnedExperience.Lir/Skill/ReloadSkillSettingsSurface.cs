@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using BetterUnturnedExperience.Contracts;
 
@@ -18,20 +19,78 @@ namespace BetterUnturnedExperience.Lir
         /// <summary>复位档 = 不发请求（默认值与写回目标同字面，单源）。</summary>
         internal const string OptionMaintain = "维持当前等级（不请求）";
 
+        internal static Func<byte> CurrentLevelProvider;
+        internal static Func<uint> CurrentExperienceProvider;
+
+        private static byte CurrentLevel()
+        {
+            var provider = CurrentLevelProvider;
+            if (provider != null) return provider();
+            return ReloadSkillLevelMirror.HasConfirmed ? ReloadSkillLevelMirror.ConfirmedLevel : (byte)0;
+        }
+
+        private static uint CurrentExperience()
+        {
+            var provider = CurrentExperienceProvider;
+            return provider != null ? provider() : uint.MaxValue;
+        }
+
         internal static string DescriptionForLevel(int level)
         {
-            return ReloadSkillPolicy.LevelDescription(level);
+            return BuildFallbackProjection(level, uint.MaxValue).DescriptionText;
         }
 
         internal static IReadOnlyList<string> ChoiceOptions()
         {
+            if (CurrentLevelProvider == null && CurrentExperienceProvider == null)
+            {
+                return new[]
+                {
+                    OptionMaintain,
+                    ReloadSkillPolicy.UpgradeOptionLabel(1),
+                    ReloadSkillPolicy.UpgradeOptionLabel(2),
+                };
+            }
+            var options = new List<string> { OptionMaintain };
+            var row = BuildFallbackProjection(CurrentLevel(), CurrentExperience());
+            if (row.IsClickable && row.TargetLevel > 0)
+                options.Add(ReloadSkillPolicy.UpgradeOptionLabel(row.TargetLevel));
+            return options;
+        }
+
+        internal static string Description(int level)
+        {
+            return ReloadSkillPolicy.Description(level);
+        }
+
+        internal static IReadOnlyList<string> LevelDescriptions()
+        {
             return new[]
             {
-                OptionMaintain,
-                ReloadSkillPolicy.UpgradeOptionLabel(1),
-                ReloadSkillPolicy.UpgradeOptionLabel(2),
+                ReloadSkillPolicy.Description(0),
+                ReloadSkillPolicy.Description(1),
+                ReloadSkillPolicy.Description(2),
             };
         }
+
+        /// <summary>降级面与战斗区共享同一行投影，不创建第二等级事实源。</summary>
+        internal static ReloadSkillSectionRow BuildFallbackProjection(int level, uint experienceBalance)
+        {
+            return ReloadSkillSectionModel.BuildRows(level, experienceBalance)[0];
+        }
+
+        internal static string FallbackDescriptionForCurrentState()
+        {
+            var row = BuildFallbackProjection(CurrentLevel(), CurrentExperience());
+            return row.Name + " · " + row.LevelText + "\n" + row.DescriptionText + "\n"
+                + row.CostText + "\n锁条 " + row.UnlockedCount + "/" + row.LockCount;
+        }
+
+        private static string FallbackDescription()
+        {
+            return FallbackDescriptionForCurrentState();
+        }
+
 
         /// <summary>档位→目标级（未识别/维持 = 0 不发请求——映射绝不发明目标）。</summary>
         internal static int MapOptionToTargetLevel(string optionText)
@@ -50,21 +109,53 @@ namespace BetterUnturnedExperience.Lir
         }
 
         /// <summary>表面 B 的唯一 descriptor（schema 归功能自持——契约 2.1 facet 先例）。</summary>
+        internal static IReadOnlyList<SettingDescriptor> CreateDynamicDescriptors(FeatureId feature)
+        {
+            return new DynamicDescriptorList(feature);
+        }
+
+        private sealed class DynamicDescriptorList : IReadOnlyList<SettingDescriptor>
+        {
+            private readonly FeatureId feature;
+            internal DynamicDescriptorList(FeatureId feature) { this.feature = feature; }
+            public int Count { get { return 1; } }
+            public SettingDescriptor this[int index]
+            {
+                get
+                {
+                    if (index != 0) throw new ArgumentOutOfRangeException(nameof(index));
+                    return CreateDescriptors(feature)[0];
+                }
+            }
+            public IEnumerator<SettingDescriptor> GetEnumerator()
+            {
+                yield return this[0];
+            }
+            IEnumerator IEnumerable.GetEnumerator() { return GetEnumerator(); }
+        }
+
         internal static IReadOnlyList<SettingDescriptor> CreateDescriptors(FeatureId feature)
         {
+            var level = CurrentLevel();
+            var balance = CurrentExperience();
+            var row = BuildFallbackProjection(level, balance);
+            var options = ChoiceOptions();
+            var allowed = new List<SettingValue>();
+            for (var i = 0; i < options.Count; i++)
+                allowed.Add(SettingValue.Choice(options[i]));
+            var nextText = row.IsClickable && row.TargetLevel > 0
+                ? "；可请求 " + ReloadSkillPolicy.UpgradeOptionLabel(row.TargetLevel)
+                : "；当前等级或经验不满足升级条件";
             return new[]
             {
                 new SettingDescriptor(
-                    feature, ReloadSkillPolicy.UpgradeSettingId, ReloadSkillPolicy.SkillSectionTitle + "（降级表面）", "U 菜单分区接不上时的等级请求行：选档=向主机请求升级；等级以主机确认为准。0 基础：" + ReloadSkillPolicy.LevelDescription(0) + " 1 快速换弹：" + ReloadSkillPolicy.LevelDescription(1) + " 2 自动压弹：" + ReloadSkillPolicy.LevelDescription(2),
+                    feature, ReloadSkillPolicy.UpgradeSettingId, ReloadSkillPolicy.SkillSectionTitle + "（降级表面）",
+                    row.Name + " · " + row.LevelText + "\n" + row.DescriptionText + "\n" + row.CostText
+                        + "\n锁条 " + row.UnlockedCount + "/" + row.LockCount + nextText
+                        + "；等级以主机确认为准。",
                     SettingKind.Choice, SettingAuthority.ClientLocal, SettingValue.Choice(OptionMaintain),
                     default(SettingValueOption), default(SettingValueOption), default(SettingValueOption),
-                    new[]
-                    {
-                        SettingValue.Choice(OptionMaintain),
-                        SettingValue.Choice(ReloadSkillPolicy.UpgradeOptionLabel(1)),
-                        SettingValue.Choice(ReloadSkillPolicy.UpgradeOptionLabel(2)),
-                    },
-                    96, null, 1, 0, null, null),
+                    allowed, 96, null, 1, 0, null, null),
             };
         }
     }

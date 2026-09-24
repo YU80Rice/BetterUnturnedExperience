@@ -211,8 +211,14 @@ namespace BetterUnturnedExperience.Plugin.Tests
             {
                 // b) 注入在座=真实消费。
                 var root = NewLirHostSettingsRoot();
-                File.WriteAllText(Path.Combine(root, ReloadSkillFilePersistence.FileName),
-                    "76561197960265729|testchar|2" + Environment.NewLine, new UTF8Encoding(false));
+                var scopedDirectory = Path.Combine(root, ReloadSkillFilePersistence.ScopeDirectoryName,
+                    ReloadSkillFilePersistence.ScopeSubdirectoryName);
+                Directory.CreateDirectory(scopedDirectory);
+                var scopedPath = Path.Combine(scopedDirectory,
+                    ReloadSkillFilePersistence.ScopeFileName("TestServer", "TestMap"));
+                File.WriteAllText(scopedPath,
+                    "TestServer|76561197960265729|0|TestMap|2" + Environment.NewLine,
+                    new UTF8Encoding(false));
                 var runtimeLog = new List<string>();
                 bind(line => runtimeLog.Add(line),
                     line => { },
@@ -232,7 +238,8 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     Check(module.SkillStartGateDiagnostics == "reload-skill-headless-not-armed",
                         "无画面门禁注入应被真实消费：技能分区按注入判定不武装，实际 '" + module.SkillStartGateDiagnostics + "'");
                     Check(module.SkillRuntime != null
-                        && module.SkillRuntime.GetLevel(76561197960265729UL, ReloadSkillStore.NormalizeCharKey("testchar")) == 2,
+                        && module.SkillRuntime.GetLevel(
+                            new ReloadSkillScopeKey("TestServer", 76561197960265729UL, 0, "TestMap")) == 2,
                         "设置根注入应被真实消费：技能等级账从注入根读档（预置 2 级）");
                     module.Stop(FeatureStopReason.PluginStopping);
 

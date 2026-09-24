@@ -212,6 +212,11 @@ namespace BetterUnturnedExperience.Lir
         private Player subscribedAmmoPlayer;
         private bool ammoInventoryDirty;
         private readonly HashSet<ulong> manualRepackPlayersThisTick = new HashSet<ulong>();
+        private bool skillScopeObserved;
+        private ReloadSkillScopeKey observedSkillScope;
+
+        internal bool HasCurrentSkillScope { get { return skillScopeObserved; } }
+        internal ReloadSkillScopeKey CurrentSkillScope { get { return observedSkillScope; } }
 
         private void MarkManualRepackThisTick(ulong steamId)
         {
@@ -252,6 +257,7 @@ namespace BetterUnturnedExperience.Lir
             {
                 ammoInventoryDirty = true;
                 AmmoReserveHudAdapter.MarkInventoryDirty();
+                LirRuntime.LogDiagnosticAnchor("[BUE-V7-02] source=inventory-event page=" + page + " index=" + index + " dirty=true");
             }
         }
 
@@ -294,7 +300,7 @@ namespace BetterUnturnedExperience.Lir
             // 代际），引擎缝 = 测试假件或生产实现。绑定到网络服务后，双击成交
             // 的技能窗、升级执行、2 级自动压弹全部生效。
             var persistence = SkillPersistenceForTests ?? (IReloadSkillPersistence)new ReloadSkillFilePersistence(
-                System.IO.Path.Combine(RequireHostSettingsRoot(), ReloadSkillFilePersistence.FileName));
+                RequireHostSettingsRoot(), productionRoot: true);
             var store = new ReloadSkillStore();
             if (!persistence.TryLoad(out var savedRecords, out var loadError))
             {
@@ -306,6 +312,9 @@ namespace BetterUnturnedExperience.Lir
                 LirRuntime.LogWarning("[ReloadSkill] 等级账恢复丢弃坏记录 " + rejectedRecords + " 条（应用 " + applied + " 条）");
             }
             SkillRuntime = new ReloadSkillRuntime(store, ReadSkillClockSeconds, persistence);
+            ReloadSkillSettingsSurface.CurrentLevelProvider = () => ReloadSkillLevelMirror.HasConfirmed
+                ? ReloadSkillLevelMirror.ConfirmedLevel : (byte)0;
+            ReloadSkillSettingsSurface.CurrentExperienceProvider = ReadSkillExperience;
             SkillHooks = SkillHooksForTests ?? new LirSkillEngineHooks(SkillRuntime);
             NetService.BindSkillHooks(this, SkillHooks);
             // The consumer resolves the event's generation → target player:
@@ -356,12 +365,16 @@ namespace BetterUnturnedExperience.Lir
             LirRepackGate.ResetForGeneration();
             SkillRuntime?.ResetForGeneration();
             AutoRounds.ResetForGeneration();
+            skillScopeObserved = false;
+            observedSkillScope = default(ReloadSkillScopeKey);
             manualRepackPlayersThisTick.Clear();
             Guard.Reset();
             Consumer = null;
             InputDriver = null;
             SkillHooks = null;
             SkillRuntime = null;
+            ReloadSkillSettingsSurface.CurrentLevelProvider = null;
+            ReloadSkillSettingsSurface.CurrentExperienceProvider = null;
             multiplayerInitObserved = false;
             MultiplayerReady = false;
             LirRuntime.LogInfo("[Lir] 模块停止：网络服务已注销、队列与闸门已清、补丁已撤（原生回退）");
@@ -987,15 +1000,48 @@ namespace BetterUnturnedExperience.Lir
 
         private double ReadSkillClockSeconds() { return SkillNowSeconds; }
 
+        private uint ReadSkillExperience()
+        {
+            try
+            {
+                var resolver = LirRuntime.HostLocalSteamId;
+                var id = resolver != null ? resolver() : 0UL;
+                var hooks = SkillHooks;
+                if (id == 0UL || hooks == null) return 0u;
+                var player = LirProductionAuthority.ResolvePlayerBySteamId(id);
+                return player != null && player.skills != null ? player.skills.experience : 0u;
+            }
+            catch (Exception)
+            {
+                return 0u;
+            }
+        }
+
+
         /// <summary>主机帧泵：本机等级自确认（SP/房主直读自账，与客机线确认同
         /// 语义）+ 自动轮到点重检触发。每拍 O(pending) 且空表零操作。</summary>
         internal void PumpSkillRuntime()
         {
             var hooks = SkillHooks;
             if (hooks == null) return;
+            var scopedHooks = hooks as IReloadSkillScopeHooks;
+            if (scopedHooks != null && scopedHooks.TryResolveLocalScope(out var currentScope))
+            {
+                if (!skillScopeObserved || !observedSkillScope.Equals(currentScope))
+                {
+                    observedSkillScope = currentScope;
+                    skillScopeObserved = true;
+                    ReloadSkillLevelMirror.BeginScope(currentScope);
+                    AutoRounds.ResetForGeneration();
+                    NetService?.ResetLevelStateRequestForScope();
+                }
+            }
             if (!ReloadSkillLevelMirror.HasConfirmed && hooks.TryResolveLocalLevel(out var selfLevel))
             {
-                ReloadSkillLevelMirror.ConfirmLevel(selfLevel);
+                if (scopedHooks != null && skillScopeObserved)
+                    ReloadSkillLevelMirror.ConfirmLevel(observedSkillScope, selfLevel);
+                else
+                    ReloadSkillLevelMirror.ConfirmLevel(selfLevel);
             }
 
             var isServer = RoleProbeForTests ?? LirProductionAuthority.IsServerRole;
@@ -1044,7 +1090,7 @@ namespace BetterUnturnedExperience.Lir
                         var decision = hooks.ExecuteUpgrade(localId, targetLevel);
                         if (decision.Accepted)
                         {
-                            ReloadSkillLevelMirror.ConfirmLevel(decision.NewLevel);
+                            if (!TryAcceptSkillLevelConfirmation(decision.NewLevel)) return;
                             ShowSkillToast(ReloadSkillPolicy.MakeUpgradeAcceptedToast(decision.NewLevel, decision.Cost));
                         }
                         else
@@ -1117,7 +1163,33 @@ namespace BetterUnturnedExperience.Lir
             catch (Exception error) { LirRuntime.LogDiagnostic("[ReloadSkill] toast 呈现异常（忽略）: " + error.Message); }
         }
 
-        /// <summary>等级确认后的分区即时重建（不重建=旧镜像挂到下次原版重建）。</summary>
+        internal bool TryAcceptSkillLevelConfirmation(byte level)
+        {
+            return TryAcceptSkillLevelConfirmation(level, null);
+        }
+
+        internal bool TryAcceptSkillLevelConfirmation(byte level, ReloadSkillScopeKey? replyScope)
+        {
+            if (level > ReloadSkillPolicy.MaxSkillLevel) return false;
+            var scopedHooks = SkillHooks as IReloadSkillScopeHooks;
+            if (scopedHooks == null)
+            {
+                ReloadSkillLevelMirror.ConfirmLevel(level);
+                return true;
+            }
+            if (!scopedHooks.TryResolveLocalScope(out var scope)) return false;
+            if (replyScope.HasValue && !replyScope.Value.Equals(scope)) return false;
+            if (!skillScopeObserved || !observedSkillScope.Equals(scope))
+            {
+                observedSkillScope = scope;
+                skillScopeObserved = true;
+                ReloadSkillLevelMirror.BeginScope(scope);
+                AutoRounds.ResetForGeneration();
+            }
+            ReloadSkillLevelMirror.ConfirmLevel(scope, level);
+            return ReloadSkillLevelMirror.HasConfirmedFor(scope);
+        }
+
         internal void NotifySkillLevelConfirmed(byte level)
         {
             _ = level;

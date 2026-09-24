@@ -600,27 +600,23 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 && V57NoSwitchMembers(typeof(ReloadSkillDashboardAdapter), check),
                 "补丁/适配面不自带功能 bool（登记=唯一开关；生命周期组钉卸载）");
 
-            // 5f. 分区投影（表面 A）= 等级阶梯 0/1/2 + 仅下一级的升级按钮；满级无按钮；
-            // 无三级 UI、无占位（任何行不引用 3 级/超限，行数恒不含空串占位）。
+            // 5f. V7-04 原版风格单行投影：整行点击、三格锁条、80/90 几何。
             var rows = ReloadSkillSectionModel.BuildRows(0, (uint)ReloadSkillPolicy.XpCostLevel0To1);
-            check(rows.Count >= 4 && rows[0].Text == ReloadSkillPolicy.SkillSectionTitle, "分区首行=标题「换弹技能」");
-            int ladder = 0, buttons = 0;
-            foreach (var r in rows)
-            {
-                if (r.IsButton) buttons++;
-                if (r.Text == ReloadSkillPolicy.LevelRowLabel(0) || r.Text == ReloadSkillPolicy.LevelRowLabel(1) || r.Text == ReloadSkillPolicy.LevelRowLabel(2)) ladder++;
-                check(!string.IsNullOrEmpty(r.Text), "投影不画空占位");
-                check(!r.Text.Contains("3 级") && !r.Text.Contains("超限"), "无三级 UI（阶梯只 0..2，超限不进本阶段）");
-            }
-            check(ladder == ReloadSkillPolicy.MaxSkillLevel + 1 && buttons == 1, "同一套等级（0/1/2 三行）+ 至多一颗下一级升级按钮");
-            check(rows[rows.Count - 1].IsButton && rows[rows.Count - 1].Enabled &&
-                rows[rows.Count - 1].Text == ReloadSkillPolicy.UpgradeButtonLabel(1),
-                "0 级且经验刚好 = 升到 1 级按钮可用（余额显示门，扣费仍以主机为准）");
-            var poor = ReloadSkillSectionModel.BuildRows(0, (uint)(ReloadSkillPolicy.XpCostLevel0To1 - 1));
-            check(!poor[poor.Count - 1].Enabled, "经验不足：按钮画而不可用（不弹假承诺；权威复核在主机）");
-            var maxed = ReloadSkillSectionModel.BuildRows(ReloadSkillPolicy.MaxSkillLevel, uint.MaxValue);
-            check(maxed[maxed.Count - 1].Text.Contains("已满级") && !maxed[maxed.Count - 1].IsButton,
-                "2 级 = 满级行，无按钮无占位（没有三级，不引导）");
+            check(rows.Count == 1 && rows[0].Name == ReloadSkillPolicy.SkillSectionTitle,
+                "分区投影为一条完整原版风格技能行");
+            check(rows[0].LockCount == 3 && rows[0].UnlockedCount == 0
+                && rows[0].Height == 80 && rows[0].Step == 90,
+                "技能行保持原版几何与三格锁条");
+            check(rows[0].IsClickable && rows[0].TargetLevel == 1
+                && rows[0].CostText.Contains("125"),
+                "0 级且经验刚好时整行可点升级到 1 级");
+            var poor = ReloadSkillSectionModel.BuildRows(0,
+                (uint)(ReloadSkillPolicy.XpCostLevel0To1 - 1));
+            check(!poor[0].IsClickable, "经验不足时整行不可点");
+            var maxed = ReloadSkillSectionModel.BuildRows(ReloadSkillPolicy.MaxSkillLevel,
+                uint.MaxValue);
+            check(maxed[0].IsFull && maxed[0].CostText == "Full" && maxed[0].TargetLevel == 0,
+                "2 级为 Full，无三级目标");
 
             // 5g. 表面 B（设置页降级面）档位映射与复位。
             check(ReloadSkillSettingsSurface.MapOptionToTargetLevel(ReloadSkillSettingsSurface.OptionMaintain) == 0
@@ -818,7 +814,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
             module2.Stop(FeatureStopReason.PluginStopping);
 
             // 6d. 表面 B 应用钩子：档位→升级请求→回执→行复位（面板不是第二事实源）。
-            var viewB = new V57SettingsViewB { SelectedOption = ReloadSkillSettingsSurface.ChoiceOptions()[2] };
+            var viewB = new V57SettingsViewB { SelectedOption = ReloadSkillPolicy.UpgradeOptionLabel(2) };
             clock = new V57Clock();
             hooks = new V57Hooks { Level = 1 };
             hooks.UpgradeDecision = new ReloadSkillUpgradeDecision { Accepted = true, NewLevel = 2, Cost = ReloadSkillPolicy.XpCostLevel1To2 };

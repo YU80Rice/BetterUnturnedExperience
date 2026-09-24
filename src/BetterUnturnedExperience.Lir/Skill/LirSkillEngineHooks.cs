@@ -17,7 +17,7 @@ namespace BetterUnturnedExperience.Lir
     /// 「经验扣了账没落」不得成为终态。真机各角色（SP/房主/客机 U3DS）扣减
     /// 复制行为 = 具名接缝缺口，实机随 DEV-V5-08 验。
     /// </summary>
-    internal sealed class LirSkillEngineHooks : ILirSkillHooks
+    internal sealed class LirSkillEngineHooks : ILirSkillHooks, IReloadSkillScopeHooks
     {
         private readonly ReloadSkillRuntime runtime;
         private readonly Func<ulong, Player> playerResolver;
@@ -42,7 +42,7 @@ namespace BetterUnturnedExperience.Lir
         {
             try
             {
-                return runtime.TryAdmitDoubleTap(steamId, CharacterKeyOf(steamId), out remainingSeconds);
+                return runtime.TryAdmitDoubleTap(ScopeOf(steamId), out remainingSeconds);
             }
             catch (Exception error)
             {
@@ -56,7 +56,7 @@ namespace BetterUnturnedExperience.Lir
         {
             try
             {
-                runtime.ArmWindowAfterCommit(steamId, CharacterKeyOf(steamId));
+                runtime.ArmWindowAfterCommit(ScopeOf(steamId));
             }
             catch (Exception)
             {
@@ -68,11 +68,28 @@ namespace BetterUnturnedExperience.Lir
         {
             try
             {
-                return runtime.GetLevel(steamId, CharacterKeyOf(steamId));
+                return runtime.GetLevel(ScopeOf(steamId));
             }
             catch (Exception)
             {
                 return 0; // 身份解析不出 = 0 级账（fail-closed，不猜等级）
+            }
+        }
+
+        public bool TryResolveLocalScope(out ReloadSkillScopeKey scope)
+        {
+            scope = default(ReloadSkillScopeKey);
+            try
+            {
+                var resolver = LirRuntime.HostLocalSteamId;
+                var localId = resolver != null ? resolver() : 0UL;
+                if (localId == 0UL) return false;
+                scope = ScopeOf(localId);
+                return scope.IsValid;
+            }
+            catch (Exception)
+            {
+                return false;
             }
         }
 
@@ -96,6 +113,7 @@ namespace BetterUnturnedExperience.Lir
             }
         }
 
+
         // ── 升级：校验→扣原版经验→落账（失败退款）──
 
         public ReloadSkillUpgradeDecision ExecuteUpgrade(ulong steamId, byte targetLevel)
@@ -105,12 +123,13 @@ namespace BetterUnturnedExperience.Lir
                 var player = playerResolver(steamId);
                 if (player == null || player.channel == null || player.channel.owner == null)
                     return Refuse(ReloadSkillUpgradeReject.LevelDrift);
-                var charKey = CharacterKeyOfPlayer(player);
+                var scope = ScopeOfPlayer(player, steamId);
+                if (!scope.IsValid) return Refuse(ReloadSkillUpgradeReject.LevelDrift);
                 var balance = player.skills != null ? player.skills.experience : 0u;
-                var decision = runtime.TryAuthorizeUpgrade(steamId, charKey, targetLevel, balance);
+                var decision = runtime.TryAuthorizeUpgrade(scope, targetLevel, balance);
                 if (!decision.Accepted) return decision;
                 SpendExperience(player, (uint)decision.Cost);
-                if (!runtime.TryCommitUpgrade(steamId, charKey, decision.NewLevel, out var commitError))
+                if (!runtime.TryCommitUpgrade(scope, decision.NewLevel, out var commitError))
                 {
                     AwardExperience(player, (uint)decision.Cost); // 全有或全无：账落不下=原额退回
                     LirRuntime.LogError("[ReloadSkill] 升级落账失败已退款（steam=" + steamId + "）: " + commitError);
@@ -146,27 +165,25 @@ namespace BetterUnturnedExperience.Lir
         // ── 引擎接触方法体（NoInlining：宿主测试进程绝不在编译路径内）──
 
         [MethodImpl(MethodImplOptions.NoInlining)]
-        private string CharacterKeyOf(ulong steamId)
+        private ReloadSkillScopeKey ScopeOf(ulong steamId)
         {
             var player = playerResolver(steamId);
-            return player == null ? null : CharacterKeyOfPlayer(player);
+            return player == null ? default(ReloadSkillScopeKey) : ScopeOfPlayer(player, steamId);
         }
 
         [MethodImpl(MethodImplOptions.NoInlining)]
-        private static string CharacterKeyOfPlayer(Player player)
+        private static ReloadSkillScopeKey ScopeOfPlayer(Player player, ulong steamId)
         {
-            // 宿主红线（08 实机钉死）：SDG.Unturned.SteamPlayerID 的自定义 == 运算符
-            // 无判空（op_Equality 两侧直接 callvirt get_steamID），`playerID == null`
-            // 写法无论实值是否为 null 必抛 NRE=真机技能窗/升级链 100% 断。判等一律
-            // `is null`（IL 引用比较，不经运算符；Lht OwnerResolver 生产先例同律）。
-            if (player is null) return null;
+            if (player is null) return default(ReloadSkillScopeKey);
             var channel = player.channel;
-            if (channel is null) return null;
-            var owner = channel.owner; // SteamPlayer
-            if (owner is null) return null;
+            if (channel is null) return default(ReloadSkillScopeKey);
+            var owner = channel.owner;
+            if (owner is null) return default(ReloadSkillScopeKey);
             var pid = owner.playerID;
-            if (pid is null) return null;
-            return ReloadSkillStore.NormalizeCharKey(pid.characterName);
+            if (pid is null) return default(ReloadSkillScopeKey);
+            var serverId = Provider.serverID;
+            var mapName = Level.info == null ? null : Level.info.name;
+            return new ReloadSkillScopeKey(serverId, steamId, pid.characterID, mapName);
         }
 
         [MethodImpl(MethodImplOptions.NoInlining)]

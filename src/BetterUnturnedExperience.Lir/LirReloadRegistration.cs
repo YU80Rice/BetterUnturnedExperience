@@ -38,6 +38,9 @@ namespace BetterUnturnedExperience.Lir
         /// U3DS 不画任何面，权威账照常。</summary>
         private static IFeatureRegistration NewRegistration(InPlaceReloadModule moduleForFactory)
         {
+            var headless = LirRuntime.HostHeadlessDecision;
+            if (headless != null && headless())
+                return new Registration(moduleForFactory);
             return ReloadSkillDashboardBinder.ProbeSurfaceA()
                 ? (IFeatureRegistration)new Registration(moduleForFactory)
                 : new RegistrationWithSkillSettingsPage(moduleForFactory);

@@ -309,6 +309,11 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     DevV703PassiveReloadTests.Run(collectAllFailures: true);
                     return 0;
                 }
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--bue-v7-04-skill-row-scope-red")
+                {
+                    DevV704SkillRowScopeTests.Run(collectAllFailures: true);
+                    return 0;
+                }
                 if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--bue-v7-05-preview-upright-red")
                 {
                     DevV705PreviewUprightTests.Run(collectAllFailures: true);
