@@ -44,3 +44,13 @@ U 菜单战斗区下方出现一行看起来像原版的换弹技能：名称、
 - 验证：`--bue-v7-04-skill-row-scope-red`、`--bue-v5-07-reload-skill-red`、`--bue-v7-03-passive-reload-red`、Release Rebuild 和 FULLSUITE 均通过；FULLSUITE 为 16 pass、1 个既有 Contracts Glazier known baseline、0 failed、firewall 0。
 - 双轴：Round 2 使用全新 Standards 与 Spec 实例，最终均 `CLEAN`；仅遗留兼容双轨、provider 取数、命名和少量重复等不阻塞 judgment smell。
 - 发布边界：本票不授候选、不改 `audit/RELEASES.md`、不授 CaseId、不生成正式交付包；真实 Glazier 几何与 SP/P2P/U3DS 玩家人工复核仍归 DEV-V7-07 发布门。
+
+## DEV-V7-07 实机退回记录（2026-09-25）
+
+- 单人实机使用候选 `1A2A9A9782CBC52C6A070C1FDA3CA145D8CBF18B4D06DA2FCC157235DEB4CF15` 发现技能行没有完全还原原版技能行视觉效果。
+- 代码核对的最小缺口：战斗区文字未按原版 `UpperLeft/LowerLeft/LowerRight` 对齐；按钮未铺满整行，文本/锁条挂在外层 Box 而非整行按钮节点；锁条相对错误父级定位；额外分区盒与 8px 顶隙也偏离原版行结构。设置 fallback 不属于本次缺陷。
+- 诊断包 `D:/Agent-工作目录/DevelopMyUNMultiplayerModAndModloader/启动器/UnturnedModManager/publish/UMM-v2.2.1-win-x64/UMM-诊断包_20260925_110311` 只记录“换弹技能分区已登记”，没有视觉树坐标/对齐证据；以用户实机截图为发布门事实。
+- 退回责任：仅修战斗区 Glazier 行结构、对齐、父级与高度；不改技能账作用域、描述文案、升级权威、被动压弹或设置 fallback；DEV-V7-07 不吸收临时修复。
+- 最小红测：钉住整行按钮铺满、名称/描述/花费三种对齐、锁条以 80 高行作为父级、追加行位于原版 90 步进且无额外顶隙；补回归清除/内容高度公式。
+
+- 本轮视觉重开已完成：布局红测由旧实现先红后绿，V5-07/V7-03/FULLSUITE 均通过，Round 3 Standards 与 Spec 均 `CLEAN`。本票恢复 `resolved`；真实游戏视觉人工门仍回到 DEV-V7-07，且本票继续不授候选、不改 RELEASES、不授 CaseId。

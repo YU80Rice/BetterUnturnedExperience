@@ -52,7 +52,22 @@
 
 Round 2 关门条件满足：双轴均无 blocker，未授候选、未改 RELEASES、未授 CaseId。
 
-## 未覆盖与边界
+## 视觉重开（2026-09-25）
+
+- 实机退回事实：候选 `1A2A9A9782CBC52C6A070C1FDA3CA145D8CBF18B4D06DA2FCC157235DEB4CF15` 的技能行仍有原版结构偏差；诊断包仅有登记日志，没有视觉树，截图是发布门事实。
+- 红测先行：在旧实现上新增布局 seam 红测，首次运行失败，明确报错“战斗区必须暴露可测试且由真实 Render 消费的布局 seam”。
+- 最小修复：移除额外分区 Box 与 8px 顶隙；每条技能行直接挂到 `skillsScrollBox`，行根高 80、步进 90；按钮 `SizeScale_X/Y=1`；名称/描述/花费使用 `UpperLeft/LowerLeft/LowerRight`；文本和锁条全部挂在 80 高行根；滚动内容高恢复 `(vanillaRows + rowCount) * 90 - 10`，清除恢复 `vanillaRows * 90 - 10`。
+- 生产与测试共用 `ReloadSkillDashboardLayout` seam；红测覆盖首行、第二行步进、按钮铺满、三种对齐、行根父级、锁条定位和追加/清除高度。
+- 红转绿：视觉红测 PASS；V5-07、V7-03 回归 PASS；FULLSUITE `steps=17 pass=16 failed=0 known-baseline=1`，防火墙 `violations=0`。
+- 本轮未改技能账、描述文案、升级权威、被动压弹、设置 fallback、BII、总弹药 HUD 或整理算法。
+
+## 本轮双轴审查
+
+- Round 3（全新实例）：Standards `CLEAN`；Spec `CLEAN`。
+- Standards 未发现硬性标准违规；仅记录布局记录属性重复、裸像素值和测试断言字段命名等不阻塞 judgment smell。
+- Spec 确认无 Missing / Scope Creep / Wrong Implementation blocker：原版对齐、行根父级、按钮铺满、锁条定位、90px 步进、追加/清除高度公式均与冻结规格一致。
+- Round 3 关门条件满足；真实游戏内视觉、锁条纹理及 SP/P2P/U3DS 玩家人工门仍属于 DEV-V7-07，不由本轮机器审查代替。
+
 
 真实 Glazier 可见几何、锁条纹理在游戏内的最终视觉和 SP/P2P/U3DS 主机人工验证仍属于 DEV-V7-07 实机门；本票不伪造实机通过，不修改 BII、总弹药 HUD、整理算法或 V7-03 被动周期。
 

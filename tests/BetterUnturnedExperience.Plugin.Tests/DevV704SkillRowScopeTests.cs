@@ -25,6 +25,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
 
             Group("作用域与旧账隔离", failures, collectAllFailures, () => ScopeAndLegacy(Check));
             Group("原版单行投影", failures, collectAllFailures, () => VanillaRow(Check));
+            Group("原版技能行视觉结构", failures, collectAllFailures, () => VisualLayout(Check));
             Group("表面隔离与依赖边界", failures, collectAllFailures, () => SurfaceBoundary(Check));
 
             Console.WriteLine("DEV-V7-04 skill-row-scope tests: "
@@ -92,6 +93,73 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 "2 级必须显示 Full 且不得产生三级目标");
             check(!ReloadSkillPolicy.LevelDescription(2).Contains("再等一轮"),
                 "2 级描述不得保留旧的再等一轮语义");
+        }
+
+        private static void VisualLayout(Action<bool, string> check)
+        {
+            var layoutType = typeof(ReloadSkillDashboardSurface).Assembly.GetType(
+                "BetterUnturnedExperience.Lir.ReloadSkillDashboardLayout");
+            check(layoutType != null, "战斗区必须暴露可测试且由真实 Render 消费的布局 seam");
+            if (layoutType == null) return;
+            var create = layoutType.GetMethod("Create", BindingFlags.Static | BindingFlags.NonPublic);
+            check(create != null, "布局 seam 必须能按原版行数生成布局");
+            if (create == null) return;
+            var rows = create.Invoke(null, new object[] { 7, 1 }) as System.Collections.IEnumerable;
+            check(rows != null, "布局 seam 必须返回行记录列表");
+            if (rows == null) return;
+            var twoRows = create.Invoke(null, new object[] { 7, 2 }) as System.Collections.IEnumerable;
+            check(twoRows != null, "布局 seam 必须支持多行原版步进");
+            if (twoRows != null)
+            {
+                var second = twoRows.GetEnumerator();
+                second.MoveNext();
+                second.MoveNext();
+                var secondLayout = second.Current;
+                object ReadSecond(string property)
+                {
+                    return secondLayout.GetType().GetProperty(property,
+                        BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)?.GetValue(secondLayout);
+                }
+                check(Convert.ToInt32(ReadSecond("PositionY")) == 720,
+                    "第二行必须按原版 90px 步进，不得重复或插入顶隙");
+                check(Convert.ToInt32(ReadSecond("ContentHeightAfterRender")) == 800
+                    && Convert.ToInt32(ReadSecond("ContentHeightAfterClear")) == 620,
+                    "多行追加后的内容高度必须仍按原版网格计算");
+            }
+
+            var row = rows.GetEnumerator();
+            if (!row.MoveNext())
+            {
+                check(false, "新增技能布局必须产生一行");
+                return;
+            }
+            var rowLayout = row.Current;
+            object Read(string property)
+            {
+                return rowLayout.GetType().GetProperty(property,
+                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)?.GetValue(rowLayout);
+            }
+            check(Convert.ToInt32(Read("PositionY")) == 630,
+                "技能行必须紧接原版第 7 行，不能额外增加顶隙");
+            check(Convert.ToInt32(Read("Height")) == 80 && Convert.ToSingle(Read("WidthScale")) == 1f,
+                "行根必须按原版 80 高并横向铺满");
+            check(Convert.ToSingle(Read("ButtonWidthScale")) == 1f
+                && Convert.ToSingle(Read("ButtonHeightScale")) == 1f,
+                "整行按钮必须覆盖 80 高行根");
+            check(string.Equals(Read("NameAlignment")?.ToString(), "UpperLeft", StringComparison.Ordinal)
+                && string.Equals(Read("DescriptionAlignment")?.ToString(), "LowerLeft", StringComparison.Ordinal)
+                && string.Equals(Read("CostAlignment")?.ToString(), "LowerRight", StringComparison.Ordinal),
+                "三类文本必须使用原版左上、左下、右下对齐");
+            check(Convert.ToBoolean(Read("ChildrenUseRowRoot")),
+                "文本与锁条必须挂在各自的 80 高行根，不得挂在额外分区盒");
+            check(Convert.ToInt32(Read("LockParentHeight")) == 80
+                && Convert.ToInt32(Read("FirstLockX")) == -20
+                && Convert.ToInt32(Read("LockY")) == 10
+                && Convert.ToSingle(Read("LockHeightScale")) == 0.5f,
+                "锁条必须相对 80 高行根使用原版右侧半高定位");
+            check(Convert.ToInt32(Read("ContentHeightAfterRender")) == 710
+                && Convert.ToInt32(Read("ContentHeightAfterClear")) == 620,
+                "追加和清除技能行必须恢复原版滚动内容高度公式");
         }
 
         private static void SurfaceBoundary(Action<bool, string> check)

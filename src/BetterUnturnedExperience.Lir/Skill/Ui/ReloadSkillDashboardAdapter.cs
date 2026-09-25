@@ -140,6 +140,64 @@ namespace BetterUnturnedExperience.Lir
         }
     }
 
+    internal sealed class ReloadSkillDashboardLayoutRow
+    {
+        internal int PositionY { get; private set; }
+        internal int Height { get; private set; }
+        internal float WidthScale { get; private set; }
+        internal float ButtonWidthScale { get; private set; }
+        internal float ButtonHeightScale { get; private set; }
+        internal TextAnchor NameAlignment { get; private set; }
+        internal TextAnchor DescriptionAlignment { get; private set; }
+        internal TextAnchor CostAlignment { get; private set; }
+        internal bool ChildrenUseRowRoot { get; private set; }
+        internal int LockParentHeight { get; private set; }
+        internal int FirstLockX { get; private set; }
+        internal int LockY { get; private set; }
+        internal float LockHeightScale { get; private set; }
+        internal int ContentHeightAfterRender { get; private set; }
+        internal int ContentHeightAfterClear { get; private set; }
+
+        internal ReloadSkillDashboardLayoutRow(int positionY, int contentHeightAfterRender,
+            int contentHeightAfterClear)
+        {
+            PositionY = positionY;
+            Height = 80;
+            WidthScale = 1f;
+            ButtonWidthScale = 1f;
+            ButtonHeightScale = 1f;
+            NameAlignment = TextAnchor.UpperLeft;
+            DescriptionAlignment = TextAnchor.LowerLeft;
+            CostAlignment = TextAnchor.LowerRight;
+            ChildrenUseRowRoot = true;
+            LockParentHeight = 80;
+            FirstLockX = -20;
+            LockY = 10;
+            LockHeightScale = 0.5f;
+            ContentHeightAfterRender = contentHeightAfterRender;
+            ContentHeightAfterClear = contentHeightAfterClear;
+        }
+    }
+
+    internal static class ReloadSkillDashboardLayout
+    {
+        internal static IReadOnlyList<ReloadSkillDashboardLayoutRow> Create(
+            int vanillaRows, int rowCount)
+        {
+            if (vanillaRows < 0) throw new ArgumentOutOfRangeException(nameof(vanillaRows));
+            if (rowCount < 0) throw new ArgumentOutOfRangeException(nameof(rowCount));
+            var afterRender = (vanillaRows + rowCount) * 90 - 10;
+            var afterClear = vanillaRows * 90 - 10;
+            var result = new List<ReloadSkillDashboardLayoutRow>(rowCount);
+            for (var i = 0; i < rowCount; i++)
+            {
+                result.Add(new ReloadSkillDashboardLayoutRow(
+                    vanillaRows * 90 + i * 90, afterRender, afterClear));
+            }
+            return result;
+        }
+    }
+
     /// <summary>
     /// DEV-V5-07 表面 A 的呈现薄壳（真机 only；06 AmmoReserveHudSurface 同律）。
     /// 注入形态 = 「U 菜单战斗区下方追加分区」的字面兑现：把分区作为原版
@@ -149,17 +207,15 @@ namespace BetterUnturnedExperience.Lir
     /// </summary>
     internal static class ReloadSkillDashboardSurface
     {
-        // ── 几何单源：与原版 SleekSkill 行同高/步进 ──
+        // ── 几何单源：直接复刻原版 SleekSkill 行 ──
         private const int RowHeight = 80;
         private const int RowStep = 90;
-        private const int SectionTopGap = 8;
-        private const float SectionWidthScale = 1f;
 
         private static readonly object gate = new object();
         private static System.Reflection.FieldInfo scrollField;
         private static System.Reflection.FieldInfo skillCountField;
         private static bool reflectionProbed;
-        private static ISleekElement injectedBox;
+        private static readonly List<ISleekElement> injectedRows = new List<ISleekElement>();
 
         internal static void Render(IReadOnlyList<ReloadSkillSectionRow> rows)
         {
@@ -172,25 +228,39 @@ namespace BetterUnturnedExperience.Lir
                 ClearLocked();
                 var skills = skillCountField.GetValue(null) as Array;
                 var vanillaRows = skills == null ? 0 : skills.Length;
-                var box = Glazier.Get().CreateBox();
-                box.PositionOffset_X = 0;
-                box.PositionOffset_Y = vanillaRows * 90 + SectionTopGap; // 原版行带（90px/行）之下
-                box.SizeScale_X = SectionWidthScale;
-                box.SizeOffset_Y = rows.Count * RowStep + SectionTopGap;
-                var y = 0;
+                var layouts = ReloadSkillDashboardLayout.Create(vanillaRows, rows.Count);
                 for (var i = 0; i < rows.Count; i++)
                 {
                     var row = rows[i];
+                    var layout = layouts[i];
+                    var rowRoot = Glazier.Get().CreateBox();
+                    rowRoot.PositionOffset_X = 0;
+                    rowRoot.PositionOffset_Y = layout.PositionY;
+                    rowRoot.SizeScale_X = layout.WidthScale;
+                    rowRoot.SizeOffset_Y = layout.Height;
+
                     var button = Glazier.Get().CreateButton();
-                    button.PositionOffset_Y = y;
-                    button.SizeOffset_Y = RowHeight;
-                    button.SizeScale_X = 1f;
+                    button.SizeScale_X = layout.ButtonWidthScale;
+                    button.SizeScale_Y = layout.ButtonHeightScale;
                     button.IsClickable = row.IsClickable;
                     button.TooltipText = row.DescriptionText;
                     var targetLevel = row.TargetLevel;
                     if (row.IsClickable && targetLevel > 0)
                         button.OnClicked += _ => RequestUpgrade(targetLevel);
-                    box.AddChild(button);
+                    rowRoot.AddChild(button);
+
+                    for (var lockIndex = 0; lockIndex < row.LockCount; lockIndex++)
+                    {
+                        var lockImage = Glazier.Get().CreateImage();
+                        lockImage.PositionOffset_X = -20 - (lockIndex * 20);
+                        lockImage.PositionOffset_Y = layout.LockY;
+                        lockImage.PositionScale_X = 1f;
+                        lockImage.SizeOffset_X = 10;
+                        lockImage.SizeOffset_Y = -10;
+                        lockImage.SizeScale_Y = layout.LockHeightScale;
+                        TrySetLockTexture(lockImage, lockIndex < row.UnlockedCount);
+                        rowRoot.AddChild(lockImage);
+                    }
 
                     var info = Glazier.Get().CreateLabel();
                     info.PositionOffset_X = 5;
@@ -198,9 +268,10 @@ namespace BetterUnturnedExperience.Lir
                     info.SizeOffset_X = -10;
                     info.SizeOffset_Y = 30;
                     info.SizeScale_X = 0.5f;
+                    info.TextAlignment = layout.NameAlignment;
                     info.Text = row.Name + " · " + row.LevelText;
                     info.FontSize = ESleekFontSize.Medium;
-                    box.AddChild(info);
+                    rowRoot.AddChild(info);
 
                     var description = Glazier.Get().CreateLabel();
                     description.PositionOffset_X = 5;
@@ -209,8 +280,9 @@ namespace BetterUnturnedExperience.Lir
                     description.SizeOffset_X = -10;
                     description.SizeOffset_Y = 30;
                     description.SizeScale_X = 0.5f;
+                    description.TextAlignment = layout.DescriptionAlignment;
                     description.Text = row.DescriptionText;
-                    box.AddChild(description);
+                    rowRoot.AddChild(description);
 
                     var cost = Glazier.Get().CreateLabel();
                     cost.PositionOffset_X = 5;
@@ -220,27 +292,16 @@ namespace BetterUnturnedExperience.Lir
                     cost.SizeOffset_X = -10;
                     cost.SizeOffset_Y = 30;
                     cost.SizeScale_X = 0.5f;
+                    cost.TextAlignment = layout.CostAlignment;
                     cost.Text = row.CostText;
-                    box.AddChild(cost);
+                    rowRoot.AddChild(cost);
 
-                    for (var lockIndex = 0; lockIndex < row.LockCount; lockIndex++)
-                    {
-                        var lockImage = Glazier.Get().CreateImage();
-                        lockImage.PositionOffset_X = -20 - (lockIndex * 20);
-                        lockImage.PositionOffset_Y = 10;
-                        lockImage.PositionScale_X = 1f;
-                        lockImage.SizeOffset_X = 10;
-                        lockImage.SizeOffset_Y = -10;
-                        lockImage.SizeScale_Y = 0.5f;
-                        TrySetLockTexture(lockImage, lockIndex < row.UnlockedCount);
-                        box.AddChild(lockImage);
-                    }
-                    y += RowStep;
+                    scroll.AddChild(rowRoot);
+                    injectedRows.Add(rowRoot);
                 }
-                scroll.AddChild(box);
-                injectedBox = box;
                 var size = scroll.ContentSizeOffset;
-                size.y = vanillaRows * 90 + SectionTopGap + y;
+                size.y = layouts.Count == 0 ? vanillaRows * RowStep - 10
+                    : layouts[0].ContentHeightAfterRender;
                 scroll.ContentSizeOffset = size;
             }
         }
@@ -251,14 +312,15 @@ namespace BetterUnturnedExperience.Lir
             {
                 try
                 {
-                    if (scrollField == null) { injectedBox = null; return; }
+                    if (scrollField == null) { injectedRows.Clear(); return; }
                     var scroll = scrollField.GetValue(null) as ISleekScrollView;
                     ClearLocked();
                     if (scroll != null)
                     {
                         var skills = skillCountField.GetValue(null) as Array;
+                        var vanillaRows = skills == null ? 0 : skills.Length;
                         var size = scroll.ContentSizeOffset;
-                        size.y = (skills == null ? 0 : skills.Length) * 90 - 10; // 交还原版内容高
+                        size.y = vanillaRows * RowStep - 10;
                         scroll.ContentSizeOffset = size;
                     }
                 }
@@ -271,14 +333,15 @@ namespace BetterUnturnedExperience.Lir
 
         private static void ClearLocked()
         {
-            if (injectedBox == null) return;
+            if (injectedRows.Count == 0) return;
             try
             {
                 var scroll = scrollField.GetValue(null) as ISleekElement;
-                scroll?.RemoveChild(injectedBox);
+                for (var i = 0; i < injectedRows.Count; i++)
+                    scroll?.RemoveChild(injectedRows[i]);
             }
             catch (Exception) { }
-            injectedBox = null;
+            injectedRows.Clear();
         }
 
         private static void RequestUpgrade(byte targetLevel)
