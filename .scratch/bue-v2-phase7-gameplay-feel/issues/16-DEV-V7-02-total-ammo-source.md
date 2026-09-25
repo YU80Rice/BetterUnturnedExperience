@@ -1,7 +1,7 @@
 # DEV-V7-02：弹药观察单源与总弹药 HUD
 
 Type: task
-Status: claimed
+Status: resolved
 Parent: spec.md（V2 第七阶段规格·现有官方功能玩法手感定界与接线）
 Blocked by: None (can start immediately)
 Spec: `../spec.md`（「弹药观察单源与总弹药 HUD（V7-T3 → DEV-V7-02）」节 + 共享单源约束）
@@ -52,7 +52,7 @@ Red: `--bue-v7-02-total-ammo-hud-red`
 
 - 2026-09-22：重新认领退回修复轮；本轮只补真实观察、库存事件/HostTick 下一帧链、无枪/换枪/infoBox 生命周期和生产链测试，不恢复候选或扩大到 V7-03。
 - 2026-09-22 R1：本地生产链红测、V5-06、Plugin 全套与 FULLSUITE 已绿；但 fresh Spec-Reviewer 阻断真实 SDG 观察/真实生命周期测试证据不足，且三环境人工日志未回收，票据继续保持待修复，不恢复 resolved。
-- 2026-09-23 R2：HostTick 测试改走真实 LIR `Start → OnHostTick` 与唯一 `updateInfo` Postfix；观察缝收窄为 `AmmoEngineFacts` 原始事实，加入换枪实例/infoBox 重绑判定；修复 HostTick 网络异常隔离和同枪 infoBox 重建的 `ConditionalWeakTable` 重复 key。V7-02、V5-06、Plugin、FULLSUITE 均绿，dirty 突变 build=0/test=1 红、恢复 build=0/test=0 绿。fresh Standards=CLEAN；fresh Spec 仍阻断：测试尚以 `FactsReaderForTests`/`LocalGunForTests`/`TotalApplyForTests` 代替真实 SDG 观察与 Surface，三环境日志未回收。保持 `claimed`，不授候选、不部署、不恢复 `resolved`。
+- 2026-09-24 R3/R4：同一合并 DLL SHA `D015DA8CD9228DD033E9EF97C5F3AB51966979638708E6BF9162FD7C53AC4C72` 完成单人、本地联机客机/主机、U3DS 客户端/服务端闭环。单人 page 2/3、联机客机 page 2/5/6、联机主机 page 2/3、U3DS 客户端 page 2 均出现真实 `inventory-event → HostTick+inventory-dirty → Apply=True`；多枪实例、换枪、无枪/`RevokeAll`、总数变化均有日志。U3DS 服务端确认 `decision=Headless`、survival pump、AmmoHud 不武装、LIR START、`bue-runtime-arm` 与 `RepackSuccess(total=12)`；服务端无 HUD Apply 为预期。Fresh Standards=CLEAN，Fresh Spec=CLEAN；page 4 未单独人工触发不构成规格阻断。外部 SteamP2PFriends/NoOp/ResourceObs 日志不属于本票。票据恢复 `resolved`；本票仍不授候选、RELEASES、CaseId。
 
 ## DEV-V7-02 实机退回记录（2026-09-22）
 

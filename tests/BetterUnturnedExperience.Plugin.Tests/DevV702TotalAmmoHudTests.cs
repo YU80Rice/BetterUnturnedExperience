@@ -154,10 +154,12 @@ namespace BetterUnturnedExperience.Plugin.Tests
             var originalGun = AmmoObservationEngine.LocalGunForTests;
             var originalApply = AmmoReserveHudAdapter.TotalApplyForTests;
             var originalHide = AmmoReserveHudAdapter.HideAllForTests;
+            var originalDiagnostic = AmmoReserveHudAdapter.DiagnosticForTests;
             var originalCoreInstaller = InPlaceReloadModule.CorePatchInstallerForTests;
             var originalHudInstaller = InPlaceReloadModule.HudPatchInstallerForTests;
             var applied = new List<AmmoTotalResult>();
             var hidden = 0;
+            var diagnostics = new List<string>();
             var readerCalls = 0;
             var gunCalls = 0;
             var gun = new object();
@@ -187,6 +189,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     };
                 };
                 AmmoReserveHudAdapter.TotalApplyForTests = (_, result) => applied.Add(result);
+                AmmoReserveHudAdapter.DiagnosticForTests = diagnostics.Add;
                 InPlaceReloadModule.CorePatchInstallerForTests = _ => true;
                 InPlaceReloadModule.HudPatchInstallerForTests = _ => true;
                 AmmoReserveHudAdapter.HideAllForTests = () => hidden++;
@@ -214,7 +217,10 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 check(!AmmoReserveHudSurface.NeedsSlotRebind(replacementGun, replacementGun), "同一 infoBox 身份不应无谓重建 Slot");
                 AmmoObservationEngine.LocalGunForTests = () => null;
                 module.OnHostTick(new HostTick(5UL, 0.016f, TickPhase.Update));
-                check(hidden == 1, "无枪下一拍必须隐藏旧 HUD 并清理生命周期");
+                module.OnHostTick(new HostTick(6UL, 0.016f, TickPhase.Update));
+                check(hidden == 2, "无枪每拍仍必须执行隐藏路径");
+                check(diagnostics.Count(d => d.Contains("source=HostTick+inventory-dirty")) >= 1, "库存 dirty 消费必须由 HostTick 明确记录");
+                check(diagnostics.Count(d => d.Contains("source=RevokeAll")) == 1, "连续无枪帧只记录一次 RevokeAll 诊断");
             }
             finally
             {
@@ -226,6 +232,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 AmmoObservationEngine.LocalGunForTests = originalGun;
                 AmmoReserveHudAdapter.TotalApplyForTests = originalApply;
                 AmmoReserveHudAdapter.HideAllForTests = originalHide;
+                AmmoReserveHudAdapter.DiagnosticForTests = originalDiagnostic;
                 InPlaceReloadModule.CorePatchInstallerForTests = originalCoreInstaller;
                 InPlaceReloadModule.HudPatchInstallerForTests = originalHudInstaller;
                 AmmoReserveHudAdapter.RevokeAll();

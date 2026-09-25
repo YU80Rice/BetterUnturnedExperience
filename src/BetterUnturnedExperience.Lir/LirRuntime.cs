@@ -75,6 +75,16 @@ namespace BetterUnturnedExperience.Lir
         }
 
         /// <summary>
+        /// V7-02 observation-chain anchors are sparse state transitions, not a
+        /// hot diagnostic stream. They must remain individually observable so
+        /// an inventory event cannot hide the following HostTick consumption.
+        /// </summary>
+        internal static void LogDiagnosticAnchor(string message)
+        {
+            LogInfo("[诊断] " + message);
+        }
+
+        /// <summary>
         /// The old LogNormalDiagnostic: repeats inside the diagnostic window
         /// are suppressed with a counter; the first line after the window
         /// carries the suppressed count. Keeps a hot repeated path from
