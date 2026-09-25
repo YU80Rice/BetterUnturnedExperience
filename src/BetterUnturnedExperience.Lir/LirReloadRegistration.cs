@@ -126,7 +126,7 @@ namespace BetterUnturnedExperience.Lir
 
             public IReadOnlyList<SettingDescriptor> SettingDescriptors
             {
-                get { return ReloadSkillSettingsSurface.CreateDescriptors(new FeatureId(LirRuntime.FeatureIdValue)); }
+                get { return ReloadSkillSettingsSurface.CreateDynamicDescriptors(new FeatureId(LirRuntime.FeatureIdValue)); }
             }
 
             // DEV-V6-05 (V6-T5 Q1): the second surface reports the SAME panel
