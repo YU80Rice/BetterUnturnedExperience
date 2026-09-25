@@ -74,8 +74,8 @@ namespace BetterUnturnedExperience.ClientUi.Internal
 
         // DEV-V4-02 → DEV-V4-07: BII is composition chrome with a hand-built
         // snapshot — the row shape still joins through the SAME descriptor
-        // seam, now carrying the Q62 frozen copy (显示名「自动旋转」、描述
-        // 「拖入时自动旋转物品以适配空位。」). Exactly ONE descriptor: the
+        // seam, now carrying the V7-05 frozen copy (显示名「自动旋转」、描述
+        // 「自动旋转只在两个正向之间切换，文字保持可读。」). Exactly ONE descriptor: the
         // legacy Enabled master switch stays retired (DEV-V4-04) and never
         // re-enters the schema.
         public IReadOnlyList<SettingDescriptor> GetDescriptors(FeatureId feature)
@@ -83,7 +83,7 @@ namespace BetterUnturnedExperience.ClientUi.Internal
             if (!string.Equals(feature.Value, BetterItemInteractionSettingsState.Feature.Value, StringComparison.Ordinal)) return new SettingDescriptor[0];
             return new[]
             {
-                new SettingDescriptor(BetterItemInteractionSettingsState.Feature, "AutoRotate", "自动旋转", "拖入时自动旋转物品以适配空位。",
+                new SettingDescriptor(BetterItemInteractionSettingsState.Feature, "AutoRotate", "自动旋转", "自动旋转只在两个正向之间切换，文字保持可读。",
                     SettingKind.Toggle, SettingAuthority.ClientLocal, SettingValue.Toggle(true),
                     default(SettingValueOption), default(SettingValueOption), default(SettingValueOption),
                     null, 16, null, 1, 0, null, null)

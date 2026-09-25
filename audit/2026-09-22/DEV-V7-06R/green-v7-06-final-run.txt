@@ -1,0 +1,5 @@
+DEV-V7-06R final copy gate after README LIT assertion
+command: dotnet build tests/BetterUnturnedExperience.Plugin.Tests/BetterUnturnedExperience.Plugin.Tests.csproj -c Release --no-restore -p:BuildProjectReferences=false && tests/BetterUnturnedExperience.Plugin.Tests/bin/Release/BetterUnturnedExperience.Plugin.Tests.exe --bue-v7-06-copy-handbook-red
+build: exit=0
+run: exit=0
+output: 0 warnings; 0 errors; DEV-V7-06 copy-handbook red group passed, including README BII/LIT/LIR entry-point assertions and skill-row/fallback-surface reconciliation.

@@ -24,6 +24,7 @@ BUE Phase 7：现有官方功能的三项玩法手感定界与规格冻结。
 - [DEV-V7-04 原版技能行与换图清零](issues/18-DEV-V7-04-skill-row-scope.md)
 - [DEV-V7-05 绿/红预放置框与两个正向](issues/19-DEV-V7-05-preview-upright.md) — resolved（2026-09-22：红测/全套/双轴审查闭环；不授候选）
 - [DEV-V7-06 手册与官方功能文案落地](issues/20-DEV-V7-06-copy-handbook.md) — resolved（2026-09-22：红测/ClientUi+Plugin 全套回归/三轮双轴审查闭环；成功句接入玩家反馈 sink；不授候选）
+- [DEV-V7-06R 最终行为与玩家手册/界面文案重新对账](issues/22-DEV-V7-06R-copy-reconcile.md) — resolved（2026-09-25：README/BII 设置文案同步；技能行与设置降级表面门禁补齐；旧承诺扫描为零；ClientUi/Plugin、V7-02/03/04/05 与 FULLSUITE 通过；Standards/Spec fresh 双轴 CLEAN；不授候选）
 - [DEV-V7-07 三环境实机与唯一对外候选](issues/21-DEV-V7-07-three-env-release.md)
 
 前沿实施票（无阻塞）：01 / 02 / 03 / 04 / 05。06 阻塞于 01–05；07 阻塞于 01–06。

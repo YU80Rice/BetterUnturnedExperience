@@ -15,6 +15,8 @@ namespace BetterUnturnedExperience.Plugin.Tests
             TidyTooltipsUseFrozenGestures();
             SuccessCopyUsesPlayerFeedbackSink();
             SkillDescriptionsShareFrozenFacts();
+            SkillRowsAndFallbackSurfaceShareFrozenFacts();
+            CurrentEntryPointsUseReconciledCopy();
             DirectionIsNotAnEffectiveDescriptor();
         }
 
@@ -72,6 +74,54 @@ namespace BetterUnturnedExperience.Plugin.Tests
             Assert(ReloadSkillSettingsSurface.DescriptionForLevel(0) == ReloadSkillPolicy.LevelDescription(0)
                 && ReloadSkillSettingsSurface.DescriptionForLevel(1) == ReloadSkillPolicy.LevelDescription(1)
                 && ReloadSkillSettingsSurface.DescriptionForLevel(2) == ReloadSkillPolicy.LevelDescription(2), "设置页与技能行共用三句事实源");
+        }
+
+        private static void SkillRowsAndFallbackSurfaceShareFrozenFacts()
+        {
+            var costs = new[] { 125, 150 };
+            var names = new[] { "基础", "快速换弹", "自动压弹" };
+            for (var level = 0; level <= 2; level++)
+            {
+                var row = ReloadSkillSectionModel.BuildRows(level, uint.MaxValue)[0];
+                Assert(row.Name == "换弹技能", "技能行名称冻结句");
+                Assert(row.LevelText == "等级 " + level + "/2 · " + names[level], "技能行等级名称冻结句");
+                Assert(row.DescriptionText == ReloadSkillPolicy.LevelDescription(level), "技能行描述来自同一事实源");
+                Assert(row.LockCount == 3 && row.UnlockedCount == level, "技能行三格锁条冻结句");
+                if (level < 2)
+                    Assert(row.CostText == "花费 " + costs[level] + " 经验", "技能行花费冻结句");
+                else
+                    Assert(row.CostText == "Full" && row.IsFull && !row.IsClickable, "技能行满级冻结句");
+            }
+
+            ReloadSkillSettingsSurface.CurrentLevelProvider = () => 1;
+            ReloadSkillSettingsSurface.CurrentExperienceProvider = () => uint.MaxValue;
+            try
+            {
+                var descriptor = ReloadSkillSettingsSurface.CreateDescriptors(
+                    new BetterUnturnedExperience.Contracts.FeatureId(LirRuntime.FeatureIdValue))[0];
+                Assert(descriptor.DisplayNameKey == "换弹技能（降级表面）", "设置降级表面名称冻结句");
+                Assert(descriptor.DescriptionKey.Contains("等级 1/2 · 快速换弹"), "设置降级表面等级冻结句");
+                Assert(descriptor.DescriptionKey.Contains(ReloadSkillPolicy.LevelDescription(1)), "设置降级表面描述冻结句");
+                Assert(descriptor.DescriptionKey.Contains("花费 150 经验"), "设置降级表面花费冻结句");
+                Assert(descriptor.DescriptionKey.Contains("锁条 1/3"), "设置降级表面锁条冻结句");
+                Assert(descriptor.DescriptionKey.Contains("等级以主机确认为准。"), "设置降级表面权威冻结句");
+                Assert(descriptor.AllowedValues.Count == 2 && descriptor.AllowedValues[1].Text == "请求升级到 2 级 · 花费 150 经验",
+                    "设置降级表面升级入口冻结句");
+            }
+            finally
+            {
+                ReloadSkillSettingsSurface.CurrentLevelProvider = null;
+                ReloadSkillSettingsSurface.CurrentExperienceProvider = null;
+            }
+        }
+
+        private static void CurrentEntryPointsUseReconciledCopy()
+        {
+            var readme = File.ReadAllText(FindWorkspaceFile("README.md"));
+            Assert(readme.Contains("可放位置显示绿色半透明框，不能放显示红色。自动旋转只在两个正向之间切换，文字保持可读。"), "README BII 最终文案");
+            Assert(readme.Contains("点「整理」整理当前栏；Ctrl+点击整理全身（只动身上五页）。打开世界箱或已授权后备箱时，容器标题栏也有一颗「整理」。同类按固定用途归拢，同一类里大件优先，从左上紧凑排列，空位留到右下。放不下则格子不动并说明原因。旧的三种模式和整理方向不再决定结果。"), "README LIT 最终文案");
+            Assert(readme.Contains("总弹药") && readme.Contains("每 8 秒给身上五页空或未满弹匣从匹配弹药箱填弹"), "README LIR 最终文案");
+            Assert(!readme.Contains("备匣/备弹") && !readme.Contains("整理后自动压弹"), "README 不保留第五阶段旧承诺");
         }
 
         private static void DirectionIsNotAnEffectiveDescriptor()

@@ -1,0 +1,7 @@
+DEV-V7-06R red-first evidence
+command: dotnet build tests/BetterUnturnedExperience.Plugin.Tests/BetterUnturnedExperience.Plugin.Tests.csproj -c Release --no-restore -p:BuildProjectReferences=false && tests/BetterUnturnedExperience.Plugin.Tests/bin/Release/BetterUnturnedExperience.Plugin.Tests.exe --bue-v7-06-copy-handbook-red
+build: exit=0
+run: exit=1
+failure: System.InvalidOperationException: README BII 最终文案
+meaning: 断言红；新增门禁先于 README/BII 文案修复观察到当前有效入口未与 V7-05 对账。
+本轮不是编译红；编译已成功且为 0 warning / 0 error。

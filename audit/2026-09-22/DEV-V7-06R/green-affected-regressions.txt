@@ -1,0 +1,10 @@
+受影响回归（DEV-V7-06R）
+
+- ClientUi source Rebuild: exit=0, 0 warnings, 0 errors.
+- ClientUi.Tests Rebuild + no-arg run: exit=0; DEV-V4-08 / POST-P4-04 / 全部 ClientUi groups PASS。
+- Plugin.Tests Rebuild + no-arg run: exit=0; DEV-V7-02、DEV-V7-03、DEV-V5 container/insert/fast-transfer/ammo-reserve/reload-skill、DEV-V4-08、POST-P4-04、DEV-14/DEV-16B 全部 PASS。
+- `git diff --check`: PASS（无空白错误）。
+- DEV-V7-02 专测 `--bue-v7-02-total-ammo-hud-red`: exit=0, PASS。
+- DEV-V7-03 专测 `--bue-v7-03-passive-reload-red`: exit=0, PASS。
+- DEV-V7-04 专测 `--bue-v7-04-skill-row-scope-red`: exit=0, PASS。
+- DEV-V7-05 专测 `--bue-v7-05-preview-upright-red`: exit=0, PASS。

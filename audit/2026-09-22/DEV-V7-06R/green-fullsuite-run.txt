@@ -1,0 +1,24 @@
+FULLSUITE: PASS
+
+Command: powershell.exe -NoProfile -ExecutionPolicy Bypass -File eng/Run-FullSuite.ps1
+Exit: 0
+
+[Build] PASS exit=0
+[Tests:Contracts] PASS exit=0
+[Tests:Network] PASS exit=0
+[Tests:Placement] PASS exit=0
+[Tests:Settings] PASS exit=0
+[Tests:ClientUi] PASS exit=0
+[Tests:Plugin] PASS exit=0
+[Tests:Release] PASS exit=0
+[Gates:DeveloperHandbook] PASS exit=0
+[Gates:ContractDocs] PASS exit=0
+[Gates:NoUiTokens:Contracts] KNOWN-BASELINE exit=1 (ContractTypes.cs:Glazier，V2-02 冻结基线，不计失败)
+[Gates:NoUiTokens:Core] PASS exit=0
+[Gates:RefreshModelDeduped] PASS exit=0
+[Gates:SpecV4R9Ingested] PASS exit=0
+[Gates:TestFixturesTracked] PASS exit=0
+[Gates:TestRunnerHostDlls] PASS exit=0
+[Firewall] PASS violations=0 rules-fired=- exit=0
+
+summary: steps=17 pass=16 failed=0 known-baseline=1

@@ -1,0 +1,18 @@
+# DEV-V7-06R 文案逐字对账
+
+范围：当前有效玩家入口与玩家可见表面。历史 `publish/`、`audit/RELEASES.md`、`.scratch/` 研究/票据、V5 兼容投影不作为现网文案扫描对象。
+
+| 规格锚 | 最终行为/冻结句 | 命中表面 | 结果 |
+|---|---|---|---|
+| spec.md:137 | BII 可放绿色半透明框、不可放红色；自动旋转只在两个正向间切换，文字可读；不增强丢地 | `docs/BetterUnturnedExperience-Player-Handbook.md`、`README.md`、`BetterItemInteractionSettings.cs` AutoRotate 描述、ClientUi 文案测试 | PASS |
+| spec.md:138 | 整理当前栏/全身/容器；固定用途同类归拢、组内大件优先、左上紧凑、空位右下；放不下不提交；旧模式/方向不决定结果 | 玩家手册、README、LIT Tooltip/成功句、06R 门禁 | PASS |
+| spec.md:139 | 当前/上限下显示总弹药；开火或匹配库存变化更新；技能 0/1/2，2 级每 8 秒给身上五页空/未满匣从匹配箱填弹，仍可双击；整理后合并同 ID；无超限 | 玩家手册、README、PanelChromeCopy、技能策略/行/设置投影 | PASS |
+| spec.md:142-146 | BII/LIT/LIR 对照表三句；尸潮/Network/NoOp 保持原句 | `PanelChromeCopy.cs`、06/V4 文案测试 | PASS |
+| spec.md:148-153 | 身上/容器 Tooltip 与成功句逐字冻结；失败原因沿用 | `InventoryTidyUiPatch.cs`、`LitContainerTidy.cs`、`LitTidyCopy.cs` | PASS |
+| spec.md:154-155 | 技能行和设置页共用完整三句；设置不可另写行为 | `ReloadSkillPolicy.cs`、`ReloadSkillSectionModel.cs`、`ReloadSkillSettingsSurface.cs`、06R 投影门禁 | PASS |
+| spec.md:157 | direction 描述符已移除；旧值可读；手册只说明不再决定结果 | `InventoryTidyModule.CreateSettingsDescriptors`、手册/README、06R 门禁 | PASS |
+| DEV-V7-06R:20-26 | 禁止主 HUD「备匣 N · 备弹 M」、双击成功后再等一轮、旧方向/三模式、自动倒置 | 当前 README/玩家手册/玩家可见设置与技能表面扫描；历史/V5 兼容目录排除 | PASS，旧承诺扫描计数 0 |
+
+技能行额外逐字门禁：名称「换弹技能」；等级名「基础/快速换弹/自动压弹」；等级 0/2；花费 125/150；满级 `Full`；三格锁条；设置降级面包含等级、描述、花费、锁条、主机确权和下一等级入口。结果 PASS。
+
+隔离判定：若后续发现总弹药刷新/口径、被动调度、技能账/布局或预览颜色/旋转行为不一致，应分别退回 DEV-V7-02/03/04/05；本票未修改这些生产行为。

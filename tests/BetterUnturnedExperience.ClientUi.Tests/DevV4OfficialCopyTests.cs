@@ -79,7 +79,7 @@ namespace BetterUnturnedExperience.ClientUi.Tests
             Assert(model.GetFeatureDescription("io.github.yu80rice.bue.not-registered") == string.Empty, "未知 stableId=空串");
         }
 
-        // Q62：BII AutoRotate 显示名「自动旋转」、描述「拖入时自动旋转物品以适配空位。」
+        // Q62：BII AutoRotate 显示名「自动旋转」、描述「自动旋转只在两个正向之间切换，文字保持可读。」
         // 经真实 BII 编辑器的描述符联表到达行投影（不再是 SettingId 兜底）；AutoRotate
         // 仍是普通可编辑设置（Toggle 草稿→保存照常）。
         private static void BiiAutoRotateRowGetsChineseDisplayNameAndDescription()
@@ -95,7 +95,7 @@ namespace BetterUnturnedExperience.ClientUi.Tests
 
             var row = settingRow(model, feature.Value, "AutoRotate");
             Assert(row.DisplayName == "自动旋转", "AutoRotate 显示名=「自动旋转」（Q62 冻结）");
-            Assert(row.Description == "拖入时自动旋转物品以适配空位。", "AutoRotate 描述=Q62 冻结原文");
+            Assert(row.Description == "自动旋转只在两个正向之间切换，文字保持可读。", "AutoRotate 描述=V7-05 冻结句");
             Assert(row.ControlKind == PanelSettingControlKind.Toggle, "AutoRotate 维持 Toggle 形状");
 
             Assert(model.DraftEditBueSetting("AutoRotate", PluginConfigValue.BooleanValue(false)), "AutoRotate 仍是普通设置（草稿受理）");
