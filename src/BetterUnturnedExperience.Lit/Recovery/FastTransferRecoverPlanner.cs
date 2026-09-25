@@ -149,8 +149,8 @@ namespace BetterUnturnedExperience.Lit
                 StableOrder = grid.getItemCount(),
                 OriginalX = 0,
                 OriginalY = 0,
-                OriginalRot = 0,
-                PreferredRotation = 0,
+                OriginalRot = jar.rot,
+                PreferredRotation = TidyReadableRotation.Normalize(jar.rot),
                 // The label rides the SAME 02 classifier seam (04 planner rule):
                 // classification failure lands in 其他, never drops.
                 Label = ItemUseSignalsProvider.ResolveFor(moved),

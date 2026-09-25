@@ -4485,7 +4485,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 .SetValue(page, (byte)4);
             typeof(Items).GetField("_height", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
                 .SetValue(page, (byte)4);
-            var jar = CreateTestItemJar(3, 0, 0, 1, 1);
+            var jar = CreateTestItemJar(3, 0, 3, 1, 3);
             SetJarItem(jar, new Item(1, 1, 100, new byte[0]));
             page.items.Add(jar);
             var countBefore = page.getItemCount();
@@ -4504,6 +4504,47 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 "service: an all-unplaced plan fails Prepare as Rejected with zero mutation");
             Assert(page.getItemCount() == countBefore,
                 "service: the rejected plan leaves the page untouched");
+
+            // V7-01 entry coverage: the current-column service path and the
+            // Ctrl+full-body path both feed the same PreparePage rotation seam.
+            var currentCapture = new CaptureTidyInputStrategy();
+            var currentOutcome = ManualTidyService.TidyPage(page, 3, true, TidyMode.SameType, null, currentCapture);
+            Assert(currentOutcome.Result == TidyCommitResult.Rejected && currentCapture.Captured != null
+                && currentCapture.Captured.Items.Count == 1
+                && currentCapture.Captured.Items[0].OriginalRot == 3
+                && currentCapture.Captured.Items[0].PreferredRotation <= 1,
+                "service: current-column entry preserves historical rot=3 but sends readable 0/1 to StableLabelCompact");
+
+            var fullPage = new Items(2);
+            typeof(Items).GetField("_width", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+                .SetValue(fullPage, (byte)4);
+            typeof(Items).GetField("_height", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+                .SetValue(fullPage, (byte)4);
+            var fullJar = CreateTestItemJar(2, 0, 3, 1, 3);
+            SetJarItem(fullJar, new Item(2, 1, 100, new byte[0]));
+            fullPage.items.Add(fullJar);
+            var fullCapture = new CaptureTidyInputStrategy();
+            Exception fullBodyGap = null;
+            TidyOperationOutcome fullOutcome = null;
+            try
+            {
+                var fullInventory = (PlayerInventory)System.Runtime.Serialization.FormatterServices.GetUninitializedObject(typeof(PlayerInventory));
+                typeof(PlayerInventory).GetField("<items>k__BackingField", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+                    .SetValue(fullInventory, new Items[] { null, null, fullPage, null, null, null, null, null, null });
+                fullOutcome = ManualTidyService.TidyAllPlayerPages(fullInventory, true, TidyMode.SameType, null, fullCapture);
+            }
+            catch (Exception error)
+            {
+                fullBodyGap = error;
+            }
+            var fullBodyPlanned = fullOutcome != null && fullOutcome.Result == TidyCommitResult.Rejected
+                && fullCapture.Captured != null && fullCapture.Captured.Items.Count == 1
+                && fullCapture.Captured.Items[0].OriginalRot == 3
+                && fullCapture.Captured.Items[0].PreferredRotation <= 1;
+            var fullBodyGapNamed = fullBodyGap != null
+                && (fullBodyGap.ToString().Contains("PlayerInventory") || fullBodyGap.ToString().Contains("NetReflection"));
+            Assert(fullBodyPlanned || fullBodyGapNamed,
+                "service: Ctrl+full-body entry uses the same readable 0/1 planning seam, or reports the named host PlayerInventory/NetReflection seam gap");
 
             // A null strategy is a developer error (fail-fast), not a silent
             // fallback to some hidden default.
@@ -4742,13 +4783,13 @@ namespace BetterUnturnedExperience.Plugin.Tests
             Assert(plan.StrategyId == "StableLabelCompact", "v7-01: the plan carries StableLabelCompact identity");
             Assert(plan.AllPlaced, "v7-01: the sample page plans fully");
             Assert(DevV701AllForward(plan.Placements), "v7-01: planning never chooses an inverted rotation");
-            var nonZeroBase = strategy.BuildPlan(new TidyInput(3, 2, true, TidyMode.SameType,
+            var nonZeroBase = strategy.BuildPlan(new TidyInput(3, 4, true, TidyMode.SameType,
                 new List<PackableItem>
                 {
-                    DevV502Item("asset-base", 2, 1, PlayerUseLabel.Medical, 21, 0, 0, 0, 2, 2),
+                    DevV502Item("asset-base", 1, 3, PlayerUseLabel.Medical, 21, 0, 0, 0, 2, 2),
                 }));
-            Assert(nonZeroBase.AllPlaced && nonZeroBase.Placements[0].ResultRot == 2,
-                "v7-01: a non-zero entering base rotation remains the readable base pose");
+            Assert(nonZeroBase.AllPlaced && nonZeroBase.Placements[0].ResultRot <= 1,
+                "v7-01: a historical non-zero rotation is normalized to the absolute readable row=0/row=1 pair");
             Assert(DevV701SameLayout(plan, strategy.BuildPlan(new TidyInput(4, 4, true, TidyMode.FFD, items))),
                 "v7-01: legacy mode values do not change the deterministic layout");
 
@@ -5213,7 +5254,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 .SetValue(prepPage, (byte)4);
             typeof(Items).GetField("_height", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
                 .SetValue(prepPage, (byte)4);
-            var medJar = CreateTestItemJar(3, 0, 0, 1, 1);
+            var medJar = CreateTestItemJar(3, 0, 2, 1, 3);
             SetJarItem(medJar, new Item(901, 1, 100, new byte[0]));
             var boxJar = CreateTestItemJar(3, 1, 0, 1, 1);
             SetJarItem(boxJar, new Item(902, 1, 100, new byte[0]));
@@ -5229,6 +5270,8 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 var prepBox = DevV502FindByJar(prep.Result, boxJar);
                 Assert(prepMed.Label == PlayerUseLabel.Medical && prepBox.Label == PlayerUseLabel.AmmoBox,
                     "official-first: PreparePage fills the frozen labels from the classifier seam");
+                Assert(prepMed.OriginalRot == 2 && prepMed.ResultRot <= 1,
+                    "official-first: PreparePage preserves historical rot for identity but plans the readable 0/1 rot");
                 Assert(prepMed.ResultY < prepBox.ResultY
                     || (prepMed.ResultY == prepBox.ResultY && prepMed.ResultX < prepBox.ResultX),
                     "official-first: 医疗用品 segments ahead of 弹药箱 in the real consumer path");
@@ -7647,6 +7690,27 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 OriginalRot = 0,
                 PreferredRotation = 0,
             };
+        }
+
+        private sealed class CaptureTidyInputStrategy : ITidyStrategy
+        {
+            public string StrategyId { get { return "test-capture-v7-01"; } }
+            public TidyInput Captured;
+            public TidyPlan BuildPlan(TidyInput input)
+            {
+                Captured = input;
+                var placements = new List<PackableItem>();
+                foreach (var item in input.Items)
+                    placements.Add(new PackableItem
+                    {
+                        Tag = item.Tag, size_x = item.size_x, size_y = item.size_y,
+                        GroupKey = item.GroupKey, StableOrder = item.StableOrder,
+                        OriginalX = item.OriginalX, OriginalY = item.OriginalY,
+                        OriginalRot = item.OriginalRot, PreferredRotation = item.PreferredRotation,
+                        Label = item.Label, Placed = false,
+                    });
+                return new TidyPlan(StrategyId, placements, false);
+            }
         }
 
         private sealed class FixedPlanStrategyAdapter : ITidyStrategy

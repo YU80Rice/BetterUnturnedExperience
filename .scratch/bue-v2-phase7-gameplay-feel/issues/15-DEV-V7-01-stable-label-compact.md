@@ -43,3 +43,23 @@ Red: `--bue-v7-01-stable-label-compact-red`
 - 双轴独立复审：Standards reviewer = `CLEAN`；Spec-Reviewer 首轮提出的旋转/策略出口意见经字段语义与生产调用链复核判定为误报，fresh Spec-Reviewer 最终 = `CLEAN`。未发现遗漏、范围蔓延或错误实现阻断。
 - 具名非阻断气味：`TryReadSavedTidyPreference` 保留快照 revision 读取导致的轻微死代码/臆测通用性气味；`PreferredRotation` 与旋转字节仍是基础类型表达；测试中固定占位 `sortDescending=true` 有基本类型偏执气味；旧行带实现为历史测试兼容而保留在生产编译清单，默认生产策略已唯一切换为 `StableLabelCompact`。以上均未构成规范或规格阻断。
 - 本票未修改手册 LIT 行、契约 2.1、候选、RELEASES、CaseId，也未触碰用户既有 `CONTEXT.md`、ADR、`artifacts/u3ds-seven-seam/` 或 `docs/third-party/unturned-plugin-dev/`。
+
+## DEV-V7-01 重开修复 Answer（2026-09-25）
+
+- 退回根因：诊断包 `UMM-诊断包_20260925_110311/LogOutput.log` 证明候选身份正确、`StableLabelCompact` 事务成功，但整理后的历史 `rot=2` 仍被原样提交；问题归本票规划输入，不改 DEV-V7-07 的拖入预览或原版提交权威。
+- 红测先行：将旧的“非零基准保留 `ResultRot=2`”断言改为历史 `rot=2/3` 必须归一绝对可读 `0/1`；旧实现先真实失败（V7 专项 exit=1），再实现后通过。
+- 根因修复：新增 LIT 内部 `TidyReadableRotation`；`ManualTidyService.PreparePage` 保留 `OriginalRot`，只将 `PreferredRotation` 归一为 `historicalRotation & 1`；`StableLabelCompactLayout` 自身也 fail-safe 归一；入包 pending 使用默认正向；快转接收 pending 保留源 `jar.rot` 为 `OriginalRot` 并使用归一 `PreferredRotation`。`PreparePageLeave` 未改，源页仍逐格恒等含原始 `rot=3`。
+- 五入口测试闭环：当前栏 `TidyPage` 与 Ctrl+全身 `TidyAllPlayerPages` 均有入口级捕获断言；全身在宿主触发已知 `PlayerInventory`/`NetReflection` 初始化缺口时，测试显式报告具名 seam gap，不静默跳过。容器标题栏真实事务、入包恢复、快转接收侧均用历史 `rot=2` 夹具验证 `OriginalRot` 保留、`ResultRot` 只为 `0/1`；快转 pending 自身也被断言。
+- 原版提交观察：计划旋转直接进入既有提交 recorder/`addItem` 参数，无二次 `^1` 或 `+1` 改写；原版范围、权限、会话、恢复触发、指纹和零提交语义未改。
+- 绿测：V7 专项、DEV-V5-03 容器、DEV-V5-04 入包、DEV-V5-05 快转和 Plugin 全套均通过；FULLSUITE `16 pass, 0 failed, 1 known-baseline`（既有 `ContractTypes.cs:Glazier`，不计失败），Firewall violations=0。
+- 双轴最终复审：本轮 fresh Standards reviewer = `CLEAN`；本轮 fresh Spec-Reviewer 在确认 `FastTransferRecoverPlanner.OriginalRot = jar.rot` 修复后，未再发现本票生产或测试缺口。其指出的并行 `CONTEXT.md`、ADR、V7-02/V7-04 审计/票据和 `artifacts/release-candidate/` 均为本轮开始前工作树内容，未纳入本票 staged diff，保留不覆盖。
+- 本轮提交范围仅限本票：LIT helper/布局/规划/服务/注释、五入口相关测试和本票据；无候选、RELEASES、CaseId。具名非阻断气味：`byte` 旋转字段的既有 Primitive Obsession、测试捕获策略与布局 clone 的轻微重复、入包默认正向与快转历史正向的语义分支；均不构成阻断。
+
+## DEV-V7-07 实机退回记录（2026-09-25）
+
+- 单人实机使用候选 `1A2A9A9782CBC52C6A070C1FDA3CA145D8CBF18B4D06DA2FCC157235DEB4CF15` 发现：背包整理后的物品仍沿用当前/历史旋转，未保持默认可读正向 `row=0/row=1`；用户报告与 BII 自动旋转相同地表现为顺时针 90° 偏转。
+- 诊断包 `D:/Agent-工作目录/DevelopMyUNMultiplayerModAndModloader/启动器/UnturnedModManager/publish/UMM-v2.2.1-win-x64/UMM-诊断包_20260925_110311` 的 `LogOutput.log` 证明候选 identity 正确且 `StableLabelCompact` 整理事务成功，但没有朝向字段；视觉失败以实机观察为准，不以日志正常抵消。
+- 退回责任：整理规划/结果朝向归本票；原版 `removeItem/addItem` 提交路径不改，DEV-V7-07 不吸收临时修复。
+- 最小红测：非零 `PreferredRotation` 的 1×3 物品在两种正向均可放时，结果必须落在可读 `row=0/row=1`，不得产生 2/3；覆盖当前栏、全身、容器、入包恢复和快转接收侧共享出口，并确认 `ResultRot` 进入原版提交不再被二次改写。
+
+本票状态翻回 `ready-for-agent`；保留此前实现、测试与审查历史，修复后须重新执行本票红测、FULLSUITE、双轴审查并回到 DEV-V7-07。

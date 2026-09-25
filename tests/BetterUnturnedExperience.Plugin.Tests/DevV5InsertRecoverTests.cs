@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Reflection;
 using BetterUnturnedExperience.Contracts;
 using BetterUnturnedExperience.Contracts.BueNetwork;
@@ -282,7 +283,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
             pending = new Item(1001, 1, 100, new byte[0]);
             var pages = new Items[9];
             var p2 = V54Page(2, 4, 2);
-            V54Jar(p2, 0, 0, 0, 1, 1, 701, 1);
+            V54Jar(p2, 0, 0, 2, 1, 1, 701, 1);
             V54Jar(p2, 2, 0, 0, 1, 1, 702, 1);
             V54Jar(p2, 1, 1, 0, 1, 1, 703, 1);
             V54Jar(p2, 3, 1, 0, 1, 1, 704, 1);
@@ -793,6 +794,10 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     if (entry.Pending != null) pendingLabel = FindV54Label(entry, pending);
             check(labeled.Recovered && pendingLabel == PlayerUseLabel.Medical,
                 "官方先行消费：待加入物品的标签来自 02 分类器接缝（Medical），随统一排版分段");
+            var historicalPrep = recorder.LastPreps[0];
+            var historicalEntry = historicalPrep.Result.FirstOrDefault(item => item != null && item.Tag is ItemJar && ((ItemJar)item.Tag).item.id == 701);
+            check(historicalEntry != null && historicalEntry.OriginalRot == 2 && historicalEntry.ResultRot <= 1,
+                "旋转归一：入包恢复接收计划把历史 rot=2 物品落到绝对可读 0/1");
 
             // 4e. 恒拒策略 = 计划出口直接决定恢复成败：拒绝 → cannot-fit + 零修改。
             var rejecting = V54Module(V54DescendingSettings());

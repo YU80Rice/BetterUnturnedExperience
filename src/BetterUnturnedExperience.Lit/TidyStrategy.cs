@@ -56,7 +56,7 @@ namespace BetterUnturnedExperience.Lit
         /// <summary>物品原始旋转（整理前），用于计算旋转变化。</summary>
         public byte OriginalRot;
 
-        /// <summary>偏好旋转（默认 = OriginalRot）。规划时默认正向 = 保留偏好旋转。</summary>
+        /// <summary>规划基准正向（已归一为绝对可读 rot=0/1）；原始历史旋转保存在 OriginalRot。</summary>
         public byte PreferredRotation;
 
         // ─────────────────────────────────────────────────────────────

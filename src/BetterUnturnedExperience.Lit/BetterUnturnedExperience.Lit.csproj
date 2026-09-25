@@ -39,6 +39,7 @@
     <Compile Include="Layout\PlayerUseLabel.cs" />
     <Compile Include="Layout\TaggedRowBandLayout.cs" />
     <Compile Include="Layout\StableLabelCompactLayout.cs" />
+    <Compile Include="Layout\TidyReadableRotation.cs" />
     <Compile Include="Recovery\FastTransferIntentScope.cs" />
     <Compile Include="Recovery\FastTransferRecoverAdapter.cs" />
     <Compile Include="Recovery\FastTransferRecoverEngine.cs" />

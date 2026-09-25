@@ -766,7 +766,9 @@ namespace BetterUnturnedExperience.Lit
                     OriginalX = jar.x,
                     OriginalY = jar.y,
                     OriginalRot = jar.rot,
-                    PreferredRotation = jar.rot,
+                    // V7-01: keep the historical rot for identity/rollback, but
+                    // feed the stable planner only the absolute readable 0/1 base.
+                    PreferredRotation = TidyReadableRotation.Normalize(jar.rot),
                     // DEV-V5-02 (V5-T3): the frozen player-use label comes from the
                     // module-internal classifier seam — a lookup failure lands in
                     // 其他 (never drops the jar), so both the single-page and the

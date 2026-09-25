@@ -469,16 +469,28 @@ namespace BetterUnturnedExperience.Plugin.Tests
             for (byte i = 0; i < grid.getItemCount(); i++) contentAfter.Add((grid.getItem(i).item.id, grid.getItem(i).item.amount));
             check(contentAfter.Count == 3, "提交：内容守恒（件数不变，指纹守恒由事务层已验，此处只锚件数）");
 
+            // 4a-rot. 容器标题栏真实事务也必须把历史倒置 rot 拉回绝对可读 0/1；
+            // ManualTidyService 是容器入口与身上页入口共用的规划出口。
+            var readableGrid = ContainerGrid(7, 4, 4);
+            var historical = ContainerJar(readableGrid, 0, 0, 2, 1, 3, 990, 1);
+            var readableStrategy = new StableLabelCompactStrategy();
+            var readableResult = LitContainerTidyExecution.Commit(
+                Live(fingerprint: LitContainerContentFingerprint.FromItems(readableGrid)),
+                ClaimFor(readableGrid), readableGrid, true, readableStrategy);
+            check(readableResult.Commit == TidyCommitResult.Committed && historical.rot <= 1,
+                "旋转归一：容器标题栏提交把历史 rot=2 规划并写回为绝对可读 0/1");
+
             // 4b. 版本过期 → ContentChanged + 零修改（不触事务：Calls 不再增长）。
             var stale = ContainerGrid(7, 6, 4);
             ContainerJar(stale, 0, 0, 0, 2, 2, 905, 1);
             var staleBefore = ContainerSnapshotTuples(stale);
+            var staleBeforeCalls = tx.Calls;
             var staleClaim = new LitContainerTidyClaim { Kind = LitContainerTidyKind.WorldContainer, Fingerprint = LitContainerContentFingerprint.FromItems(stale) ^ 0x5A5A5A5A5A5A5A5AUL };
             var staleResult = LitContainerTidyExecution.Commit(Live(fingerprint: LitContainerContentFingerprint.FromItems(stale)), staleClaim, stale, true, strategy);
             check(staleResult.Reason == LitContainerTidyReason.ContentChanged, "提交：声明指纹≠现读内容 = 内容已变化请重新整理");
             check(ContainerSnapshotTuples(stale).Count == staleBefore.Count && ContainerSnapshotTuples(stale)[0] == staleBefore[0],
                 "提交：版本过期零修改（格子未动）");
-            check(tx.Calls == 1, "提交：版本过期的请求从未进入事务（构造性零修改）");
+            check(tx.Calls == staleBeforeCalls, "提交：版本过期的请求从未进入事务（构造性零修改）");
 
             // 4c. 排版失败 → LayoutFailed + 零修改。此格关掉宿主缝、走真实
             // ManualTidyService.TidyPage（Prepare 失败分支不触碰资产，宿主可跑

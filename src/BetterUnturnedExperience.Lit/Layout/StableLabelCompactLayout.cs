@@ -366,10 +366,10 @@ namespace BetterUnturnedExperience.Lit
 
         private static byte ForwardRotation(byte rotation)
         {
-            // PreferredRotation is the entering item's readable base pose;
-            // only its quarter-turn counterpart is the alternate candidate.
-            // Do not reinterpret the engine's absolute rot as a 0/1 enum.
-            return rotation;
+            // PreferredRotation is normalized to the absolute readable 0/1
+            // base at the planning boundary; only its quarter-turn candidate
+            // is considered next.
+            return TidyReadableRotation.Normalize(rotation);
         }
         private static byte FootWidth(PackableItem item, byte rotation) { return (rotation & 1) == 1 ? item.size_y : item.size_x; }
         private static byte FootHeight(PackableItem item, byte rotation) { return (rotation & 1) == 1 ? item.size_x : item.size_y; }
@@ -381,7 +381,7 @@ namespace BetterUnturnedExperience.Lit
             {
                 var item = plan[i];
                 if (item == null || !item.Placed) return false;
-                var baseRotation = item.PreferredRotation;
+                var baseRotation = TidyReadableRotation.Normalize(item.PreferredRotation);
                 if (item.ResultRot != baseRotation && item.ResultRot != (byte)(baseRotation ^ 1)) return false;
                 var itemWidth = FootWidth(item, item.ResultRot);
                 var itemHeight = FootHeight(item, item.ResultRot);
@@ -405,7 +405,7 @@ namespace BetterUnturnedExperience.Lit
                 Tag = source.Tag, size_x = source.size_x, size_y = source.size_y,
                 GroupKey = source.GroupKey, StableOrder = source.StableOrder,
                 OriginalX = source.OriginalX, OriginalY = source.OriginalY, OriginalRot = source.OriginalRot,
-                PreferredRotation = source.PreferredRotation, Label = source.Label,
+                PreferredRotation = TidyReadableRotation.Normalize(source.PreferredRotation), Label = source.Label,
                 ResultX = 0, ResultY = 0, ResultRot = 0, Placed = false,
             };
         }

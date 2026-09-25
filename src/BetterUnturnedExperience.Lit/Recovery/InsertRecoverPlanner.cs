@@ -107,7 +107,7 @@ namespace BetterUnturnedExperience.Lit
                     OriginalX = 0,
                     OriginalY = 0,
                     OriginalRot = 0,
-                    PreferredRotation = 0,
+                    PreferredRotation = TidyReadableRotation.Default,
                     // The label rides the SAME 02 classifier seam the button
                     // tidy fills from (PreparePage resolves jar labels through
                     // it); classification failure lands in 其他, never drops.

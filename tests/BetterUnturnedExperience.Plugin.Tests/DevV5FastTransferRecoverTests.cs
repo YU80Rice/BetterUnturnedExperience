@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using BetterUnturnedExperience.Contracts;
 using BetterUnturnedExperience.Contracts.BueNetwork;
 using BetterUnturnedExperience.Core.Registration;
@@ -501,7 +502,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 // 3a. 玩家→箱子（碎洞未发包后的恢复）：整理箱子 + 这一件入箱；源页恒等。
                 {
                     var page3 = V55Page(3, 10, 2);
-                    V55Jar(page3, 0, 0, 0, 2, 1, 5001, 1); // 待转移的 2x1
+                    V55Jar(page3, 0, 0, 2, 2, 1, 5001, 1); // 待转移的 2x1，历史 rot=2
                     for (byte i = 2; i < 10; i++) V55Jar(page3, i, 0, 0, 1, 1, 4002, 1);
                     var box = V55FragmentedBox();
                     var pages = V55Pages(page3);
@@ -533,7 +534,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 // 3b. 箱子→玩家：按原版固定页序 2..6 取第一个「整理+放入」成立的页。
                 {
                     var box = V55Page(7, 10, 2);
-                    var moved = V55Jar(box, 0, 0, 0, 2, 1, 5001, 1);
+                    var moved = V55Jar(box, 0, 0, 2, 2, 1, 5001, 1);
                     for (byte i = 2; i < 10; i++) V55Jar(box, i, 0, 0, 1, 1, 4001, 1);
                     for (byte i = 0; i < 9; i++) V55Jar(box, i, 1, 0, 1, 1, 4001, 1);
                     // 箱内 18 件 + 待走件 1 件；碎片洞 (1,0)(9,1) 不成 2x1。
@@ -557,7 +558,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 // 3c. 目标碎洞+整理也放不下 → LayoutFailed，两侧零修改，事务不发起。
                 {
                     var p3 = V55Page(3, 10, 2);
-                    V55Jar(p3, 0, 0, 0, 2, 1, 5001, 1);
+                    V55Jar(p3, 0, 0, 2, 2, 1, 5001, 1);
                     for (byte i = 0; i < 18; i++) V55Jar(p3, (byte)(i % 10), (byte)(i / 10), 0, 1, 1, 4201, 1);
                     var box = V55FullPage(7, 20);
                     var pages = V55Pages(p3);
@@ -724,8 +725,13 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 var actual = recorder.LastPreps[1];
                 check(expected.Valid && PlanEqual(expected.Result, actual.Result),
                     "容器侧逐格 = 独立 computed 的 02 计划（同输入同计划，恢复不复制算法）");
-                check(actual.Pending != null && ((Item)actual.Pending.Tag).id == 5001 && actual.Pending.Label == PlayerUseLabel.Magazine,
-                    "待转移物品的标签消费 02 分类器缝（弹匣段参与排版，不单看 id 猜）");
+                check(actual.Pending != null && actual.Pending.OriginalRot == 2 && actual.Pending.ResultRot <= 1
+                        && ((Item)actual.Pending.Tag).id == 5001 && actual.Pending.Label == PlayerUseLabel.Magazine,
+                    "待转移物品的标签、历史旋转与正向均消费统一接缝（ResultRot 仅为 0/1）");
+                var historicalEntry = actual.Result.FirstOrDefault(item => item != null && item.Tag is ItemJar
+                    && ((ItemJar)item.Tag).item.id == 4001 && item.OriginalRot == 2);
+                check(historicalEntry != null && historicalEntry.ResultRot <= 1,
+                    "旋转归一：快转接收侧把历史 rot=2 物品落到绝对可读 0/1");
 
                 // 4b. 箱子→玩家：候选页序 = 原版固定序，出口至多逐页尝试（页2 失败、页3 成功）。
                 counting.BuildPlanCalls = 0;
@@ -743,7 +749,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
 
                 // 4c. PreparePageLeave 直测：恒等布局 = 其余逐格原坐标，离场件恰好缺席。
                 var page = V55Page(3, 10, 2);
-                var leave = V55Jar(page, 4, 0, 0, 2, 1, 7001, 5);
+                var leave = V55Jar(page, 4, 0, 3, 2, 1, 7001, 5);
                 V55Jar(page, 0, 0, 0, 1, 1, 7002, 1);
                 V55Jar(page, 1, 1, 1, 1, 1, 7003, 1);
                 var prep = ManualTidyService.PreparePageLeave(page, 3, leave);
@@ -778,7 +784,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
         private static Items V55FragmentedBox()
         {
             var box = V55Page(7, 10, 2);
-            for (byte x = 0; x < 10; x++) if (x != 3) V55Jar(box, x, 0, 0, 1, 1, 4001, 1);
+            for (byte x = 0; x < 10; x++) if (x != 3) V55Jar(box, x, 0, (byte)(x == 0 ? 2 : 0), 1, 1, 4001, 1);
             for (byte x = 0; x < 10; x++) if (x != 7) V55Jar(box, x, 1, 0, 1, 1, 4001, 1);
             return box;
         }
@@ -787,7 +793,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
         private static Items V55FragmentedSource(byte page)
         {
             var p3 = V55Page(page, 10, 2);
-            V55Jar(p3, 0, 0, 0, 2, 1, 5001, 1);
+            V55Jar(p3, 0, 0, 2, 2, 1, 5001, 1);
             for (byte x = 2; x < 10; x++) V55Jar(p3, x, 0, 0, 1, 1, 4002, 1);
             return p3;
         }
