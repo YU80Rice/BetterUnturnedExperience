@@ -51,10 +51,26 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 new ItemGridPosition(3, 0, 2, 2), target, 0.4f, 1.5f,
                 1, 3, 3, true, occupancy));
             Assert(nonZeroBaseline.State == PlacementPreviewState.Candidate &&
-                nonZeroBaseline.Candidate.Rotation == 2 &&
+                nonZeroBaseline.Candidate.Rotation == 0 &&
                 nonZeroBaseline.Width == 1 && nonZeroBaseline.Height == 3,
-                "非零会话基准必须保留 base+90 的可读正向与对应 footprint");
+                "非零历史 rot 也必须归一到绝对 row=0 的可读竖正向");
 
+            var nonZeroCurrent = evaluator.Evaluate(new PlacementCandidateInput(7,
+                new ItemGridPosition(3, 0, 2, 1), target, 2.6f, 1.5f,
+                1, 3, 2, true, new Grid(6, 3)));
+            Assert(nonZeroCurrent.State == PlacementPreviewState.Candidate &&
+                nonZeroCurrent.Candidate.Rotation <= 1 &&
+                nonZeroCurrent.Candidate.Rotation == 0 &&
+                nonZeroCurrent.Width == 1 && nonZeroCurrent.Height == 3,
+                "当前 rot=2 在自动预览中不得作为可读姿态保留");
+
+            var manualInverted = evaluator.Evaluate(new PlacementCandidateInput(8,
+                new ItemGridPosition(3, 0, 2, 2), target, 2.6f, 1.5f,
+                1, 3, 2, false, new Grid(6, 3)));
+            Assert(manualInverted.State == PlacementPreviewState.Candidate &&
+                manualInverted.Candidate.Rotation == 2 &&
+                manualInverted.Width == 1 && manualInverted.Height == 3,
+                "自动旋转关闭时必须保留玩家手动 rot=2，不得静默拉回 row=0");
             var narrow = new Grid(1, 3);
             var narrowPreview = evaluator.Evaluate(new PlacementCandidateInput(5,
                 new ItemGridPosition(3, 0, 0, 0), target, 0.4f, 1.5f,

@@ -28,8 +28,26 @@ namespace BetterUnturnedExperience.Placement.Tests
             var oddRotation = evaluator.Evaluate(Input(oddRotationGrid, 2, 3, 2.5f, 2.5f, 1, true));
             Assert(oddRotation.State == PlacementPreviewState.Candidate && oddRotation.Width == 2 && oddRotation.Height == 3 && oddRotation.Candidate.Rotation == 0, "automatic rotation swaps dimensions from odd current rotation without selecting an inverted pose");
 
+            var nonZeroSource = evaluator.Evaluate(new PlacementCandidateInput(2,
+                new ItemGridPosition(0, 0, 0, 1),
+                new ContainerReference(ContainerKind.PlayerInventory, 0, 2),
+                3.5f, 1.1f, 1, 3, 1, true, obstacle));
+            Assert(nonZeroSource.State == PlacementPreviewState.Candidate &&
+                nonZeroSource.Width == 3 && nonZeroSource.Height == 1 &&
+                nonZeroSource.Candidate.Rotation == 1,
+                "non-zero source rotation keeps the absolute horizontal row=1 when that footprint fits locally");
+
+            var nonZeroSourceVertical = evaluator.Evaluate(new PlacementCandidateInput(3,
+                new ItemGridPosition(0, 0, 0, 1),
+                new ContainerReference(ContainerKind.PlayerInventory, 0, 3),
+                0.4f, 1.1f, 1, 3, 1, true, obstacle));
+            Assert(nonZeroSourceVertical.State == PlacementPreviewState.Candidate &&
+                nonZeroSourceVertical.Width == 1 && nonZeroSourceVertical.Height == 3 &&
+                nonZeroSourceVertical.Candidate.Rotation == 0,
+                "non-zero source rotation returns absolute row=0 when the vertical footprint is required");
             var noRotate = evaluator.Evaluate(Input(obstacle, 2, 3, 3.5f, 1.1f, 0, false));
             Assert(noRotate.State == PlacementPreviewState.LocallyInvalid && noRotate.Width == 2 && noRotate.Height == 3 && noRotate.Candidate.Rotation == 0 && noRotate.Reason == PlacementReason.Occupied, "automatic rotation disabled keeps the local occupied target red");
+
 
             var outside = evaluator.Evaluate(Input(empty, 2, 3, -0.1f, 2f, 0, true));
             Assert(outside.State == PlacementPreviewState.Hidden && outside.Reason == PlacementReason.OutsideGrid, "center outside container hides preview");

@@ -29,23 +29,17 @@ namespace BetterUnturnedExperience.Core.Placement
             // rotated candidate is computed up front so step 1 can prefer it;
             // step 2 (current fails locally) still uses the same rotated values.
             var rotated = input.AllowAutomaticRotation && input.ItemWidth != input.ItemHeight;
-            // Automatic rotation is a readable-session choice, not a raw
-            // clockwise increment. The source rotation records which of the
-            // two footprint parities entered this drag session; the other
-            // parity is the only alternate readable pose. This keeps the
-            // mapping tied to the drag baseline without generating 180/270.
-            var baseReadableRotation = (byte)(input.Source.Rotation & 3);
-            var alternateReadableRotation = (byte)((baseReadableRotation + 1) & 3);
-            var currentIsSessionReadable = rotation == baseReadableRotation || rotation == alternateReadableRotation;
-            var readableCurrentRotation = currentIsSessionReadable
-                ? rotation
-                : ((rotation & 1) == (baseReadableRotation & 1)
-                    ? baseReadableRotation : alternateReadableRotation);
-            var currentIsReadable = currentIsSessionReadable;
+            // Automatic rotation always targets the asset's two readable rows:
+            // absolute rot=0 (base footprint) and rot=1 (+90 footprint). The
+            // source rotation is the frozen native source pose used by occupancy
+            // exclusion; it is not a readable-row baseline. Normalizing 2/3 by
+            // parity prevents a previous manual R or historical jar rotation
+            // from turning an automatic preview into an inverted target.
+            var readableCurrentRotation = (byte)(rotation & 1);
+            var currentIsReadable = rotation <= 1;
             var readableCurrentWidth = (readableCurrentRotation & 1) == 0 ? input.ItemWidth : input.ItemHeight;
             var readableCurrentHeight = (readableCurrentRotation & 1) == 0 ? input.ItemHeight : input.ItemWidth;
-            var rotatedRotation = readableCurrentRotation == baseReadableRotation
-                ? alternateReadableRotation : baseReadableRotation;
+            var rotatedRotation = (byte)(readableCurrentRotation ^ 1);
             var rotatedWidth = (rotatedRotation & 1) == 0 ? input.ItemWidth : input.ItemHeight;
             var rotatedHeight = (rotatedRotation & 1) == 0 ? input.ItemHeight : input.ItemWidth;
             var rotatedFitsGrid = rotated && rotatedWidth > 0 && rotatedHeight > 0 && rotatedWidth <= occupancy.Width && rotatedHeight <= occupancy.Height;
@@ -81,9 +75,9 @@ namespace BetterUnturnedExperience.Core.Placement
                 {
                     return Candidate(input.DragGeneration, page, rotatedX, rotatedY, rotatedRotation, rotatedWidth, rotatedHeight, PlacementPreviewState.Candidate);
                 }
-                var finalRotation = currentIsReadable ? rotation : readableCurrentRotation;
-                var finalWidth = currentIsReadable ? currentWidth : readableCurrentWidth;
-                var finalHeight = currentIsReadable ? currentHeight : readableCurrentHeight;
+                var finalRotation = !input.AllowAutomaticRotation || currentIsReadable ? rotation : readableCurrentRotation;
+                var finalWidth = !input.AllowAutomaticRotation || currentIsReadable ? currentWidth : readableCurrentWidth;
+                var finalHeight = !input.AllowAutomaticRotation || currentIsReadable ? currentHeight : readableCurrentHeight;
                 return Candidate(input.DragGeneration, page, currentX, currentY,
                     finalRotation, finalWidth, finalHeight, PlacementPreviewState.Candidate);
             }
@@ -95,10 +89,10 @@ namespace BetterUnturnedExperience.Core.Placement
             var reason = attemptedFit ? PlacementReason.Occupied : PlacementReason.OutsideGrid;
             var feedbackX = currentFitsGrid ? currentX : 0;
             var feedbackY = currentFitsGrid ? currentY : 0;
-            var feedbackRotation = currentIsReadable ? rotation : readableCurrentRotation;
-            var feedbackWidth = currentIsReadable ? currentWidth : readableCurrentWidth;
-            var feedbackHeight = currentIsReadable ? currentHeight : readableCurrentHeight;
-            if (!currentIsReadable && currentFitsGrid)
+            var feedbackRotation = !input.AllowAutomaticRotation || currentIsReadable ? rotation : readableCurrentRotation;
+            var feedbackWidth = !input.AllowAutomaticRotation || currentIsReadable ? currentWidth : readableCurrentWidth;
+            var feedbackHeight = !input.AllowAutomaticRotation || currentIsReadable ? currentHeight : readableCurrentHeight;
+            if (input.AllowAutomaticRotation && !currentIsReadable && currentFitsGrid)
                 Project(input.CursorGridX, input.CursorGridY, feedbackWidth, feedbackHeight,
                     occupancy.Width, occupancy.Height, out feedbackX, out feedbackY);
             return new ItemPlacementPreview(input.DragGeneration, PlacementPreviewState.LocallyInvalid,
