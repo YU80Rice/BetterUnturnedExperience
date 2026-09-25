@@ -29,7 +29,7 @@ namespace BetterUnturnedExperience.Placement.Tests
             Assert(oddRotation.State == PlacementPreviewState.Candidate && oddRotation.Width == 2 && oddRotation.Height == 3 && oddRotation.Candidate.Rotation == 0, "automatic rotation swaps dimensions from odd current rotation without selecting an inverted pose");
 
             var noRotate = evaluator.Evaluate(Input(obstacle, 2, 3, 3.5f, 1.1f, 0, false));
-            Assert(noRotate.State == PlacementPreviewState.Candidate && noRotate.Width == 2 && noRotate.Height == 3 && noRotate.Candidate.Rotation == 0, "automatic rotation disabled preserves current orientation");
+            Assert(noRotate.State == PlacementPreviewState.LocallyInvalid && noRotate.Width == 2 && noRotate.Height == 3 && noRotate.Candidate.Rotation == 0 && noRotate.Reason == PlacementReason.Occupied, "automatic rotation disabled keeps the local occupied target red");
 
             var outside = evaluator.Evaluate(Input(empty, 2, 3, -0.1f, 2f, 0, true));
             Assert(outside.State == PlacementPreviewState.Hidden && outside.Reason == PlacementReason.OutsideGrid, "center outside container hides preview");
@@ -46,7 +46,7 @@ namespace BetterUnturnedExperience.Placement.Tests
 
             var tie = new Grid(4, 3); tie.Fill(1, 0, 1, 1); tie.Fill(0, 1, 1, 1); tie.Fill(1, 1, 1, 1);
             var expanded = evaluator.Evaluate(Input(tie, 1, 1, 1.5f, 1.5f, 0, true));
-            Assert(expanded.State == PlacementPreviewState.Candidate && expanded.Candidate.X == 2 && expanded.Candidate.Y == 1, "expanded search uses deterministic distance then Y/X");
+            Assert(expanded.State == PlacementPreviewState.LocallyInvalid && expanded.Reason == PlacementReason.Occupied && expanded.Candidate.X == 1 && expanded.Candidate.Y == 1, "occupied local target remains invalid instead of expanding search to another cell");
 
             for (var warmup = 0; warmup < 100; warmup++) evaluator.Evaluate(Input(empty, 2, 3, 3.2f, 2.2f, 0, true));
             GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();

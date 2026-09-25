@@ -91,27 +91,6 @@ namespace BetterUnturnedExperience.Core.Placement
             if (rotatedFitsGrid && Fits(occupancy, rotatedX, rotatedY, rotatedWidth, rotatedHeight))
                 return Candidate(input.DragGeneration, page, rotatedX, rotatedY, rotatedRotation, rotatedWidth, rotatedHeight, PlacementPreviewState.Candidate);
 
-            var foundCurrent = false;
-            var bestCurrentX = 0;
-            var bestCurrentY = 0;
-            var bestCurrentDistance = double.MaxValue;
-            if (currentFitsGrid) Search(occupancy, input.CursorGridX, input.CursorGridY, currentWidth, currentHeight, out foundCurrent, out bestCurrentX, out bestCurrentY, out bestCurrentDistance);
-            if (foundCurrent)
-            {
-                var finalRotation = currentIsReadable ? rotation : readableCurrentRotation;
-                var finalWidth = currentIsReadable ? currentWidth : readableCurrentWidth;
-                var finalHeight = currentIsReadable ? currentHeight : readableCurrentHeight;
-                return Candidate(input.DragGeneration, page, bestCurrentX, bestCurrentY,
-                    finalRotation, finalWidth, finalHeight, PlacementPreviewState.Candidate);
-            }
-
-            var foundRotated = false;
-            var bestRotatedX = 0;
-            var bestRotatedY = 0;
-            var bestRotatedDistance = double.MaxValue;
-            if (rotatedFitsGrid) Search(occupancy, input.CursorGridX, input.CursorGridY, rotatedWidth, rotatedHeight, out foundRotated, out bestRotatedX, out bestRotatedY, out bestRotatedDistance);
-            if (foundRotated) return Candidate(input.DragGeneration, page, bestRotatedX, bestRotatedY, rotatedRotation, rotatedWidth, rotatedHeight, PlacementPreviewState.Candidate);
-
             var attemptedFit = currentFitsGrid || rotatedFitsGrid;
             var reason = attemptedFit ? PlacementReason.Occupied : PlacementReason.OutsideGrid;
             var feedbackX = currentFitsGrid ? currentX : 0;

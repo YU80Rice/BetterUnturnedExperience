@@ -22,6 +22,7 @@ namespace BetterUnturnedExperience.Bii
         private readonly SleekItemIcon itemIcon;
         private ItemAssetIdentity boundAsset;
         private byte rotation;
+        private PreviewFrameColor color;
 
         internal UnturnedVisualElement(ISleekElement element)
         {
@@ -63,14 +64,22 @@ namespace BetterUnturnedExperience.Bii
 
         public bool IsVisible { get { return element.IsVisible; } set { element.IsVisible = value; } }
 
+        internal static Color PreviewFrameRgba(PreviewFrameColor value)
+        {
+            if (value == PreviewFrameColor.ValidGreen) return new Color(0.2f, 1f, 0.3f, 0.85f);
+            if (value == PreviewFrameColor.InvalidRed) return new Color(1f, 0.25f, 0.2f, 0.85f);
+            return new Color(0f, 0f, 0f, 0f);
+        }
+
         public PreviewFrameColor Color
         {
-            get { return PreviewFrameColor.None; }
+            get { return color; }
             set
             {
+                color = value;
                 if (box == null) return;
-                if (value == PreviewFrameColor.ValidGreen) box.BackgroundColor = new SleekColor(new Color(0.2f, 1f, 0.3f, 0.85f));
-                else if (value == PreviewFrameColor.InvalidRed) box.BackgroundColor = new SleekColor(new Color(1f, 0.25f, 0.2f, 0.85f));
+                if (value == PreviewFrameColor.ValidGreen || value == PreviewFrameColor.InvalidRed)
+                    box.BackgroundColor = new SleekColor(PreviewFrameRgba(value));
                 else box.BackgroundColor = new SleekColor(ESleekTint.BACKGROUND, 0.6f);
             }
         }

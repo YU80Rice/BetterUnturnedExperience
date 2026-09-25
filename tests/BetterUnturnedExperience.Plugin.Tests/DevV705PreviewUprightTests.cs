@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using BetterUnturnedExperience.Bii;
 using BetterUnturnedExperience.Contracts;
 using BetterUnturnedExperience.Core.Placement;
+using UnityEngine;
 
 namespace BetterUnturnedExperience.Plugin.Tests
 {
@@ -13,9 +14,11 @@ namespace BetterUnturnedExperience.Plugin.Tests
             var failures = new List<string>();
             Group("two readable rotations", failures, collectAllFailures, TwoReadableRotations);
             Group("no readable fit stays red", failures, collectAllFailures, NoReadableFitStaysRed);
+            Group("occupied local target does not search remotely", failures, collectAllFailures, OccupiedLocalTargetDoesNotSearchRemotely);
             Group("square and open-middle guards", failures, collectAllFailures, SquareAndOpenMiddleGuards);
             Group("preview ghost policy", failures, collectAllFailures, PreviewGhostPolicy);
             Group("red frame and icon share rotation", failures, collectAllFailures, RedFrameAndIconShareRotation);
+            Group("frozen frame colors", failures, collectAllFailures, FrozenFrameColors);
             Console.WriteLine("DEV-V7-05 preview-upright: " + (failures.Count == 0 ? "PASS" : "FAIL"));
             if (failures.Count != 0)
                 throw new InvalidOperationException("DEV-V7-05 failures (" + failures.Count + "): " + string.Join(" || ", failures));
@@ -75,6 +78,24 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 "两个可读正向都无法放下时必须报告占用原因而不是伪造成功");
         }
 
+        private static void OccupiedLocalTargetDoesNotSearchRemotely()
+        {
+            var evaluator = new PlacementCandidateEvaluator();
+            var occupancy = new Grid(6, 3);
+            occupancy.Fill(0, 0, 1, 3);
+            var preview = evaluator.Evaluate(new PlacementCandidateInput(8,
+                new ItemGridPosition(3, 0, 0, 0),
+                new ContainerReference(ContainerKind.PlayerInventory, 3, 8),
+                0.5f, 1.5f, 1, 3, 0, true, occupancy));
+
+            Assert(preview.State == PlacementPreviewState.LocallyInvalid,
+                "occupied local target must remain red even when a distant free cell exists");
+            Assert(preview.Reason == PlacementReason.Occupied,
+                "occupied local target must report Occupied instead of silently searching elsewhere");
+            Assert(preview.Candidate.X == 0 && preview.Candidate.Y == 0,
+                "invalid feedback must stay anchored to the local projected target");
+        }
+
         private static void SquareAndOpenMiddleGuards()
         {
             var evaluator = new PlacementCandidateEvaluator();
@@ -124,6 +145,18 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 "红框与图标必须共享 Candidate.Rotation");
         }
 
+        private static void FrozenFrameColors()
+        {
+            var green = UnturnedVisualElement.PreviewFrameRgba(PreviewFrameColor.ValidGreen);
+            var red = UnturnedVisualElement.PreviewFrameRgba(PreviewFrameColor.InvalidRed);
+            Assert(Approximately(green.r, 0.2f) && Approximately(green.g, 1f) &&
+                Approximately(green.b, 0.3f) && Approximately(green.a, 0.85f),
+                "valid frame uses frozen green RGBA");
+            Assert(Approximately(red.r, 1f) && Approximately(red.g, 0.25f) &&
+                Approximately(red.b, 0.2f) && Approximately(red.a, 0.85f),
+                "invalid frame uses frozen red RGBA");
+        }
+
         private static void PreviewGhostPolicy()
         {
             Assert(InventoryDragPreviewAdapter.ShouldSuppressNativeDragGhost(
@@ -142,6 +175,35 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 isDragging: false, enhancedDragActive: true, targetGridOwned: true,
                 previewState: PlacementPreviewState.Candidate),
                 "拖拽结束后必须恢复原版 dragItem 幽灵");
+            Assert(InventoryDragPreviewAdapter.ShouldRestoreNativeDragGhostAfterRelease(
+                NativeDragAdapterOutcome.PassThrough),
+                "原版直通释放必须保留原版 dragItem 可见性");
+            Assert(!InventoryDragPreviewAdapter.ShouldRestoreNativeDragGhostAfterRelease(
+                NativeDragAdapterOutcome.Submitted) &&
+                !InventoryDragPreviewAdapter.ShouldRestoreNativeDragGhostAfterRelease(
+                    NativeDragAdapterOutcome.Cancelled),
+                "提交或取消已结束原版拖拽，不得再次复活 dragItem 幽灵");
+            Assert(!InventoryDragPreviewAdapter.ShouldRestoreNativeDragGhostAfterDragEnded(true) &&
+                InventoryDragPreviewAdapter.ShouldRestoreNativeDragGhostAfterDragEnded(false),
+                "下一次 drag-ended poll 必须继承 BUE-owned 结束状态且新原版结束仍恢复 ghost");
+
+            var lifecycle = new InventoryDragPreviewAdapter.NativeDragGhostLifecycle();
+            lifecycle.BeginDrag();
+            lifecycle.Complete(NativeDragAdapterOutcome.Submitted);
+            Assert(!lifecycle.ShouldRestoreAfterEnded(),
+                "BUE 提交后的下一次 drag-ended 状态不得恢复 ghost");
+            lifecycle.BeginDrag();
+            Assert(lifecycle.ShouldRestoreAfterEnded(),
+                "新拖拽结束时必须恢复原版 ghost");
+            lifecycle.BeginDrag();
+            lifecycle.Complete(NativeDragAdapterOutcome.PassThrough);
+            Assert(lifecycle.ShouldRestoreAfterEnded(),
+                "原版直通结束时必须恢复原版 ghost");
+        }
+
+        private static bool Approximately(float actual, float expected)
+        {
+            return Math.Abs(actual - expected) < 0.0001f;
         }
 
         private static void Assert(bool condition, string message)

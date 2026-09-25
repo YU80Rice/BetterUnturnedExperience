@@ -31,6 +31,7 @@ namespace BetterUnturnedExperience.Bii
         private bool hooksInstalled;
         private bool isolated;
         private bool cleanupSucceeded = true;
+        private readonly NativeDragGhostLifecycle ghostLifecycle;
         private bool wasDragging;
         private uint dragGeneration;
         private System.Reflection.FieldInfo dragJarField;
@@ -85,6 +86,7 @@ namespace BetterUnturnedExperience.Bii
             this.hostServices = mouths;
 
             this.component = component ?? throw new ArgumentNullException(nameof(component));
+            ghostLifecycle = new NativeDragGhostLifecycle();
             harmony = new Harmony(DragHarmonyId);
             nativeActions = new NativeDragActions();
             dragJarField = AccessTools.Field(typeof(PlayerDashboardInventoryUI), "dragJar");
@@ -581,6 +583,36 @@ namespace BetterUnturnedExperience.Bii
                  previewState == PlacementPreviewState.LocallyInvalid);
         }
 
+        internal static bool ShouldRestoreNativeDragGhostAfterRelease(NativeDragAdapterOutcome outcome)
+        {
+            return outcome == NativeDragAdapterOutcome.PassThrough;
+        }
+
+        internal static bool ShouldRestoreNativeDragGhostAfterDragEnded(bool bueEndedNativeDrag)
+        {
+            return !bueEndedNativeDrag;
+        }
+
+        internal sealed class NativeDragGhostLifecycle
+        {
+            private bool suppressEndedRestore;
+
+            internal void BeginDrag() { suppressEndedRestore = false; }
+
+            internal void Complete(NativeDragAdapterOutcome outcome)
+            {
+                suppressEndedRestore = outcome == NativeDragAdapterOutcome.Submitted ||
+                    outcome == NativeDragAdapterOutcome.Cancelled;
+            }
+
+            internal bool ShouldRestoreAfterEnded()
+            {
+                var restore = ShouldRestoreNativeDragGhostAfterDragEnded(suppressEndedRestore);
+                suppressEndedRestore = false;
+                return restore;
+            }
+        }
+
         private void SetNativeDragGhostVisible(bool visible)
         {
             var dragItem = ReadDragItem();
@@ -701,6 +733,7 @@ namespace BetterUnturnedExperience.Bii
             if (isDragging && !wasDragging)
             {
                 dragGeneration++;
+                ghostLifecycle.BeginDrag();
                 var jar = ReadDragJar();
                 var asset = jar == null ? ItemAssetIdentity.FromItemId(0) : AssetIdentityOf(jar);
                 component.OnDragStarted(dragGeneration, asset, ReadDragSource());
@@ -714,7 +747,8 @@ namespace BetterUnturnedExperience.Bii
             {
                 // Drag ended without onPlacedItem (ESC, drag-out): cancel visuals.
                 component.OnDragCancelled();
-                SetNativeDragGhostVisible(true);
+                if (ghostLifecycle.ShouldRestoreAfterEnded())
+                    SetNativeDragGhostVisible(true);
                 EmitRuntime("[BUE-DRAG] event=drag-cancelled diagnosticId=BUE-DRAG-001");
             }
             wasDragging = isDragging;
@@ -919,7 +953,9 @@ namespace BetterUnturnedExperience.Bii
                 PlayerDashboardInventoryUI.isDragging, dragGeneration,
                 ReadDragSource(), preview, page);
             var outcome = component.OnDragReleased(input, nativeActions);
-            SetNativeDragGhostVisible(true);
+            ghostLifecycle.Complete(outcome);
+            if (ShouldRestoreNativeDragGhostAfterRelease(outcome))
+                SetNativeDragGhostVisible(true);
             EmitRuntime("[BUE-DRAG] event=placement-decision page=" + page + " x=" + x + " y=" + y
                 + " outcome=" + outcome + " diagnosticId=BUE-DRAG-001");
             if (outcome == NativeDragAdapterOutcome.Submitted)
