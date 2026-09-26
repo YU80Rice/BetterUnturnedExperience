@@ -29,6 +29,7 @@ namespace BetterUnturnedExperience.Core.Placement
             // rotated candidate is computed up front so step 1 can prefer it;
             // step 2 (current fails locally) still uses the same rotated values.
             var rotated = input.AllowAutomaticRotation && input.ItemWidth != input.ItemHeight;
+            var square = input.ItemWidth == input.ItemHeight;
             // Automatic rotation always targets the asset's two readable rows:
             // absolute rot=0 (base footprint) and rot=1 (+90 footprint). The
             // source rotation is the frozen native source pose used by occupancy
@@ -75,9 +76,9 @@ namespace BetterUnturnedExperience.Core.Placement
                 {
                     return Candidate(input.DragGeneration, page, rotatedX, rotatedY, rotatedRotation, rotatedWidth, rotatedHeight, PlacementPreviewState.Candidate);
                 }
-                var finalRotation = !input.AllowAutomaticRotation || currentIsReadable ? rotation : readableCurrentRotation;
-                var finalWidth = !input.AllowAutomaticRotation || currentIsReadable ? currentWidth : readableCurrentWidth;
-                var finalHeight = !input.AllowAutomaticRotation || currentIsReadable ? currentHeight : readableCurrentHeight;
+                var finalRotation = square || !input.AllowAutomaticRotation || currentIsReadable ? rotation : readableCurrentRotation;
+                var finalWidth = square || !input.AllowAutomaticRotation || currentIsReadable ? currentWidth : readableCurrentWidth;
+                var finalHeight = square || !input.AllowAutomaticRotation || currentIsReadable ? currentHeight : readableCurrentHeight;
                 return Candidate(input.DragGeneration, page, currentX, currentY,
                     finalRotation, finalWidth, finalHeight, PlacementPreviewState.Candidate);
             }
@@ -89,10 +90,10 @@ namespace BetterUnturnedExperience.Core.Placement
             var reason = attemptedFit ? PlacementReason.Occupied : PlacementReason.OutsideGrid;
             var feedbackX = currentFitsGrid ? currentX : 0;
             var feedbackY = currentFitsGrid ? currentY : 0;
-            var feedbackRotation = !input.AllowAutomaticRotation || currentIsReadable ? rotation : readableCurrentRotation;
-            var feedbackWidth = !input.AllowAutomaticRotation || currentIsReadable ? currentWidth : readableCurrentWidth;
-            var feedbackHeight = !input.AllowAutomaticRotation || currentIsReadable ? currentHeight : readableCurrentHeight;
-            if (input.AllowAutomaticRotation && !currentIsReadable && currentFitsGrid)
+            var feedbackRotation = square || !input.AllowAutomaticRotation || currentIsReadable ? rotation : readableCurrentRotation;
+            var feedbackWidth = square || !input.AllowAutomaticRotation || currentIsReadable ? currentWidth : readableCurrentWidth;
+            var feedbackHeight = square || !input.AllowAutomaticRotation || currentIsReadable ? currentHeight : readableCurrentHeight;
+            if (!square && input.AllowAutomaticRotation && !currentIsReadable && currentFitsGrid)
                 Project(input.CursorGridX, input.CursorGridY, feedbackWidth, feedbackHeight,
                     occupancy.Width, occupancy.Height, out feedbackX, out feedbackY);
             return new ItemPlacementPreview(input.DragGeneration, PlacementPreviewState.LocallyInvalid,

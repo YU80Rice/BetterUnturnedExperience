@@ -138,6 +138,32 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 1.5f, 1.5f, 2, 2, 0, true, new Grid(4, 4)));
             Assert(square.State == PlacementPreviewState.Candidate && square.Candidate.Rotation == 0,
                 "正方形物品不得自动旋转");
+
+            var squareInverted = evaluator.Evaluate(new PlacementCandidateInput(10,
+                new ItemGridPosition(3, 0, 0, 2), target, 2.6f, 1.5f,
+                2, 2, 2, true, new Grid(6, 3)));
+            Assert(squareInverted.State == PlacementPreviewState.Candidate &&
+                squareInverted.Candidate.Rotation == 2 &&
+                squareInverted.Width == 2 && squareInverted.Height == 2,
+                "自动模式下正方形当前 rot=2 必须保留手动姿态和 footprint");
+
+            var squareInvertedThree = evaluator.Evaluate(new PlacementCandidateInput(11,
+                new ItemGridPosition(3, 0, 0, 3), target, 2.6f, 1.5f,
+                2, 2, 3, true, new Grid(6, 3)));
+            Assert(squareInvertedThree.State == PlacementPreviewState.Candidate &&
+                squareInvertedThree.Candidate.Rotation == 3 &&
+                squareInvertedThree.Width == 2 && squareInvertedThree.Height == 2,
+                "自动模式下正方形当前 rot=3 必须保留手动姿态和 footprint");
+
+            var squareBlocked = new Grid(6, 3);
+            squareBlocked.Fill(2, 1, 2, 2);
+            var squareInvalid = evaluator.Evaluate(new PlacementCandidateInput(12,
+                new ItemGridPosition(3, 0, 0, 2), target, 2.6f, 1.5f,
+                2, 2, 2, true, squareBlocked));
+            Assert(squareInvalid.State == PlacementPreviewState.LocallyInvalid &&
+                squareInvalid.Candidate.Rotation == 2 &&
+                squareInvalid.Width == 2 && squareInvalid.Height == 2,
+                "正方形占用反馈也必须保留手动 rot=2 和 footprint");
         }
 
         private static void RedFrameAndIconShareRotation()
