@@ -905,7 +905,15 @@ namespace BetterUnturnedExperience.Bii
 
         internal void OnDragCancelled()
         {
-            HidePreviewAndAnchor("drag-cancelled");
+            OnDragCancelled("drag-cancelled");
+        }
+
+        // research §D-2b: the session-end anchor reason must name the actual
+        // cause — the dashboard-close chain closes with reason=close, not
+        // the generic drag-cancelled.
+        internal void OnDragCancelled(string anchorReason)
+        {
+            HidePreviewAndAnchor(anchorReason);
             runtime.EndDrag();
             previewPresenter.EndDrag();
             currentDragGeneration = 0;

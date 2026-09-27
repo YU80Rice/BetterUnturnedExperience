@@ -750,7 +750,8 @@ namespace BetterUnturnedExperience.Bii
         // here so no later drag-ended edge is needed or possible.
         private void EndStaleDragSessionForDashboardClose()
         {
-            component.OnDragCancelled();
+            // research Â§D-2b: the close cause gets its own anchor reason.
+            component.OnDragCancelled("close");
             SetNativeDragGhostVisible(false);
             nativeActions.StopDrag();
             wasDragging = false;

@@ -21,6 +21,8 @@ namespace BetterUnturnedExperience.Plugin.Tests
             Group("frozen frame colors", failures, collectAllFailures, FrozenFrameColors);
             Group("frame drawing layer guards", failures, collectAllFailures, FrameDrawingLayerGuards);
             Group("frame mounts to top-level container", failures, collectAllFailures, FrameMountsToTopLevelContainer);
+            Group("frame parent chain drives real container", failures, collectAllFailures, FrameParentChainDrivesRealContainer);
+            Group("frame anchor survives scrolling", failures, collectAllFailures, FrameAnchorSurvivesScrolling);
             Group("real frame color write", failures, collectAllFailures, RealFrameColorWrite);
             Group("hidden clears last preview", failures, collectAllFailures, HiddenPointerClearsLastPreview);
             Group("dashboard close ghost policy", failures, collectAllFailures, DashboardCloseGhostPolicy);
@@ -285,8 +287,10 @@ namespace BetterUnturnedExperience.Plugin.Tests
             var sink = new InventoryPreviewVisualSink(topLevel);
             sink.ShowFrame(AnchoredFrame(PreviewFrameKind.ValidGreen));
 
-            Assert(topLevel.ChildCount == 1,
-                "框必须挂进顶层容器（PlayerUI.container），不再挂滚动内容层");
+            // Mount always seats BOTH elements (frame child 0, hidden icon
+            // child 1 until an icon write shows it).
+            Assert(topLevel.ChildCount == 2,
+                "框与图标必须同挂顶层容器（PlayerUI.container），不再挂滚动内容层");
             Assert(topLevel.ChildElement.IsVisible, "顶层容器中的框已显示");
             Assert(Approximately(sink.FrameScaleX, 0.25f) && Approximately(sink.FrameScaleY, 0.5f),
                 "框保留 PlayerUI 顶层 scale 锚");
@@ -301,6 +305,98 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 new ItemGridPosition(3, 3, 1, 0)));
             Assert(Approximately(sink.FrameX, 50f) && Approximately(sink.FrameY, -50f),
                 "框坐标必须随候选格子变化（每格 50 逻辑像素）");
+        }
+
+        // 2026-09-27 fourth-round return (ticket item 2): the migration
+        // assertion must drive the REAL production container/element wrappers
+        // (UnturnedVisualContainer/UnturnedVisualElement) over the native
+        // interface fakes, not only the sink's stub containers. The Glazier
+        // factory and overlay canvas stay the named engine seam — they cannot
+        // be constructed in the host.
+        private static void FrameParentChainDrivesRealContainer()
+        {
+            var fakeContainerElement = new FakeSleekElement();
+            var container = new UnturnedVisualContainer(fakeContainerElement);
+            var frameNative = new FakeSleekBox();
+            var frameElement = new UnturnedVisualElement(frameNative);
+            var iconNative = new FakeSleekElement();
+            var iconElement = new UnturnedVisualElement(iconNative);
+
+            container.AddChild(frameElement);
+            container.AddChild(iconElement);
+
+            Assert(fakeContainerElement.NativeChildren.Count == 2,
+                "真实容器包装必须把框与图标挂进同一原生父级");
+            Assert(ReferenceEquals(fakeContainerElement.NativeChildren[0], frameNative),
+                "原生子级 0 必须是框（先挂=在下层）");
+            Assert(ReferenceEquals(fakeContainerElement.NativeChildren[1], iconNative),
+                "原生子级 1 必须是图标（后挂=在上层）");
+
+            frameElement.PositionScaleX = 0.25f;
+            frameElement.PositionOffsetX = -50f;
+            frameElement.SizeOffsetY = 150f;
+            frameElement.Color = PreviewFrameColor.ValidGreen;
+            frameElement.IsVisible = true;
+            Assert(frameNative.BackgroundColor.Equals(new SDG.Unturned.SleekColor(
+                    UnturnedVisualElement.PreviewFrameRgba(PreviewFrameColor.ValidGreen))),
+                "真实元素包装把冻结绿写入原生 ISleekBox");
+            Assert(Approximately(frameNative.PositionScale_X, 0.25f) &&
+                Approximately(frameNative.PositionOffset_X, -50f) &&
+                Approximately(frameNative.SizeOffset_Y, 150f),
+                "真实元素包装把锚定几何写入原生元素");
+            Assert(frameNative.IsVisible, "真实元素包装把可见性落到原生元素");
+        }
+
+        // 2026-09-27 fourth-round return (ticket item 1): the pointer and the
+        // candidate BOTH live in the scrolled content space on the production
+        // GridContentLocal path, so the anchor offset must be scroll
+        // invariant. A regression that re-applies the surface scroll on top
+        // of the content-local pointer (double count) shifts the frame by the
+        // scroll amount and goes red here.
+        private static void FrameAnchorSurvivesScrolling()
+        {
+            var component = new BetterItemInteractionUiComponent(
+                new InventoryPreviewPresenter(new InventoryDragPresenter(new FixedPreviewEvaluator(
+                    new ItemPlacementPreview(31, PlacementPreviewState.Candidate,
+                        new ItemGridPosition(3, 2, 2, 0), 1, 3, PlacementReason.None)))),
+                new NativeInventoryInteractionAdapter(2, 8));
+            component.OnUiInitialized(true, false);
+
+            var unscrolled = new ScrollableSurfaceContext(new StubVisualContainer(
+                new StubVisualElement(canWriteColor: true)), new Grid(8, 6), 0f, 0f);
+            var scrolled = new ScrollableSurfaceContext(new StubVisualContainer(
+                new StubVisualElement(canWriteColor: true)), new Grid(8, 6), 0f, 150f);
+
+            component.OnInventoryOpened(unscrolled);
+            component.OnDragStarted(31, ItemAssetIdentity.FromItemId(0), new ItemGridPosition(3, 0, 0, 0));
+            InventoryPreviewInput unscrolledInput;
+            Assert(component.TryCreatePreviewInput(31, new ItemGridPosition(3, 0, 0, 0),
+                    100f, 250f, 1, 3, 0, true, 0.5f, 0.5f,
+                    ItemAssetIdentity.FromItemId(0), 0.25f, 0.5f, float.NaN, float.NaN, out unscrolledInput),
+                "前置：未滚动输入可构造");
+            component.OnDragUpdated(unscrolledInput);
+            var unscrolledX = component.PreviewSink.FrameX;
+            var unscrolledY = component.PreviewSink.FrameY;
+            component.OnInventoryClosed();
+
+            component.OnInventoryOpened(scrolled);
+            component.OnDragStarted(32, ItemAssetIdentity.FromItemId(0), new ItemGridPosition(3, 0, 0, 0));
+            InventoryPreviewInput scrolledInput;
+            Assert(component.TryCreatePreviewInput(32, new ItemGridPosition(3, 0, 0, 0),
+                    100f, 250f, 1, 3, 0, true, 0.5f, 0.5f,
+                    ItemAssetIdentity.FromItemId(0), 0.25f, 0.5f, float.NaN, float.NaN, out scrolledInput),
+                "前置：滚动输入可构造");
+            Assert(scrolledInput.ScrollPixelsY == 0f,
+                "内容本地指针已含滚动：组件必须把 surface 滚动清零，防止双重计数");
+            component.OnDragUpdated(scrolledInput);
+            var scrolledX = component.PreviewSink.FrameX;
+            var scrolledY = component.PreviewSink.FrameY;
+            component.OnInventoryClosed();
+
+            Assert(Approximately(unscrolledX, scrolledX) && Approximately(unscrolledY, scrolledY),
+                "内容本地路径下框锚偏移必须与滚动量无关（指针与候选同处内容空间）");
+            Assert(Approximately(unscrolledX, 0f) && Approximately(unscrolledY, -150f),
+                "框偏移=候选格内容位−指针内容位（cell 50、指针 100,250、候选 2,2）");
         }
 
         private static PreviewFrame AnchoredFrame(PreviewFrameKind kind)
@@ -423,25 +519,40 @@ namespace BetterUnturnedExperience.Plugin.Tests
         private static void DashboardCloseFullChain()
         {
             var previousIsDragging = SDG.Unturned.PlayerDashboardInventoryUI.isDragging;
+            var closeLogs = new System.Collections.Generic.List<string>();
             try
             {
                 var component = new BetterItemInteractionUiComponent(
                     new InventoryPreviewPresenter(new InventoryDragPresenter(new FixedPreviewEvaluator(
                         new ItemPlacementPreview(11, PlacementPreviewState.Candidate,
                             new ItemGridPosition(3, 1, 1, 0), 1, 3, PlacementReason.None)))),
-                    new NativeInventoryInteractionAdapter(2, 8));
+                    new NativeInventoryInteractionAdapter(2, 8),
+                    null, line => closeLogs.Add(line), null);
                 component.OnUiInitialized(true, false);
                 var recorder = new RecordingCloseNativeActions();
                 var adapter = new InventoryDragPreviewAdapter(component, null, recorder);
                 Assert(adapter.LastNativeDragGhostVisibilityCommand == null,
                     "前置：新适配器尚未发出任何幽灵可见性命令");
 
-                // BUE owns a live drag session and its suppress flag is set,
-                // exactly the mid-drag state before the player closes the UI.
+                // BUE owns a live drag session; a preview must be VISIBLE when
+                // the dashboard closes - that is the real-machine shape
+                // (preview-visible is the last event in 27/28 round-3 drags)
+                // and it feeds the close anchor gate.
+                var surface = new AnchorSurfaceContext(new StubVisualContainer(
+                    new StubVisualElement(canWriteColor: true)), new Grid(8, 6));
+                component.OnInventoryOpened(surface);
                 component.OnDragStarted(11, ItemAssetIdentity.FromItemId(0),
                     new ItemGridPosition(3, 0, 0, 0));
                 Assert(component.CurrentDragGeneration == 11 && component.EnhancedDragActive,
                     "前置：BUE 拖拽会话已建立");
+                InventoryPreviewInput previewInput;
+                Assert(component.TryCreatePreviewInput(11, new ItemGridPosition(3, 0, 0, 0),
+                        100f, 250f, 1, 3, 0, true, 0.5f, 0.5f,
+                        ItemAssetIdentity.FromItemId(0), out previewInput),
+                    "前置：拖拽输入可构造");
+                component.OnDragUpdated(previewInput);
+                Assert(component.LastPreview.State == PlacementPreviewState.Candidate,
+                    "前置：关闭前预览可见（Candidate）");
 
                 // The dashboard closes while the vanilla drag session is live.
                 SetVanillaIsDragging(true);
@@ -455,6 +566,13 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     "真实关闭路径必须发出幽灵隐藏命令（面板关闭期间冻结幽灵不得渲染）");
                 Assert(!adapter.LastObservedVanillaDragging,
                     "真实关闭路径必须消费 drag-ended 边沿（wasDragging 复位，后续边沿不存在）");
+                var closeAnchored = false;
+                foreach (var line in closeLogs)
+                {
+                    if (line.Contains("event=preview-hidden") && line.Contains("reason=close")) closeAnchored = true;
+                }
+                Assert(closeAnchored,
+                    "关闭链结束会话必须落 event=preview-hidden reason=close 日志锚（不得落成 drag-cancelled）");
 
                 // Edge independence: a second full Poll cannot be driven in the
                 // host (vanilla Player cctor is engine-bound — named seam), so
@@ -548,11 +666,33 @@ namespace BetterUnturnedExperience.Plugin.Tests
             }
             Assert(anchored, "拖拽取消结束会话必须落 event=preview-hidden 日志锚");
 
+            // research D-2b: the release path is a session end too — the
+            // submitted placement must anchor reason=native-release.
+            component.OnDragStarted(23, ItemAssetIdentity.FromItemId(0), new ItemGridPosition(3, 0, 0, 0));
+            Assert(component.TryCreatePreviewInput(23, new ItemGridPosition(3, 0, 0, 0),
+                    100f, 100f, 1, 3, 0, true, 0.5f, 0.5f,
+                    ItemAssetIdentity.FromItemId(0), out var releaseInput),
+                "前置：释放场景输入可构造");
+            component.OnDragUpdated(releaseInput);
+            var releaseOutcome = component.OnDragReleased(new NativeDragAdapterInput(true, 23,
+                new ItemGridPosition(3, 0, 0, 0),
+                new ItemPlacementPreview(23, PlacementPreviewState.Candidate,
+                    new ItemGridPosition(3, 1, 1, 0), 1, 3, PlacementReason.None), 3),
+                new RecordingCloseNativeActions());
+            Assert(releaseOutcome == NativeDragAdapterOutcome.Submitted,
+                "前置：释放走提交路径");
+            var releasedAnchor = false;
+            foreach (var line in logs)
+            {
+                if (line.Contains("event=preview-hidden") && line.Contains("reason=native-release")) releasedAnchor = true;
+            }
+            Assert(releasedAnchor, "提交释放结束会话必须落 event=preview-hidden reason=native-release 日志锚");
+
             // research D-2b: isolation is also a session end — the anchor must
             // fire even though runtime.Isolate() runs CleanupUiAndDrag (which
             // clears LastPreview) BEFORE the isolate path can observe it.
-            component.OnDragStarted(23, ItemAssetIdentity.FromItemId(0), new ItemGridPosition(3, 0, 0, 0));
-            Assert(component.TryCreatePreviewInput(23, new ItemGridPosition(3, 0, 0, 0),
+            component.OnDragStarted(24, ItemAssetIdentity.FromItemId(0), new ItemGridPosition(3, 0, 0, 0));
+            Assert(component.TryCreatePreviewInput(24, new ItemGridPosition(3, 0, 0, 0),
                     100f, 100f, 1, 3, 0, true, 0.5f, 0.5f,
                     ItemAssetIdentity.FromItemId(0), out var isolateInput),
                 "前置：隔离场景输入可构造");
@@ -567,6 +707,30 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 if (line.Contains("event=preview-hidden") && line.Contains("reason=isolated")) isolatedAnchor = true;
             }
             Assert(isolatedAnchor, "隔离结束会话必须落 event=preview-hidden 日志锚");
+        }
+
+        private sealed class ScrollableSurfaceContext : IInventorySurfaceContext
+        {
+            private readonly IVisualContainer topLevel;
+            private readonly IGridOccupancyView occupancy;
+            private readonly float scrollPixelsX;
+            private readonly float scrollPixelsY;
+            internal ScrollableSurfaceContext(IVisualContainer topLevel, IGridOccupancyView occupancy,
+                float scrollPixelsX, float scrollPixelsY)
+            {
+                this.topLevel = topLevel;
+                this.occupancy = occupancy;
+                this.scrollPixelsX = scrollPixelsX;
+                this.scrollPixelsY = scrollPixelsY;
+            }
+            public ContainerReference CurrentContainer { get { return new ContainerReference(ContainerKind.PlayerInventory, 3, 31); } }
+            public IVisualContainer TopLevelContainer { get { return topLevel; } }
+            public InventoryGridViewport Viewport { get { return new InventoryGridViewport(0f, 0f, 8, 6, 0f, 0f, 400f, 600f); } }
+            public float CellPixelSize { get { return 50f; } }
+            public float UiScale { get { return 1f; } }
+            public float ScrollPixelsX { get { return scrollPixelsX; } }
+            public float ScrollPixelsY { get { return scrollPixelsY; } }
+            public IGridOccupancyView Occupancy { get { return occupancy; } }
         }
 
         private sealed class AnchorSurfaceContext : IInventorySurfaceContext
@@ -670,15 +834,24 @@ namespace BetterUnturnedExperience.Plugin.Tests
 
         private sealed class StubVisualContainer : IVisualContainer
         {
+            // Distinct box and image elements: the sink writes frame and icon
+            // geometry to DIFFERENT elements, so a shared instance would let
+            // the icon overwrite the frame coordinates the tests read back.
             private readonly StubVisualElement box;
+            private readonly StubVisualElement image;
             private readonly System.Collections.Generic.List<IVisualElement> children =
                 new System.Collections.Generic.List<IVisualElement>();
-            internal StubVisualContainer(StubVisualElement box) { this.box = box; IsVisible = true; }
+            internal StubVisualContainer(StubVisualElement box)
+            {
+                this.box = box;
+                image = new StubVisualElement(box.CanWriteColor);
+                IsVisible = true;
+            }
             public bool IsVisible { get; set; }
             internal int ChildCount { get { return children.Count; } }
             internal IVisualElement ChildElement { get { return children.Count == 0 ? null : children[0]; } }
             public IVisualElement CreateBox() { return box; }
-            public IVisualElement CreateImage() { return box; }
+            public IVisualElement CreateImage() { return image; }
             public void AddChild(IVisualElement child) { if (!children.Contains(child)) children.Add(child); }
             public void RemoveChild(IVisualElement child) { children.Remove(child); }
         }
@@ -688,6 +861,11 @@ namespace BetterUnturnedExperience.Plugin.Tests
         // record writes, so JIT compilation stays inside managed code.
         private class FakeSleekElement : SDG.Unturned.ISleekElement
         {
+            // Native child recording: lets tests drive the REAL production
+            // container/element wrappers and assert the true parent chain.
+            private readonly System.Collections.Generic.List<SDG.Unturned.ISleekElement> nativeChildren =
+                new System.Collections.Generic.List<SDG.Unturned.ISleekElement>();
+            internal System.Collections.Generic.IReadOnlyList<SDG.Unturned.ISleekElement> NativeChildren { get { return nativeChildren; } }
             public bool IsVisible { get; set; }
             public SDG.Unturned.ISleekElement Parent { get { return null; } }
             public SDG.Unturned.ISleekLabel SideLabel { get { return null; } }
@@ -714,7 +892,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
             public void AnimatePositionScale(float a, float b, SDG.Unturned.ESleekLerp mode, float t) { }
             public void AnimateSizeOffset(float a, float b, SDG.Unturned.ESleekLerp mode, float t) { }
             public void AnimateSizeScale(float a, float b, SDG.Unturned.ESleekLerp mode, float t) { }
-            public void AddChild(SDG.Unturned.ISleekElement child) { }
+            public void AddChild(SDG.Unturned.ISleekElement child) { if (!nativeChildren.Contains(child)) nativeChildren.Add(child); }
             public void AddLabel(string text, SDG.Unturned.ESleekSide side) { }
             public void AddLabel(string text, Color color, SDG.Unturned.ESleekSide side) { }
             public void UpdateLabel(string text) { }
@@ -722,7 +900,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
             public SDG.Unturned.ISleekElement GetChildAtIndex(int index) { return null; }
             public int GetChildCount() { return 0; }
             public void Update() { }
-            public void RemoveChild(SDG.Unturned.ISleekElement child) { }
+            public void RemoveChild(SDG.Unturned.ISleekElement child) { nativeChildren.Remove(child); }
             public void RemoveAllChildren() { }
             public Vector2 ViewportToNormalizedPosition(Vector2 viewportPoint) { return default(Vector2); }
             public Vector2 GetNormalizedCursorPosition() { return default(Vector2); }
