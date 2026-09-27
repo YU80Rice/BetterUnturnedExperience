@@ -55,7 +55,6 @@ namespace BetterUnturnedExperience.Bii
     {
         ContainerReference CurrentContainer { get; }
         IVisualContainer TopLevelContainer { get; }
-        IVisualContainer GridPanelContainer { get; }
         InventoryGridViewport Viewport { get; }
         float CellPixelSize { get; }
         float UiScale { get; }
@@ -101,8 +100,14 @@ namespace BetterUnturnedExperience.Bii
     /// </summary>
     internal sealed class InventoryPreviewVisualSink : IInventoryPreviewSink
     {
+        // 2026-09-27 research §B/§D-1: frame AND icon both live on the
+        // ever-alive top-level container (PlayerUI.container — same parent as
+        // the vanilla dragItem). The scroll-content itemsPanel layer was the
+        // invisibility root cause: clear() removes children, solid item
+        // buttons cover same-layer siblings, double RectMask2D clips, and the
+        // Glazier pool recycles backing components. Icon is added after the
+        // frame so it renders on top.
         private readonly IVisualContainer topLevelContainer;
-        private readonly IVisualContainer gridPanelContainer;
         // FB1b: element references are REBUILDABLE — the native Glazier pool
         // can release the backing uGUI components behind BUE's back (machine
         // 20260909_001648: set_BackgroundColor NRE'd 60 consecutive frames on
@@ -112,11 +117,10 @@ namespace BetterUnturnedExperience.Bii
         private IVisualElement iconElement;
         private bool isMounted;
 
-        internal InventoryPreviewVisualSink(IVisualContainer topLevelContainer, IVisualContainer gridPanelContainer)
+        internal InventoryPreviewVisualSink(IVisualContainer topLevelContainer)
         {
             this.topLevelContainer = topLevelContainer ?? throw new ArgumentNullException(nameof(topLevelContainer));
-            this.gridPanelContainer = gridPanelContainer ?? throw new ArgumentNullException(nameof(gridPanelContainer));
-            this.frameElement = gridPanelContainer.CreateBox();
+            this.frameElement = topLevelContainer.CreateBox();
             this.iconElement = topLevelContainer.CreateImage();
             this.frameElement.IsVisible = false;
             this.iconElement.IsVisible = false;
@@ -126,6 +130,8 @@ namespace BetterUnturnedExperience.Bii
         internal bool IsIconVisible { get { return iconElement.IsVisible; } }
         internal PreviewFrameColor CurrentFrameColor { get { return frameElement.Color; } }
         internal ItemAssetIdentity BoundIconAsset { get { return iconElement.BoundAsset; } }
+        internal float FrameScaleX { get { return frameElement.PositionScaleX; } }
+        internal float FrameScaleY { get { return frameElement.PositionScaleY; } }
         internal float FrameX { get { return frameElement.PositionOffsetX; } }
         internal float FrameY { get { return frameElement.PositionOffsetY; } }
         internal float FrameWidth { get { return frameElement.SizeOffsetX; } }
@@ -142,14 +148,13 @@ namespace BetterUnturnedExperience.Bii
         internal void Mount()
         {
             if (isMounted) return;
-            gridPanelContainer.AddChild(frameElement);
+            topLevelContainer.AddChild(frameElement);
             topLevelContainer.AddChild(iconElement);
             isMounted = true;
         }
 
-        // DEV-V2-24 F-B1: a third-party rebuild of the native items panel
-        // (e.g. the listen-host projection repair clearing panel children)
-        // can remove the mounted preview elements behind BUE's back. Each new
+        // DEV-V2-24 F-B1: a third-party rebuild of a native container can
+        // remove the mounted preview elements behind BUE's back. Each new
         // drag start re-asserts the children so one rebuild cannot leave the
         // preview lane invisibly dead for the rest of the session.
         internal void EnsureMounted()
@@ -161,8 +166,8 @@ namespace BetterUnturnedExperience.Bii
             // "no remount this drag" instead of escaping into the drag tick.
             try
             {
-                gridPanelContainer.RemoveChild(frameElement);
-                gridPanelContainer.AddChild(frameElement);
+                topLevelContainer.RemoveChild(frameElement);
+                topLevelContainer.AddChild(frameElement);
                 topLevelContainer.RemoveChild(iconElement);
                 topLevelContainer.AddChild(iconElement);
             }
@@ -173,7 +178,7 @@ namespace BetterUnturnedExperience.Bii
         {
             if (!isMounted) return;
             Hide();
-            gridPanelContainer.RemoveChild(frameElement);
+            topLevelContainer.RemoveChild(frameElement);
             topLevelContainer.RemoveChild(iconElement);
             isMounted = false;
         }
@@ -210,17 +215,21 @@ namespace BetterUnturnedExperience.Bii
         private void ApplyFrame(PreviewFrame frame)
         {
             if (!isMounted) Mount();
-            // 2026-09-27 SP return: the state machine emitted preview-visible
-            // while the player still saw the vanilla dark cell. A frame whose
-            // color write cannot land (no ISleekBox behind the element) or
-            // whose mount parent is hidden must fault into the rebuild-retry
-            // gate instead of silently claiming a visible green/red box.
-            if (!gridPanelContainer.IsVisible)
+            // Research §D-1: the wrapper color readback cannot prove the
+            // element is really rendered — the RED TESTS assert the real
+            // parent (top-level container) and the anchor geometry instead.
+            // What the sink still refuses is an anchorless frame (no honest
+            // place to draw it) and a hidden mount parent.
+            if (!frame.UsesTopLevelAnchor)
+                throw new InvalidOperationException("preview frame has no top-level anchor");
+            if (!topLevelContainer.IsVisible)
                 throw new InvalidOperationException("preview frame mount parent is not visible");
-            frameElement.PositionOffsetX = frame.Candidate.X * frame.CellPixelSize;
-            frameElement.PositionOffsetY = frame.Candidate.Y * frame.CellPixelSize;
-            frameElement.SizeOffsetX = frame.Width * frame.CellPixelSize;
-            frameElement.SizeOffsetY = frame.Height * frame.CellPixelSize;
+            frameElement.PositionScaleX = frame.PositionScaleX;
+            frameElement.PositionScaleY = frame.PositionScaleY;
+            frameElement.PositionOffsetX = frame.PositionOffsetX;
+            frameElement.PositionOffsetY = frame.PositionOffsetY;
+            frameElement.SizeOffsetX = frame.SizeOffsetX;
+            frameElement.SizeOffsetY = frame.SizeOffsetY;
             var expectedColor = frame.Kind == PreviewFrameKind.ValidGreen
                 ? PreviewFrameColor.ValidGreen
                 : PreviewFrameColor.InvalidRed;
@@ -240,15 +249,15 @@ namespace BetterUnturnedExperience.Bii
         {
             try
             {
-                gridPanelContainer.RemoveChild(frameElement);
+                topLevelContainer.RemoveChild(frameElement);
                 topLevelContainer.RemoveChild(iconElement);
             }
             catch (Exception) { }
-            frameElement = gridPanelContainer.CreateBox();
+            frameElement = topLevelContainer.CreateBox();
             iconElement = topLevelContainer.CreateImage();
             frameElement.IsVisible = false;
             iconElement.IsVisible = false;
-            gridPanelContainer.AddChild(frameElement);
+            topLevelContainer.AddChild(frameElement);
             topLevelContainer.AddChild(iconElement);
             isMounted = true;
         }
@@ -269,6 +278,14 @@ namespace BetterUnturnedExperience.Bii
             }
             iconElement.RotationAngle = icon.Rotation;
             iconElement.IsVisible = true;
+        }
+
+        // 2026-09-27 research D-1: a frame without a truthful top-level
+        // anchor declines to draw; the icon may still render via its own
+        // screen-space fallback, so this hides ONLY the frame.
+        public void HideFrame()
+        {
+            frameElement.IsVisible = false;
         }
 
         public void HideIcon()
@@ -454,6 +471,11 @@ namespace BetterUnturnedExperience.Bii
         // disables enhanced drag while vanilla input remains untouched.
         internal bool IsolatePreviewFailureResult()
         {
+            // research §D-2b: capture the visible fact BEFORE runtime.Isolate()
+            // — its registered CleanupUiAndDrag clears LastPreview, so the
+            // anchor gate would otherwise never see the live preview.
+            var wasVisible = LastPreview.State == PlacementPreviewState.Candidate ||
+                LastPreview.State == PlacementPreviewState.LocallyInvalid;
             var cleanupSucceeded = runtime.Isolate();
             // A native hook/geometry failure is a feature-local presentation
             // failure, not a headless runtime.  Project the degraded state
@@ -462,6 +484,8 @@ namespace BetterUnturnedExperience.Bii
             // the active fallback.
             lifecycle.SetPresentationAvailable(false, headless);
             HidePreview();
+            if (wasVisible)
+                EmitPreviewDiagnostic("[BUE-DRAG] GPT-WATERMARK event=preview-hidden reason=isolated diagnosticId=BUE-DRAG-001", false);
             return cleanupSucceeded;
         }
 
@@ -593,12 +617,12 @@ namespace BetterUnturnedExperience.Bii
             currentSurface = surfaceContext;
             currentContainer = surfaceContext.CurrentContainer;
             currentSessionGeneration = surfaceContext.CurrentContainer.SessionGeneration;
-            BindVisualSink(surfaceContext.TopLevelContainer, surfaceContext.GridPanelContainer);
+            BindVisualSink(surfaceContext.TopLevelContainer);
         }
 
         internal void OnInventoryClosed()
         {
-            HidePreview();
+            HidePreviewAndAnchor("inventory-closed");
             isInventoryOpen = false;
             previewUpdateFaultFrames = 0;
             currentSurface = null;
@@ -680,13 +704,13 @@ namespace BetterUnturnedExperience.Bii
             OnInventoryClosed();
         }
 
-        internal void BindVisualSink(IVisualContainer topLevel, IVisualContainer gridPanel)
+        internal void BindVisualSink(IVisualContainer topLevel)
         {
             if (previewSink != null)
             {
                 previewSink.Unmount();
             }
-            previewSink = new InventoryPreviewVisualSink(topLevel, gridPanel);
+            previewSink = new InventoryPreviewVisualSink(topLevel);
             previewSink.Mount();
         }
 
@@ -733,7 +757,7 @@ namespace BetterUnturnedExperience.Bii
             runtime.BeginDrag(dragGeneration);
             if (runtime.EnhancedDragActive && previewSink == null && currentSurface != null && satelliteAvailable && !headless)
             {
-                BindVisualSink(currentSurface.TopLevelContainer, currentSurface.GridPanelContainer);
+                BindVisualSink(currentSurface.TopLevelContainer);
                 isInventoryOpen = true;
             }
             else if (runtime.EnhancedDragActive && previewSink != null)
@@ -820,7 +844,7 @@ namespace BetterUnturnedExperience.Bii
 
         internal NativeDragAdapterOutcome OnDragReleased(NativeDragAdapterInput input, INativeInventoryDragActions nativeActions)
         {
-            HidePreview();
+            HidePreviewAndAnchor("native-release");
             if (!runtime.EnhancedDragActive)
             {
                 runtime.EndDrag();
@@ -881,13 +905,27 @@ namespace BetterUnturnedExperience.Bii
 
         internal void OnDragCancelled()
         {
-            HidePreview();
+            HidePreviewAndAnchor("drag-cancelled");
             runtime.EndDrag();
             previewPresenter.EndDrag();
             currentDragGeneration = 0;
             dragOriginContainer = default(ContainerReference);
             dragSourcePassThrough = false;
             ClearActiveDragOccupancy();
+        }
+
+        // 2026-09-27 research §D-2b: every session end (cancel/submit/close/
+        // isolate) must hide the ever-alive top-level icon AND drop the
+        // event=preview-hidden anchor — round 3 logged 27/28 drags ending
+        // with preview-visible as the LAST event, so the frozen icon had no
+        // closer. Plain HidePreview stays for the per-frame hidden paths.
+        private void HidePreviewAndAnchor(string reason)
+        {
+            var wasVisible = LastPreview.State == PlacementPreviewState.Candidate ||
+                LastPreview.State == PlacementPreviewState.LocallyInvalid;
+            HidePreview();
+            if (wasVisible)
+                EmitPreviewDiagnostic("[BUE-DRAG] GPT-WATERMARK event=preview-hidden reason=" + reason + " diagnosticId=BUE-DRAG-001", false);
         }
 
         internal void HidePreview()
@@ -1004,9 +1042,12 @@ namespace BetterUnturnedExperience.Bii
             byte itemWidth, byte itemHeight, byte currentRotation, bool allowAutomaticRotation, float grabOffsetX, float grabOffsetY,
             ItemAssetIdentity itemAsset, out InventoryPreviewInput input)
         {
+            // Test convenience overload: supplies a neutral top-level scale so
+            // the frame top-level anchor stays computable; production reads
+            // the live pointer scale through the full-overload form.
             return TryCreatePreviewInputCore(dragGeneration, source, pointerScreenX, pointerScreenY, itemWidth, itemHeight,
                 currentRotation, allowAutomaticRotation, grabOffsetX, grabOffsetY, itemAsset,
-                false, float.NaN, float.NaN, float.NaN, float.NaN,
+                false, 0.25f, 0.5f, float.NaN, float.NaN,
                 InventoryPointerCoordinateSpace.Screen, out input);
         }
 

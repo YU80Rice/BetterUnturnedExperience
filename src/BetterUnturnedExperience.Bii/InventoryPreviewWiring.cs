@@ -362,6 +362,38 @@ namespace BetterUnturnedExperience.Bii
             return true;
         }
 
+        // 2026-09-27 third machine round (research §D-1): the frame moves to
+        // the ever-alive top-level container (same parent as the icon and the
+        // vanilla dragItem). Anchor math mirrors the icon: scale = the
+        // pointer's normalized position inside the container, offset = the
+        // screen-pixel delta from the pointer to the candidate cell's top-left
+        // corner divided by the UI scale (container offset units). The frame
+        // size stays in unscaled logical cell pixels, like the icon.
+        internal static bool TryGetNativeFramePlacement(InventoryPreviewInput input, ItemPlacementPreview preview,
+            out PreviewFramePlacement placement)
+        {
+            placement = default(PreviewFramePlacement);
+            if (!IsFinite(input.TopLevelPointerScaleX) || !IsFinite(input.TopLevelPointerScaleY)) return false;
+            var cellPixelSize = input.CellPixelSize;
+            var uiScale = input.UiScale;
+            if (!IsFinite(cellPixelSize) || cellPixelSize <= 0f || !IsFinite(uiScale) || uiScale <= 0f) return false;
+            var scaledCell = cellPixelSize * uiScale;
+            if (!IsFinite(scaledCell) || scaledCell <= 0f) return false;
+            var frameScreenX = input.Viewport.OriginX - input.ScrollPixelsX + preview.Candidate.X * scaledCell;
+            var frameScreenY = input.Viewport.OriginY - input.ScrollPixelsY + preview.Candidate.Y * scaledCell;
+            if (!IsFinite(frameScreenX) || !IsFinite(frameScreenY) ||
+                !IsFinite(input.PointerScreenX) || !IsFinite(input.PointerScreenY)) return false;
+            var offsetLogicalX = (frameScreenX - input.PointerScreenX) / uiScale;
+            var offsetLogicalY = (frameScreenY - input.PointerScreenY) / uiScale;
+            if (!IsFinite(offsetLogicalX) || !IsFinite(offsetLogicalY)) return false;
+            var sizeX = preview.Width * cellPixelSize;
+            var sizeY = preview.Height * cellPixelSize;
+            if (!IsFinite(sizeX) || !IsFinite(sizeY)) return false;
+            placement = new PreviewFramePlacement(input.TopLevelPointerScaleX, input.TopLevelPointerScaleY,
+                offsetLogicalX, offsetLogicalY, sizeX, sizeY);
+            return true;
+        }
+
         private static bool TryRotateGrabOffset(byte baseWidth, byte baseHeight, float baseGrabX, float baseGrabY,
             byte rotation, out byte width, out byte height, out float grabX, out float grabY)
         {
@@ -423,6 +455,27 @@ namespace BetterUnturnedExperience.Bii
         InvalidRed
     }
 
+    internal readonly struct PreviewFramePlacement
+    {
+        public float PositionScaleX { get; }
+        public float PositionScaleY { get; }
+        public float PositionOffsetX { get; }
+        public float PositionOffsetY { get; }
+        public float SizeOffsetX { get; }
+        public float SizeOffsetY { get; }
+
+        internal PreviewFramePlacement(float positionScaleX, float positionScaleY,
+            float positionOffsetX, float positionOffsetY, float sizeOffsetX, float sizeOffsetY)
+        {
+            PositionScaleX = positionScaleX;
+            PositionScaleY = positionScaleY;
+            PositionOffsetX = positionOffsetX;
+            PositionOffsetY = positionOffsetY;
+            SizeOffsetX = sizeOffsetX;
+            SizeOffsetY = sizeOffsetY;
+        }
+    }
+
     internal readonly struct PreviewFrame
     {
         public PreviewFrameKind Kind { get; }
@@ -432,6 +485,13 @@ namespace BetterUnturnedExperience.Bii
         public byte Height { get; }
         public float CellPixelSize { get; }
         public PlacementReason Reason { get; }
+        public float PositionScaleX { get; }
+        public float PositionScaleY { get; }
+        public float PositionOffsetX { get; }
+        public float PositionOffsetY { get; }
+        public float SizeOffsetX { get; }
+        public float SizeOffsetY { get; }
+        public bool UsesTopLevelAnchor { get; }
 
         internal PreviewFrame(PreviewFrameKind kind, ItemGridPosition candidate, byte width, byte height,
             float cellPixelSize, PlacementReason reason)
@@ -442,6 +502,31 @@ namespace BetterUnturnedExperience.Bii
             Height = height;
             CellPixelSize = cellPixelSize;
             Reason = reason;
+            PositionScaleX = float.NaN;
+            PositionScaleY = float.NaN;
+            PositionOffsetX = float.NaN;
+            PositionOffsetY = float.NaN;
+            SizeOffsetX = float.NaN;
+            SizeOffsetY = float.NaN;
+            UsesTopLevelAnchor = false;
+        }
+
+        internal PreviewFrame(PreviewFrameKind kind, ItemGridPosition candidate, byte width, byte height,
+            float cellPixelSize, PlacementReason reason, PreviewFramePlacement placement)
+        {
+            Kind = kind;
+            Candidate = candidate;
+            Width = width;
+            Height = height;
+            CellPixelSize = cellPixelSize;
+            Reason = reason;
+            PositionScaleX = placement.PositionScaleX;
+            PositionScaleY = placement.PositionScaleY;
+            PositionOffsetX = placement.PositionOffsetX;
+            PositionOffsetY = placement.PositionOffsetY;
+            SizeOffsetX = placement.SizeOffsetX;
+            SizeOffsetY = placement.SizeOffsetY;
+            UsesTopLevelAnchor = true;
         }
     }
 
@@ -491,6 +576,7 @@ namespace BetterUnturnedExperience.Bii
     {
         void ShowFrame(PreviewFrame frame);
         void ShowIcon(PreviewIcon icon);
+        void HideFrame();
         void HideIcon();
         void Hide();
     }
@@ -543,9 +629,20 @@ namespace BetterUnturnedExperience.Bii
                 sink.Hide();
                 return;
             }
-
-            sink.ShowFrame(new PreviewFrame(frameKind, preview.Candidate, preview.Width, preview.Height,
-                cellPixelSize, preview.Reason));
+            // 2026-09-27 research §D-1: the frame renders on the top-level
+            // container. Without a truthful top-level anchor there is no
+            // honest place to draw it — the FRAME declines to draw (no
+            // grid-local guesswork); the icon may still fall back to its own
+            // screen-space path.
+            if (InventoryGridCoordinateAdapter.TryGetNativeFramePlacement(input, preview, out var framePlacement))
+            {
+                sink.ShowFrame(new PreviewFrame(frameKind, preview.Candidate, preview.Width, preview.Height,
+                    cellPixelSize, preview.Reason, framePlacement));
+            }
+            else
+            {
+                sink.HideFrame();
+            }
             if (preview.State == PlacementPreviewState.Candidate ||
                 preview.State == PlacementPreviewState.LocallyInvalid)
             {

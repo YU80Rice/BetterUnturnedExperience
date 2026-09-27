@@ -235,7 +235,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
             component.OnUiInitialized(true, false);
             var surface = new TestSurfaceContext(
                 new ContainerReference(ContainerKind.PlayerInventory, 3, 711),
-                new TestVisualContainer(), new TestVisualContainer(),
+                new TestVisualContainer(),
                 new InventoryGridViewport(0f, 0f, 8, 6, 0f, 0f, 400f, 300f),
                 50f, 1f, 0f, 0f, new TestGrid(8, 6));
             component.OnInventoryOpened(surface);
@@ -292,12 +292,12 @@ namespace BetterUnturnedExperience.Plugin.Tests
             component.OnUiInitialized(true, false);
             var backpack = new TestSurfaceContext(
                 new ContainerReference(ContainerKind.PlayerInventory, 3, 801),
-                new TestVisualContainer(), new TestVisualContainer(),
+                new TestVisualContainer(),
                 new InventoryGridViewport(0f, 0f, 8, 6, 0f, 0f, 400f, 300f),
                 50f, 1f, 0f, 0f, new TestGrid(8, 6));
             var storage = new TestSurfaceContext(
                 new ContainerReference(ContainerKind.Storage, 7, 801),
-                new TestVisualContainer(), new TestVisualContainer(),
+                new TestVisualContainer(),
                 new InventoryGridViewport(0f, 0f, 8, 6, 0f, 0f, 400f, 300f),
                 50f, 1f, 0f, 0f, new TestGrid(8, 6));
             component.OnInventoryOpened(backpack);
@@ -371,7 +371,6 @@ namespace BetterUnturnedExperience.Plugin.Tests
         {
             public ContainerReference CurrentContainer { get; }
             public IVisualContainer TopLevelContainer { get; }
-            public IVisualContainer GridPanelContainer { get; }
             public InventoryGridViewport Viewport { get; }
             public float CellPixelSize { get; }
             public float UiScale { get; }
@@ -380,12 +379,11 @@ namespace BetterUnturnedExperience.Plugin.Tests
             public IGridOccupancyView Occupancy { get; }
 
             internal TestSurfaceContext(ContainerReference currentContainer, IVisualContainer topLevel,
-                IVisualContainer gridPanel, InventoryGridViewport viewport, float cellPixelSize,
+                InventoryGridViewport viewport, float cellPixelSize,
                 float uiScale, float scrollPixelsX, float scrollPixelsY, IGridOccupancyView occupancy)
             {
                 CurrentContainer = currentContainer;
                 TopLevelContainer = topLevel;
-                GridPanelContainer = gridPanel;
                 Viewport = viewport;
                 CellPixelSize = cellPixelSize;
                 UiScale = uiScale;

@@ -528,7 +528,6 @@ namespace BetterUnturnedExperience.Bii
 
         private readonly ContainerReference currentContainer;
         private readonly IVisualContainer topLevelContainer;
-        private readonly IVisualContainer gridPanelContainer;
         private readonly InventoryGridViewport viewport;
         private readonly float uiScale;
         private readonly IGridOccupancyView occupancy;
@@ -549,12 +548,11 @@ namespace BetterUnturnedExperience.Bii
         internal float NativeScrollPixelsY { get { return ReadScrollPixelsY(); } }
 
         internal UnturnedInventorySurfaceContext(ContainerReference currentContainer, IVisualContainer topLevelContainer,
-            IVisualContainer gridPanelContainer, InventoryGridViewport viewport, float uiScale, IGridOccupancyView occupancy,
+            InventoryGridViewport viewport, float uiScale, IGridOccupancyView occupancy,
             SleekItems nativeItems, bool hierarchyLive)
         {
             this.currentContainer = currentContainer;
             this.topLevelContainer = topLevelContainer;
-            this.gridPanelContainer = gridPanelContainer;
             this.viewport = viewport;
             this.uiScale = NormalizeUiScale(uiScale);
             occupancyAdapter = occupancy as UnturnedGridOccupancyView;
@@ -570,7 +568,6 @@ namespace BetterUnturnedExperience.Bii
 
         public ContainerReference CurrentContainer { get { return currentContainer; } }
         public IVisualContainer TopLevelContainer { get { return topLevelContainer; } }
-        public IVisualContainer GridPanelContainer { get { return gridPanelContainer; } }
         public InventoryGridViewport Viewport { get { return ReadLiveViewport(); } }
         public float CellPixelSize { get { return 50f; } }
         public float UiScale { get { return uiScale; } }
@@ -1548,7 +1545,6 @@ namespace BetterUnturnedExperience.Bii
             var topLevel = new UnturnedVisualContainer(PlayerUI.container);
             if (nativePanel == null || nativeGrid == null || nativeScroll == null)
                 throw new InvalidOperationException("native inventory hierarchy disappeared during surface build");
-            var gridPanel = new UnturnedVisualContainer(nativePanel);
 
             // Geometry is expressed in the live SleekItems local space. The
             // previous implementation copied PositionOffset into a screen
@@ -1584,7 +1580,7 @@ namespace BetterUnturnedExperience.Bii
 
             return new UnturnedInventorySurfaceContext(
                 new ContainerReference(MapKind(kind), page, generation),
-                 topLevel, gridPanel, viewport, uiScale,
+                 topLevel, viewport, uiScale,
                  new UnturnedGridOccupancyView(dataItems), sleekItems, hierarchyLive);
         }
 

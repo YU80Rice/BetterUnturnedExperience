@@ -31,7 +31,6 @@ namespace BetterUnturnedExperience.Bii
         private bool hooksInstalled;
         private bool isolated;
         private bool cleanupSucceeded = true;
-        private readonly NativeDragGhostLifecycle ghostLifecycle;
         private bool wasDragging;
         private uint dragGeneration;
         private System.Reflection.FieldInfo dragJarField;
@@ -97,7 +96,6 @@ namespace BetterUnturnedExperience.Bii
             this.hostServices = mouths;
 
             this.component = component ?? throw new ArgumentNullException(nameof(component));
-            ghostLifecycle = new NativeDragGhostLifecycle();
             nativeActions = nativeDragActionsOverride ?? new NativeDragActions();
             harmony = new Harmony(DragHarmonyId);
             dragJarField = AccessTools.Field(typeof(PlayerDashboardInventoryUI), "dragJar");
@@ -594,16 +592,6 @@ namespace BetterUnturnedExperience.Bii
                  previewState == PlacementPreviewState.LocallyInvalid);
         }
 
-        internal static bool ShouldRestoreNativeDragGhostAfterRelease(NativeDragAdapterOutcome outcome)
-        {
-            return outcome == NativeDragAdapterOutcome.PassThrough;
-        }
-
-        internal static bool ShouldRestoreNativeDragGhostAfterDragEnded(bool bueEndedNativeDrag)
-        {
-            return !bueEndedNativeDrag;
-        }
-
         // 2026-09-27 SP return defect 2: closing the dashboard while an item is
         // held leaves vanilla isDragging true and kills the updateDraggedItem
         // poll, so the drag-ended edge can never fire. The close combination
@@ -624,36 +612,6 @@ namespace BetterUnturnedExperience.Bii
             return vanillaUiAlive;
         }
 
-        internal sealed class NativeDragGhostLifecycle
-        {
-            private bool suppressEndedRestore;
-
-            internal bool IsSuppressingEndedRestore { get { return suppressEndedRestore; } }
-
-            internal void BeginDrag() { suppressEndedRestore = false; }
-
-            internal void Complete(NativeDragAdapterOutcome outcome)
-            {
-                suppressEndedRestore = outcome == NativeDragAdapterOutcome.Submitted ||
-                    outcome == NativeDragAdapterOutcome.Cancelled;
-            }
-
-            internal bool ShouldRestoreAfterEnded()
-            {
-                var restore = ShouldRestoreNativeDragGhostAfterDragEnded(suppressEndedRestore);
-                suppressEndedRestore = false;
-                return restore;
-            }
-
-            internal void EndForDashboardClose()
-            {
-                // The close combination ends the session without a drag-ended
-                // edge; a stale suppress flag must not leak into the next
-                // drag session.
-                suppressEndedRestore = false;
-            }
-        }
-
         private void SetNativeDragGhostVisible(bool visible)
         {
             // 2026-09-27 07-verification return: the host cannot observe the
@@ -667,8 +625,6 @@ namespace BetterUnturnedExperience.Bii
         }
 
         internal bool? LastNativeDragGhostVisibilityCommand { get; private set; }
-
-        internal NativeDragGhostLifecycle GhostLifecycle { get { return ghostLifecycle; } }
 
         // 2026-09-27 07-verification return: edge-consumption observable. The
         // close path must reset wasDragging so no later drag-ended edge exists;
@@ -796,7 +752,6 @@ namespace BetterUnturnedExperience.Bii
         {
             component.OnDragCancelled();
             SetNativeDragGhostVisible(false);
-            ghostLifecycle.EndForDashboardClose();
             nativeActions.StopDrag();
             wasDragging = false;
             EmitRuntime("[BUE-DRAG] event=drag-ended-by-dashboard-close diagnosticId=BUE-DRAG-001");
@@ -821,7 +776,6 @@ namespace BetterUnturnedExperience.Bii
             if (isDragging && !wasDragging)
             {
                 dragGeneration++;
-                ghostLifecycle.BeginDrag();
                 var jar = ReadDragJar();
                 var asset = jar == null ? ItemAssetIdentity.FromItemId(0) : AssetIdentityOf(jar);
                 component.OnDragStarted(dragGeneration, asset, ReadDragSource());
@@ -834,9 +788,15 @@ namespace BetterUnturnedExperience.Bii
             else if (!isDragging && wasDragging)
             {
                 // Drag ended without onPlacedItem (ESC, drag-out): cancel visuals.
+                // 2026-09-27 research D-2a: vanilla stopDrag has ALREADY hidden
+                // the ghost by the time this edge fires, and nothing natively
+                // re-hides it afterwards (stopDrag early-returns on
+                // isDragging==false). Restoring here re-lit the ghost and froze
+                // it over the game world — the reported residue. The edge pins
+                // it hidden instead; pass-through ghosts are restored by the
+                // release path while the vanilla drag is still alive.
                 component.OnDragCancelled();
-                if (ghostLifecycle.ShouldRestoreAfterEnded())
-                    SetNativeDragGhostVisible(true);
+                SetNativeDragGhostVisible(false);
                 EmitRuntime("[BUE-DRAG] event=drag-cancelled diagnosticId=BUE-DRAG-001");
             }
             wasDragging = isDragging;
@@ -952,7 +912,13 @@ namespace BetterUnturnedExperience.Bii
 
         private void EnsureInventoryEventSubscription()
         {
-            var player = Player.LocalPlayer;
+            // Same fail-safe family as ReadTopLevelPointerScale: the vanilla
+            // Player static constructor is engine-bound, so a host (or any
+            // exotic teardown window) that cannot touch it skips the
+            // subscription this frame and retries on the next poll.
+            Player player;
+            try { player = Player.LocalPlayer; }
+            catch (Exception) { return; }
             if (ReferenceEquals(player, subscribedPlayer)) return;
             UnsubscribeInventoryEvents();
             subscribedPlayer = player;
@@ -1044,8 +1010,11 @@ namespace BetterUnturnedExperience.Bii
                 PlayerDashboardInventoryUI.isDragging, dragGeneration,
                 ReadDragSource(), preview, page);
             var outcome = component.OnDragReleased(input, nativeActions);
-            ghostLifecycle.Complete(outcome);
-            if (ShouldRestoreNativeDragGhostAfterRelease(outcome))
+            // Research D-2a: restore the vanilla ghost ONLY for pass-through,
+            // where vanilla still owns a live drag and manages it; a
+            // Submitted/Cancelled outcome has already ended the drag through
+            // stopDrag and must never be re-lit.
+            if (outcome == NativeDragAdapterOutcome.PassThrough)
                 SetNativeDragGhostVisible(true);
             EmitRuntime("[BUE-DRAG] event=placement-decision page=" + page + " x=" + x + " y=" + y
                 + " outcome=" + outcome + " diagnosticId=BUE-DRAG-001");

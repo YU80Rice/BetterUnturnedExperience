@@ -55,7 +55,10 @@ namespace BetterUnturnedExperience.Plugin.Tests
 
             presenter.Update(input, sink);
 
-            Assert(sink.FrameCount == 1, "candidate frame still renders when top-level icon anchor is unavailable");
+            // 2026-09-27 research D-1: without a top-level anchor the frame
+            // honestly declines to draw; the grid-local pointer also never
+            // falls back to a top-level icon coordinate.
+            Assert(sink.FrameCount == 0, "frame declines to draw without a truthful top-level anchor");
             Assert(sink.IconCount == 0, "grid-local pointer never falls back to a top-level icon coordinate");
         }
 
@@ -273,7 +276,12 @@ namespace BetterUnturnedExperience.Plugin.Tests
             // GPT watermark: R13-rotgrab. Grab offset is current-space (spec §2),
             // so at rot=1 (3x2 current footprint) grab=(0.25, 1.25) is used as-is:
             // screen = pointer + (center - grab) * cell = (32.5, 37.5).
-            presenter.Update(Input(new TestGrid(8, 6), 20f, 40f, 0f, 0f, 10f, 1f, 0f, 0f, 2, 3, 0.25f, 1.25f, 1), sink);
+            // NaN top-level scale on purpose: this test pins the SCREEN
+            // fallback math, which only runs without a native top anchor.
+            presenter.Update(new InventoryPreviewInput(7, new ItemGridPosition(0, 0, 0, 0),
+                new ContainerReference(ContainerKind.PlayerInventory, 3, 9), 20f, 40f,
+                new InventoryGridViewport(0f, 0f, 8, 6, 0f, 0f, 100f, 100f),
+                10f, 1f, 0f, 0f, 2, 3, 1, true, 0.25f, 1.25f, new TestGrid(8, 6)), sink);
 
             Assert(Approximately(sink.LastIcon.ScreenX, 32.5f) && Approximately(sink.LastIcon.ScreenY, 37.5f),
                 "floating icon anchor consumes the current-space grab offset");
@@ -282,18 +290,19 @@ namespace BetterUnturnedExperience.Plugin.Tests
         private static void SleekPreviewSinkShowsGreenFrameAndFloatingIcon()
         {
             var topLevel = new MockVisualContainer();
-            var gridPanel = new MockVisualContainer();
-            var sink = new InventoryPreviewVisualSink(topLevel, gridPanel);
+            var sink = new InventoryPreviewVisualSink(topLevel);
             sink.Mount();
 
             var asset = ItemAssetIdentity.FromItemId(363);
-            sink.ShowFrame(new PreviewFrame(PreviewFrameKind.ValidGreen, new ItemGridPosition(2, 3, 4, 1), 2, 3, 50f, PlacementReason.None));
+            sink.ShowFrame(new PreviewFrame(PreviewFrameKind.ValidGreen, new ItemGridPosition(2, 3, 4, 1), 2, 3, 50f, PlacementReason.None,
+                new PreviewFramePlacement(0.25f, 0.5f, 150f, 200f, 100f, 150f)));
             sink.ShowIcon(new PreviewIcon(150f, 250f, 1, asset));
 
             Assert(sink.IsFrameVisible, "frame is visible when shown");
             Assert(sink.IsIconVisible, "icon is visible when shown");
             Assert(sink.CurrentFrameColor == PreviewFrameColor.ValidGreen, "frame color is valid green");
-            Assert(Approximately(sink.FrameX, 150f) && Approximately(sink.FrameY, 200f), "frame position mapped from grid coordinate");
+            Assert(Approximately(sink.FrameScaleX, 0.25f) && Approximately(sink.FrameScaleY, 0.5f), "frame preserves the PlayerUI top-level scale anchor");
+            Assert(Approximately(sink.FrameX, 150f) && Approximately(sink.FrameY, 200f), "frame offset carries the container-space anchor");
             Assert(Approximately(sink.FrameWidth, 100f) && Approximately(sink.FrameHeight, 150f), "frame size mapped from item dimensions");
             Assert(Approximately(sink.IconX, 150f) && Approximately(sink.IconY, 250f), "icon position mapped from screen anchor");
             Assert(sink.IconRotation == 1, "icon rotation is preserved");
@@ -309,11 +318,11 @@ namespace BetterUnturnedExperience.Plugin.Tests
         private static void SleekPreviewSinkShowsRedFrameAndSharedIconOnInvalid()
         {
             var topLevel = new MockVisualContainer();
-            var gridPanel = new MockVisualContainer();
-            var sink = new InventoryPreviewVisualSink(topLevel, gridPanel);
+            var sink = new InventoryPreviewVisualSink(topLevel);
             sink.Mount();
 
-            sink.ShowFrame(new PreviewFrame(PreviewFrameKind.InvalidRed, new ItemGridPosition(2, 1, 1, 0), 1, 2, 20f, PlacementReason.Occupied));
+            sink.ShowFrame(new PreviewFrame(PreviewFrameKind.InvalidRed, new ItemGridPosition(2, 1, 1, 0), 1, 2, 20f, PlacementReason.Occupied,
+                new PreviewFramePlacement(0.25f, 0.5f, 20f, 20f, 50f, 100f)));
             sink.HideIcon();
 
             Assert(sink.IsFrameVisible, "invalid frame is visible");
@@ -326,8 +335,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
         private static void SleekPreviewSinkUsesNativeTopLevelAnchorAndRotationGeometry()
         {
             var topLevel = new MockVisualContainer();
-            var gridPanel = new MockVisualContainer();
-            var sink = new InventoryPreviewVisualSink(topLevel, gridPanel);
+            var sink = new InventoryPreviewVisualSink(topLevel);
             sink.Mount();
 
             sink.ShowIcon(new PreviewIcon(0f, 0f, 1, ItemAssetIdentity.FromItemId(363),
@@ -346,8 +354,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
         private static void SleekPreviewSinkBindsItemAssetIdentityToVisualIcon()
         {
             var topLevel = new MockVisualContainer();
-            var gridPanel = new MockVisualContainer();
-            var sink = new InventoryPreviewVisualSink(topLevel, gridPanel);
+            var sink = new InventoryPreviewVisualSink(topLevel);
             sink.Mount();
 
             var guid = Guid.NewGuid();
@@ -374,7 +381,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
 
             var surface = new MockInventorySurfaceContext(
                 new ContainerReference(ContainerKind.PlayerInventory, 3, 100),
-                new MockVisualContainer(), new MockVisualContainer(),
+                new MockVisualContainer(),
                 new InventoryGridViewport(0f, 0f, 8, 6, 0f, 0f, 800f, 600f),
                 50f, 1f, 0f, 0f, new TestGrid(8, 6));
 
@@ -419,7 +426,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
 
             var surface = new MockInventorySurfaceContext(
                 new ContainerReference(ContainerKind.Storage, 7, 202),
-                new MockVisualContainer(), new MockVisualContainer(),
+                new MockVisualContainer(),
                 new InventoryGridViewport(50f, 100f, 10, 8, 50f, 100f, 500f, 400f),
                 40f, 1.25f, 10f, 20f, new TestGrid(10, 8));
 
@@ -450,7 +457,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
 
             var surfaceA = new MockInventorySurfaceContext(
                 new ContainerReference(ContainerKind.Storage, 3, 301),
-                new MockVisualContainer(), new MockVisualContainer(),
+                new MockVisualContainer(),
                 new InventoryGridViewport(0f, 0f, 8, 6, 0f, 0f, 800f, 600f),
                 50f, 1f, 0f, 0f, new TestGrid(8, 6));
 
@@ -468,7 +475,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
             // Container switch: open surfaceB (new container / new session)
             var surfaceB = new MockInventorySurfaceContext(
                 new ContainerReference(ContainerKind.Storage, 7, 302),
-                new MockVisualContainer(), new MockVisualContainer(),
+                new MockVisualContainer(),
                 new InventoryGridViewport(0f, 0f, 8, 6, 0f, 0f, 800f, 600f),
                 50f, 1f, 0f, 0f, new TestGrid(8, 6));
 
@@ -496,7 +503,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
 
             var surface = new MockInventorySurfaceContext(
                 new ContainerReference(ContainerKind.PlayerInventory, 3, 501),
-                new MockVisualContainer(), new MockVisualContainer(),
+                new MockVisualContainer(),
                 new InventoryGridViewport(0f, 0f, 8, 6, 0f, 0f, 400f, 300f),
                 50f, 1f, 0f, 0f, new TestGrid(8, 6));
             component.OnInventoryOpened(surface);
@@ -522,7 +529,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
 
             var surface = new MockInventorySurfaceContext(
                 new ContainerReference(ContainerKind.PlayerInventory, 3, 401),
-                new MockVisualContainer(), new MockVisualContainer(),
+                new MockVisualContainer(),
                 new InventoryGridViewport(0f, 0f, 8, 6, 0f, 0f, 800f, 600f),
                 50f, 1f, 0f, 0f, new TestGrid(8, 6));
 
@@ -538,11 +545,11 @@ namespace BetterUnturnedExperience.Plugin.Tests
         private static void SleekSinkHotPathZeroAllocationTest()
         {
             var topLevel = new MockVisualContainer();
-            var gridPanel = new MockVisualContainer();
-            var sink = new InventoryPreviewVisualSink(topLevel, gridPanel);
+            var sink = new InventoryPreviewVisualSink(topLevel);
             sink.Mount();
             var asset = ItemAssetIdentity.FromItemId(363);
-            var frame = new PreviewFrame(PreviewFrameKind.ValidGreen, new ItemGridPosition(2, 3, 4, 1), 2, 3, 50f, PlacementReason.None);
+            var frame = new PreviewFrame(PreviewFrameKind.ValidGreen, new ItemGridPosition(2, 3, 4, 1), 2, 3, 50f, PlacementReason.None,
+                new PreviewFramePlacement(0.25f, 0.5f, 150f, 200f, 100f, 150f));
             var icon = new PreviewIcon(150f, 250f, 1, asset);
 
             for (var warmup = 0; warmup < 100; warmup++)
@@ -568,10 +575,13 @@ namespace BetterUnturnedExperience.Plugin.Tests
         private static InventoryPreviewInput Input(TestGrid occupancy, float pointerX, float pointerY, float originX, float originY,
             float cellSize, float uiScale, float scrollX, float scrollY, byte width, byte height, float grabX, float grabY, byte rotation = 0, uint generation = 7)
         {
+            // 2026-09-27 research D-1: the frame renders on the top-level
+            // container, so test inputs carry a top-level scale anchor.
             return new InventoryPreviewInput(generation, new ItemGridPosition(0, 0, 0, 0),
                 new ContainerReference(ContainerKind.PlayerInventory, 3, 9), pointerX, pointerY,
                 new InventoryGridViewport(originX, originY, 8, 6, 0, 0, 100, 100),
-                cellSize, uiScale, scrollX, scrollY, width, height, rotation, true, grabX, grabY, occupancy);
+                cellSize, uiScale, scrollX, scrollY, width, height, rotation, true, grabX, grabY,
+                default(ItemAssetIdentity), 0.25f, 0.5f, float.NaN, float.NaN, occupancy);
         }
 
         private static bool Approximately(float left, float right) { return Math.Abs(left - right) < 0.0001f; }
@@ -630,6 +640,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
             internal PreviewIcon LastIcon;
             public void ShowFrame(PreviewFrame frame) { LastFrame = frame; FrameCount++; }
             public void ShowIcon(PreviewIcon icon) { LastIcon = icon; IconCount++; }
+            public void HideFrame() { }
             public void HideIcon() { }
             public void Hide() { HideCount++; }
         }
@@ -665,7 +676,6 @@ namespace BetterUnturnedExperience.Plugin.Tests
         {
             public ContainerReference CurrentContainer { get; }
             public IVisualContainer TopLevelContainer { get; }
-            public IVisualContainer GridPanelContainer { get; }
             public InventoryGridViewport Viewport { get; }
             public float CellPixelSize { get; }
             public float UiScale { get; }
@@ -674,12 +684,11 @@ namespace BetterUnturnedExperience.Plugin.Tests
             public IGridOccupancyView Occupancy { get; }
 
             public MockInventorySurfaceContext(ContainerReference currentContainer, IVisualContainer topLevelContainer,
-                IVisualContainer gridPanelContainer, InventoryGridViewport viewport, float cellPixelSize, float uiScale,
+                InventoryGridViewport viewport, float cellPixelSize, float uiScale,
                 float scrollPixelsX, float scrollPixelsY, IGridOccupancyView occupancy)
             {
                 CurrentContainer = currentContainer;
                 TopLevelContainer = topLevelContainer;
-                GridPanelContainer = gridPanelContainer;
                 Viewport = viewport;
                 CellPixelSize = cellPixelSize;
                 UiScale = uiScale;

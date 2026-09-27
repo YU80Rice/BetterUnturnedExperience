@@ -858,11 +858,11 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 new NativeInventoryInteractionAdapter(2, 8));
             component.OnUiInitialized(true, false);
             var backpack = new TestSurfaceContext(new ContainerReference(ContainerKind.PlayerInventory, 3, 903),
-                new TestVisualContainer(), new TestVisualContainer(),
+                new TestVisualContainer(),
                 new InventoryGridViewport(0f, 0f, 8, 6, 0f, 0f, 400f, 300f),
                 50f, 1f, 0f, 0f, new EmptyGridForTest(8, 6), false, 100f, 100f);
             var storage = new TestSurfaceContext(new ContainerReference(ContainerKind.Storage, 7, 903),
-                new TestVisualContainer(), new TestVisualContainer(),
+                new TestVisualContainer(),
                 new InventoryGridViewport(0f, 0f, 8, 6, 0f, 0f, 400f, 300f),
                 50f, 1f, 0f, 0f, new EmptyGridForTest(8, 6), true, 200f, 200f);
             component.OnInventoryOpened(backpack);
@@ -7791,7 +7791,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
         private static TestSurfaceContext CreateTestSurface(ContainerKind kind, byte page, uint generation)
         {
             return new TestSurfaceContext(new ContainerReference(kind, page, generation),
-                new TestVisualContainer(), new TestVisualContainer(),
+                new TestVisualContainer(),
                 new InventoryGridViewport(0f, 0f, 8, 6, 0f, 0f, 400f, 300f),
                 50f, 1f, 0f, 0f, new EmptyGridForTest(8, 6));
         }
@@ -7812,7 +7812,6 @@ namespace BetterUnturnedExperience.Plugin.Tests
         {
             return new UnturnedInventorySurfaceContext(
                 new ContainerReference(kind, page, generation),
-                new TestVisualContainer(),
                 new TestVisualContainer(),
                 new InventoryGridViewport(0f, 0f, 8, 6, 0f, 0f, 400f, 300f),
                 50f,
@@ -7844,7 +7843,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 component.OnUiInitialized(true, false);
                 var surface = new TestSurfaceContext(
                     new ContainerReference(ContainerKind.PlayerInventory, 3, 941),
-                    new TestVisualContainer(), new TestVisualContainer(),
+                    new TestVisualContainer(),
                     new InventoryGridViewport(0f, 0f, 8, 6, 0f, 0f, 400f, 300f),
                     50f, 1f, 0f, 0f, new EmptyGridForTest(8, 6), true, 100f, 100f);
                 component.OnInventoryOpened(surface);
@@ -7884,7 +7883,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 persistent.OnUiInitialized(true, false);
                 var persistentSurface = new TestSurfaceContext(
                     new ContainerReference(ContainerKind.PlayerInventory, 3, 942),
-                    new TestVisualContainer(), new TestVisualContainer(),
+                    new TestVisualContainer(),
                     new InventoryGridViewport(0f, 0f, 8, 6, 0f, 0f, 400f, 300f),
                     50f, 1f, 0f, 0f, new EmptyGridForTest(8, 6), true, 100f, 100f);
                 persistent.OnInventoryOpened(persistentSurface);
@@ -7931,7 +7930,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 resumed.OnUiInitialized(true, false);
                 var resumedSurface = new TestSurfaceContext(
                     new ContainerReference(ContainerKind.PlayerInventory, 3, 945),
-                    new TestVisualContainer(), new TestVisualContainer(),
+                    new TestVisualContainer(),
                     new InventoryGridViewport(0f, 0f, 8, 6, 0f, 0f, 400f, 300f),
                     50f, 1f, 0f, 0f, new EmptyGridForTest(8, 6), true, 100f, 100f);
                 resumed.OnInventoryOpened(resumedSurface);
@@ -7972,7 +7971,8 @@ namespace BetterUnturnedExperience.Plugin.Tests
         // leave the preview lane invisibly dead for the session.
         private static void AssertSinkRemountsAfterThirdPartyPanelClear()
         {
-            var gridPanel = new RecordingVisualContainer();
+            // 2026-09-27 research D-1: frame and icon share the single
+            // ever-alive top-level container (frame first, icon on top).
             var topLevel = new RecordingVisualContainer();
             var component = new BetterItemInteractionUiComponent(
                 new InventoryPreviewPresenter(new InventoryDragPresenter(new FixedCandidateEvaluator())),
@@ -7980,19 +7980,18 @@ namespace BetterUnturnedExperience.Plugin.Tests
             component.OnUiInitialized(true, false);
             var surface = new TestSurfaceContext(
                 new ContainerReference(ContainerKind.PlayerInventory, 3, 943),
-                topLevel, gridPanel,
+                topLevel,
                 new InventoryGridViewport(0f, 0f, 8, 6, 0f, 0f, 400f, 300f),
                 50f, 1f, 0f, 0f, new EmptyGridForTest(8, 6), true, 100f, 100f);
             component.OnInventoryOpened(surface);
             component.OnDragStarted(943, ItemAssetIdentity.FromItemId(363),
                 new ItemGridPosition(3, 0, 0, 0));
-            Assert(gridPanel.Children.Count == 1 && topLevel.Children.Count == 1,
-                "FB1 sink remount: the preview frame and icon mount into their containers");
-            gridPanel.SimulateThirdPartyClear();
+            Assert(topLevel.Children.Count == 2,
+                "FB1 sink remount: the preview frame and icon mount into the top-level container");
             topLevel.SimulateThirdPartyClear();
             component.OnDragStarted(944, ItemAssetIdentity.FromItemId(363),
                 new ItemGridPosition(3, 0, 0, 0));
-            Assert(gridPanel.Children.Count == 1 && topLevel.Children.Count == 1,
+            Assert(topLevel.Children.Count == 2,
                 "FB1 sink remount: the next drag start re-asserts the sink children after a third-party clear");
             InventoryPreviewInput input;
             Assert(component.TryCreatePreviewInput(944, new ItemGridPosition(3, 0, 0, 0),
@@ -8447,7 +8446,8 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 line, error ? ClientUiCompositionRoot.ClientUiDiagnosticLevel.Error : ClientUiCompositionRoot.ClientUiDiagnosticLevel.Debug));
             try
             {
-                var gridPanel = new RecordingVisualContainer();
+                // 2026-09-27 research D-1: single top-level container; the
+                // frame is child 0, the icon child 1.
                 var topLevel = new RecordingVisualContainer();
                 var component = new BetterItemInteractionUiComponent(
                     new InventoryPreviewPresenter(new InventoryDragPresenter(new FixedCandidateEvaluator())),
@@ -8456,16 +8456,19 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 component.OnUiInitialized(true, false);
                 var surface = new TestSurfaceContext(
                     new ContainerReference(ContainerKind.PlayerInventory, 3, 946),
-                    topLevel, gridPanel,
+                    topLevel,
                     new InventoryGridViewport(0f, 0f, 8, 6, 0f, 0f, 400f, 300f),
                     50f, 1f, 0f, 0f, new EmptyGridForTest(8, 6), true, 100f, 100f);
                 component.OnInventoryOpened(surface);
                 component.OnDragStarted(946, ItemAssetIdentity.FromItemId(363),
                     new ItemGridPosition(3, 0, 0, 0));
-                Assert(gridPanel.Children.Count == 1,
-                    "FB1b sink rebuild: the preview frame mounts into the grid panel");
-                var poisonedElement = gridPanel.LastCreatedElement;
-                gridPanel.PoisonLastCreatedElement();
+                Assert(topLevel.Children.Count == 2,
+                    "FB1b sink rebuild: the preview frame and icon mount into the top-level container");
+                // Frame is child 0 after the mount (icon is child 1); poison
+                // the FRAME so the very first ShowFrame throws and the
+                // rebuild-retry must re-apply the top-level anchor write.
+                var poisonedElement = topLevel.Children[0];
+                ((TestVisualElement)poisonedElement).Poisoned = true;
                 InventoryPreviewInput input;
                 Assert(component.TryCreatePreviewInput(946, new ItemGridPosition(3, 0, 0, 0),
                         100f, 100f, 1, 1, 0, false, 0.5f, 0.5f,
@@ -8474,11 +8477,11 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 component.OnDragUpdated(input);
                 Assert(component.LifecycleCanRun,
                     "FB1b sink rebuild: a poisoned native element write must not isolate the feature");
-                Assert(gridPanel.Children.Count == 1 && !gridPanel.Children.Contains(poisonedElement),
+                Assert(topLevel.Children.Count == 2 && !topLevel.Children.Contains(poisonedElement),
                     "FB1b sink rebuild: the poisoned element was replaced by a fresh mount");
-                var rebuiltFrame = (TestVisualElement)gridPanel.Children[0];
-                Assert(!rebuiltFrame.Poisoned && rebuiltFrame.PositionOffsetX == 50f,
-                    "FB1b sink rebuild: the rebuilt frame element received the frame write");
+                var rebuiltFrame = (TestVisualElement)topLevel.Children[0];
+                Assert(!rebuiltFrame.Poisoned && rebuiltFrame.PositionOffsetX == -50f,
+                    "FB1b sink rebuild: the rebuilt frame element received the top-level anchor write");
                 Assert(component.LastPreview.State == PlacementPreviewState.Candidate,
                     "FB1b sink rebuild: the preview stays Candidate across the native write fault");
                 var gateLines = 0;
@@ -8488,10 +8491,10 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 }
                 Assert(gateLines == 0,
                     "FB1b sink rebuild: a healed native write fault never reaches the preview fault gate");
-                var poisonedIcon = (TestVisualElement)topLevel.Children[0];
+                var poisonedIcon = (TestVisualElement)topLevel.Children[1];
                 poisonedIcon.Poisoned = true;
                 component.OnDragUpdated(input);
-                Assert(topLevel.Children.Count == 1 && !topLevel.Children.Contains(poisonedIcon),
+                Assert(topLevel.Children.Count == 2 && !topLevel.Children.Contains(poisonedIcon),
                     "FB1b sink rebuild: a poisoned icon element is rebuilt through the same contract");
                 Assert(component.LifecycleCanRun,
                     "FB1b sink rebuild: the icon rebuild keeps the feature alive");
@@ -8500,9 +8503,8 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 // next write throws, and poison all newly created ones so the
                 // rebuild retry cannot heal — 60 consecutive frames must walk
                 // the preview fault gate into isolation.
-                ((TestVisualElement)gridPanel.Children[0]).Poisoned = true;
                 ((TestVisualElement)topLevel.Children[0]).Poisoned = true;
-                gridPanel.PoisonAllNewElements = true;
+                ((TestVisualElement)topLevel.Children[1]).Poisoned = true;
                 topLevel.PoisonAllNewElements = true;
                 for (var frame = 1; frame <= 60; frame++)
                 {
@@ -8644,7 +8646,6 @@ namespace BetterUnturnedExperience.Plugin.Tests
             private readonly float pointerY;
             public ContainerReference CurrentContainer { get; }
             public IVisualContainer TopLevelContainer { get; }
-            public IVisualContainer GridPanelContainer { get; }
             public InventoryGridViewport Viewport { get; }
             public float CellPixelSize { get; }
             public float UiScale { get; }
@@ -8653,13 +8654,12 @@ namespace BetterUnturnedExperience.Plugin.Tests
             public IGridOccupancyView Occupancy { get; }
 
             internal TestSurfaceContext(ContainerReference currentContainer, IVisualContainer topLevel,
-                IVisualContainer gridPanel, InventoryGridViewport viewport, float cellPixelSize,
+                InventoryGridViewport viewport, float cellPixelSize,
                 float uiScale, float scrollPixelsX, float scrollPixelsY, IGridOccupancyView occupancy,
                 bool pointerAvailable = false, float pointerX = 0f, float pointerY = 0f)
             {
                 CurrentContainer = currentContainer;
                 TopLevelContainer = topLevel;
-                GridPanelContainer = gridPanel;
                 Viewport = viewport;
                 CellPixelSize = cellPixelSize;
                 UiScale = uiScale;
