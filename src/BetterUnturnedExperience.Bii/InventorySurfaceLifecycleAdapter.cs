@@ -76,8 +76,14 @@ namespace BetterUnturnedExperience.Bii
             get { return color; }
             set
             {
-                color = value;
+                // 2026-09-27 SP return: box==null used to store the color
+                // without writing it, so the getter reported a green/red box
+                // the player never saw. Only a landed write is stored; an
+                // unwritable element keeps reporting its last landed color
+                // (None initially) and the sink readback faults the frame
+                // into the rebuild gate.
                 if (box == null) return;
+                color = value;
                 if (value == PreviewFrameColor.ValidGreen || value == PreviewFrameColor.InvalidRed)
                     box.BackgroundColor = new SleekColor(PreviewFrameRgba(value));
                 else box.BackgroundColor = new SleekColor(ESleekTint.BACKGROUND, 0.6f);
@@ -143,6 +149,7 @@ namespace BetterUnturnedExperience.Bii
         public IVisualElement CreateImage() { return new UnturnedVisualElement(new SleekItemIcon()); }
         public void AddChild(IVisualElement child) { element.AddChild(Unwrap(child)); }
         public void RemoveChild(IVisualElement child) { element.RemoveChild(Unwrap(child)); }
+        public bool IsVisible { get { return element.IsVisible; } }
 
         private static ISleekElement Unwrap(IVisualElement child)
         {

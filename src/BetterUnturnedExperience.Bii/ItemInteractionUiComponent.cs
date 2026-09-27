@@ -39,6 +39,10 @@ namespace BetterUnturnedExperience.Bii
         IVisualElement CreateImage();
         void AddChild(IVisualElement child);
         void RemoveChild(IVisualElement child);
+        // 2026-09-27 SP return: a frame mounted under a hidden parent renders
+        // nothing, so the sink must be able to observe parent visibility
+        // instead of silently claiming a visible green/red box.
+        bool IsVisible { get; }
     }
 
     /// <summary>
@@ -206,13 +210,23 @@ namespace BetterUnturnedExperience.Bii
         private void ApplyFrame(PreviewFrame frame)
         {
             if (!isMounted) Mount();
+            // 2026-09-27 SP return: the state machine emitted preview-visible
+            // while the player still saw the vanilla dark cell. A frame whose
+            // color write cannot land (no ISleekBox behind the element) or
+            // whose mount parent is hidden must fault into the rebuild-retry
+            // gate instead of silently claiming a visible green/red box.
+            if (!gridPanelContainer.IsVisible)
+                throw new InvalidOperationException("preview frame mount parent is not visible");
             frameElement.PositionOffsetX = frame.Candidate.X * frame.CellPixelSize;
             frameElement.PositionOffsetY = frame.Candidate.Y * frame.CellPixelSize;
             frameElement.SizeOffsetX = frame.Width * frame.CellPixelSize;
             frameElement.SizeOffsetY = frame.Height * frame.CellPixelSize;
-            frameElement.Color = frame.Kind == PreviewFrameKind.ValidGreen
+            var expectedColor = frame.Kind == PreviewFrameKind.ValidGreen
                 ? PreviewFrameColor.ValidGreen
                 : PreviewFrameColor.InvalidRed;
+            frameElement.Color = expectedColor;
+            if (frameElement.Color != expectedColor)
+                throw new InvalidOperationException("preview frame color write did not land on the native element");
             frameElement.IsVisible = true;
         }
 

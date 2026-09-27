@@ -593,9 +593,31 @@ namespace BetterUnturnedExperience.Bii
             return !bueEndedNativeDrag;
         }
 
+        // 2026-09-27 SP return defect 2: closing the dashboard while an item is
+        // held leaves vanilla isDragging true and kills the updateDraggedItem
+        // poll, so the drag-ended edge can never fire. The close combination
+        // must end the stale session immediately instead of waiting — for the
+        // body inventory and the container (storage) alike, because a hidden
+        // dashboard means nothing natively re-manages the drag UI.
+        internal static bool ShouldEndDragSessionForDashboardClose(bool dashboardActive, bool isDragging)
+        {
+            return isDragging && !dashboardActive;
+        }
+
+        // BUE may only force the vanilla ghost visible while the vanilla UI is
+        // alive to re-manage it on its next updateDraggedItem frame; forcing it
+        // visible after the dashboard closed freezes the ghost over the game
+        // world (the reported residue).
+        internal static bool ShouldRestoreNativeDragGhostWhenTargetLost(bool vanillaUiAlive)
+        {
+            return vanillaUiAlive;
+        }
+
         internal sealed class NativeDragGhostLifecycle
         {
             private bool suppressEndedRestore;
+
+            internal bool IsSuppressingEndedRestore { get { return suppressEndedRestore; } }
 
             internal void BeginDrag() { suppressEndedRestore = false; }
 
@@ -610,6 +632,14 @@ namespace BetterUnturnedExperience.Bii
                 var restore = ShouldRestoreNativeDragGhostAfterDragEnded(suppressEndedRestore);
                 suppressEndedRestore = false;
                 return restore;
+            }
+
+            internal void EndForDashboardClose()
+            {
+                // The close combination ends the session without a drag-ended
+                // edge; a stale suppress flag must not leak into the next
+                // drag session.
+                suppressEndedRestore = false;
             }
         }
 
@@ -666,7 +696,13 @@ namespace BetterUnturnedExperience.Bii
             if (!component.LifecycleCanRun && !component.EnhancedDragActive)
             {
                 component.HidePreview();
-                SetNativeDragGhostVisible(true);
+                // 2026-09-27 SP return defect 2: with the dashboard closed
+                // nothing natively re-manages the ghost, so forcing it visible
+                // here froze the residue over the game world. Hand it back
+                // visible only while the vanilla UI is alive to manage it;
+                // keep it hidden otherwise.
+                SetNativeDragGhostVisible(
+                    ShouldRestoreNativeDragGhostWhenTargetLost(PlayerDashboardInventoryUI.active));
                 return;
             }
             var frame = Time.frameCount;
@@ -723,6 +759,22 @@ namespace BetterUnturnedExperience.Bii
             return success;
         }
 
+        // 2026-09-27 SP return defect 2: dashboard closed mid-drag. Vanilla's
+        // updateDraggedItem is dead, so nothing will re-manage the ghost or
+        // end the drag. Fail-closed order: BUE visuals, then the vanilla
+        // ghost (hidden — nothing renders a drag UI while the dashboard is
+        // closed), then the vanilla session itself. wasDragging is consumed
+        // here so no later drag-ended edge is needed or possible.
+        private void EndStaleDragSessionForDashboardClose()
+        {
+            component.OnDragCancelled();
+            SetNativeDragGhostVisible(false);
+            ghostLifecycle.EndForDashboardClose();
+            PlayerDashboardInventoryUI.stopDrag();
+            wasDragging = false;
+            EmitRuntime("[BUE-DRAG] event=drag-ended-by-dashboard-close diagnosticId=BUE-DRAG-001");
+        }
+
         private void Poll()
         {
             if (!component.LifecycleCanRun && !component.EnhancedDragActive)
@@ -730,6 +782,12 @@ namespace BetterUnturnedExperience.Bii
                 return;
             }
             var isDragging = PlayerDashboardInventoryUI.isDragging;
+            var dashboardActive = PlayerDashboardInventoryUI.active;
+            if (ShouldEndDragSessionForDashboardClose(dashboardActive, isDragging))
+            {
+                EndStaleDragSessionForDashboardClose();
+                return;
+            }
             if (isDragging && !wasDragging)
             {
                 dragGeneration++;
@@ -767,7 +825,8 @@ namespace BetterUnturnedExperience.Bii
                 if (!TrySelectTargetSurface(component, out selectedSurface, out localX, out localY))
                 {
                     component.HidePreview();
-                    SetNativeDragGhostVisible(true);
+                    if (ShouldRestoreNativeDragGhostWhenTargetLost(dashboardActive))
+                        SetNativeDragGhostVisible(true);
                     if (ShouldEmitDiagnostic(PlacementPreviewState.Hidden, PlacementReason.OutsideGrid))
                         EmitRuntime("[BUE-DRAG] GPT-WATERMARK event=preview-hidden reason=outside-viewport generation=" + dragGeneration + " diagnosticId=BUE-DRAG-001");
                     return;
@@ -776,7 +835,8 @@ namespace BetterUnturnedExperience.Bii
                 if (surface == null)
                 {
                     component.HidePreview();
-                    SetNativeDragGhostVisible(true);
+                    if (ShouldRestoreNativeDragGhostWhenTargetLost(dashboardActive))
+                        SetNativeDragGhostVisible(true);
                     if (ShouldEmitDiagnostic(PlacementPreviewState.Hidden, PlacementReason.FeatureUnavailable))
                         EmitRuntime("[BUE-DRAG] GPT-WATERMARK event=preview-hidden reason=surface-not-native generation=" + dragGeneration + " diagnosticId=BUE-DRAG-001");
                     return;
@@ -805,7 +865,8 @@ namespace BetterUnturnedExperience.Bii
                 else
                 {
                     component.HidePreview();
-                    SetNativeDragGhostVisible(true);
+                    if (ShouldRestoreNativeDragGhostWhenTargetLost(dashboardActive))
+                        SetNativeDragGhostVisible(true);
                     if (ShouldEmitDiagnostic(PlacementPreviewState.Hidden, PlacementReason.FeatureUnavailable))
                         EmitRuntime("[BUE-DRAG] GPT-WATERMARK event=preview-input-rejected generation=" + dragGeneration + " diagnosticId=BUE-DRAG-001");
                 }

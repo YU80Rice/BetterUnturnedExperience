@@ -8551,7 +8551,9 @@ namespace BetterUnturnedExperience.Plugin.Tests
             internal readonly List<IVisualElement> Children = new List<IVisualElement>();
             internal IVisualElement LastCreatedElement;
             internal bool PoisonAllNewElements;
+            private bool isVisible = true;
 
+            public bool IsVisible { get { return isVisible; } set { isVisible = value; } }
             public IVisualElement CreateBox() { LastCreatedElement = NewElement(); return LastCreatedElement; }
             public IVisualElement CreateImage() { LastCreatedElement = NewElement(); return LastCreatedElement; }
             private TestVisualElement NewElement()
@@ -8616,6 +8618,8 @@ namespace BetterUnturnedExperience.Plugin.Tests
 
         private sealed class TestVisualContainer : IVisualContainer
         {
+            private bool isVisible = true;
+            public bool IsVisible { get { return isVisible; } set { isVisible = value; } }
             public IVisualElement CreateBox() { return new TestVisualElement(); }
             public IVisualElement CreateImage() { return new TestVisualElement(); }
             public void AddChild(IVisualElement child) { }

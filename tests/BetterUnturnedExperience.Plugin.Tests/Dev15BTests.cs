@@ -651,8 +651,10 @@ namespace BetterUnturnedExperience.Plugin.Tests
 
         private sealed class MockVisualContainer : IVisualContainer
         {
+            private bool isVisible = true;
             internal IVisualElement LastBox { get; private set; }
             internal IVisualElement LastImage { get; private set; }
+            public bool IsVisible { get { return isVisible; } set { isVisible = value; } }
             public IVisualElement CreateBox() { return LastBox = new MockVisualElement(); }
             public IVisualElement CreateImage() { return LastImage = new MockVisualElement(); }
             public void AddChild(IVisualElement child) { }
