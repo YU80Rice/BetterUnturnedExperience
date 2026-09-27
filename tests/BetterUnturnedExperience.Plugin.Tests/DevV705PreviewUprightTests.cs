@@ -23,6 +23,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
             Group("real frame color write", failures, collectAllFailures, RealFrameColorWrite);
             Group("hidden clears last preview", failures, collectAllFailures, HiddenPointerClearsLastPreview);
             Group("dashboard close ghost policy", failures, collectAllFailures, DashboardCloseGhostPolicy);
+            Group("dashboard close full chain", failures, collectAllFailures, DashboardCloseFullChain);
             Console.WriteLine("DEV-V7-05 preview-upright: " + (failures.Count == 0 ? "PASS" : "FAIL"));
             if (failures.Count != 0)
                 throw new InvalidOperationException("DEV-V7-05 failures (" + failures.Count + "): " + string.Join(" || ", failures));
@@ -372,6 +373,86 @@ namespace BetterUnturnedExperience.Plugin.Tests
             lifecycle.EndForDashboardClose();
             Assert(!lifecycle.IsSuppressingEndedRestore,
                 "关闭组合处理必须清除 suppress 标志，且不依赖后续 drag-ended 边沿");
+        }
+
+        // 2026-09-27 07-verification return closure (ticket option 1): drive
+        // the REAL Poll close path on a host-constructed adapter. Vanilla
+        // isDragging is a static auto-property with a non-public setter, so
+        // the test reflection-writes its backing field (the same AccessTools
+        // pattern the adapter itself uses); active stays at its host default
+        // false. stopDrag is observed through the injected
+        // INativeInventoryDragActions port (the same port the release path
+        // uses), and the ghost visibility command is observed on the adapter.
+        // The physical dragItem write and the vanilla stopDrag IL remain the
+        // named engine seams.
+        private static void SetVanillaIsDragging(bool value)
+        {
+            var field = typeof(SDG.Unturned.PlayerDashboardInventoryUI).GetField(
+                "<isDragging>k__BackingField",
+                System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic);
+            Assert(field != null, "vanilla isDragging backing field 必须存在");
+            field.SetValue(null, value);
+        }
+
+        private static void DashboardCloseFullChain()
+        {
+            var previousIsDragging = SDG.Unturned.PlayerDashboardInventoryUI.isDragging;
+            try
+            {
+                var component = new BetterItemInteractionUiComponent(
+                    new InventoryPreviewPresenter(new InventoryDragPresenter(new FixedPreviewEvaluator(
+                        new ItemPlacementPreview(11, PlacementPreviewState.Candidate,
+                            new ItemGridPosition(3, 1, 1, 0), 1, 3, PlacementReason.None)))),
+                    new NativeInventoryInteractionAdapter(2, 8));
+                component.OnUiInitialized(true, false);
+                var recorder = new RecordingCloseNativeActions();
+                var adapter = new InventoryDragPreviewAdapter(component, null, recorder);
+                Assert(adapter.LastNativeDragGhostVisibilityCommand == null,
+                    "前置：新适配器尚未发出任何幽灵可见性命令");
+
+                // BUE owns a live drag session and its suppress flag is set,
+                // exactly the mid-drag state before the player closes the UI.
+                component.OnDragStarted(11, ItemAssetIdentity.FromItemId(0),
+                    new ItemGridPosition(3, 0, 0, 0));
+                Assert(component.CurrentDragGeneration == 11 && component.EnhancedDragActive,
+                    "前置：BUE 拖拽会话已建立");
+                adapter.GhostLifecycle.Complete(NativeDragAdapterOutcome.Submitted);
+                Assert(adapter.GhostLifecycle.IsSuppressingEndedRestore,
+                    "前置：suppress 旗标已置位");
+
+                // The dashboard closes while the vanilla drag session is live.
+                SetVanillaIsDragging(true);
+                adapter.Poll();
+
+                Assert(recorder.StopCount == 1,
+                    "真实关闭路径必须经原生端口提交原版 stopDrag");
+                Assert(component.CurrentDragGeneration == 0 && !component.EnhancedDragActive,
+                    "真实关闭路径必须立即结束 BUE 拖拽会话");
+                Assert(adapter.LastNativeDragGhostVisibilityCommand == false,
+                    "真实关闭路径必须发出幽灵隐藏命令（面板关闭期间冻结幽灵不得渲染）");
+                Assert(!adapter.GhostLifecycle.IsSuppressingEndedRestore,
+                    "真实关闭路径必须清除 suppress 旗标");
+                Assert(!adapter.LastObservedVanillaDragging,
+                    "真实关闭路径必须消费 drag-ended 边沿（wasDragging 复位，后续边沿不存在）");
+
+                // Edge independence: a second full Poll cannot be driven in the
+                // host (vanilla Player cctor is engine-bound — named seam), so
+                // edge consumption is proven by the reset wasDragging state
+                // above plus the single stopDrag command below.
+                Assert(recorder.StopCount == 1, "关闭路径只提交一次 stopDrag");
+            }
+            finally
+            {
+                SetVanillaIsDragging(previousIsDragging);
+            }
+        }
+
+        private sealed class RecordingCloseNativeActions : INativeInventoryDragActions
+        {
+            internal int StopCount;
+            public void StopDrag() { StopCount++; }
+            public void SendDragItem(ItemGridPosition source, ItemGridPosition target) { }
+            public void TakeGroundItem(ItemGridPosition target) { }
         }
 
         private static bool Approximately(float actual, float expected)

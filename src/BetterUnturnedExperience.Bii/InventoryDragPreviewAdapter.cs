@@ -41,7 +41,7 @@ namespace BetterUnturnedExperience.Bii
         private System.Reflection.FieldInfo dragFromRotField;
         private System.Reflection.FieldInfo dragPivotField;
         private System.Reflection.FieldInfo dragItemField;
-        private NativeDragActions nativeActions;
+        private INativeInventoryDragActions nativeActions;
         private int lastPollFrame = -1;
         private int lastDiagnosticTick;
         private PlacementPreviewState lastDiagnosticState;
@@ -82,13 +82,24 @@ namespace BetterUnturnedExperience.Bii
 
         internal InventoryDragPreviewAdapter(BetterItemInteractionUiComponent component,
             BiiCompositionMouths mouths = null)
+            : this(component, mouths, null)
+        {
+        }
+
+        // 2026-09-27 07-verification return: the dashboard-close red test must
+        // drive the REAL close chain in the host. The vanilla stopDrag call is
+        // routed through the same INativeInventoryDragActions port the release
+        // path uses, so a host-injectable recorder proves the command without
+        // executing vanilla UI IL (that IL stays the named engine seam).
+        internal InventoryDragPreviewAdapter(BetterItemInteractionUiComponent component,
+            BiiCompositionMouths mouths, INativeInventoryDragActions nativeDragActionsOverride)
         {
             this.hostServices = mouths;
 
             this.component = component ?? throw new ArgumentNullException(nameof(component));
             ghostLifecycle = new NativeDragGhostLifecycle();
+            nativeActions = nativeDragActionsOverride ?? new NativeDragActions();
             harmony = new Harmony(DragHarmonyId);
-            nativeActions = new NativeDragActions();
             dragJarField = AccessTools.Field(typeof(PlayerDashboardInventoryUI), "dragJar");
             dragFromPageField = AccessTools.Field(typeof(PlayerDashboardInventoryUI), "dragFromPage");
             dragFromXField = AccessTools.Field(typeof(PlayerDashboardInventoryUI), "dragFrom_x");
@@ -645,9 +656,25 @@ namespace BetterUnturnedExperience.Bii
 
         private void SetNativeDragGhostVisible(bool visible)
         {
+            // 2026-09-27 07-verification return: the host cannot observe the
+            // real SleekItem (the static dragItem field is engine-initialized
+            // and stays null here), so the ISSUED visibility command is the
+            // closest observable fact; the physical write remains the named
+            // engine seam.
+            LastNativeDragGhostVisibilityCommand = visible;
             var dragItem = ReadDragItem();
             if (dragItem != null) dragItem.IsVisible = visible;
         }
+
+        internal bool? LastNativeDragGhostVisibilityCommand { get; private set; }
+
+        internal NativeDragGhostLifecycle GhostLifecycle { get { return ghostLifecycle; } }
+
+        // 2026-09-27 07-verification return: edge-consumption observable. The
+        // close path must reset wasDragging so no later drag-ended edge exists;
+        // the host cannot drive a second full Poll (vanilla Player cctor is
+        // engine-bound), so this state is the closest observable proof.
+        internal bool LastObservedVanillaDragging { get { return wasDragging; } }
 
         private void SyncNativeDragGhost(bool targetGridOwned, PlacementPreviewState previewState)
         {
@@ -770,12 +797,15 @@ namespace BetterUnturnedExperience.Bii
             component.OnDragCancelled();
             SetNativeDragGhostVisible(false);
             ghostLifecycle.EndForDashboardClose();
-            PlayerDashboardInventoryUI.stopDrag();
+            nativeActions.StopDrag();
             wasDragging = false;
             EmitRuntime("[BUE-DRAG] event=drag-ended-by-dashboard-close diagnosticId=BUE-DRAG-001");
         }
 
-        private void Poll()
+        // 2026-09-27 07-verification return: internal so the dashboard-close
+        // red test can drive the REAL poll close path in the host (the static
+        // isDragging/active fields are plain vanilla fields, writable there).
+        internal void Poll()
         {
             if (!component.LifecycleCanRun && !component.EnhancedDragActive)
             {
