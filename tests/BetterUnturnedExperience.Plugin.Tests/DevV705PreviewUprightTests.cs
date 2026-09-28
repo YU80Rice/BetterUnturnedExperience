@@ -25,6 +25,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
             Group("frame anchor survives scrolling", failures, collectAllFailures, FrameAnchorSurvivesScrolling);
             Group("frame disables raycast", failures, collectAllFailures, FrameDisablesRaycast);
             Group("frame anchor matches icon math", failures, collectAllFailures, FrameAnchorMatchesIconMath);
+            Group("frame center equals pointer at candidate center", failures, collectAllFailures, FrameCenterEqualsPointerAtCandidateCenter);
             Group("frame applied diagnostic anchor", failures, collectAllFailures, FrameAppliedDiagnosticAnchor);
             Group("real frame color write", failures, collectAllFailures, RealFrameColorWrite);
             Group("hidden clears last preview", failures, collectAllFailures, HiddenPointerClearsLastPreview);
@@ -331,6 +332,48 @@ namespace BetterUnturnedExperience.Plugin.Tests
             Assert(Approximately(sink.LastFrame.SizeOffsetX, 50f) &&
                 Approximately(sink.LastFrame.SizeOffsetY, 150f),
                 "框尺寸保持目标脚印的未缩放逻辑格像素");
+        }
+
+        // 2026-09-28 seventh-round return closure (ticket semantics): the
+        // anchor-sameness proof must assert the REQUIRED behavior, not one
+        // fixed offset — (a) with the pointer held at the candidate footprint
+        // CENTER (grab = size/2), the frame's rendered center equals the
+        // pointer; (b) icon and frame anchor outputs are value-identical, so
+        // the machine-proven icon placement carries the frame with it.
+        private static void FrameCenterEqualsPointerAtCandidateCenter()
+        {
+            var input = new InventoryPreviewInput(61,
+                new ItemGridPosition(3, 0, 0, 0),
+                new ContainerReference(ContainerKind.PlayerInventory, 3, 61),
+                100f, 250f, new InventoryGridViewport(0f, 0f, 8, 6, 0f, 0f, 400f, 600f),
+                50f, 1f, 0f, 0f, 1, 3, 0, true, 0.5f, 1.5f,
+                ItemAssetIdentity.FromItemId(0), 0.25f, 0.5f, float.NaN, float.NaN,
+                new Grid(8, 6));
+            var preview = new ItemPlacementPreview(61, PlacementPreviewState.Candidate,
+                new ItemGridPosition(3, 2, 2, 0), 1, 3, PlacementReason.None);
+
+            Assert(InventoryGridCoordinateAdapter.TryGetNativeIconPlacement(input, 0, out var icon),
+                "前置：图标锚可构造");
+            Assert(InventoryGridCoordinateAdapter.TryGetNativeFramePlacement(input, preview, out var frame),
+                "前置：框锚可构造");
+
+            // (b) 同源证明：图标与框的锚输出逐值相等——机台上图标位置已被证明
+            // 正确（第三轮截图），框与图标逐值相同即继承同一位置。
+            Assert(Approximately(frame.PositionScaleX, icon.PositionScaleX) &&
+                Approximately(frame.PositionScaleY, icon.PositionScaleY),
+                "框与图标必须共用顶层指针归一化 scale");
+            Assert(Approximately(frame.PositionOffsetX, icon.PositionOffsetX) &&
+                Approximately(frame.PositionOffsetY, icon.PositionOffsetY),
+                "框与图标必须共用同一偏移（pivot 或 -grab*cell）");
+            Assert(Approximately(frame.SizeOffsetX, icon.Width) &&
+                Approximately(frame.SizeOffsetY, icon.Height),
+                "框尺寸必须等于图标脚印（同一目标 footprint）");
+
+            // (a) 指针=候选中心（grab=(0.5,1.5)=size/2）：offset=-size/2 ⇒
+            // 渲染中心 = 指针逻辑位 + offset + size/2 = 指针位。
+            Assert(Approximately(frame.PositionOffsetX, -frame.SizeOffsetX / 2f) &&
+                Approximately(frame.PositionOffsetY, -frame.SizeOffsetY / 2f),
+                "指针在候选中心时框中心必须落在指针位（offset=-size/2）");
         }
 
         // 2026-09-28 fifth machine round (disambiguation anchor): the final
