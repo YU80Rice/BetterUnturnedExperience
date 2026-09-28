@@ -76,26 +76,65 @@ namespace BetterUnturnedExperience.Bii
 
         public void DisableRaycast()
         {
+            // Sixth-round fix A: the command bit may only flip after a VERIFIED
+            // physical write. The previous version set it unconditionally and
+            // the reflection-by-name write silently missed (Image has a FIELD
+            // raycastTarget, not an IsRaycastTarget property) — tests stayed
+            // green while the live raycast kept eating every placement click.
             if (RaycastDisabled) return;
-            RaycastDisabled = true;
-            DisableRaycastEngine(element);
+            if (DisableRaycastEngine(element)) RaycastDisabled = true;
         }
 
         [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
-        private static void DisableRaycastEngine(ISleekElement element)
+        private static bool DisableRaycastEngine(ISleekElement element)
         {
             try
             {
-                var image = AccessTools.Field(element.GetType(), "imageComponent") == null
+                var imageField = AccessTools.Field(element.GetType(), "imageComponent");
+                var image = imageField == null ? null : imageField.GetValue(element);
+                if (image != null && TryWriteRaycastTarget(image, false)) return true;
+                // Fallback: every Graphic under the element (covers text/child
+                // components), resolved reflectively — UnityEngine.UI is not a
+                // BII assembly reference.
+                var gameObject = AccessTools.Property(element.GetType(), "gameObject") == null
                     ? null
-                    : AccessTools.Field(element.GetType(), "imageComponent").GetValue(element);
-                if (image == null) return;
-                AccessTools.Property(image.GetType(), "IsRaycastTarget")
-                    ?.SetValue(image, false, null);
+                    : AccessTools.Property(element.GetType(), "gameObject").GetValue(element);
+                var graphicType = AccessTools.TypeByName("UnityEngine.UI.Graphic");
+                if (gameObject == null || graphicType == null) return false;
+                var getChildren = AccessTools.Method(gameObject.GetType(), "GetComponentsInChildren", new[] { typeof(Type) });
+                var children = getChildren == null
+                    ? null
+                    : getChildren.Invoke(gameObject, new object[] { graphicType }) as System.Collections.IEnumerable;
+                if (children == null) return false;
+                var anyVerified = false;
+                foreach (var child in children)
+                {
+                    if (TryWriteRaycastTarget(child, false)) anyVerified = true;
+                }
+                return anyVerified;
             }
             catch (Exception)
             {
                 // Engine-bound write; a host or exotic teardown window skips it.
+                return false;
+            }
+        }
+
+        // Graphic's real member is the FIELD raycastTarget; write then READ
+        // BACK to prove the write landed (silent misses are the sixth-round
+        // defect).
+        private static bool TryWriteRaycastTarget(object graphic, bool value)
+        {
+            try
+            {
+                var field = AccessTools.Field(graphic.GetType(), "raycastTarget");
+                if (field == null) return false;
+                field.SetValue(graphic, value);
+                return Equals(field.GetValue(graphic), value);
+            }
+            catch (Exception)
+            {
+                return false;
             }
         }
 

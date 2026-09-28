@@ -295,11 +295,22 @@ namespace BetterUnturnedExperience.Plugin.Tests
             Assert(topLevel.BoxElement.RayCastDisableCalled,
                 "框元素挂载后必须关闭射线（对齐原版 SetIsDragItem 先例），否则吃掉全部点击");
 
-            var realFrame = new UnturnedVisualElement(new FakeSleekBox());
+            var fakeBox = new FakeSleekBox();
+            var realFrame = new UnturnedVisualElement(fakeBox);
             Assert(!realFrame.RaycastDisabled, "前置：新元素射线命令未发出");
+            Assert(fakeBox.imageComponent.raycastTarget, "前置：假 Image 射线初值开");
             realFrame.DisableRaycast();
+            Assert(fakeBox.imageComponent.raycastTarget == false,
+                "关射线必须物理写到 imageComponent.raycastTarget 字段（第六轮：属性按名反射静默失败，命令位虚置）");
             Assert(realFrame.RaycastDisabled,
-                "真实元素包装必须记录关射线命令（物理 Image 写入为具名引擎缝）");
+                "命令位只能在读回证实的物理写之后翻转");
+
+            // No image component -> no verified write -> the command bit must
+            // stay FALSE (fail-visible instead of fail-lying).
+            var bareFrame = new UnturnedVisualElement(new FakeSleekElement());
+            bareFrame.DisableRaycast();
+            Assert(!bareFrame.RaycastDisabled,
+                "读回失败或无 imageComponent 时不得置命令位");
         }
 
         // 2026-09-28 fifth machine round (root cause B): the frame anchor must
@@ -323,15 +334,15 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 ItemAssetIdentity.FromItemId(0), 0.25f, 0.5f, float.NaN, float.NaN,
                 new Grid(8, 6)), sink);
             Assert(sink.LastFrame.UsesTopLevelAnchor, "前置：框使用顶层锚");
-            Assert(Approximately(sink.LastFrame.PositionOffsetX, -25f) &&
-                Approximately(sink.LastFrame.PositionOffsetY, -25f),
-                "框偏移必须与图标同源（-grab*cell），不得混入内容空间原点");
+            Assert(Approximately(sink.LastFrame.PositionOffsetX, -31f) &&
+                Approximately(sink.LastFrame.PositionOffsetY, -31f),
+                "框偏移=图标同源偏移-边距环（-grab*cell-6），不得混入内容空间原点");
             Assert(Approximately(sink.LastFrame.PositionScaleX, 0.25f) &&
                 Approximately(sink.LastFrame.PositionScaleY, 0.5f),
                 "框 scale 与图标同用顶层指针归一化锚");
-            Assert(Approximately(sink.LastFrame.SizeOffsetX, 50f) &&
-                Approximately(sink.LastFrame.SizeOffsetY, 150f),
-                "框尺寸保持目标脚印的未缩放逻辑格像素");
+            Assert(Approximately(sink.LastFrame.SizeOffsetX, 62f) &&
+                Approximately(sink.LastFrame.SizeOffsetY, 162f),
+                "框尺寸=目标脚印+对称边距环（四周各 6px，图标居中环露出）");
         }
 
         // 2026-09-28 seventh-round return closure (ticket semantics): the
@@ -367,21 +378,24 @@ namespace BetterUnturnedExperience.Plugin.Tests
             // origin equals pointer+offset — which must be (100,100), the
             // candidate's content origin. This pins "the frame lands ON the
             // candidate", not merely "on a pointer-derived spot".
-            Assert(Approximately(input.PointerScreenX + frame.PositionOffsetX, 100f) &&
-                Approximately(input.PointerScreenY + frame.PositionOffsetY, 100f),
-                "框容器原点必须等于候选内容原点 (100,100)——框落在候选上而非纯指针推导位");
+            Assert(Approximately(input.PointerScreenX + frame.PositionOffsetX, 94f) &&
+                Approximately(input.PointerScreenY + frame.PositionOffsetY, 94f),
+                "框容器原点必须等于候选内容原点-边距环 (94,94)——框落在候选四周，环露出图标");
 
             // (b) 同源证明：图标与框的锚输出逐值相等——机台上图标位置已被证明
             // 正确（第三轮截图），框与图标逐值相同即继承同一位置。
             Assert(Approximately(frame.PositionScaleX, icon.PositionScaleX) &&
                 Approximately(frame.PositionScaleY, icon.PositionScaleY),
                 "框与图标必须共用顶层指针归一化 scale");
-            Assert(Approximately(frame.PositionOffsetX, icon.PositionOffsetX) &&
-                Approximately(frame.PositionOffsetY, icon.PositionOffsetY),
-                "框与图标必须共用同一偏移（pivot 或 -grab*cell）");
-            Assert(Approximately(frame.SizeOffsetX, icon.Width) &&
-                Approximately(frame.SizeOffsetY, icon.Height),
-                "框尺寸必须等于图标脚印（同一目标 footprint）");
+            // Sixth-round ring: the frame is a deterministic RING transform of
+            // the icon anchor (offset-ring / size+2*ring) — same anchor source,
+            // drawn as a ring around the centered icon instead of under it.
+            Assert(Approximately(frame.PositionOffsetX, icon.PositionOffsetX - 6f) &&
+                Approximately(frame.PositionOffsetY, icon.PositionOffsetY - 6f),
+                "框偏移=图标偏移-边距环（同锚源，环外扩）");
+            Assert(Approximately(frame.SizeOffsetX, icon.Width + 12f) &&
+                Approximately(frame.SizeOffsetY, icon.Height + 12f),
+                "框尺寸=图标脚印+2×边距环（图标居中、环四周露出）");
 
             // (a) 指针=候选中心（grab=(0.5,1.5)=size/2）：offset=-size/2 ⇒
             // 渲染中心 = 指针逻辑位 + offset + size/2 = 指针位。
@@ -433,7 +447,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
                     ItemAssetIdentity.FromItemId(0), out rotatedInput),
                 "前置：旋转输入可构造");
             component.OnDragUpdated(rotatedInput);
-            Assert(logs.Exists(line => line.Contains("event=frame-applied") && line.Contains("size=150,50")),
+            Assert(logs.Exists(line => line.Contains("event=frame-applied") && line.Contains("size=162,62")),
                 "尺寸/scale 变化必须落新的 frame-applied 锚（去重键含 size/scale）");
             component.OnInventoryClosed();
         }
@@ -558,8 +572,8 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 "内容本地路径下框锚偏移必须与滚动量无关（指针与候选同处内容空间）");
             // Fifth-round anchor math: offset = -grab*cell = -(0.5,0.5)*50 —
             // no Origin/Scroll terms, so scroll invariance holds by construction.
-            Assert(Approximately(unscrolledX, -25f) && Approximately(unscrolledY, -25f),
-                "框偏移与图标同源（-grab*cell），与滚动量无关");
+            Assert(Approximately(unscrolledX, -31f) && Approximately(unscrolledY, -31f),
+                "框偏移=图标同源偏移-边距环，与滚动量无关");
         }
 
         private static PreviewFrame AnchoredFrame(PreviewFrameKind kind)
@@ -1075,8 +1089,19 @@ namespace BetterUnturnedExperience.Plugin.Tests
             public void ForceLayoutUpdate() { }
         }
 
+        public sealed class FakeGraphic
+        {
+            // Mirrors UnityEngine.UI.Graphic's real member: a FIELD named
+            // raycastTarget (there is no IsRaycastTarget property — the sixth
+            // round's silent reflection miss).
+            public bool raycastTarget = true;
+        }
+
         private sealed class FakeSleekBox : FakeSleekElement, SDG.Unturned.ISleekBox
         {
+            // Same field name as GlazierBox_uGUI so the production reflection
+            // path resolves it in the host.
+            public FakeGraphic imageComponent = new FakeGraphic();
             public SDG.Unturned.SleekColor BackgroundColor { get; set; }
             public string Text { get; set; }
             public FontStyle FontStyle { get; set; }

@@ -8480,8 +8480,8 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 Assert(topLevel.Children.Count == 2 && !topLevel.Children.Contains(poisonedElement),
                     "FB1b sink rebuild: the poisoned element was replaced by a fresh mount");
                 var rebuiltFrame = (TestVisualElement)topLevel.Children[0];
-                Assert(!rebuiltFrame.Poisoned && rebuiltFrame.PositionOffsetX == -25f,
-                    "FB1b sink rebuild: the rebuilt frame element received the icon-math anchor write");
+                Assert(!rebuiltFrame.Poisoned && rebuiltFrame.PositionOffsetX == -31f,
+                    "FB1b sink rebuild: the rebuilt frame element received the ring-adjusted anchor write");
                 Assert(component.LastPreview.State == PlacementPreviewState.Candidate,
                     "FB1b sink rebuild: the preview stays Candidate across the native write fault");
                 var gateLines = 0;

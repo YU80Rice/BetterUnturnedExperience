@@ -355,8 +355,14 @@ namespace BetterUnturnedExperience.Bii
             var cellPixelSize = input.CellPixelSize;
             if (!IsFinite(cellPixelSize) || cellPixelSize <= 0f) return false;
 
+            // Sixth-round fix B: the frame shared the icon's exact anchor and
+            // size, so the icon stack (mounted after the frame) covered it
+            // completely. Expand the frame rectangle symmetrically — the item
+            // icon stays centered and the green/red ring shows on all sides.
+            const float ringMargin = 6f;
             placement = new PreviewFramePlacement(input.TopLevelPointerScaleX, input.TopLevelPointerScaleY,
-                offsetX, offsetY, width * cellPixelSize, height * cellPixelSize);
+                offsetX - ringMargin, offsetY - ringMargin,
+                width * cellPixelSize + 2f * ringMargin, height * cellPixelSize + 2f * ringMargin);
             return true;
         }
 
