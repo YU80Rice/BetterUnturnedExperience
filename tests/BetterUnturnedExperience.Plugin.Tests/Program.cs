@@ -8480,8 +8480,8 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 Assert(topLevel.Children.Count == 2 && !topLevel.Children.Contains(poisonedElement),
                     "FB1b sink rebuild: the poisoned element was replaced by a fresh mount");
                 var rebuiltFrame = (TestVisualElement)topLevel.Children[0];
-                Assert(!rebuiltFrame.Poisoned && rebuiltFrame.PositionOffsetX == -50f,
-                    "FB1b sink rebuild: the rebuilt frame element received the top-level anchor write");
+                Assert(!rebuiltFrame.Poisoned && rebuiltFrame.PositionOffsetX == -25f,
+                    "FB1b sink rebuild: the rebuilt frame element received the icon-math anchor write");
                 Assert(component.LastPreview.State == PlacementPreviewState.Candidate,
                     "FB1b sink rebuild: the preview stays Candidate across the native write fault");
                 var gateLines = 0;
@@ -8616,6 +8616,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
             public bool IsVisible { get; set; }
             public PreviewFrameColor Color { get; set; }
             public ItemAssetIdentity BoundAsset { get; set; }
+            public void DisableRaycast() { }
         }
 
         private sealed class TestVisualContainer : IVisualContainer

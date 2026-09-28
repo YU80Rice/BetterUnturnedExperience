@@ -23,6 +23,9 @@ namespace BetterUnturnedExperience.Plugin.Tests
             Group("frame mounts to top-level container", failures, collectAllFailures, FrameMountsToTopLevelContainer);
             Group("frame parent chain drives real container", failures, collectAllFailures, FrameParentChainDrivesRealContainer);
             Group("frame anchor survives scrolling", failures, collectAllFailures, FrameAnchorSurvivesScrolling);
+            Group("frame disables raycast", failures, collectAllFailures, FrameDisablesRaycast);
+            Group("frame anchor matches icon math", failures, collectAllFailures, FrameAnchorMatchesIconMath);
+            Group("frame applied diagnostic anchor", failures, collectAllFailures, FrameAppliedDiagnosticAnchor);
             Group("real frame color write", failures, collectAllFailures, RealFrameColorWrite);
             Group("hidden clears last preview", failures, collectAllFailures, HiddenPointerClearsLastPreview);
             Group("dashboard close ghost policy", failures, collectAllFailures, DashboardCloseGhostPolicy);
@@ -277,6 +280,107 @@ namespace BetterUnturnedExperience.Plugin.Tests
             Assert(threw, "无顶层锚的框没有诚实的绘制位置，必须故障而不是瞎画");
         }
 
+        // 2026-09-28 fifth machine round (root cause A): the frame is a vanilla
+        // CreateBox() whose Image hardcodes raycastTarget=true; mounted on the
+        // ever-alive top-level container ABOVE the grid it swallowed every
+        // click and grid.OnClicked never fired (placement chain zero events).
+        // Vanilla's own drag ghost disables raycast via SetIsDragItem(); the
+        // frame must do the same on mount and after every rebuild.
+        private static void FrameDisablesRaycast()
+        {
+            var topLevel = new StubVisualContainer(new StubVisualElement(canWriteColor: true));
+            var sink = new InventoryPreviewVisualSink(topLevel);
+            sink.ShowFrame(AnchoredFrame(PreviewFrameKind.ValidGreen));
+            Assert(topLevel.BoxElement.RayCastDisableCalled,
+                "框元素挂载后必须关闭射线（对齐原版 SetIsDragItem 先例），否则吃掉全部点击");
+
+            var realFrame = new UnturnedVisualElement(new FakeSleekBox());
+            Assert(!realFrame.RaycastDisabled, "前置：新元素射线命令未发出");
+            realFrame.DisableRaycast();
+            Assert(realFrame.RaycastDisabled,
+                "真实元素包装必须记录关射线命令（物理 Image 写入为具名引擎缝）");
+        }
+
+        // 2026-09-28 fifth machine round (root cause B): the frame anchor must
+        // reuse the ICON math — pointer-anchored with the grab-based offset —
+        // because the content-space delta formula writes grid-content offsets
+        // into full-screen container coordinates. With pointer (100,250),
+        // grab (0.5,0.5), cell 50 the offset is -grab*cell = (-25,-25) and it
+        // is scroll invariant by construction (no Origin/Scroll terms).
+        private static void FrameAnchorMatchesIconMath()
+        {
+            var evaluator = new FixedPreviewEvaluator(new ItemPlacementPreview(41,
+                PlacementPreviewState.Candidate, new ItemGridPosition(3, 2, 2, 0), 1, 3, PlacementReason.None));
+            var presenter = new InventoryPreviewPresenter(new InventoryDragPresenter(evaluator));
+            var sink = new PreviewSink();
+            presenter.BeginDrag(41);
+            presenter.Update(new InventoryPreviewInput(41,
+                new ItemGridPosition(3, 0, 0, 0),
+                new ContainerReference(ContainerKind.PlayerInventory, 3, 41),
+                100f, 250f, new InventoryGridViewport(0f, 0f, 8, 6, 0f, 0f, 400f, 600f),
+                50f, 1f, 0f, 150f, 1, 3, 0, true, 0.5f, 0.5f,
+                ItemAssetIdentity.FromItemId(0), 0.25f, 0.5f, float.NaN, float.NaN,
+                new Grid(8, 6)), sink);
+            Assert(sink.LastFrame.UsesTopLevelAnchor, "前置：框使用顶层锚");
+            Assert(Approximately(sink.LastFrame.PositionOffsetX, -25f) &&
+                Approximately(sink.LastFrame.PositionOffsetY, -25f),
+                "框偏移必须与图标同源（-grab*cell），不得混入内容空间原点");
+            Assert(Approximately(sink.LastFrame.PositionScaleX, 0.25f) &&
+                Approximately(sink.LastFrame.PositionScaleY, 0.5f),
+                "框 scale 与图标同用顶层指针归一化锚");
+            Assert(Approximately(sink.LastFrame.SizeOffsetX, 50f) &&
+                Approximately(sink.LastFrame.SizeOffsetY, 150f),
+                "框尺寸保持目标脚印的未缩放逻辑格像素");
+        }
+
+        // 2026-09-28 fifth machine round (disambiguation anchor): the final
+        // frame facts (position/size/color/visible) must land in the host log
+        // once per geometry change so the next diagnostic package can prove
+        // render state without guessing.
+        private static void FrameAppliedDiagnosticAnchor()
+        {
+            var logs = new System.Collections.Generic.List<string>();
+            var component = new BetterItemInteractionUiComponent(
+                new InventoryPreviewPresenter(new InventoryDragPresenter(new FixedPreviewEvaluator(
+                    new ItemPlacementPreview(51, PlacementPreviewState.Candidate,
+                        new ItemGridPosition(3, 1, 1, 0), 1, 3, PlacementReason.None)))),
+                new NativeInventoryInteractionAdapter(2, 8),
+                null, line => logs.Add(line), null);
+            component.OnUiInitialized(true, false);
+            var surface = new AnchorSurfaceContext(new StubVisualContainer(
+                new StubVisualElement(canWriteColor: true)), new Grid(8, 6));
+            component.OnInventoryOpened(surface);
+            component.OnDragStarted(51, ItemAssetIdentity.FromItemId(0), new ItemGridPosition(3, 0, 0, 0));
+            InventoryPreviewInput input;
+            Assert(component.TryCreatePreviewInput(51, new ItemGridPosition(3, 0, 0, 0),
+                    100f, 250f, 1, 3, 0, true, 0.5f, 0.5f,
+                    ItemAssetIdentity.FromItemId(0), out input),
+                "前置：拖拽输入可构造");
+            component.OnDragUpdated(input);
+            component.OnDragUpdated(input);
+
+            var applied = 0;
+            foreach (var line in logs)
+            {
+                if (line.Contains("event=frame-applied") && line.Contains("pos=")) applied++;
+            }
+            Assert(applied == 1,
+                "frame-applied 锚按几何变化去重：同一几何只落一条（实机诊断可消歧）");
+
+            // A size change (rotated footprint) is part of the dedup key —
+            // the new geometry must produce a fresh anchor, not a stale one.
+            component.OnDragStarted(52, ItemAssetIdentity.FromItemId(0), new ItemGridPosition(3, 0, 0, 0));
+            InventoryPreviewInput rotatedInput;
+            Assert(component.TryCreatePreviewInput(52, new ItemGridPosition(3, 0, 0, 0),
+                    100f, 250f, 3, 1, 1, true, 0.5f, 0.5f,
+                    ItemAssetIdentity.FromItemId(0), out rotatedInput),
+                "前置：旋转输入可构造");
+            component.OnDragUpdated(rotatedInput);
+            Assert(logs.Exists(line => line.Contains("event=frame-applied") && line.Contains("size=150,50")),
+                "尺寸/scale 变化必须落新的 frame-applied 锚（去重键含 size/scale）");
+            component.OnInventoryClosed();
+        }
+
         // 2026-09-27 research D-1: the frame mounts into the SAME ever-alive
         // top-level container as the icon (frame first, icon on top) and its
         // geometry follows the anchor, not the grid-local panel.
@@ -395,8 +499,10 @@ namespace BetterUnturnedExperience.Plugin.Tests
 
             Assert(Approximately(unscrolledX, scrolledX) && Approximately(unscrolledY, scrolledY),
                 "内容本地路径下框锚偏移必须与滚动量无关（指针与候选同处内容空间）");
-            Assert(Approximately(unscrolledX, 0f) && Approximately(unscrolledY, -150f),
-                "框偏移=候选格内容位−指针内容位（cell 50、指针 100,250、候选 2,2）");
+            // Fifth-round anchor math: offset = -grab*cell = -(0.5,0.5)*50 —
+            // no Origin/Scroll terms, so scroll invariance holds by construction.
+            Assert(Approximately(unscrolledX, -25f) && Approximately(unscrolledY, -25f),
+                "框偏移与图标同源（-grab*cell），与滚动量无关");
         }
 
         private static PreviewFrame AnchoredFrame(PreviewFrameKind kind)
@@ -830,6 +936,8 @@ namespace BetterUnturnedExperience.Plugin.Tests
             }
             public ItemAssetIdentity BoundAsset { get; set; }
             public bool CanWriteColor { get; set; }
+            public bool RayCastDisableCalled { get; set; }
+            public void DisableRaycast() { RayCastDisableCalled = true; }
         }
 
         private sealed class StubVisualContainer : IVisualContainer
@@ -850,6 +958,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
             public bool IsVisible { get; set; }
             internal int ChildCount { get { return children.Count; } }
             internal IVisualElement ChildElement { get { return children.Count == 0 ? null : children[0]; } }
+            internal StubVisualElement BoxElement { get { return box; } }
             public IVisualElement CreateBox() { return box; }
             public IVisualElement CreateImage() { return image; }
             public void AddChild(IVisualElement child) { if (!children.Contains(child)) children.Add(child); }

@@ -64,6 +64,41 @@ namespace BetterUnturnedExperience.Bii
 
         public bool IsVisible { get { return element.IsVisible; } set { element.IsVisible = value; } }
 
+        // 2026-09-28 fifth machine round (root cause A): the vanilla box
+        // hardcodes raycastTarget=true on its Image (GlazierBox_uGUI.cs:219);
+        // mounted on the ever-alive top-level container above the grid, the
+        // frame swallowed every click so grid.OnClicked never fired. Vanilla's
+        // own drag ghost disables raycast via SetIsDragItem() — the frame
+        // must do the same. The command is host-observable; the physical
+        // Image write stays the named engine seam (isolated NoInlining +
+        // swallow, same family as ReadTopLevelPointerScale).
+        internal bool RaycastDisabled { get; private set; }
+
+        public void DisableRaycast()
+        {
+            if (RaycastDisabled) return;
+            RaycastDisabled = true;
+            DisableRaycastEngine(element);
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static void DisableRaycastEngine(ISleekElement element)
+        {
+            try
+            {
+                var image = AccessTools.Field(element.GetType(), "imageComponent") == null
+                    ? null
+                    : AccessTools.Field(element.GetType(), "imageComponent").GetValue(element);
+                if (image == null) return;
+                AccessTools.Property(image.GetType(), "IsRaycastTarget")
+                    ?.SetValue(image, false, null);
+            }
+            catch (Exception)
+            {
+                // Engine-bound write; a host or exotic teardown window skips it.
+            }
+        }
+
         internal static Color PreviewFrameRgba(PreviewFrameColor value)
         {
             if (value == PreviewFrameColor.ValidGreen) return new Color(0.2f, 1f, 0.3f, 0.85f);

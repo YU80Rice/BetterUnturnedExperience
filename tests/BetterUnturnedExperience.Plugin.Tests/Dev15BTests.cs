@@ -658,6 +658,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
             public bool IsVisible { get; set; }
             public PreviewFrameColor Color { get; set; }
             public ItemAssetIdentity BoundAsset { get; set; }
+            public void DisableRaycast() { }
         }
 
         private sealed class MockVisualContainer : IVisualContainer

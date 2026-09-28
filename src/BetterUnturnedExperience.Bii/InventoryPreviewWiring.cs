@@ -323,13 +323,60 @@ namespace BetterUnturnedExperience.Bii
 
             byte width;
             byte height;
+            float offsetX;
+            float offsetY;
+            if (!TryComputeTopLevelAnchor(input, targetRotation, out width, out height, out offsetX, out offsetY)) return false;
+
+            icon = new PreviewIcon(input.PointerScreenX, input.PointerScreenY, (byte)(targetRotation & 3), input.ItemAsset,
+                input.TopLevelPointerScaleX, input.TopLevelPointerScaleY, offsetX, offsetY,
+                width * input.CellPixelSize, height * input.CellPixelSize, true);
+            return true;
+        }
+
+        // 2026-09-28 fifth machine round (root cause B): the FRAME anchor must
+        // be THE SAME pointer-anchored math as the icon. The previous content-
+        // space delta formula wrote grid-content offsets into full-screen
+        // container coordinates and the frame landed outside the visible area
+        // while the icon (pure pointer anchor) rendered fine. One shared
+        // computation feeds both visuals.
+        internal static bool TryGetNativeFramePlacement(InventoryPreviewInput input, ItemPlacementPreview preview,
+            out PreviewFramePlacement placement)
+        {
+            placement = default(PreviewFramePlacement);
+            if (!IsFinite(input.TopLevelPointerScaleX) || !IsFinite(input.TopLevelPointerScaleY)) return false;
+
+            byte width;
+            byte height;
+            float offsetX;
+            float offsetY;
+            if (!TryComputeTopLevelAnchor(input, preview.Candidate.Rotation,
+                out width, out height, out offsetX, out offsetY)) return false;
+
+            var cellPixelSize = input.CellPixelSize;
+            if (!IsFinite(cellPixelSize) || cellPixelSize <= 0f) return false;
+
+            placement = new PreviewFramePlacement(input.TopLevelPointerScaleX, input.TopLevelPointerScaleY,
+                offsetX, offsetY, width * cellPixelSize, height * cellPixelSize);
+            return true;
+        }
+
+        // GPT watermark: R13-rotgrab. input.GrabOffsetX/Y is in the CURRENT
+        // rotation coordinate space; rotate by the delta to the target
+        // rotation, starting from the current footprint size. The offset is
+        // the vanilla drag pivot when the rotation is unchanged (the dragged
+        // item keeps its cursor relation) and the rotated grab displacement
+        // otherwise — LOGICAL container pixels, identical for icon and frame.
+        private static bool TryComputeTopLevelAnchor(InventoryPreviewInput input, byte targetRotation,
+            out byte width, out byte height, out float offsetX, out float offsetY)
+        {
+            width = 0;
+            height = 0;
+            offsetX = 0f;
+            offsetY = 0f;
             float grabX;
             float grabY;
             var currentRotation = (byte)(input.CurrentRotation & 3);
             var delta = (byte)((targetRotation - currentRotation) & 3);
-            // GPT watermark: R13-rotgrab. input.GrabOffsetX/Y is in the CURRENT
-            // rotation coordinate space; rotate by the delta to the target
-            // rotation, starting from the current footprint size.
             byte currentWidth;
             byte currentHeight;
             if ((currentRotation & 1) == 0)
@@ -348,50 +395,13 @@ namespace BetterUnturnedExperience.Bii
             var cellPixelSize = input.CellPixelSize;
             if (!IsFinite(cellPixelSize) || cellPixelSize <= 0f) return false;
 
-            var offsetX = targetRotation == currentRotation && IsFinite(input.NativeDragPivotX)
+            offsetX = targetRotation == currentRotation && IsFinite(input.NativeDragPivotX)
                 ? input.NativeDragPivotX
                 : -grabX * cellPixelSize;
-            var offsetY = targetRotation == currentRotation && IsFinite(input.NativeDragPivotY)
+            offsetY = targetRotation == currentRotation && IsFinite(input.NativeDragPivotY)
                 ? input.NativeDragPivotY
                 : -grabY * cellPixelSize;
-            if (!IsFinite(offsetX) || !IsFinite(offsetY)) return false;
-
-            icon = new PreviewIcon(input.PointerScreenX, input.PointerScreenY, (byte)(targetRotation & 3), input.ItemAsset,
-                input.TopLevelPointerScaleX, input.TopLevelPointerScaleY, offsetX, offsetY,
-                width * cellPixelSize, height * cellPixelSize, true);
-            return true;
-        }
-
-        // 2026-09-27 third machine round (research §D-1): the frame moves to
-        // the ever-alive top-level container (same parent as the icon and the
-        // vanilla dragItem). Anchor math mirrors the icon: scale = the
-        // pointer's normalized position inside the container, offset = the
-        // screen-pixel delta from the pointer to the candidate cell's top-left
-        // corner divided by the UI scale (container offset units). The frame
-        // size stays in unscaled logical cell pixels, like the icon.
-        internal static bool TryGetNativeFramePlacement(InventoryPreviewInput input, ItemPlacementPreview preview,
-            out PreviewFramePlacement placement)
-        {
-            placement = default(PreviewFramePlacement);
-            if (!IsFinite(input.TopLevelPointerScaleX) || !IsFinite(input.TopLevelPointerScaleY)) return false;
-            var cellPixelSize = input.CellPixelSize;
-            var uiScale = input.UiScale;
-            if (!IsFinite(cellPixelSize) || cellPixelSize <= 0f || !IsFinite(uiScale) || uiScale <= 0f) return false;
-            var scaledCell = cellPixelSize * uiScale;
-            if (!IsFinite(scaledCell) || scaledCell <= 0f) return false;
-            var frameScreenX = input.Viewport.OriginX - input.ScrollPixelsX + preview.Candidate.X * scaledCell;
-            var frameScreenY = input.Viewport.OriginY - input.ScrollPixelsY + preview.Candidate.Y * scaledCell;
-            if (!IsFinite(frameScreenX) || !IsFinite(frameScreenY) ||
-                !IsFinite(input.PointerScreenX) || !IsFinite(input.PointerScreenY)) return false;
-            var offsetLogicalX = (frameScreenX - input.PointerScreenX) / uiScale;
-            var offsetLogicalY = (frameScreenY - input.PointerScreenY) / uiScale;
-            if (!IsFinite(offsetLogicalX) || !IsFinite(offsetLogicalY)) return false;
-            var sizeX = preview.Width * cellPixelSize;
-            var sizeY = preview.Height * cellPixelSize;
-            if (!IsFinite(sizeX) || !IsFinite(sizeY)) return false;
-            placement = new PreviewFramePlacement(input.TopLevelPointerScaleX, input.TopLevelPointerScaleY,
-                offsetLogicalX, offsetLogicalY, sizeX, sizeY);
-            return true;
+            return IsFinite(offsetX) && IsFinite(offsetY);
         }
 
         private static bool TryRotateGrabOffset(byte baseWidth, byte baseHeight, float baseGrabX, float baseGrabY,

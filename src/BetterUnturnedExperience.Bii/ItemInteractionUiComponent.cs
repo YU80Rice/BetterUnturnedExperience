@@ -21,6 +21,11 @@ namespace BetterUnturnedExperience.Bii
         bool IsVisible { get; set; }
         PreviewFrameColor Color { get; set; }
         ItemAssetIdentity BoundAsset { get; set; }
+
+        // 2026-09-28: the frame must stop eating click raycasts (vanilla
+        // SetIsDragItem precedent); the sink calls this on the frame element
+        // at creation and after every rebuild.
+        void DisableRaycast();
     }
 
     internal enum PreviewFrameColor : byte
@@ -122,6 +127,7 @@ namespace BetterUnturnedExperience.Bii
             this.topLevelContainer = topLevelContainer ?? throw new ArgumentNullException(nameof(topLevelContainer));
             this.frameElement = topLevelContainer.CreateBox();
             this.iconElement = topLevelContainer.CreateImage();
+            this.frameElement.DisableRaycast();
             this.frameElement.IsVisible = false;
             this.iconElement.IsVisible = false;
         }
@@ -255,6 +261,7 @@ namespace BetterUnturnedExperience.Bii
             catch (Exception) { }
             frameElement = topLevelContainer.CreateBox();
             iconElement = topLevelContainer.CreateImage();
+            frameElement.DisableRaycast();
             frameElement.IsVisible = false;
             iconElement.IsVisible = false;
             topLevelContainer.AddChild(frameElement);
@@ -799,6 +806,7 @@ namespace BetterUnturnedExperience.Bii
             try
             {
                 previewPresenter.Update(input, previewSink);
+                EmitFrameAppliedAnchor();
                 if (previewUpdateFaultFrames != 0)
                 {
                     previewUpdateFaultFrames = 0;
@@ -922,6 +930,55 @@ namespace BetterUnturnedExperience.Bii
             ClearActiveDragOccupancy();
         }
 
+        // 2026-09-28 fifth machine round (disambiguation anchor): after every
+        // preview update, record the FINAL frame facts (position/scale/size/
+        // color/visible) once per geometry change so the next diagnostic
+        // package can prove render state without guessing. Fields are NaN-
+        // seeded and reset on hide; the string is only allocated on change
+        // (the hot path stays allocation-free for unchanged frames).
+        private float frameAnchorLastX = float.NaN;
+        private float frameAnchorLastY = float.NaN;
+        private float frameAnchorLastWidth = float.NaN;
+        private float frameAnchorLastHeight = float.NaN;
+        private float frameAnchorLastScaleX = float.NaN;
+        private float frameAnchorLastScaleY = float.NaN;
+        private PreviewFrameColor frameAnchorLastColor = PreviewFrameColor.None;
+        private bool frameAnchorLastVisible;
+
+        private void EmitFrameAppliedAnchor()
+        {
+            if (previewSink == null) return;
+            if (LastPreview.State != PlacementPreviewState.Candidate &&
+                LastPreview.State != PlacementPreviewState.LocallyInvalid) return;
+            var x = previewSink.FrameX;
+            var y = previewSink.FrameY;
+            var width = previewSink.FrameWidth;
+            var height = previewSink.FrameHeight;
+            var scaleX = previewSink.FrameScaleX;
+            var scaleY = previewSink.FrameScaleY;
+            var color = previewSink.CurrentFrameColor;
+            var visible = previewSink.IsFrameVisible;
+            if (x.Equals(frameAnchorLastX) && y.Equals(frameAnchorLastY) &&
+                width.Equals(frameAnchorLastWidth) && height.Equals(frameAnchorLastHeight) &&
+                scaleX.Equals(frameAnchorLastScaleX) && scaleY.Equals(frameAnchorLastScaleY) &&
+                color == frameAnchorLastColor && visible == frameAnchorLastVisible) return;
+            frameAnchorLastX = x;
+            frameAnchorLastY = y;
+            frameAnchorLastWidth = width;
+            frameAnchorLastHeight = height;
+            frameAnchorLastScaleX = scaleX;
+            frameAnchorLastScaleY = scaleY;
+            frameAnchorLastColor = color;
+            frameAnchorLastVisible = visible;
+            EmitPreviewDiagnostic("[BUE-DRAG] GPT-WATERMARK event=frame-applied"
+                + " pos=" + x + "," + y
+                + " scale=" + scaleX + "," + scaleY
+                + " size=" + width + "," + height
+                + " color=" + color
+                + " visible=" + visible
+                + " diagnosticId=BUE-DRAG-001", false);
+        }
+
         // 2026-09-27 research §D-2b: every session end (cancel/submit/close/
         // isolate) must hide the ever-alive top-level icon AND drop the
         // event=preview-hidden anchor — round 3 logged 27/28 drags ending
@@ -938,6 +995,14 @@ namespace BetterUnturnedExperience.Bii
 
         internal void HidePreview()
         {
+            frameAnchorLastX = float.NaN;
+            frameAnchorLastY = float.NaN;
+            frameAnchorLastWidth = float.NaN;
+            frameAnchorLastHeight = float.NaN;
+            frameAnchorLastScaleX = float.NaN;
+            frameAnchorLastScaleY = float.NaN;
+            frameAnchorLastColor = PreviewFrameColor.None;
+            frameAnchorLastVisible = false;
             if (previewSink != null) previewSink.Hide();
             previewPresenter.HidePreview();
         }
