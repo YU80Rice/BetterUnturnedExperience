@@ -342,10 +342,14 @@ namespace BetterUnturnedExperience.Plugin.Tests
         // the machine-proven icon placement carries the frame with it.
         private static void FrameCenterEqualsPointerAtCandidateCenter()
         {
+            // Numeric consistency (seventh-round return): the pointer is the
+            // candidate CENTER — candidate content origin (2,2)*50=(100,100)
+            // plus grab*cell (0.5,1.5)*50=(25,75) = (125,175). Pointer and
+            // candidate now describe the same physical placement.
             var input = new InventoryPreviewInput(61,
                 new ItemGridPosition(3, 0, 0, 0),
                 new ContainerReference(ContainerKind.PlayerInventory, 3, 61),
-                100f, 250f, new InventoryGridViewport(0f, 0f, 8, 6, 0f, 0f, 400f, 600f),
+                125f, 175f, new InventoryGridViewport(0f, 0f, 8, 6, 0f, 0f, 400f, 600f),
                 50f, 1f, 0f, 0f, 1, 3, 0, true, 0.5f, 1.5f,
                 ItemAssetIdentity.FromItemId(0), 0.25f, 0.5f, float.NaN, float.NaN,
                 new Grid(8, 6));
@@ -356,6 +360,16 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 "前置：图标锚可构造");
             Assert(InventoryGridCoordinateAdapter.TryGetNativeFramePlacement(input, preview, out var frame),
                 "前置：框锚可构造");
+
+            // Overlay pin: frame container origin == candidate content origin.
+            // The container renders the element at scale*containerSize+offset,
+            // and scale*containerSize IS the pointer position, so the frame
+            // origin equals pointer+offset — which must be (100,100), the
+            // candidate's content origin. This pins "the frame lands ON the
+            // candidate", not merely "on a pointer-derived spot".
+            Assert(Approximately(input.PointerScreenX + frame.PositionOffsetX, 100f) &&
+                Approximately(input.PointerScreenY + frame.PositionOffsetY, 100f),
+                "框容器原点必须等于候选内容原点 (100,100)——框落在候选上而非纯指针推导位");
 
             // (b) 同源证明：图标与框的锚输出逐值相等——机台上图标位置已被证明
             // 正确（第三轮截图），框与图标逐值相同即继承同一位置。
