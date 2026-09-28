@@ -54,3 +54,4 @@ R4/R5 实机测试（`UMM-诊断包_20260902_085838`）暴露单列 `LongSideHug
 - 代价：`PlacementCandidateEvaluator` 需新增"空位区域边缘"检测与"长边贴边"方向选择逻辑；边缘定义（被障碍挡出的空位边界）需要在 evaluator seam 上做可测实现与判定。
 - 门禁：本轮红测/实现/审查遵循 `docs/agents/real-machine-test-loop.md` 与 `docs/agents/output-review-loop.md`；实机确认"松手方向正确、窄缝自动转竖、宽区不蠕动"后才关闭 DEV-16D-R13-R6 支线。
 - 关联 spec：`12-item-placement-algorithm.md` 冻结 Local-Fit Priority 的阶梯语义不变，本次仅扩展阶梯②的"放不下"判定场景（加入空位区域边缘）；`CONTEXT.md` 词汇"自动旋转"已修订为几何/边缘引力驱动，并新增"边缘感应带""边缘引力""开阔中部保持方向"词条。
+- **第七阶段收窄（2026-09-21，预放置框与正向旋转票）**：边缘感应带、开阔中部防蠕动、障碍边界引力保持。自动旋转候选不再使用 `(currentRotation + 1) mod 4`，只允许在两个可读正向之间切换，永不自动选择文字倒置。正向是拖入会话的可读姿态，不是裸 rot 数字。详细产品边界以该票 Answer 与 CONTEXT「默认正向 / 自动旋转 / 预放置框」为准。本 ADR 决策 1–5 与方案 A / 边缘感应带修订不整篇重写。
