@@ -93,6 +93,21 @@ namespace BetterUnturnedExperience.Lir
             }
         }
 
+        public bool TryResolveScopeOf(ulong steamId, out ReloadSkillScopeKey scope)
+        {
+            scope = default(ReloadSkillScopeKey);
+            if (steamId == 0UL) return false;
+            try
+            {
+                scope = ScopeOf(steamId);
+                return scope.IsValid;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
         public bool TryResolveLocalLevel(out byte level)
         {
             level = 0;

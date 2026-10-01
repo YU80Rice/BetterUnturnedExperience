@@ -416,7 +416,9 @@ namespace BetterUnturnedExperience.Lir
                 {
                     var hooks = skillHooks;
                     if (hooks == null) return;
-                    SendToPeer(session, LirRepackWireCodec.BuildLevelState(hooks.GetLevelFor(peer)));
+                    // DEV-V7-04 客机缺陷修复②：回执携带请求者的服务端权威 scope。
+                    var hasScope = TryResolvePeerScope(hooks, peer, out var peerScope);
+                    SendToPeer(session, LirRepackWireCodec.BuildLevelState(hooks.GetLevelFor(peer), hasScope, peerScope));
                 });
                 return;
             }
@@ -443,7 +445,8 @@ namespace BetterUnturnedExperience.Lir
         {
             if (stopped) return;
             var hooks = skillHooks;
-            if (LirRepackWireCodec.TryReadUpgradeResult(payload, out var upReqId, out var accepted, out var newLevel, out var reasonCode))
+            if (LirRepackWireCodec.TryReadUpgradeResult(payload, out var upReqId, out var accepted, out var newLevel, out var reasonCode,
+                out var hasWireScope, out var wireScope))
             {
                 byte requestedTarget;
                 ReloadSkillScopeKey capturedScope = default(ReloadSkillScopeKey);
@@ -461,13 +464,16 @@ namespace BetterUnturnedExperience.Lir
                     pendingUpgradeScopes.Remove(upReqId);
                 }
                 var capturedTarget = requestedTarget;
+                // DEV-V7-04 客机缺陷修复②：线内服务端权威 scope 第一；发送时本地
+                // 捕获 scope 只作服务器降级（hasScope=0）时的回退。
+                var replyScope = hasWireScope ? (ReloadSkillScopeKey?)wireScope
+                    : hasCapturedScope ? (ReloadSkillScopeKey?)capturedScope : (ReloadSkillScopeKey?)null;
                 EnqueueSkillOp(() =>
                 {
                     var module = skillModule;
                     if (accepted)
                     {
-                        if (module != null && !module.TryAcceptSkillLevelConfirmation(newLevel,
-                            hasCapturedScope ? (ReloadSkillScopeKey?)capturedScope : null)) return;
+                        if (module != null && !module.TryAcceptSkillLevelConfirmation(newLevel, replyScope)) return;
                         if (module == null) ReloadSkillLevelMirror.ConfirmLevel(newLevel);
                         module?.NotifySkillLevelConfirmed(newLevel);
                         var cost = ReloadSkillPolicy.CostForUpgrade(newLevel - 1);
@@ -481,15 +487,14 @@ namespace BetterUnturnedExperience.Lir
                 });
                 return;
             }
-            if (LirRepackWireCodec.TryReadLevelState(payload, out var level))
+            if (LirRepackWireCodec.TryReadLevelState(payload, out var level, out var stateHasWireScope, out var stateWireScope))
             {
-                var capturedLevelScope = hasLevelStateRequestScope
-                    ? (ReloadSkillScopeKey?)levelStateRequestScope
-                    : null;
+                var stateReplyScope = stateHasWireScope ? (ReloadSkillScopeKey?)stateWireScope
+                    : hasLevelStateRequestScope ? (ReloadSkillScopeKey?)levelStateRequestScope : (ReloadSkillScopeKey?)null;
                 EnqueueSkillOp(() =>
                 {
                     if (skillModule != null
-                        && !skillModule.TryAcceptSkillLevelConfirmation(level, capturedLevelScope)) return;
+                        && !skillModule.TryAcceptSkillLevelConfirmation(level, stateReplyScope)) return;
                     if (skillModule == null) ReloadSkillLevelMirror.ConfirmLevel(level);
                     skillModule?.NotifySkillLevelConfirmed(level);
                 });
@@ -539,6 +544,12 @@ namespace BetterUnturnedExperience.Lir
                 var scopeHooks = skillModule?.SkillHooks as IReloadSkillScopeHooks;
                 if (scopeHooks != null && scopeHooks.TryResolveLocalScope(out var requestScope))
                     pendingUpgradeScopes[requestId] = requestScope;
+                else if (scopeHooks != null)
+                {
+                    // DEV-V7-04 诊断锚③：请求点 scope 解析失败（客户端 seat 曾因此
+                    // 静默失联；机台包直读本行即可定位）。
+                    LirRuntime.LogDiagnostic("[ReloadSkill] scope 锚 at=request result=unresolved（升级请求发出时本地 scope 未解析）");
+                }
             }
             NetworkSendResult sent;
             try { sent = network.SendToServer(Channel, LirRepackWireCodec.BuildUpgradeRequest(requestId, targetLevel), reliable: true); }
@@ -567,6 +578,11 @@ namespace BetterUnturnedExperience.Lir
                 levelStateRequestScope = requestScope;
                 hasLevelStateRequestScope = true;
             }
+            else if (scopeHooks != null)
+            {
+                // DEV-V7-04 诊断锚③：请求点 scope 解析失败（与升级请求同锚族）。
+                LirRuntime.LogDiagnostic("[ReloadSkill] scope 锚 at=request result=unresolved（等级求取发出时本地 scope 未解析）");
+            }
             NetworkSendResult sent;
             try { sent = network.SendToServer(Channel, LirRepackWireCodec.BuildLevelStateRequest(), reliable: true); }
             catch (Exception) { sent = NetworkSendResult.LocalTransportUnavailable; }
@@ -587,9 +603,26 @@ namespace BetterUnturnedExperience.Lir
                 LirRuntime.LogError("[ReloadSkill] 升级执行异常（拒绝回执）: " + error.Message);
                 decision = new ReloadSkillUpgradeDecision { Accepted = false, Reason = ReloadSkillUpgradeReject.LevelDrift };
             }
+            // DEV-V7-04 客机缺陷修复②：回执携带请求者的服务端权威 scope。
+            var hasReplyScope = TryResolvePeerScope(hooks, steamId, out var replyScope);
             var reply = LirRepackWireCodec.BuildUpgradeResult(requestId, decision.Accepted,
-                decision.Accepted ? decision.NewLevel : hooks.GetLevelFor(steamId), (byte)decision.Reason);
+                decision.Accepted ? decision.NewLevel : hooks.GetLevelFor(steamId), (byte)decision.Reason,
+                hasReplyScope, replyScope);
             SendToPeer(session, reply);
+        }
+
+        /// <summary>权威 seat 解析指定玩家的账键（DEV-V7-04 修复② seam；钩子未
+        /// 实现 scope 接口或解析失败=回执诚实降级为无 scope）。</summary>
+        private static bool TryResolvePeerScope(ILirSkillHooks hooks, ulong steamId, out ReloadSkillScopeKey scope)
+        {
+            var scoped = hooks as IReloadSkillScopeHooks;
+            if (scoped == null || steamId == 0UL)
+            {
+                scope = default(ReloadSkillScopeKey);
+                return false;
+            }
+            try { return scoped.TryResolveScopeOf(steamId, out scope); }
+            catch (Exception) { scope = default(ReloadSkillScopeKey); return false; }
         }
 
         /// <summary>技能窗拒绝的呈现路由：本机=直接红色 toast；远端=定向 kind 6

@@ -21,11 +21,6 @@ namespace BetterUnturnedExperience.Bii
         bool IsVisible { get; set; }
         PreviewFrameColor Color { get; set; }
         ItemAssetIdentity BoundAsset { get; set; }
-
-        // 2026-09-28: the frame must stop eating click raycasts (vanilla
-        // SetIsDragItem precedent); the sink calls this on the frame element
-        // at creation and after every rebuild.
-        void DisableRaycast();
     }
 
     internal enum PreviewFrameColor : byte
@@ -40,7 +35,9 @@ namespace BetterUnturnedExperience.Bii
     /// </summary>
     internal interface IVisualContainer
     {
-        IVisualElement CreateBox();
+        // The green/red frame: a plain tinted block that never takes pointer
+        // input (it is mounted above the grid for the whole drag).
+        IVisualElement CreateFrame();
         IVisualElement CreateImage();
         void AddChild(IVisualElement child);
         void RemoveChild(IVisualElement child);
@@ -101,7 +98,8 @@ namespace BetterUnturnedExperience.Bii
 
     /// <summary>
     /// High-performance, zero-allocation implementation of IInventoryPreviewSink.
-    /// Pools frame and floating icon elements and manages visual lifecycle.
+    /// Owns the frame and floating icon element pair (a fresh pair per drag
+    /// start) and manages its visual lifecycle.
     /// </summary>
     internal sealed class InventoryPreviewVisualSink : IInventoryPreviewSink
     {
@@ -121,19 +119,22 @@ namespace BetterUnturnedExperience.Bii
         private IVisualElement frameElement;
         private IVisualElement iconElement;
         private bool isMounted;
+        // 2026-09-28 seventh round: Glazier's RemoveChild DESTROYS the child
+        // (GlazierElementBase_uGUI.RemoveChild -> InternalDestroy releases it
+        // to the pool and nulls its transform/components), so a removed pair
+        // is never re-added — the next mount creates a fresh pair.
+        private bool elementsReleased;
 
         internal InventoryPreviewVisualSink(IVisualContainer topLevelContainer)
         {
             this.topLevelContainer = topLevelContainer ?? throw new ArgumentNullException(nameof(topLevelContainer));
-            this.frameElement = topLevelContainer.CreateBox();
-            this.iconElement = topLevelContainer.CreateImage();
-            this.frameElement.DisableRaycast();
-            this.frameElement.IsVisible = false;
-            this.iconElement.IsVisible = false;
+            CreateElements();
         }
 
-        internal bool IsFrameVisible { get { return frameElement.IsVisible; } }
-        internal bool IsIconVisible { get { return iconElement.IsVisible; } }
+        // 2026-09-28 seventh round: a released pair is destroyed natively and
+        // renders nothing.
+        internal bool IsFrameVisible { get { return !elementsReleased && frameElement.IsVisible; } }
+        internal bool IsIconVisible { get { return !elementsReleased && iconElement.IsVisible; } }
         internal PreviewFrameColor CurrentFrameColor { get { return frameElement.Color; } }
         internal ItemAssetIdentity BoundIconAsset { get { return iconElement.BoundAsset; } }
         internal float FrameScaleX { get { return frameElement.PositionScaleX; } }
@@ -154,6 +155,7 @@ namespace BetterUnturnedExperience.Bii
         internal void Mount()
         {
             if (isMounted) return;
+            if (elementsReleased) CreateElements();
             topLevelContainer.AddChild(frameElement);
             topLevelContainer.AddChild(iconElement);
             isMounted = true;
@@ -161,32 +163,28 @@ namespace BetterUnturnedExperience.Bii
 
         // DEV-V2-24 F-B1: a third-party rebuild of a native container can
         // remove the mounted preview elements behind BUE's back. Each new
-        // drag start re-asserts the children so one rebuild cannot leave the
-        // preview lane invisibly dead for the rest of the session.
+        // drag start re-seats a FRESH pair as the topmost children — above
+        // the vanilla dragItem ghost and anything mounted after BUE — so one
+        // rebuild cannot leave the preview lane invisibly dead. The old pair
+        // is released, never removed-and-re-added (RemoveChild destroys it).
         internal void EnsureMounted()
         {
-            if (!isMounted) { Mount(); return; }
-            // Best-effort re-assert: a native container may reject the
-            // remove/add of a child a third-party rebuild already detached.
-            // Per the never-throw host-event convention, this degrades to
-            // "no remount this drag" instead of escaping into the drag tick.
-            try
-            {
-                topLevelContainer.RemoveChild(frameElement);
-                topLevelContainer.AddChild(frameElement);
-                topLevelContainer.RemoveChild(iconElement);
-                topLevelContainer.AddChild(iconElement);
-            }
-            catch (Exception) { }
+            // Per the never-throw host-event convention, a failed re-seat
+            // degrades to "the next frame write mounts a fresh pair" instead
+            // of escaping into the drag tick.
+            try { RebuildElements(); }
+            catch (Exception) { ReleaseElements(); }
         }
 
+        // 2026-09-29 seventh round: runs on host events (inventory closed,
+        // surface discarded, sink rebound) — never-throw, like
+        // ReleaseElements.
         internal void Unmount()
         {
             if (!isMounted) return;
-            Hide();
-            topLevelContainer.RemoveChild(frameElement);
-            topLevelContainer.RemoveChild(iconElement);
-            isMounted = false;
+            try { Hide(); }
+            catch (Exception) { }
+            ReleaseElements();
         }
 
         public void ShowFrame(PreviewFrame frame)
@@ -246,27 +244,39 @@ namespace BetterUnturnedExperience.Bii
         }
 
         // FB1b: fresh elements from the live container factories replace any
-        // natively released backing, then both are re-mounted. Removal of the
-        // old elements is best-effort (a pooled element may already be
-        // detached natively — never-throw, per the host-event convention);
-        // isMounted flips true only AFTER both children are in, mirroring
-        // Mount()'s ordering.
+        // natively released backing, then both are re-mounted. isMounted
+        // flips true only AFTER both children are in, mirroring Mount().
         private void RebuildElements()
         {
-            try
-            {
-                topLevelContainer.RemoveChild(frameElement);
-                topLevelContainer.RemoveChild(iconElement);
-            }
-            catch (Exception) { }
-            frameElement = topLevelContainer.CreateBox();
-            iconElement = topLevelContainer.CreateImage();
-            frameElement.DisableRaycast();
-            frameElement.IsVisible = false;
-            iconElement.IsVisible = false;
+            ReleaseElements();
+            CreateElements();
             topLevelContainer.AddChild(frameElement);
             topLevelContainer.AddChild(iconElement);
             isMounted = true;
+        }
+
+        // 2026-09-28 seventh round: best-effort removal (a pooled element may
+        // already be detached natively — never-throw, per the host-event
+        // convention); each element is removed independently so one fault
+        // cannot leave the other mounted. Removal destroys the pair, so it is
+        // marked released either way.
+        private void ReleaseElements()
+        {
+            try { topLevelContainer.RemoveChild(frameElement); }
+            catch (Exception) { }
+            try { topLevelContainer.RemoveChild(iconElement); }
+            catch (Exception) { }
+            isMounted = false;
+            elementsReleased = true;
+        }
+
+        private void CreateElements()
+        {
+            frameElement = topLevelContainer.CreateFrame();
+            iconElement = topLevelContainer.CreateImage();
+            frameElement.IsVisible = false;
+            iconElement.IsVisible = false;
+            elementsReleased = false;
         }
 
         private void ApplyIcon(PreviewIcon icon)
@@ -290,19 +300,25 @@ namespace BetterUnturnedExperience.Bii
         // 2026-09-27 research D-1: a frame without a truthful top-level
         // anchor declines to draw; the icon may still render via its own
         // screen-space fallback, so this hides ONLY the frame.
+        // 2026-09-28 seventh round: a released pair is already destroyed
+        // natively (and never rendered again), so every hide skips it
+        // instead of writing into it.
         public void HideFrame()
         {
+            if (elementsReleased) return;
             frameElement.IsVisible = false;
         }
 
         public void HideIcon()
         {
+            if (elementsReleased) return;
             iconElement.IsVisible = false;
             iconElement.BoundAsset = default(ItemAssetIdentity);
         }
 
         public void Hide()
         {
+            if (elementsReleased) return;
             frameElement.IsVisible = false;
             iconElement.IsVisible = false;
             iconElement.BoundAsset = default(ItemAssetIdentity);
@@ -944,12 +960,20 @@ namespace BetterUnturnedExperience.Bii
         private float frameAnchorLastScaleY = float.NaN;
         private PreviewFrameColor frameAnchorLastColor = PreviewFrameColor.None;
         private bool frameAnchorLastVisible;
+        // 2026-09-29 seventh round: the candidate cell joins the dedup key —
+        // pointer and candidate moving by the same whole cell leave the
+        // pointer-relative geometry unchanged, and the machine check reads
+        // the LAST anchor's candidate (-1 = none since the last hide).
+        private int frameAnchorLastCandidateX = -1;
+        private int frameAnchorLastCandidateY = -1;
 
         private void EmitFrameAppliedAnchor()
         {
             if (previewSink == null) return;
             if (LastPreview.State != PlacementPreviewState.Candidate &&
                 LastPreview.State != PlacementPreviewState.LocallyInvalid) return;
+            var candidateX = LastPreview.Candidate.X;
+            var candidateY = LastPreview.Candidate.Y;
             var x = previewSink.FrameX;
             var y = previewSink.FrameY;
             var width = previewSink.FrameWidth;
@@ -961,7 +985,10 @@ namespace BetterUnturnedExperience.Bii
             if (x.Equals(frameAnchorLastX) && y.Equals(frameAnchorLastY) &&
                 width.Equals(frameAnchorLastWidth) && height.Equals(frameAnchorLastHeight) &&
                 scaleX.Equals(frameAnchorLastScaleX) && scaleY.Equals(frameAnchorLastScaleY) &&
-                color == frameAnchorLastColor && visible == frameAnchorLastVisible) return;
+                color == frameAnchorLastColor && visible == frameAnchorLastVisible &&
+                candidateX == frameAnchorLastCandidateX && candidateY == frameAnchorLastCandidateY) return;
+            frameAnchorLastCandidateX = candidateX;
+            frameAnchorLastCandidateY = candidateY;
             frameAnchorLastX = x;
             frameAnchorLastY = y;
             frameAnchorLastWidth = width;
@@ -971,6 +998,7 @@ namespace BetterUnturnedExperience.Bii
             frameAnchorLastColor = color;
             frameAnchorLastVisible = visible;
             EmitPreviewDiagnostic("[BUE-DRAG] GPT-WATERMARK event=frame-applied"
+                + " candidate=" + candidateX + "," + candidateY
                 + " pos=" + x + "," + y
                 + " scale=" + scaleX + "," + scaleY
                 + " size=" + width + "," + height
@@ -1003,6 +1031,8 @@ namespace BetterUnturnedExperience.Bii
             frameAnchorLastScaleY = float.NaN;
             frameAnchorLastColor = PreviewFrameColor.None;
             frameAnchorLastVisible = false;
+            frameAnchorLastCandidateX = -1;
+            frameAnchorLastCandidateY = -1;
             if (previewSink != null) previewSink.Hide();
             previewPresenter.HidePreview();
         }

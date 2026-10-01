@@ -355,14 +355,13 @@ namespace BetterUnturnedExperience.Plugin.Tests
             public bool IsVisible { get; set; }
             public PreviewFrameColor Color { get; set; }
             public ItemAssetIdentity BoundAsset { get; set; }
-            public void DisableRaycast() { }
         }
 
         private sealed class TestVisualContainer : IVisualContainer
         {
             private bool isVisible = true;
             public bool IsVisible { get { return isVisible; } set { isVisible = value; } }
-            public IVisualElement CreateBox() { return new TestVisualElement(); }
+            public IVisualElement CreateFrame() { return new TestVisualElement(); }
             public IVisualElement CreateImage() { return new TestVisualElement(); }
             public void AddChild(IVisualElement child) { }
             public void RemoveChild(IVisualElement child) { }

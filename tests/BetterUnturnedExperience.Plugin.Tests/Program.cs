@@ -8480,8 +8480,10 @@ namespace BetterUnturnedExperience.Plugin.Tests
                 Assert(topLevel.Children.Count == 2 && !topLevel.Children.Contains(poisonedElement),
                     "FB1b sink rebuild: the poisoned element was replaced by a fresh mount");
                 var rebuiltFrame = (TestVisualElement)topLevel.Children[0];
-                Assert(!rebuiltFrame.Poisoned && rebuiltFrame.PositionOffsetX == -31f,
-                    "FB1b sink rebuild: the rebuilt frame element received the ring-adjusted anchor write");
+                // Seventh round: the frame sits on the candidate cell (1,1);
+                // pointer (100,100) is grid (2,2), so offset = (1-2)*50.
+                Assert(!rebuiltFrame.Poisoned && rebuiltFrame.PositionOffsetX == -50f,
+                    "FB1b sink rebuild: the rebuilt frame element received the candidate-anchored write");
                 Assert(component.LastPreview.State == PlacementPreviewState.Candidate,
                     "FB1b sink rebuild: the preview stays Candidate across the native write fault");
                 var gateLines = 0;
@@ -8556,7 +8558,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
             private bool isVisible = true;
 
             public bool IsVisible { get { return isVisible; } set { isVisible = value; } }
-            public IVisualElement CreateBox() { LastCreatedElement = NewElement(); return LastCreatedElement; }
+            public IVisualElement CreateFrame() { LastCreatedElement = NewElement(); return LastCreatedElement; }
             public IVisualElement CreateImage() { LastCreatedElement = NewElement(); return LastCreatedElement; }
             private TestVisualElement NewElement()
             {
@@ -8616,14 +8618,13 @@ namespace BetterUnturnedExperience.Plugin.Tests
             public bool IsVisible { get; set; }
             public PreviewFrameColor Color { get; set; }
             public ItemAssetIdentity BoundAsset { get; set; }
-            public void DisableRaycast() { }
         }
 
         private sealed class TestVisualContainer : IVisualContainer
         {
             private bool isVisible = true;
             public bool IsVisible { get { return isVisible; } set { isVisible = value; } }
-            public IVisualElement CreateBox() { return new TestVisualElement(); }
+            public IVisualElement CreateFrame() { return new TestVisualElement(); }
             public IVisualElement CreateImage() { return new TestVisualElement(); }
             public void AddChild(IVisualElement child) { }
             public void RemoveChild(IVisualElement child) { }

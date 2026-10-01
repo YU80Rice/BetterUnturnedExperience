@@ -269,6 +269,9 @@ namespace BetterUnturnedExperience.Plugin
         /// path; null when the peer is not connected or the engine type is
         /// unavailable. CSteamID is never named — the plugin keeps its
         /// zero-Steamworks-compile-reference policy.
+        /// DEV-V7-04 客机缺陷修复①：Provider.clients 只在服务器接受连接时填充
+        /// （U3-SDK Provider.cs:1190），客户端 seat 的本地玩家不在其中——扫描
+        /// 落空后回退本地玩家通道所有者（同 steam id 才返回）。
         /// </summary>
         internal static object FindSteamPlayer(ulong steamId)
         {
@@ -276,13 +279,36 @@ namespace BetterUnturnedExperience.Plugin
             {
                 Resolve();
                 var clients = ReadClients();
-                if (clients == null || steamPlayerIdProperty == null || steamIdRawField == null) return null;
-                foreach (var client in clients)
+                if (clients != null && steamPlayerIdProperty != null && steamIdRawField != null)
                 {
-                    if (client == null) continue;
-                    if (SteamIdOfPlayer(client) == steamId) return client;
+                    foreach (var client in clients)
+                    {
+                        if (client == null) continue;
+                        if (SteamIdOfPlayer(client) == steamId) return client;
+                    }
                 }
+                return FindLocalSteamPlayerFallback(steamId);
+            }
+            catch (Exception)
+            {
                 return null;
+            }
+        }
+
+        /// <summary>客户端 seat 本地玩家回退（引擎接触方法体：NoInlining，宿主
+        /// 测试进程只在生产绑定委托被调用时才可能进入，测试缝不绑此委托）。</summary>
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static object FindLocalSteamPlayerFallback(ulong steamId)
+        {
+            try
+            {
+                var local = SDG.Unturned.Player.LocalPlayer;
+                if (local == null || local.channel == null) return null;
+                var owner = local.channel.owner;
+                if (owner == null) return null;
+                Resolve();
+                return steamIdRawField != null && SteamIdOfPlayer(owner) == steamId ? owner : null;
             }
             catch (Exception)
             {

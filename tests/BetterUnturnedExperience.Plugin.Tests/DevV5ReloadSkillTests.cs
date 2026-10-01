@@ -508,7 +508,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
             byte[] reply = null;
             for (var i = 0; i < net.Sent.Count; i++)
             {
-                if (LirRepackWireCodec.TryReadUpgradeResult(net.Sent[i].Payload, out _, out _, out _, out _)) reply = net.Sent[i].Payload;
+                if (LirRepackWireCodec.TryReadUpgradeResult(net.Sent[i].Payload, out _, out _, out _, out _, out _, out _)) reply = net.Sent[i].Payload;
             }
             check(reply != null, "升级回执 kind 4 已定向发回");
             net.DispatchInbound(ChannelDirection.FromServer, upSession, reply);
@@ -541,7 +541,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
             byte[] reject = null;
             for (var i = 0; i < net.Sent.Count; i++)
             {
-                if (LirRepackWireCodec.TryReadUpgradeResult(net.Sent[i].Payload, out var rj, out var ack, out var lv, out var rc)
+                if (LirRepackWireCodec.TryReadUpgradeResult(net.Sent[i].Payload, out var rj, out var ack, out var lv, out var rc, out _, out _)
                     && !ack && rc == (byte)ReloadSkillUpgradeReject.InsufficientExperience) reject = net.Sent[i].Payload;
             }
             check(reject != null && hooks.Upgrades.Count == 1, "拒绝回执带原 requestId 与原因码");
@@ -576,7 +576,7 @@ namespace BetterUnturnedExperience.Plugin.Tests
             byte[] state = null;
             for (var i = 0; i < net.Sent.Count; i++)
             {
-                if (LirRepackWireCodec.TryReadLevelState(net.Sent[i].Payload, out var lv)) state = net.Sent[i].Payload;
+                if (LirRepackWireCodec.TryReadLevelState(net.Sent[i].Payload, out var lv, out _, out _)) state = net.Sent[i].Payload;
             }
             check(state != null && hooks.GetLevelForCalls >= 1, "主机按账回 kind 5（等级读=LIR 存储，不读原版 Skill[][]）");
             module.Stop(FeatureStopReason.PluginStopping);

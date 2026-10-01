@@ -11,13 +11,12 @@ namespace BetterUnturnedExperience.Bii
 {
     /// <summary>
     /// Wraps a real Glazier element as the pure-C# IVisualElement used by the
-    /// preview sink. Color and rotation forward to the typed uGUI interfaces
+    /// preview sink. Color and rotation forward to the typed Glazier interfaces
     /// when the underlying element supports them.
     /// </summary>
     internal sealed class UnturnedVisualElement : IVisualElement
     {
         internal readonly ISleekElement element;
-        private readonly ISleekBox box;
         private readonly ISleekImage image;
         private readonly SleekItemIcon itemIcon;
         private ItemAssetIdentity boundAsset;
@@ -27,7 +26,6 @@ namespace BetterUnturnedExperience.Bii
         internal UnturnedVisualElement(ISleekElement element)
         {
             this.element = element ?? throw new ArgumentNullException(nameof(element));
-            box = element as ISleekBox;
             image = element as ISleekImage;
             itemIcon = element as SleekItemIcon;
             if (image != null) image.CanRotate = true;
@@ -64,80 +62,6 @@ namespace BetterUnturnedExperience.Bii
 
         public bool IsVisible { get { return element.IsVisible; } set { element.IsVisible = value; } }
 
-        // 2026-09-28 fifth machine round (root cause A): the vanilla box
-        // hardcodes raycastTarget=true on its Image (GlazierBox_uGUI.cs:219);
-        // mounted on the ever-alive top-level container above the grid, the
-        // frame swallowed every click so grid.OnClicked never fired. Vanilla's
-        // own drag ghost disables raycast via SetIsDragItem() — the frame
-        // must do the same. The command is host-observable; the physical
-        // Image write stays the named engine seam (isolated NoInlining +
-        // swallow, same family as ReadTopLevelPointerScale).
-        internal bool RaycastDisabled { get; private set; }
-
-        public void DisableRaycast()
-        {
-            // Sixth-round fix A: the command bit may only flip after a VERIFIED
-            // physical write. The previous version set it unconditionally and
-            // the reflection-by-name write silently missed (Image has a FIELD
-            // raycastTarget, not an IsRaycastTarget property) — tests stayed
-            // green while the live raycast kept eating every placement click.
-            if (RaycastDisabled) return;
-            if (DisableRaycastEngine(element)) RaycastDisabled = true;
-        }
-
-        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
-        private static bool DisableRaycastEngine(ISleekElement element)
-        {
-            try
-            {
-                var imageField = AccessTools.Field(element.GetType(), "imageComponent");
-                var image = imageField == null ? null : imageField.GetValue(element);
-                if (image != null && TryWriteRaycastTarget(image, false)) return true;
-                // Fallback: every Graphic under the element (covers text/child
-                // components), resolved reflectively — UnityEngine.UI is not a
-                // BII assembly reference.
-                var gameObject = AccessTools.Property(element.GetType(), "gameObject") == null
-                    ? null
-                    : AccessTools.Property(element.GetType(), "gameObject").GetValue(element);
-                var graphicType = AccessTools.TypeByName("UnityEngine.UI.Graphic");
-                if (gameObject == null || graphicType == null) return false;
-                var getChildren = AccessTools.Method(gameObject.GetType(), "GetComponentsInChildren", new[] { typeof(Type) });
-                var children = getChildren == null
-                    ? null
-                    : getChildren.Invoke(gameObject, new object[] { graphicType }) as System.Collections.IEnumerable;
-                if (children == null) return false;
-                var anyVerified = false;
-                foreach (var child in children)
-                {
-                    if (TryWriteRaycastTarget(child, false)) anyVerified = true;
-                }
-                return anyVerified;
-            }
-            catch (Exception)
-            {
-                // Engine-bound write; a host or exotic teardown window skips it.
-                return false;
-            }
-        }
-
-        // Graphic's real member is the FIELD raycastTarget; write then READ
-        // BACK to prove the write landed (silent misses are the sixth-round
-        // defect).
-        private static bool TryWriteRaycastTarget(object graphic, bool value)
-        {
-            try
-            {
-                var field = AccessTools.Field(graphic.GetType(), "raycastTarget");
-                if (field == null) return false;
-                field.SetValue(graphic, value);
-                return Equals(field.GetValue(graphic), value);
-            }
-            catch (Exception)
-            {
-                return false;
-            }
-        }
-
         internal static Color PreviewFrameRgba(PreviewFrameColor value)
         {
             if (value == PreviewFrameColor.ValidGreen) return new Color(0.2f, 1f, 0.3f, 0.85f);
@@ -150,57 +74,53 @@ namespace BetterUnturnedExperience.Bii
             get { return color; }
             set
             {
-                // 2026-09-27 SP return: box==null used to store the color
-                // without writing it, so the getter reported a green/red box
-                // the player never saw. Only a landed write is stored; an
-                // unwritable element keeps reporting its last landed color
-                // (None initially) and the sink readback faults the frame
+                // 2026-09-27 SP return: a color the element cannot take used
+                // to be stored without being written, so the getter reported a
+                // green/red frame the player never saw. Only a landed write is
+                // stored; an unwritable element keeps reporting its last landed
+                // color (None initially) and the sink readback faults the frame
                 // into the rebuild gate.
-                if (box == null) return;
+                // 2026-09-28 seventh round: the frame is a Glazier image over a
+                // white texture, so the tint IS the rendered color — no theme
+                // box sprite, no outline, and None is fully transparent instead
+                // of the BACKGROUND dark the R4 research traced.
+                if (image == null) return;
+                image.TintColor = new SleekColor(PreviewFrameRgba(value));
                 color = value;
-                if (value == PreviewFrameColor.ValidGreen || value == PreviewFrameColor.InvalidRed)
-                    box.BackgroundColor = new SleekColor(PreviewFrameRgba(value));
-                else box.BackgroundColor = new SleekColor(ESleekTint.BACKGROUND, 0.6f);
             }
         }
 
+        // Only the floating SleekItemIcon binds an item asset. 2026-09-28
+        // seventh round: the frame is the one ISleekImage wrapper now, and its
+        // white texture IS its visibility, so an asset binding never touches a
+        // plain image's texture.
         public ItemAssetIdentity BoundAsset
         {
             get { return boundAsset; }
             set
             {
-                if (boundAsset == value) return;
+                // An element that cannot bind an asset never reports one
+                // (same no-write-no-state rule as Color).
+                if (itemIcon == null || boundAsset == value) return;
                 boundAsset = value;
                 if (value.ItemId == 0)
                 {
-                    if (image != null) image.Texture = null;
-                    if (itemIcon != null) itemIcon.Clear();
+                    itemIcon.Clear();
                     return;
                 }
                 var asset = Assets.find(EAssetType.ITEM, value.ItemId) as ItemAsset;
                 if (asset == null)
                 {
-                    if (image != null) image.Texture = null;
-                    if (itemIcon != null) itemIcon.Clear();
+                    itemIcon.Clear();
                     return;
                 }
                 try
                 {
-                    if (itemIcon != null)
-                    {
-                        itemIcon.Refresh(value.ItemId, 100, asset.getState(), asset);
-                    }
-                    else if (image != null)
-                    {
-                        image.Texture = null;
-                        ItemTool.getIcon(value.ItemId, 100, asset.getState(), asset,
-                            (handle, texture) => image.Texture = texture);
-                    }
+                    itemIcon.Refresh(value.ItemId, 100, asset.getState(), asset);
                 }
                 catch (Exception)
                 {
-                    if (image != null) image.Texture = null;
-                    if (itemIcon != null) itemIcon.Clear();
+                    itemIcon.Clear();
                 }
             }
         }
@@ -213,14 +133,104 @@ namespace BetterUnturnedExperience.Bii
     internal sealed class UnturnedVisualContainer : IVisualContainer
     {
         internal readonly ISleekElement element;
+        private readonly Func<ISleekImage> frameFactory;
+        private readonly Func<ISleekElement> iconFactory;
 
         internal UnturnedVisualContainer(ISleekElement element)
+            : this(element, CreateNativeFrameImage, null)
         {
-            this.element = element ?? throw new ArgumentNullException(nameof(element));
         }
 
-        public IVisualElement CreateBox() { return new UnturnedVisualElement(Glazier.Get().CreateBox()); }
-        public IVisualElement CreateImage() { return new UnturnedVisualElement(new SleekItemIcon()); }
+        // Test seam: the host cannot run the Glazier factory (engine ECalls).
+        internal UnturnedVisualContainer(ISleekElement element, Func<ISleekImage> frameFactory)
+            : this(element, frameFactory, null)
+        {
+        }
+
+        // Test seam (eighth-round closure): the icon factory is a separate
+        // seam so the host can drive the REAL sink mount/rebuild lifecycle
+        // (CreateElements -> CreateFrame verified write) without JIT-ing the
+        // engine icon type.
+        internal UnturnedVisualContainer(ISleekElement element, Func<ISleekImage> frameFactory,
+            Func<ISleekElement> iconFactory)
+        {
+            this.element = element ?? throw new ArgumentNullException(nameof(element));
+            this.frameFactory = frameFactory ?? throw new ArgumentNullException(nameof(frameFactory));
+            this.iconFactory = iconFactory;
+        }
+
+        public IVisualElement CreateFrame()
+        {
+            var frame = new UnturnedVisualElement(frameFactory());
+            // 2026-09-29 eighth-round closure: ClaimElementFromPool does NOT
+            // reset raycastTarget (GlazierImage_uGUI.ConstructFromImagePool),
+            // and a recycled image that last went through CreateButton returns
+            // with the raycast ON — eating the placement click
+            // non-deterministically. Every factory product (first mount AND
+            // every rebuild remount funnel through here) takes a VERIFIED
+            // physical write; a missing component or a readback of true is an
+            // explicit failure — never a silent success, never swallowed.
+            if (!TrySetFrameImageRaycastOff(frame.element))
+                throw new InvalidOperationException(
+                    "preview frame image failed the verified raycast-off write"
+                    + " (rawImageComponent missing or raycastTarget readback still true)");
+            return frame;
+        }
+
+        // Named engine seam (NoInlining): two-level reflection into the uGUI
+        // component (element.rawImageComponent.raycastTarget). The host never
+        // runs the engine path against real ECalls; fakes provide managed
+        // stand-ins for both levels.
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static bool TrySetFrameImageRaycastOff(ISleekElement element)
+        {
+            try
+            {
+                var rawField = AccessTools.Field(element.GetType(), "rawImageComponent");
+                var raw = rawField == null ? null : rawField.GetValue(element);
+                if (raw == null) return false;
+                return TryWriteGraphicRaycastTarget(raw, false);
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        // UnityEngine.UI.Graphic's real member is the PROPERTY raycastTarget
+        // with backing field m_RaycastTarget (U3-SDK Graphic.cs:165) — the
+        // seventh round's "image starts raycast-off" premise missed that a
+        // recycled pool image can return with it ON. Write the property, then
+        // READ BACK through the same member; the backing field is the
+        // belt-and-suspenders fallback.
+        private static bool TryWriteGraphicRaycastTarget(object graphic, bool value)
+        {
+            try
+            {
+                var property = AccessTools.Property(graphic.GetType(), "raycastTarget");
+                if (property != null)
+                {
+                    property.SetValue(graphic, value, null);
+                    return Equals(property.GetValue(graphic, null), value);
+                }
+                var backingField = AccessTools.Field(graphic.GetType(), "m_RaycastTarget");
+                if (backingField == null) return false;
+                backingField.SetValue(graphic, value);
+                return Equals(backingField.GetValue(graphic), value);
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+        public IVisualElement CreateImage()
+        {
+            // Engine seam by default (SleekItemIcon cannot JIT in the host);
+            // the injected icon factory serves the mount/rebuild lifecycle
+            // tests.
+            var native = iconFactory == null ? (ISleekElement)new SleekItemIcon() : iconFactory();
+            return new UnturnedVisualElement(native);
+        }
         public void AddChild(IVisualElement child) { element.AddChild(Unwrap(child)); }
         public void RemoveChild(IVisualElement child) { element.RemoveChild(Unwrap(child)); }
         public bool IsVisible { get { return element.IsVisible; } }
@@ -230,6 +240,21 @@ namespace BetterUnturnedExperience.Bii
             var wrapper = child as UnturnedVisualElement;
             if (wrapper == null) throw new ArgumentException("only engine-backed visual elements can be mounted", nameof(child));
             return wrapper.element;
+        }
+
+        // 2026-09-28 seventh round: the frame is a Glazier IMAGE, never a box.
+        // A box's uGUI Image hardcodes raycastTarget=true (GlazierBox_uGUI) and
+        // swallowed the placement click; an image's RawImage only becomes a
+        // raycast target when a click handler subscribes (uGUI CreateButton),
+        // and UIToolkit images start PickingMode.Ignore. The white texture is
+        // required — a texture-less uGUI image disables its RawImage — and
+        // ShouldDestroyTexture stays false so the shared engine texture is
+        // never destroyed with the frame. Named engine seam (Glazier factory +
+        // Texture2D.whiteTexture ECall), isolated like ReadTopLevelPointerScale.
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        internal static ISleekImage CreateNativeFrameImage()
+        {
+            return Glazier.Get().CreateImage(Texture2D.whiteTexture);
         }
     }
 

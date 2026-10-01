@@ -1036,20 +1036,21 @@ namespace BetterUnturnedExperience.Lir
                     NetService?.ResetLevelStateRequestForScope();
                 }
             }
+            var isServer = RoleProbeForTests ?? LirProductionAuthority.IsServerRole;
+            if (!isServer())
+            {
+                // DEV-V7-04 客机缺陷修复②：客机显示输入=主机确认镜像；本地账不是
+                // 本会话权威，自确认=猜级（未确认=分区不画，等 kind 5 回执绑定）。
+                AutoRounds.ResetForGeneration();
+                manualRepackPlayersThisTick.Clear();
+                return;
+            }
             if (!ReloadSkillLevelMirror.HasConfirmed && hooks.TryResolveLocalLevel(out var selfLevel))
             {
                 if (scopedHooks != null && skillScopeObserved)
                     ReloadSkillLevelMirror.ConfirmLevel(observedSkillScope, selfLevel);
                 else
                     ReloadSkillLevelMirror.ConfirmLevel(selfLevel);
-            }
-
-            var isServer = RoleProbeForTests ?? LirProductionAuthority.IsServerRole;
-            if (!isServer())
-            {
-                AutoRounds.ResetForGeneration();
-                manualRepackPlayersThisTick.Clear();
-                return;
             }
 
             var candidates = new List<ulong>();
@@ -1177,8 +1178,29 @@ namespace BetterUnturnedExperience.Lir
                 ReloadSkillLevelMirror.ConfirmLevel(level);
                 return true;
             }
-            if (!scopedHooks.TryResolveLocalScope(out var scope)) return false;
-            if (replyScope.HasValue && !replyScope.Value.Equals(scope)) return false;
+            var hasLocal = scopedHooks.TryResolveLocalScope(out var localScope);
+            ReloadSkillScopeKey scope;
+            if (replyScope.HasValue && replyScope.Value.IsValid)
+            {
+                // DEV-V7-04 客机缺陷修复②：服务端权威 scope 是显示绑定的第一事实
+                // ——客户端 seat 本地解析不出（Provider.clients 无本地玩家）也能确认。
+                if (hasLocal && !localScope.Equals(replyScope.Value))
+                {
+                    LirRuntime.LogDiagnostic("[ReloadSkill] scope 锚 at=receipt result=stale（本地解析与回执 scope 不一致=旧图/旧槽回执，拒绝）");
+                    return false;
+                }
+                scope = replyScope.Value;
+            }
+            else if (hasLocal)
+            {
+                scope = localScope;
+            }
+            else
+            {
+                // DEV-V7-04 诊断锚③：此路径曾是静默早退（客户端镜像永不确认的断点）。
+                LirRuntime.LogDiagnostic("[ReloadSkill] scope 锚 at=receipt result=unresolved（本地作用域解析失败且无权威 scope，等级确认拒绝）");
+                return false;
+            }
             if (!skillScopeObserved || !observedSkillScope.Equals(scope))
             {
                 observedSkillScope = scope;

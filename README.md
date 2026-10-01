@@ -20,9 +20,10 @@
 
 ## 当前版本
 
-- **Phase-6 工程边界成真与平台闭包正式交付版**（2026-09-20；对外契约仍为 **2.1**）
-- `BetterUnturnedExperience.dll` SHA-256：`3E3B2DC0665EC0D9E36ED881E4B86574A6CA8D96F4F758084E7DA2881A2D4CE9`（752640 字节，三轮确定性重建逐字节一致）
-- 身份与门禁台账：[`audit/RELEASES.md`](audit/RELEASES.md) 行 15；正式交付包：[`publish/第六阶段-正式交付版本/`](publish/第六阶段-正式交付版本/)
+- **Phase-7 现有官方功能玩法手感发布候选**（2026-10-02；对外契约仍为 **2.1**）
+- `BetterUnturnedExperience.dll` SHA-256：`F8D74E94EBD7E9FF02FEBB32C117BDF96017605E634AFB1E0A9D5FBE284D64CE`（790528 字节，三轮确定性重建逐字节一致）
+- 身份与门禁台账：[`audit/RELEASES.md`](audit/RELEASES.md) 行 16；候选交付包：[`publish/第七阶段-正式交付版本/`](publish/第七阶段-正式交付版本/)
+- 用户确认此前单人 / P2P 测试通过及 U3DS 复测正常，批准完成和发布候选，免除再次专门三环境验收。已知边界见交付说明。
 
 ## 快速开始
 

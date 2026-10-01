@@ -1,3 +1,6 @@
+using System;
+using System.Text;
+
 namespace BetterUnturnedExperience.Lir
 {
     /// <summary>
@@ -16,6 +19,11 @@ namespace BetterUnturnedExperience.Lir
     ///   server → client: [1][LevelState=5:1][level:1]（主机确认等级）
     ///   server → client: [1][SkillCooldownNotice=6:1][remainingMs:4]（红色剩余秒呈现输入）
     ///   client → server: [1][RequestLevelState=7:1]
+    /// DEV-V7-04 客机缺陷修复②（scope 块加性扩位；kind 4/5 帧尾可选）：
+    ///   [hasScope:1] + hasScope=1 时 [serverIdLen:1][serverId utf8][steamId:8]
+    ///   [characterId:1][mapNameLen:1][mapName utf8]——服务端权威 scope 随回执
+    ///   下行，客机镜像直接绑定（显示输入不依赖客户端自解析）；服务器解析不出
+    ///   scope=诚实降级 hasScope=0；读侧截断/尾随/长度越界一律拒收。
     /// </summary>
     internal static class LirRepackWireCodec
     {
@@ -92,26 +100,33 @@ namespace BetterUnturnedExperience.Lir
             return requestId != 0UL && targetLevel >= 1 && targetLevel <= ReloadSkillPolicy.MaxSkillLevel;
         }
 
-        internal static byte[] BuildUpgradeResult(ulong requestId, bool accepted, byte newLevel, byte reasonCode)
+        internal static byte[] BuildUpgradeResult(ulong requestId, bool accepted, byte newLevel, byte reasonCode,
+            bool withScope, ReloadSkillScopeKey scope)
         {
-            var payload = new byte[13];
+            var scopeSize = ScopeBlockSize(withScope, scope);
+            var payload = new byte[13 + scopeSize];
             payload[0] = ProtocolVersion;
             payload[1] = MsgUpgradeResult;
             WriteUInt64(payload, 2, requestId);
             payload[10] = accepted ? (byte)1 : (byte)0;
             payload[11] = newLevel;
             payload[12] = reasonCode;
+            if (scopeSize > 0) WriteScopeBlock(payload, 13, scope);
             return payload;
         }
 
-        internal static bool TryReadUpgradeResult(byte[] payload, out ulong requestId, out bool accepted, out byte newLevel, out byte reasonCode)
+        internal static bool TryReadUpgradeResult(byte[] payload, out ulong requestId, out bool accepted,
+            out byte newLevel, out byte reasonCode, out bool hasScope, out ReloadSkillScopeKey scope)
         {
             requestId = 0UL;
             accepted = false;
             newLevel = 0;
             reasonCode = 0;
-            if (payload == null || payload.Length != 13) return false;
+            hasScope = false;
+            scope = default(ReloadSkillScopeKey);
+            if (payload == null || payload.Length < 13) return false;
             if (payload[0] != ProtocolVersion || payload[1] != MsgUpgradeResult) return false;
+            if (!TryReadScopeTrailer(payload, 13, ref hasScope, ref scope)) return false;
             requestId = ReadUInt64(payload, 2);
             accepted = payload[10] == 1;
             newLevel = payload[11];
@@ -119,20 +134,26 @@ namespace BetterUnturnedExperience.Lir
             return requestId != 0UL && payload[10] <= 1 && newLevel <= ReloadSkillPolicy.MaxSkillLevel;
         }
 
-        internal static byte[] BuildLevelState(byte level)
+        internal static byte[] BuildLevelState(byte level, bool withScope, ReloadSkillScopeKey scope)
         {
-            var payload = new byte[3];
+            var scopeSize = ScopeBlockSize(withScope, scope);
+            var payload = new byte[3 + scopeSize];
             payload[0] = ProtocolVersion;
             payload[1] = MsgLevelState;
             payload[2] = level;
+            if (scopeSize > 0) WriteScopeBlock(payload, 3, scope);
             return payload;
         }
 
-        internal static bool TryReadLevelState(byte[] payload, out byte level)
+        internal static bool TryReadLevelState(byte[] payload, out byte level, out bool hasScope,
+            out ReloadSkillScopeKey scope)
         {
             level = 0;
-            if (payload == null || payload.Length != 3) return false;
+            hasScope = false;
+            scope = default(ReloadSkillScopeKey);
+            if (payload == null || payload.Length < 3) return false;
             if (payload[0] != ProtocolVersion || payload[1] != MsgLevelState) return false;
+            if (!TryReadScopeTrailer(payload, 3, ref hasScope, ref scope)) return false;
             level = payload[2];
             return level <= ReloadSkillPolicy.MaxSkillLevel;
         }
@@ -167,6 +188,76 @@ namespace BetterUnturnedExperience.Lir
         {
             return payload != null && payload.Length == 2
                 && payload[0] == ProtocolVersion && payload[1] == MsgRequestLevelState;
+        }
+
+        // ── DEV-V7-04 scope 块（kind 4/5 帧尾可选；写侧超限/不可编码=诚实降级
+        // 无 scope，读侧截断/尾随/越界/非法 UTF-8/身份字段非法一律整帧拒收）──
+
+        // 严格 UTF-8：非法字节序列必须拒收而非替换成 U+FFFD（Round 2 blocker）。
+        private static readonly UTF8Encoding StrictUtf8 = new UTF8Encoding(false, true);
+
+        private static int ScopeBlockSize(bool withScope, ReloadSkillScopeKey scope)
+        {
+            if (!withScope || !scope.IsValid) return 0;
+            byte[] serverId;
+            byte[] mapName;
+            try
+            {
+                serverId = StrictUtf8.GetBytes(scope.ServerId);
+                mapName = StrictUtf8.GetBytes(scope.MapName);
+            }
+            catch (Exception)
+            {
+                return 0; // 不可编码身份=诚实降级为无 scope（不发明截断身份）
+            }
+            if (serverId.Length > 255 || mapName.Length > 255) return 0;
+            return 1 + 1 + serverId.Length + 8 + 1 + 1 + mapName.Length;
+        }
+
+        private static void WriteScopeBlock(byte[] payload, int offset, ReloadSkillScopeKey scope)
+        {
+            var serverId = StrictUtf8.GetBytes(scope.ServerId); // ScopeBlockSize 已验可编码
+            var mapName = StrictUtf8.GetBytes(scope.MapName);
+            payload[offset] = 1;
+            payload[offset + 1] = (byte)serverId.Length;
+            Array.Copy(serverId, 0, payload, offset + 2, serverId.Length);
+            var steamOffset = offset + 2 + serverId.Length;
+            WriteUInt64(payload, steamOffset, scope.SteamId);
+            payload[steamOffset + 8] = scope.CharacterId;
+            var mapLenOffset = steamOffset + 9;
+            payload[mapLenOffset] = (byte)mapName.Length;
+            Array.Copy(mapName, 0, payload, mapLenOffset + 1, mapName.Length);
+        }
+
+        private static bool TryReadScopeTrailer(byte[] payload, int offset, ref bool hasScope,
+            ref ReloadSkillScopeKey scope)
+        {
+            if (offset == payload.Length) return true; // 无 scope 尾块（降级帧）
+            if (payload[offset] != 1) return false;    // 只认 flag=1 完整 scope 块；其余=畸形
+            var cursor = offset + 1;
+            if (cursor >= payload.Length) return false;
+            var serverIdLen = payload[cursor];
+            cursor += 1;
+            if (cursor + serverIdLen + 10 > payload.Length) return false;
+            string serverId;
+            try { serverId = StrictUtf8.GetString(payload, cursor, serverIdLen); }
+            catch (Exception) { return false; } // 非法 UTF-8=整帧拒收
+            cursor += serverIdLen;
+            var steamId = ReadUInt64(payload, cursor);
+            cursor += 8;
+            var characterId = payload[cursor];
+            cursor += 1;
+            var mapNameLen = payload[cursor];
+            cursor += 1;
+            if (cursor + mapNameLen != payload.Length) return false; // 尾随字节=畸形
+            string mapName;
+            try { mapName = StrictUtf8.GetString(payload, cursor, mapNameLen); }
+            catch (Exception) { return false; }
+            var candidate = new ReloadSkillScopeKey(serverId, steamId, characterId, mapName);
+            if (!candidate.IsValid) return false; // 身份字段非法（空 id/零 steamId）=整帧拒收
+            hasScope = true;
+            scope = candidate;
+            return true;
         }
 
         // Explicit little-endian readers/writers (no BinaryReader on the hot

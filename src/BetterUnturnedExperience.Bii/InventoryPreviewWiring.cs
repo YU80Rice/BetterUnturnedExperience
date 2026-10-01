@@ -240,6 +240,32 @@ namespace BetterUnturnedExperience.Bii
                 return false;
             }
 
+            float pointerGridX;
+            float pointerGridY;
+            if (!TryComputePointerGrid(input, out pointerGridX, out pointerGridY))
+            {
+                return false;
+            }
+            var intendedCenterX = pointerGridX + width / 2f - grabX;
+            var intendedCenterY = pointerGridY + height / 2f - grabY;
+            if (!IsFinite(intendedCenterX) || !IsFinite(intendedCenterY))
+            {
+                return false;
+            }
+
+            candidate = new PlacementCandidateInput(input.DragGeneration, input.Source, input.TargetContainer,
+                intendedCenterX, intendedCenterY, input.ItemWidth, input.ItemHeight, rotation,
+                input.AllowAutomaticRotation, input.Occupancy);
+            return true;
+        }
+
+        // The ONE pointer -> grid-cell projection. The candidate input and the
+        // frame placement both consume it, so the drawn frame can never drift
+        // from the candidate the release commits.
+        private static bool TryComputePointerGrid(InventoryPreviewInput input, out float pointerGridX, out float pointerGridY)
+        {
+            pointerGridX = 0f;
+            pointerGridY = 0f;
             var scaledCellSize = input.CellPixelSize * input.UiScale;
             if (!IsFinite(scaledCellSize) || scaledCellSize <= 0f)
             {
@@ -253,19 +279,9 @@ namespace BetterUnturnedExperience.Bii
                 ? 0f : input.ScrollPixelsX;
             var effectiveScrollY = input.PointerCoordinateSpace == InventoryPointerCoordinateSpace.GridContentLocal
                 ? 0f : input.ScrollPixelsY;
-            var pointerGridX = (input.PointerScreenX - input.Viewport.OriginX + effectiveScrollX) / scaledCellSize;
-            var pointerGridY = (input.PointerScreenY - input.Viewport.OriginY + effectiveScrollY) / scaledCellSize;
-            var intendedCenterX = pointerGridX + width / 2f - grabX;
-            var intendedCenterY = pointerGridY + height / 2f - grabY;
-            if (!IsFinite(intendedCenterX) || !IsFinite(intendedCenterY))
-            {
-                return false;
-            }
-
-            candidate = new PlacementCandidateInput(input.DragGeneration, input.Source, input.TargetContainer,
-                intendedCenterX, intendedCenterY, input.ItemWidth, input.ItemHeight, rotation,
-                input.AllowAutomaticRotation, input.Occupancy);
-            return true;
+            pointerGridX = (input.PointerScreenX - input.Viewport.OriginX + effectiveScrollX) / scaledCellSize;
+            pointerGridY = (input.PointerScreenY - input.Viewport.OriginY + effectiveScrollY) / scaledCellSize;
+            return IsFinite(pointerGridX) && IsFinite(pointerGridY);
         }
 
         internal static bool TryGetIconScreenPosition(InventoryPreviewInput input, byte targetRotation,
@@ -333,36 +349,35 @@ namespace BetterUnturnedExperience.Bii
             return true;
         }
 
-        // 2026-09-28 fifth machine round (root cause B): the FRAME anchor must
-        // be THE SAME pointer-anchored math as the icon. The previous content-
-        // space delta formula wrote grid-content offsets into full-screen
-        // container coordinates and the frame landed outside the visible area
-        // while the icon (pure pointer anchor) rendered fine. One shared
-        // computation feeds both visuals.
+        // 2026-09-28 seventh round (T6 frozen sentence; returns the frame to
+        // V7-05 semantics): the green/red block marks the CANDIDATE cells, the
+        // candidate footprint's size, no ring and no outline. It stays in the
+        // top-level container space of the icon and the vanilla dragItem —
+        // scale = the pointer's normalized container position — and its
+        // offset is the candidate corner relative to the pointer in logical
+        // cell pixels, (candidate − pointer grid) × cell. The pointer grid is
+        // the candidate evaluator's own projection, so frame, candidate and
+        // commit share one geometry even when the candidate is decoupled from
+        // the pointer footprint (edge snap / sensing band).
         internal static bool TryGetNativeFramePlacement(InventoryPreviewInput input, ItemPlacementPreview preview,
             out PreviewFramePlacement placement)
         {
             placement = default(PreviewFramePlacement);
             if (!IsFinite(input.TopLevelPointerScaleX) || !IsFinite(input.TopLevelPointerScaleY)) return false;
-
-            byte width;
-            byte height;
-            float offsetX;
-            float offsetY;
-            if (!TryComputeTopLevelAnchor(input, preview.Candidate.Rotation,
-                out width, out height, out offsetX, out offsetY)) return false;
-
+            if (preview.Width == 0 || preview.Height == 0) return false;
             var cellPixelSize = input.CellPixelSize;
             if (!IsFinite(cellPixelSize) || cellPixelSize <= 0f) return false;
 
-            // Sixth-round fix B: the frame shared the icon's exact anchor and
-            // size, so the icon stack (mounted after the frame) covered it
-            // completely. Expand the frame rectangle symmetrically — the item
-            // icon stays centered and the green/red ring shows on all sides.
-            const float ringMargin = 6f;
+            float pointerGridX;
+            float pointerGridY;
+            if (!TryComputePointerGrid(input, out pointerGridX, out pointerGridY)) return false;
+
+            var offsetX = (preview.Candidate.X - pointerGridX) * cellPixelSize;
+            var offsetY = (preview.Candidate.Y - pointerGridY) * cellPixelSize;
+            if (!IsFinite(offsetX) || !IsFinite(offsetY)) return false;
+
             placement = new PreviewFramePlacement(input.TopLevelPointerScaleX, input.TopLevelPointerScaleY,
-                offsetX - ringMargin, offsetY - ringMargin,
-                width * cellPixelSize + 2f * ringMargin, height * cellPixelSize + 2f * ringMargin);
+                offsetX, offsetY, preview.Width * cellPixelSize, preview.Height * cellPixelSize);
             return true;
         }
 
@@ -371,7 +386,7 @@ namespace BetterUnturnedExperience.Bii
         // rotation, starting from the current footprint size. The offset is
         // the vanilla drag pivot when the rotation is unchanged (the dragged
         // item keeps its cursor relation) and the rotated grab displacement
-        // otherwise — LOGICAL container pixels, identical for icon and frame.
+        // otherwise — LOGICAL container pixels for the floating icon.
         private static bool TryComputeTopLevelAnchor(InventoryPreviewInput input, byte targetRotation,
             out byte width, out byte height, out float offsetX, out float offsetY)
         {
